@@ -1,0 +1,14 @@
+{
+  "name": "vrc-package-crawler",
+  "version": "1.0.0",
+  "description": "High-saturation uncataloged VRChat tools & VPM crawler",
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "status": "bun run src/status.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
