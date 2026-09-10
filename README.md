@@ -17,16 +17,26 @@ It saves all data into a local SQLite database.
   - rate_limits.log: Rate limit events and sleep timers.
   - errors.log: Network and parse errors.
 - Launcher script: F:\.repo\.main\vrc-package-crawler\run_crawler.bat
+- Monitor launcher: F:\.repo\.main\vrc-package-crawler\watch_status.bat
 
 ## Operating Procedures
 
-### 1. View Current Progress
+### 1. View Live Progress
 
-To examine crawler status and the saturation index, run this command:
+To view continuous live crawler progress, run this command:
 
 `powershell
 bun run src/status.ts
 `
+
+You can also run the monitor script:
+
+`cmd
+watch_status.bat
+`
+
+The screen clears and updates every second.
+Push Ctrl + C to exit the monitor.
 
 ### 2. Start the Crawler
 
