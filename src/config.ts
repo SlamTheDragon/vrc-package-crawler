@@ -17,6 +17,7 @@ export const CONFIG = {
   githubSearchDelayMs: process.env.GITHUB_TOKEN ? 2000 : 6000, // 2s with token, 6s unauthenticated
   vpmIndexDelayMs: 400,      // 0.4s delay between manifest fetches
   gumroadDelayMs: 1500,      // 1.5s delay between Gumroad requests
+  jinxxyDelayMs: 1200,       // 1.2s delay between Jinxxy requests
   
   // Saturation threshold (0.0 to 1.0)
   targetSaturationScore: 0.90,

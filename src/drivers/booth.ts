@@ -25,11 +25,11 @@ export class BoothDriver {
       }
 
       const html = await resp.text();
-      const itemMatches = html.match(/href="https:\/\/booth\.pm\/ja\/items\/(\d+)"/g) || [];
+      const itemMatches = html.match(/\/items\/(\d+)/g) || [];
       const itemIds = new Set<string>();
 
       for (const m of itemMatches) {
-        const match = m.match(/items\/(\d+)/);
+        const match = m.match(/\/items\/(\d+)/);
         if (match) itemIds.add(match[1]);
       }
 

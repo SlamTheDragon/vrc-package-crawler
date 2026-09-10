@@ -7,6 +7,91 @@ export class GumroadDriver {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  // Crawls a Gumroad Discover search query page (e.g. query='vrchat tool', page=1)
+  static async crawlDiscoverQuery(query: string, page: number = 1): Promise<{ productsCount: number; sellersFound: string[] }> {
+    const url = `https://gumroad.com/discover?query=${encodeURIComponent(query)}&page=${page}`;
+    logger.info(`[Gumroad:Discover] Searching '${query}' page ${page}...`);
+
+    try {
+      await this.sleep(CONFIG.gumroadDelayMs);
+
+      const resp = await fetch(url, {
+        headers: {
+          "User-Agent": CONFIG.userAgent,
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        }
+      });
+
+      if (!resp.ok) {
+        logger.warn(`[Gumroad:Discover] HTTP ${resp.status} for query '${query}' page ${page}`);
+        return { productsCount: 0, sellersFound: [] };
+      }
+
+      const html = await resp.text();
+      const match = html.match(/data-page="([^"]+)"/);
+      if (!match) {
+        logger.warn(`[Gumroad:Discover] No data-page found for query '${query}' page ${page}`);
+        return { productsCount: 0, sellersFound: [] };
+      }
+
+      const unescaped = match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>');
+
+      const data = JSON.parse(unescaped);
+      const sr = data.props?.search_results || {};
+      const products = sr.products || [];
+      const sellersFound: string[] = [];
+
+      let saved = 0;
+      for (const p of products) {
+        const permalink = p.permalink || p.id;
+        if (!permalink) continue;
+
+        const seller = p.seller || {};
+        const sellerName = seller.name || "Gumroad Creator";
+        const sellerProfile = seller.profile_url ? seller.profile_url.split("?")[0] : "";
+
+        if (sellerProfile && !sellersFound.includes(sellerProfile)) {
+          sellersFound.push(sellerProfile);
+          db.queueUrl(sellerProfile, "gumroad");
+        }
+
+        const cleanUrl = sellerProfile ? `${sellerProfile}/l/${permalink}` : `https://gumroad.com/l/${permalink}`;
+
+        const entity: EntityRecord = {
+          id: `gumroad:${permalink}`,
+          platform: "gumroad",
+          url: cleanUrl,
+          title: p.name || `Tool ${permalink}`,
+          author: sellerName,
+          price_currency: p.currency_code ? p.currency_code.toUpperCase() : "USD",
+          price_amount: p.price_cents ? p.price_cents / 100 : 0,
+          description: p.description || `${p.name} on Gumroad by ${sellerName}`,
+          tags_json: JSON.stringify(["gumroad", "vrchat", query]),
+          external_links_json: JSON.stringify(sellerProfile ? [sellerProfile] : []),
+          raw_json: JSON.stringify({
+            ratings: p.ratings,
+            thumbnail_url: p.thumbnail_url,
+            filetypes: p.filetypes_data,
+            query: query
+          })
+        };
+
+        db.saveEntity(entity);
+        saved++;
+      }
+
+      logger.info(`[Gumroad:Discover] Ingested ${saved} products, queued ${sellersFound.length} creator storefronts for '${query}' page ${page}`);
+      return { productsCount: saved, sellersFound };
+    } catch (e) {
+      logger.error(`[Gumroad:Discover] Error for query '${query}' page ${page}`, e);
+      return { productsCount: 0, sellersFound: [] };
+    }
+  }
+
   // Crawls an individual product page
   static async crawlProduct(productUrl: string): Promise<boolean> {
     logger.info(`[Gumroad] Fetching product: ${productUrl}`);
@@ -45,7 +130,7 @@ export class GumroadDriver {
       const title = ogTitleMatch ? ogTitleMatch[1].trim() : `Gumroad Product ${slug}`;
       const desc = ogDescMatch ? ogDescMatch[1].trim() : "";
 
-      // Extract external links (GitHub, BOOTH, Discord)
+      // Extract external links (GitHub, BOOTH, Discord, VPM)
       const extLinks: string[] = [];
       const ghMatches = html.match(/https?:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/g) || [];
       for (const gh of ghMatches) {

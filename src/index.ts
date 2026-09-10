@@ -5,9 +5,43 @@ import { BoothDriver } from "./drivers/booth.ts";
 import { GitHubDriver } from "./drivers/github.ts";
 import { VpmIndexDriver } from "./drivers/vpm_index.ts";
 import { GumroadDriver } from "./drivers/gumroad.ts";
+import { JinxxyDriver } from "./drivers/jinxxy.ts";
 import { CuratedDriver } from "./drivers/curated.ts";
 
 let isRunning = true;
+
+// Search queries for Gumroad internal discover engine
+const GUMROAD_SEARCH_QUERIES = [
+  "vrchat tool",
+  "vrchat system",
+  "vrchat script",
+  "vrchat udon",
+  "vrchat unity",
+  "vrcfury",
+  "modular avatar",
+  "vrchat shader",
+  "vpm",
+  "unitypackage vrchat",
+  "vrchat osc",
+  "vrchat editor",
+  "vrchat camera",
+  "vrchat physics",
+  "vrchat world",
+  "vrchat prefab"
+];
+
+// Curated Jinxxy tags and categories
+const JINXXY_TAGS = [
+  "tool", "tools", "script", "scripts", "system", "systems", "udon", "udonsharp",
+  "vrcfury", "modular-avatar", "shader", "shaders", "editor", "osc", "camera", "unity",
+  "physics", "preset", "animation"
+];
+
+const JINXXY_CATEGORIES = [
+  "https://jinxxy.com/market/scripts-tools",
+  "https://jinxxy.com/market/particles-shaders",
+  "https://jinxxy.com/market/world-assets"
+];
 
 async function seedAllDomains() {
   const metrics = db.getMetrics();
@@ -24,7 +58,10 @@ async function seedAllDomains() {
       "https://vcc.vrcfury.com",
       "https://hai-vr.github.io/vpm-listing/index.json",
       "https://kurotu.github.io/vpm-repos/index.json",
-      "https://vrchat-community.github.io/curated-packages/index.json"
+      "https://vrchat-community.github.io/curated-packages/index.json",
+      "https://cyanlaser.github.io/CyanTrigger/index.json",
+      "https://rurre.github.io/vpm/index.json",
+      "https://vpm.razgriz.one/index.json"
     ];
     for (const feed of coreFeeds) {
       db.queueUrl(feed, "vpm");
@@ -44,18 +81,21 @@ async function seedAllDomains() {
       "topic:vrcfury",
       "topic:ndmf",
       "topic:vrc-osc",
+      "topic:vrchat-tools",
       "vrchat-tools in:name,description",
       "vpm-package in:name,description",
       "vrchat-unitypackage in:name,description",
       "udon in:name,description",
-      "vrc-avatar in:name,description"
+      "vrc-avatar in:name,description",
+      "\"vpmDependencies\" filename:package.json",
+      "\"com.vrchat\" filename:package.json"
     ];
     for (const q of githubQueries) {
       db.queueUrl(`https://api.github.com/search/repositories?q=${encodeURIComponent(q)}`, "github");
     }
   }
 
-  // 3. Queue BOOTH browse pages if empty
+  // 3. Queue BOOTH browse pages and high-signal keyword searches
   if (metrics.platformStats["booth"].pending === 0 && metrics.platformStats["booth"].done === 0) {
     logger.info("Seeding BOOTH category browse pages (1-88)...");
     const boothPages: { url: string; platform: "booth" }[] = [];
@@ -65,6 +105,24 @@ async function seedAllDomains() {
         platform: "booth"
       });
     }
+
+    // High signal searches to catch tools filed outside category 208
+    const boothSearches = [
+      "VRChat ツール",
+      "VRChat システム",
+      "Udon",
+      "Modular Avatar",
+      "lilToon"
+    ];
+    for (const bs of boothSearches) {
+      for (let p = 1; p <= 5; p++) {
+        boothPages.push({
+          url: `https://booth.pm/ja/search/${encodeURIComponent(bs)}?page=${p}`,
+          platform: "booth"
+        });
+      }
+    }
+
     db.queueBatchUrls(boothPages);
   }
 
@@ -86,10 +144,37 @@ async function seedAllDomains() {
       "https://boopdoodle.gumroad.com",
       "https://zenithvr.gumroad.com",
       "https://raicovr.gumroad.com",
-      "https://vrfluff.gumroad.com"
+      "https://vrfluff.gumroad.com",
+      "https://liindy.gumroad.com",
+      "https://ktecharms.gumroad.com",
+      "https://heartmarksman.gumroad.com",
+      "https://anmeire.gumroad.com",
+      "https://aparche.gumroad.com",
+      "https://legacytwotails.gumroad.com",
+      "https://rezilloryker.gumroad.com",
+      "https://mcardellje.gumroad.com"
     ];
     for (const hub of gumroadHubs) {
       db.queueUrl(hub, "gumroad");
+    }
+  }
+
+  // 5. Seed Jinxxy marketplace categories, tags, and sitemaps
+  if (metrics.platformStats["jinxxy"]?.pending === 0 && metrics.platformStats["jinxxy"]?.done === 0) {
+    logger.info("Seeding Jinxxy categories, tags, and product sitemaps...");
+    for (const catUrl of JINXXY_CATEGORIES) {
+      db.queueUrl(catUrl, "jinxxy");
+    }
+    for (const tag of JINXXY_TAGS) {
+      db.queueUrl(`https://jinxxy.com/market/browse?tags=${encodeURIComponent(tag)}`, "jinxxy");
+    }
+
+    // Scan Jinxxy product sitemaps 59 through 65 for tool keywords
+    for (let sIdx = 59; sIdx <= 65; sIdx++) {
+      const toolUrls = await JinxxyDriver.scanSitemapForTools(sIdx);
+      for (const tu of toolUrls) {
+        db.queueUrl(tu, "jinxxy");
+      }
     }
   }
 }
@@ -109,7 +194,7 @@ async function runBoothWorker() {
       db.markStatus(item.url, "fetching");
 
       try {
-        if (item.url.includes("/browse/")) {
+        if (item.url.includes("/browse/") || item.url.includes("/search/")) {
           const itemUrls = await BoothDriver.crawlCategoryPage(item.url);
           for (const u of itemUrls) {
             db.queueUrl(u, "booth");
@@ -146,7 +231,6 @@ async function runGithubWorker() {
         if (item.url.includes("/search/")) {
           const qm = item.url.match(/\?q=([^&]+)/);
           const query = qm ? decodeURIComponent(qm[1]) : "vrchat";
-          // Paginate up to 5 pages per search query (yielding up to 150 repos per topic)
           const repoUrls = await GitHubDriver.searchRepos(query, 5);
           for (const ru of repoUrls) {
             db.queueUrl(ru, "github");
@@ -191,11 +275,26 @@ async function runVpmWorker() {
   logger.info("[Worker:VPM] Stopped.");
 }
 
-// Dedicated Gumroad Worker (storefronts and product pages)
+// Dedicated Gumroad Worker (discover search, storefronts, and product pages)
 async function runGumroadWorker() {
   logger.info("[Worker:Gumroad] Started.");
+  let queryIndex = 0;
+
   while (isRunning) {
-    const items = db.getNextPendingForPlatform("gumroad", 2);
+    let items = db.getNextPendingForPlatform("gumroad", 3);
+
+    // If pending queue is low, run internal Gumroad Discover queries to continuously find new creators & tools
+    if (items.length < 2) {
+      const q = GUMROAD_SEARCH_QUERIES[queryIndex % GUMROAD_SEARCH_QUERIES.length];
+      queryIndex++;
+      logger.info(`[Worker:Gumroad] Queue low. Running discover search for '${q}'...`);
+      for (let p = 1; p <= 3; p++) {
+        const res = await GumroadDriver.crawlDiscoverQuery(q, p);
+        if (res.productsCount === 0) break;
+      }
+      items = db.getNextPendingForPlatform("gumroad", 3);
+    }
+
     if (items.length === 0) {
       await new Promise((r) => setTimeout(r, 5000));
       continue;
@@ -220,6 +319,40 @@ async function runGumroadWorker() {
     }
   }
   logger.info("[Worker:Gumroad] Stopped.");
+}
+
+// Dedicated Jinxxy Worker (browse, tags, and product pages with cross-feeding)
+async function runJinxxyWorker() {
+  logger.info("[Worker:Jinxxy] Started.");
+  while (isRunning) {
+    const items = db.getNextPendingForPlatform("jinxxy", 5);
+    if (items.length === 0) {
+      await new Promise((r) => setTimeout(r, 4000));
+      continue;
+    }
+
+    for (const item of items) {
+      if (!isRunning) break;
+      db.markStatus(item.url, "fetching");
+
+      try {
+        if (item.url.includes("/market/")) {
+          const productUrls = await JinxxyDriver.crawlBrowsePage(item.url);
+          for (const pu of productUrls) {
+            db.queueUrl(pu, "jinxxy");
+          }
+          db.markStatus(item.url, "done");
+        } else {
+          const ok = await JinxxyDriver.crawlProduct(item.url);
+          db.markStatus(item.url, ok ? "done" : "failed");
+        }
+      } catch (err) {
+        logger.error(`[Worker:Jinxxy] Error on ${item.url}`, err);
+        db.markStatus(item.url, "failed");
+      }
+    }
+  }
+  logger.info("[Worker:Jinxxy] Stopped.");
 }
 
 // Heartbeat & Checkpoint Monitor
@@ -256,12 +389,13 @@ async function main() {
     isRunning = false;
   });
 
-  logger.info("Launching concurrent domain workers: [BOOTH, GitHub, VPM, Gumroad, Monitor]...");
+  logger.info("Launching concurrent domain workers: [BOOTH, GitHub, VPM, Gumroad, Jinxxy, Monitor]...");
   await Promise.all([
     runBoothWorker(),
     runGithubWorker(),
     runVpmWorker(),
     runGumroadWorker(),
+    runJinxxyWorker(),
     runMonitor()
   ]);
 

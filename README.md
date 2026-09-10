@@ -1,6 +1,6 @@
 # VRC Package Crawler
 
-This tool discovers, crawls, and indexes unlisted VRChat packages, tools, and libraries.
+This tool discovers, crawls, and indexes unlisted VRChat packages, tools, and libraries across BOOTH, GitHub, decentralized VPM repositories, Gumroad, and Jinxxy.
 It saves all data into a local SQLite database.
 
 ## System Components

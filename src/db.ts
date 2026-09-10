@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
 
-export type PlatformType = "booth" | "github" | "vpm" | "gumroad";
+export type PlatformType = "booth" | "github" | "vpm" | "gumroad" | "jinxxy";
 
 export interface FrontierItem {
   url: string;
@@ -191,7 +191,7 @@ export class CrawlerDB {
     const totalFailed = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE status = 'failed';").get() as any).c;
     const totalEntities = (this.db.prepare("SELECT COUNT(*) as c FROM entities;").get() as any).c;
 
-    const platforms = ["booth", "github", "vpm", "gumroad"];
+    const platforms = ["booth", "github", "vpm", "gumroad", "jinxxy"];
     const platformStats: Record<string, { pending: number; done: number; entities: number }> = {};
 
     for (const p of platforms) {
