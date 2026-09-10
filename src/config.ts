@@ -9,10 +9,14 @@ export const CONFIG = {
   logsDir: LOGS_DIR,
   userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   
+  // Optional GitHub Token for 5,000 req/hr API limit
+  githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "",
+
   // Rate limits and pacing (ms)
-  boothDelayMs: 1500,       // 1.5s delay between BOOTH requests
-  githubSearchDelayMs: 6000, // 6s delay between unauthenticated GitHub searches
-  vpmIndexDelayMs: 500,     // 0.5s delay between manifest fetches
+  boothDelayMs: 1500,        // 1.5s delay between BOOTH requests
+  githubSearchDelayMs: process.env.GITHUB_TOKEN ? 2000 : 6000, // 2s with token, 6s unauthenticated
+  vpmIndexDelayMs: 400,      // 0.4s delay between manifest fetches
+  gumroadDelayMs: 1500,      // 1.5s delay between Gumroad requests
   
   // Saturation threshold (0.0 to 1.0)
   targetSaturationScore: 0.90,

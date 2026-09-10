@@ -13,37 +13,42 @@ async function seedAllDomains() {
   const metrics = db.getMetrics();
   logger.info("Checking domain seed status...");
 
-  // 1. Ingest decentralized VPM repositories if none present
-  if (metrics.platformStats["vpm"].pending === 0 && metrics.platformStats["vpm"].done === 0) {
-    logger.info("Seeding decentralized community VPM repositories...");
+  // 1. Ingest decentralized VPM repositories
+  if (metrics.platformStats["vpm"].pending < 10 && metrics.platformStats["vpm"].done < 50) {
+    logger.info("Seeding decentralized community VPM repositories from repositories.txt (300 repos)...");
     await CuratedDriver.ingestVpmRepositoriesList();
     
-    // Core feeds fallback
-    const initialVpmFeeds = [
+    const coreFeeds = [
       "https://vpm.anatawa12.com/vpm.json",
       "https://vpm.nadena.dev/vpm.json",
-      "https://vrcfury.com/vpm.json",
+      "https://vcc.vrcfury.com",
       "https://hai-vr.github.io/vpm-listing/index.json",
-      "https://kurotu.github.io/vpm-repos/index.json"
+      "https://kurotu.github.io/vpm-repos/index.json",
+      "https://vrchat-community.github.io/curated-packages/index.json"
     ];
-    for (const feed of initialVpmFeeds) {
+    for (const feed of coreFeeds) {
       db.queueUrl(feed, "vpm");
     }
   }
 
-  // 2. Ingest curated awesome-vrchat collections
-  if (metrics.platformStats["github"].pending < 5) {
-    logger.info("Seeding curated awesome-vrchat collections & GitHub topics...");
+  // 2. Ingest curated awesome-vrchat collections & expanded GitHub queries
+  if (metrics.platformStats["github"].pending < 20) {
+    logger.info("Seeding curated awesome-vrchat collections & expanded GitHub queries...");
     await CuratedDriver.ingestAwesomeVRChat();
 
     const githubQueries = [
-      "topic:vrchat topic:vpm",
+      "topic:vrchat",
+      "topic:vpm",
       "topic:udonsharp",
       "topic:modular-avatar",
       "topic:vrcfury",
-      "vrchat-tools",
-      "vpm-package",
-      "vrchat-unitypackage"
+      "topic:ndmf",
+      "topic:vrc-osc",
+      "vrchat-tools in:name,description",
+      "vpm-package in:name,description",
+      "vrchat-unitypackage in:name,description",
+      "udon in:name,description",
+      "vrc-avatar in:name,description"
     ];
     for (const q of githubQueries) {
       db.queueUrl(`https://api.github.com/search/repositories?q=${encodeURIComponent(q)}`, "github");
@@ -63,17 +68,28 @@ async function seedAllDomains() {
     db.queueBatchUrls(boothPages);
   }
 
-  // 4. Queue Gumroad Western creator tools
-  if (metrics.platformStats["gumroad"].pending === 0 && metrics.platformStats["gumroad"].done === 0) {
+  // 4. Queue Western creator tool storefronts on Gumroad
+  if (metrics.platformStats["gumroad"].pending < 5) {
     logger.info("Seeding Western creator tool hubs on Gumroad...");
-    const gumroadSeeds = [
-      "https://architechvr.gumroad.com/l/protv",
-      "https://aleasevr.gumroad.com/l/ik2rig",
-      "https://markcreator.gumroad.com/l/Polytool",
-      "https://jessycat92.gumroad.com/l/RQDoUj"
+    const gumroadHubs = [
+      "https://vrlabs.gumroad.com",
+      "https://dreadrith.gumroad.com",
+      "https://architechvr.gumroad.com",
+      "https://aleasevr.gumroad.com",
+      "https://markcreator.gumroad.com",
+      "https://rollthered.gumroad.com",
+      "https://hfcred.gumroad.com",
+      "https://phasedragon.gumroad.com",
+      "https://hai-vr.gumroad.com",
+      "https://lyuma.gumroad.com",
+      "https://jessycat92.gumroad.com",
+      "https://boopdoodle.gumroad.com",
+      "https://zenithvr.gumroad.com",
+      "https://raicovr.gumroad.com",
+      "https://vrfluff.gumroad.com"
     ];
-    for (const g of gumroadSeeds) {
-      db.queueUrl(g, "gumroad");
+    for (const hub of gumroadHubs) {
+      db.queueUrl(hub, "gumroad");
     }
   }
 }
@@ -112,7 +128,7 @@ async function runBoothWorker() {
   logger.info("[Worker:BOOTH] Stopped.");
 }
 
-// Dedicated GitHub Worker (with rate limit pacing)
+// Dedicated GitHub Worker (with paginated search and raw scraping)
 async function runGithubWorker() {
   logger.info("[Worker:GitHub] Started.");
   while (isRunning) {
@@ -130,7 +146,8 @@ async function runGithubWorker() {
         if (item.url.includes("/search/")) {
           const qm = item.url.match(/\?q=([^&]+)/);
           const query = qm ? decodeURIComponent(qm[1]) : "vrchat";
-          const repoUrls = await GitHubDriver.searchRepos(query);
+          // Paginate up to 5 pages per search query (yielding up to 150 repos per topic)
+          const repoUrls = await GitHubDriver.searchRepos(query, 5);
           for (const ru of repoUrls) {
             db.queueUrl(ru, "github");
           }
@@ -148,7 +165,7 @@ async function runGithubWorker() {
   logger.info("[Worker:GitHub] Stopped.");
 }
 
-// Dedicated VPM Manifest Worker (fast JSON parser)
+// Dedicated VPM Manifest Worker (fast JSON parser with fallback candidates)
 async function runVpmWorker() {
   logger.info("[Worker:VPM] Started.");
   while (isRunning) {
@@ -174,7 +191,7 @@ async function runVpmWorker() {
   logger.info("[Worker:VPM] Stopped.");
 }
 
-// Dedicated Gumroad Worker
+// Dedicated Gumroad Worker (storefronts and product pages)
 async function runGumroadWorker() {
   logger.info("[Worker:Gumroad] Started.");
   while (isRunning) {
@@ -189,8 +206,13 @@ async function runGumroadWorker() {
       db.markStatus(item.url, "fetching");
 
       try {
-        const ok = await GumroadDriver.crawlProduct(item.url);
-        db.markStatus(item.url, ok ? "done" : "failed");
+        if (item.url.includes("/l/")) {
+          const ok = await GumroadDriver.crawlProduct(item.url);
+          db.markStatus(item.url, ok ? "done" : "failed");
+        } else {
+          const ok = await GumroadDriver.crawlStorefront(item.url);
+          db.markStatus(item.url, ok ? "done" : "failed");
+        }
       } catch (err) {
         logger.error(`[Worker:Gumroad] Error on ${item.url}`, err);
         db.markStatus(item.url, "failed");
@@ -204,7 +226,7 @@ async function runGumroadWorker() {
 async function runMonitor() {
   let cycle = 0;
   while (isRunning) {
-    await new Promise((r) => setTimeout(r, 15000)); // Every 15 seconds
+    await new Promise((r) => setTimeout(r, 15000));
     if (!isRunning) break;
     cycle++;
 
@@ -234,7 +256,6 @@ async function main() {
     isRunning = false;
   });
 
-  // Launch ALL domain workers concurrently!
   logger.info("Launching concurrent domain workers: [BOOTH, GitHub, VPM, Gumroad, Monitor]...");
   await Promise.all([
     runBoothWorker(),
