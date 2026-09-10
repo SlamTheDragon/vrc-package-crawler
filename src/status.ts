@@ -14,4 +14,9 @@ console.log(`Processed (Done):  ${metrics.totalDone}`);
 console.log(`Failed / Retrying: ${metrics.totalFailed}`);
 console.log(`Ingested Entities: ${metrics.totalEntities}`);
 console.log(`Saturation Index:  ${(S * 100).toFixed(2)}% (Target: >= ${CONFIG.targetSaturationScore * 100}%)`);
+console.log("-------------------------------------------------");
+console.log("Platform Breakdown:");
+for (const [p, s] of Object.entries(metrics.platformStats)) {
+  console.log(`  - ${p.toUpperCase().padEnd(8)}: Pending=${s.pending.toString().padStart(4)}, Done=${s.done.toString().padStart(4)}, Entities=${s.entities.toString().padStart(4)}`);
+}
 console.log("=================================================");

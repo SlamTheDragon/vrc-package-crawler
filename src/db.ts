@@ -2,9 +2,11 @@ import { Database } from "bun:sqlite";
 import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
 
+export type PlatformType = "booth" | "github" | "vpm" | "gumroad";
+
 export interface FrontierItem {
   url: string;
-  platform: "booth" | "github" | "vpm";
+  platform: PlatformType;
   status: "pending" | "fetching" | "done" | "failed";
   attempts: number;
   discovered_at: string;
@@ -78,8 +80,6 @@ export class CrawlerDB {
         notes TEXT
       );
     `);
-
-    // Crash recovery handled explicitly via resetStaleFetching()
   }
 
   public resetStaleFetching(): number {
@@ -90,7 +90,7 @@ export class CrawlerDB {
     return reset.changes;
   }
 
-  queueUrl(url: string, platform: "booth" | "github" | "vpm"): boolean {
+  queueUrl(url: string, platform: PlatformType): boolean {
     const now = new Date().toISOString();
     try {
       const stmt = this.db.prepare(`
@@ -104,7 +104,7 @@ export class CrawlerDB {
     }
   }
 
-  queueBatchUrls(items: { url: string; platform: "booth" | "github" | "vpm" }[]): number {
+  queueBatchUrls(items: { url: string; platform: PlatformType }[]): number {
     const now = new Date().toISOString();
     const insert = this.db.prepare(`
       INSERT OR IGNORE INTO frontier (url, platform, status, attempts, discovered_at, updated_at)
@@ -130,6 +130,17 @@ export class CrawlerDB {
       LIMIT ?;
     `);
     return stmt.all(limit) as FrontierItem[];
+  }
+
+  getNextPendingForPlatform(platform: PlatformType, limit: number = 5): FrontierItem[] {
+    const stmt = this.db.prepare(`
+      SELECT url, platform, status, attempts, discovered_at, updated_at
+      FROM frontier
+      WHERE platform = ? AND status = 'pending'
+      ORDER BY discovered_at ASC
+      LIMIT ?;
+    `);
+    return stmt.all(platform, limit) as FrontierItem[];
   }
 
   markStatus(url: string, status: "fetching" | "done" | "failed") {
@@ -180,12 +191,23 @@ export class CrawlerDB {
     const totalFailed = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE status = 'failed';").get() as any).c;
     const totalEntities = (this.db.prepare("SELECT COUNT(*) as c FROM entities;").get() as any).c;
 
+    const platforms = ["booth", "github", "vpm", "gumroad"];
+    const platformStats: Record<string, { pending: number; done: number; entities: number }> = {};
+
+    for (const p of platforms) {
+      const pending = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE platform = ? AND status = 'pending';").get(p) as any).c;
+      const done = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE platform = ? AND status = 'done';").get(p) as any).c;
+      const entities = (this.db.prepare("SELECT COUNT(*) as c FROM entities WHERE platform = ?;").get(p) as any).c;
+      platformStats[p] = { pending, done, entities };
+    }
+
     return {
       totalDiscovered,
       totalPending,
       totalDone,
       totalFailed,
-      totalEntities
+      totalEntities,
+      platformStats
     };
   }
 

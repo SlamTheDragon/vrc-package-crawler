@@ -4,24 +4,38 @@ import { db } from "./db.ts";
 import { BoothDriver } from "./drivers/booth.ts";
 import { GitHubDriver } from "./drivers/github.ts";
 import { VpmIndexDriver } from "./drivers/vpm_index.ts";
+import { GumroadDriver } from "./drivers/gumroad.ts";
+import { CuratedDriver } from "./drivers/curated.ts";
 
-async function seedFrontierIfEmpty() {
+let isRunning = true;
+
+async function seedAllDomains() {
   const metrics = db.getMetrics();
-  if (metrics.totalDiscovered === 0) {
-    logger.info("Initializing discovery frontier across primary domains...");
+  logger.info("Checking domain seed status...");
 
-    // 1. BOOTH category 3Dツール・システム pages 1 to 88
-    const boothPages: { url: string; platform: "booth" }[] = [];
-    for (let p = 1; p <= 88; p++) {
-      boothPages.push({
-        url: `https://booth.pm/ja/browse/3D%E3%83%84%E3%83%BC%E3%83%AB%E3%83%BB%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0?page=${p}`,
-        platform: "booth"
-      });
+  // 1. Ingest decentralized VPM repositories if none present
+  if (metrics.platformStats["vpm"].pending === 0 && metrics.platformStats["vpm"].done === 0) {
+    logger.info("Seeding decentralized community VPM repositories...");
+    await CuratedDriver.ingestVpmRepositoriesList();
+    
+    // Core feeds fallback
+    const initialVpmFeeds = [
+      "https://vpm.anatawa12.com/vpm.json",
+      "https://vpm.nadena.dev/vpm.json",
+      "https://vrcfury.com/vpm.json",
+      "https://hai-vr.github.io/vpm-listing/index.json",
+      "https://kurotu.github.io/vpm-repos/index.json"
+    ];
+    for (const feed of initialVpmFeeds) {
+      db.queueUrl(feed, "vpm");
     }
-    const boothQueued = db.queueBatchUrls(boothPages);
-    logger.info(`Queued ${boothQueued} BOOTH category browse pages.`);
+  }
 
-    // 2. High-value GitHub searches
+  // 2. Ingest curated awesome-vrchat collections
+  if (metrics.platformStats["github"].pending < 5) {
+    logger.info("Seeding curated awesome-vrchat collections & GitHub topics...");
+    await CuratedDriver.ingestAwesomeVRChat();
+
     const githubQueries = [
       "topic:vrchat topic:vpm",
       "topic:udonsharp",
@@ -34,111 +48,206 @@ async function seedFrontierIfEmpty() {
     for (const q of githubQueries) {
       db.queueUrl(`https://api.github.com/search/repositories?q=${encodeURIComponent(q)}`, "github");
     }
+  }
 
-    // 3. Known VPM Community repository indexes
-    const initialVpmFeeds = [
-      "https://vpm.anatawa12.com/vpm.json",
-      "https://vpm.nadena.dev/vpm.json",
-      "https://vrcfury.com/vpm.json",
-      "https://hai-vr.github.io/vpm-listing/index.json",
-      "https://kurotu.github.io/vpm-repos/index.json"
-    ];
-    for (const feed of initialVpmFeeds) {
-      db.queueUrl(feed, "vpm");
+  // 3. Queue BOOTH browse pages if empty
+  if (metrics.platformStats["booth"].pending === 0 && metrics.platformStats["booth"].done === 0) {
+    logger.info("Seeding BOOTH category browse pages (1-88)...");
+    const boothPages: { url: string; platform: "booth" }[] = [];
+    for (let p = 1; p <= 88; p++) {
+      boothPages.push({
+        url: `https://booth.pm/ja/browse/3D%E3%83%84%E3%83%BC%E3%83%AB%E3%83%BB%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0?page=${p}`,
+        platform: "booth"
+      });
     }
+    db.queueBatchUrls(boothPages);
+  }
+
+  // 4. Queue Gumroad Western creator tools
+  if (metrics.platformStats["gumroad"].pending === 0 && metrics.platformStats["gumroad"].done === 0) {
+    logger.info("Seeding Western creator tool hubs on Gumroad...");
+    const gumroadSeeds = [
+      "https://architechvr.gumroad.com/l/protv",
+      "https://aleasevr.gumroad.com/l/ik2rig",
+      "https://markcreator.gumroad.com/l/Polytool",
+      "https://jessycat92.gumroad.com/l/RQDoUj"
+    ];
+    for (const g of gumroadSeeds) {
+      db.queueUrl(g, "gumroad");
+    }
+  }
+}
+
+// Dedicated BOOTH Worker
+async function runBoothWorker() {
+  logger.info("[Worker:BOOTH] Started.");
+  while (isRunning) {
+    const items = db.getNextPendingForPlatform("booth", 10);
+    if (items.length === 0) {
+      await new Promise((r) => setTimeout(r, 4000));
+      continue;
+    }
+
+    for (const item of items) {
+      if (!isRunning) break;
+      db.markStatus(item.url, "fetching");
+
+      try {
+        if (item.url.includes("/browse/")) {
+          const itemUrls = await BoothDriver.crawlCategoryPage(item.url);
+          for (const u of itemUrls) {
+            db.queueUrl(u, "booth");
+          }
+          db.markStatus(item.url, "done");
+        } else {
+          const ok = await BoothDriver.crawlItemDetail(item.url);
+          db.markStatus(item.url, ok ? "done" : "failed");
+        }
+      } catch (err) {
+        logger.error(`[Worker:BOOTH] Error on ${item.url}`, err);
+        db.markStatus(item.url, "failed");
+      }
+    }
+  }
+  logger.info("[Worker:BOOTH] Stopped.");
+}
+
+// Dedicated GitHub Worker (with rate limit pacing)
+async function runGithubWorker() {
+  logger.info("[Worker:GitHub] Started.");
+  while (isRunning) {
+    const items = db.getNextPendingForPlatform("github", 3);
+    if (items.length === 0) {
+      await new Promise((r) => setTimeout(r, 5000));
+      continue;
+    }
+
+    for (const item of items) {
+      if (!isRunning) break;
+      db.markStatus(item.url, "fetching");
+
+      try {
+        if (item.url.includes("/search/")) {
+          const qm = item.url.match(/\?q=([^&]+)/);
+          const query = qm ? decodeURIComponent(qm[1]) : "vrchat";
+          const repoUrls = await GitHubDriver.searchRepos(query);
+          for (const ru of repoUrls) {
+            db.queueUrl(ru, "github");
+          }
+          db.markStatus(item.url, "done");
+        } else {
+          const ok = await GitHubDriver.crawlRepoDetail(item.url);
+          db.markStatus(item.url, ok ? "done" : "failed");
+        }
+      } catch (err) {
+        logger.error(`[Worker:GitHub] Error on ${item.url}`, err);
+        db.markStatus(item.url, "failed");
+      }
+    }
+  }
+  logger.info("[Worker:GitHub] Stopped.");
+}
+
+// Dedicated VPM Manifest Worker (fast JSON parser)
+async function runVpmWorker() {
+  logger.info("[Worker:VPM] Started.");
+  while (isRunning) {
+    const items = db.getNextPendingForPlatform("vpm", 5);
+    if (items.length === 0) {
+      await new Promise((r) => setTimeout(r, 3000));
+      continue;
+    }
+
+    for (const item of items) {
+      if (!isRunning) break;
+      db.markStatus(item.url, "fetching");
+
+      try {
+        const ok = await VpmIndexDriver.crawlManifest(item.url);
+        db.markStatus(item.url, ok ? "done" : "failed");
+      } catch (err) {
+        logger.error(`[Worker:VPM] Error on ${item.url}`, err);
+        db.markStatus(item.url, "failed");
+      }
+    }
+  }
+  logger.info("[Worker:VPM] Stopped.");
+}
+
+// Dedicated Gumroad Worker
+async function runGumroadWorker() {
+  logger.info("[Worker:Gumroad] Started.");
+  while (isRunning) {
+    const items = db.getNextPendingForPlatform("gumroad", 2);
+    if (items.length === 0) {
+      await new Promise((r) => setTimeout(r, 5000));
+      continue;
+    }
+
+    for (const item of items) {
+      if (!isRunning) break;
+      db.markStatus(item.url, "fetching");
+
+      try {
+        const ok = await GumroadDriver.crawlProduct(item.url);
+        db.markStatus(item.url, ok ? "done" : "failed");
+      } catch (err) {
+        logger.error(`[Worker:Gumroad] Error on ${item.url}`, err);
+        db.markStatus(item.url, "failed");
+      }
+    }
+  }
+  logger.info("[Worker:Gumroad] Stopped.");
+}
+
+// Heartbeat & Checkpoint Monitor
+async function runMonitor() {
+  let cycle = 0;
+  while (isRunning) {
+    await new Promise((r) => setTimeout(r, 15000)); // Every 15 seconds
+    if (!isRunning) break;
+    cycle++;
+
+    const m = db.getMetrics();
+    const S = m.totalDiscovered > 0 ? (m.totalDone / m.totalDiscovered) : 0;
+    db.recordCheckpoint(S, `Cycle ${cycle} status check`);
+    logger.info(`[HEARTBEAT] Total: ${m.totalEntities} entities | Done: ${m.totalDone}/${m.totalDiscovered} | Saturation: ${(S * 100).toFixed(1)}%`);
   }
 }
 
 async function main() {
   console.log("\x1b[36m");
   console.log("==================================================================");
-  console.log("   VRC PACKAGE CRAWLER — AUTONOMOUS DISCOVERY & INGESTION ENGINE  ");
+  console.log("   VRC PACKAGE CRAWLER — MULTI-DOMAIN CONCURRENT HARVESTER ENGINE ");
   console.log("==================================================================");
   console.log("\x1b[0m");
 
   db.resetStaleFetching();
-  await seedFrontierIfEmpty();
+  await seedAllDomains();
 
-  let isRunning = true;
   process.on("SIGINT", () => {
-    logger.info("Received SIGINT. Gracefully stopping crawler loop...");
+    logger.info("Received SIGINT. Shutting down all concurrent workers...");
     isRunning = false;
   });
   process.on("SIGTERM", () => {
-    logger.info("Received SIGTERM. Gracefully stopping crawler loop...");
+    logger.info("Received SIGTERM. Shutting down all concurrent workers...");
     isRunning = false;
   });
 
-  let cycle = 0;
-  while (isRunning) {
-    cycle++;
-    const pendingItems = db.getNextPending(CONFIG.batchSize);
+  // Launch ALL domain workers concurrently!
+  logger.info("Launching concurrent domain workers: [BOOTH, GitHub, VPM, Gumroad, Monitor]...");
+  await Promise.all([
+    runBoothWorker(),
+    runGithubWorker(),
+    runVpmWorker(),
+    runGumroadWorker(),
+    runMonitor()
+  ]);
 
-    if (pendingItems.length === 0) {
-      logger.info("No pending URLs in frontier. Saturation check...");
-      const metrics = db.getMetrics();
-      logger.info(`Status: Discovered ${metrics.totalDiscovered} URLs, ${metrics.totalEntities} entities ingested.`);
-      
-      // Sleep before re-checking frontier
-      await new Promise((r) => setTimeout(r, 10000));
-      continue;
-    }
-
-    for (const item of pendingItems) {
-      if (!isRunning) break;
-
-      db.markStatus(item.url, "fetching");
-
-      try {
-        if (item.platform === "booth") {
-          if (item.url.includes("/browse/")) {
-            // Category browse page
-            const discoveredItemUrls = await BoothDriver.crawlCategoryPage(item.url);
-            for (const iurl of discoveredItemUrls) {
-              db.queueUrl(iurl, "booth");
-            }
-            db.markStatus(item.url, "done");
-          } else if (item.url.includes("/items/")) {
-            // Item detail page
-            const ok = await BoothDriver.crawlItemDetail(item.url);
-            db.markStatus(item.url, ok ? "done" : "failed");
-          }
-        } else if (item.platform === "github") {
-          if (item.url.includes("/search/")) {
-            const queryMatch = item.url.match(/\?q=([^&]+)/);
-            const query = queryMatch ? decodeURIComponent(queryMatch[1]) : "vrchat";
-            const repoUrls = await GitHubDriver.searchRepos(query);
-            for (const rurl of repoUrls) {
-              db.queueUrl(rurl, "github");
-            }
-            db.markStatus(item.url, "done");
-          } else {
-            const ok = await GitHubDriver.crawlRepoDetail(item.url);
-            db.markStatus(item.url, ok ? "done" : "failed");
-          }
-        } else if (item.platform === "vpm") {
-          const ok = await VpmIndexDriver.crawlManifest(item.url);
-          db.markStatus(item.url, ok ? "done" : "failed");
-        }
-      } catch (err) {
-        logger.error(`Failed crawling ${item.url}`, err);
-        db.markStatus(item.url, "failed");
-      }
-    }
-
-    // Periodic checkpoint every 5 cycles
-    if (cycle % 5 === 0) {
-      const metrics = db.getMetrics();
-      const saturation = metrics.totalDiscovered > 0 ? (metrics.totalDone / metrics.totalDiscovered) : 0;
-      db.recordCheckpoint(saturation, `Cycle ${cycle} completed.`);
-      logger.info(`[CHECKPOINT] Total Entities: ${metrics.totalEntities} | Done: ${metrics.totalDone}/${metrics.totalDiscovered} | Saturation: ${(saturation * 100).toFixed(1)}%`);
-    }
-  }
-
-  logger.info("Crawler loop stopped. Closing database connections.");
+  logger.info("All workers exited cleanly. Closing database connections.");
   db.close();
   logger.close();
-  console.log("Crawler successfully stopped.");
+  console.log("Engine terminated cleanly.");
 }
 
 main().catch((err) => {
