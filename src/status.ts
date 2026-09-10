@@ -1,22 +1,72 @@
 import { db } from "./db.ts";
 import { CONFIG } from "./config.ts";
 
-const metrics = db.getMetrics();
-const S = metrics.totalDiscovered > 0 ? (metrics.totalDone / metrics.totalDiscovered) : 0;
+let isRunning = true;
 
-console.log("=================================================");
-console.log("       VRC PACKAGE CRAWLER - LIVE STATUS         ");
-console.log("=================================================");
-console.log(`Database:          ${CONFIG.dbPath}`);
-console.log(`Total Discovered:  ${metrics.totalDiscovered}`);
-console.log(`Pending Queue:     ${metrics.totalPending}`);
-console.log(`Processed (Done):  ${metrics.totalDone}`);
-console.log(`Failed / Retrying: ${metrics.totalFailed}`);
-console.log(`Ingested Entities: ${metrics.totalEntities}`);
-console.log(`Saturation Index:  ${(S * 100).toFixed(2)}% (Target: >= ${CONFIG.targetSaturationScore * 100}%)`);
-console.log("-------------------------------------------------");
-console.log("Platform Breakdown:");
-for (const [p, s] of Object.entries(metrics.platformStats)) {
-  console.log(`  - ${p.toUpperCase().padEnd(8)}: Pending=${s.pending.toString().padStart(4)}, Done=${s.done.toString().padStart(4)}, Entities=${s.entities.toString().padStart(4)}`);
+process.on("SIGINT", () => {
+  isRunning = false;
+  console.log("\n\x1b[33m[MONITOR] Stopped live status monitoring.\x1b[0m\n");
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  isRunning = false;
+  process.exit(0);
+});
+
+function renderProgressBar(percentage: number, length: number = 25): string {
+  const filled = Math.min(length, Math.max(0, Math.round((percentage / 100) * length)));
+  const empty = length - filled;
+  return `[${"█".repeat(filled)}${"░".repeat(empty)}]`;
 }
-console.log("=================================================");
+
+const startTime = Date.now();
+let initialEntities = -1;
+
+async function runLiveMonitor() {
+  while (isRunning) {
+    const metrics = db.getMetrics();
+    if (initialEntities === -1) {
+      initialEntities = metrics.totalEntities;
+    }
+
+    const S = metrics.totalDiscovered > 0 ? (metrics.totalDone / metrics.totalDiscovered) * 100 : 0;
+    const elapsedSec = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
+    const entitiesGained = metrics.totalEntities - initialEntities;
+    const ratePerMin = ((entitiesGained / elapsedSec) * 60).toFixed(1);
+
+    // Clear terminal screen and move cursor to top-left
+    process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+
+    console.log("\x1b[36m=================================================================\x1b[0m");
+    console.log("\x1b[1m\x1b[32m           VRC PACKAGE CRAWLER — LIVE MONITOR DASHBOARD          \x1b[0m");
+    console.log("\x1b[36m=================================================================\x1b[0m");
+    console.log(` \x1b[90mUpdated:\x1b[0m ${new Date().toLocaleTimeString()}   |   \x1b[90mSession Time:\x1b[0m ${elapsedSec}s   |   \x1b[90mIngestion Speed:\x1b[0m +${ratePerMin}/min`);
+    console.log(` \x1b[90mDatabase:\x1b[0m ${CONFIG.dbPath}`);
+    console.log("\x1b[36m-----------------------------------------------------------------\x1b[0m");
+    console.log(` \x1b[1mTotal Discovered URLs:\x1b[0m  ${metrics.totalDiscovered.toLocaleString()}`);
+    console.log(` \x1b[1mPending Queue:\x1b[0m          ${metrics.totalPending.toLocaleString()}`);
+    console.log(` \x1b[1mProcessed (Done):\x1b[0m       ${metrics.totalDone.toLocaleString()}`);
+    console.log(` \x1b[1mFailed / Retrying:\x1b[0m      ${metrics.totalFailed.toLocaleString()}`);
+    console.log(` \x1b[1mIngested Entities:\x1b[0m      \x1b[32m${metrics.totalEntities.toLocaleString()}\x1b[0m`);
+    console.log(` \x1b[1mSaturation Index:\x1b[0m       ${renderProgressBar(S)} \x1b[33m${S.toFixed(2)}%\x1b[0m (Target: >= ${(CONFIG.targetSaturationScore * 100).toFixed(0)}%)`);
+    console.log("\x1b[36m-----------------------------------------------------------------\x1b[0m");
+    console.log("\x1b[1m Platform Breakdown:\x1b[0m");
+    for (const [p, s] of Object.entries(metrics.platformStats)) {
+      const pName = p.toUpperCase().padEnd(8);
+      const pendingStr = s.pending.toLocaleString().padStart(5);
+      const doneStr = s.done.toLocaleString().padStart(5);
+      const entStr = s.entities.toLocaleString().padStart(5);
+      console.log(`   • \x1b[35m${pName}\x1b[0m : Pending = ${pendingStr} | Done = ${doneStr} | Entities = \x1b[32m${entStr}\x1b[0m`);
+    }
+    console.log("\x1b[36m=================================================================\x1b[0m");
+    console.log(" \x1b[90m[Press Ctrl+C to exit monitor]\x1b[0m");
+
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+runLiveMonitor().catch((err) => {
+  console.error("Monitor error:", err);
+  process.exit(1);
+});
