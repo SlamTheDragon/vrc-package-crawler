@@ -56,6 +56,7 @@ async function main() {
   console.log("==================================================================");
   console.log("\x1b[0m");
 
+  db.resetStaleFetching();
   await seedFrontierIfEmpty();
 
   let isRunning = true;

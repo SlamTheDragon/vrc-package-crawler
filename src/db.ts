@@ -79,11 +79,15 @@ export class CrawlerDB {
       );
     `);
 
-    // Reset any hanging 'fetching' URLs from sudden shutdowns/power cuts
+    // Crash recovery handled explicitly via resetStaleFetching()
+  }
+
+  public resetStaleFetching(): number {
     const reset = this.db.run("UPDATE frontier SET status = 'pending' WHERE status = 'fetching';");
     if (reset.changes > 0) {
       logger.info(`Recovered from previous interruption: Reset ${reset.changes} hanging URLs to 'pending'.`);
     }
+    return reset.changes;
   }
 
   queueUrl(url: string, platform: "booth" | "github" | "vpm"): boolean {
