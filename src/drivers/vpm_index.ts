@@ -7,9 +7,24 @@ export class VpmIndexDriver {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // Tries multiple URL candidates if initial manifest URL fails
-  private static getUrlCandidates(rawUrl: string): string[] {
+  // Generates rich candidate URLs based on Claude skill pattern recognition
+  public static getUrlCandidates(rawUrl: string): string[] {
     const candidates = [rawUrl];
+
+    // Handle GitHub repository links -> convert to Pages & raw endpoints
+    const ghMatch = rawUrl.match(/https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/);
+    if (ghMatch) {
+      const [, owner, repo] = ghMatch;
+      const cleanRepo = repo.replace(/\.git$/, "");
+      candidates.push(`https://${owner}.github.io/${cleanRepo}/index.json`);
+      candidates.push(`https://${owner}.github.io/${cleanRepo}/vpm.json`);
+      candidates.push(`https://${owner}.github.io/vpm/index.json`);
+      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/HEAD/index.json`);
+      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/HEAD/vpm.json`);
+      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/main/index.json`);
+      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/master/index.json`);
+    }
+
     if (rawUrl.endsWith("/index.json")) {
       candidates.push(rawUrl.replace(/\/index\.json$/, "/vpm.json"));
       candidates.push(rawUrl.replace(/\/index\.json$/, ""));
@@ -17,9 +32,12 @@ export class VpmIndexDriver {
       candidates.push(rawUrl.replace(/\/vpm\.json$/, "/index.json"));
       candidates.push(rawUrl.replace(/\/vpm\.json$/, ""));
     } else {
-      candidates.push(`${rawUrl.replace(/\/$/, "")}/index.json`);
-      candidates.push(`${rawUrl.replace(/\/$/, "")}/vpm.json`);
+      const cleanBase = rawUrl.replace(/\/$/, "");
+      candidates.push(`${cleanBase}/index.json`);
+      candidates.push(`${cleanBase}/vpm.json`);
+      candidates.push(`${cleanBase}/vpm/index.json`);
     }
+
     return Array.from(new Set(candidates));
   }
 
@@ -43,8 +61,15 @@ export class VpmIndexDriver {
         const data = await resp.json();
         if (!data || typeof data !== "object") continue;
 
-        const repoAuthor = data.author || data.name || "Community";
         const packages = data.packages || {};
+        if (typeof packages !== "object" || Object.keys(packages).length === 0) continue;
+
+        const repoAuthor = data.author || data.name || "Community";
+
+        // Claude Skill Step 5-4: Self-reported canonical URL verification
+        if (data.url && typeof data.url === "string" && data.url !== testUrl && data.url.startsWith("http")) {
+          db.queueUrl(data.url, "vpm");
+        }
 
         let newCount = 0;
         for (const [pkgId, pkgVersions] of Object.entries(packages)) {
@@ -57,6 +82,19 @@ export class VpmIndexDriver {
           const author = latest.author?.name || repoAuthor;
           const desc = latest.description || "";
           const repoUrl = latest.repo || latest.url || testUrl;
+
+          // Claude Skill Step 7: Filter uncustomized sample templates and dummy test packages
+          // FIXME: apparently this isnt enough, need a broader manual post inspection for cleanup
+          if (
+            pkgId === "com.vrchat.demo-template.listing" ||
+            pkgId === "com.vrchat.example-listing" ||
+            pkgId.includes("upm-test") ||
+            title === "VRChat Example Package" ||
+            (desc && desc.includes("Simple Package for testing Automation"))
+          ) {
+            logger.warn(`[VPM] Skipping uncustomized template dummy: ${pkgId}`);
+            continue;
+          }
 
           // Extract dependencies for cross-reference
           const vpmDeps = Object.keys(latest.vpmDependencies || {});
@@ -86,6 +124,12 @@ export class VpmIndexDriver {
             const m = repoUrl.match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/);
             if (m) db.queueUrl(m[0], "github");
           }
+
+          // Queue author homepage or docs if pointing to external site
+          // WARN: there are dislocated or orphan items in the web, this may not be enough
+          if (latest.author?.url && latest.author.url.includes("github.com")) {
+            db.queueUrl(latest.author.url, "github");
+          }
         }
 
         logger.info(`[VPM] Ingested ${newCount} packages from ${testUrl}`);
@@ -99,3 +143,4 @@ export class VpmIndexDriver {
     return false;
   }
 }
+

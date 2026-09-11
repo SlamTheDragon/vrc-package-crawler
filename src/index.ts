@@ -12,6 +12,7 @@ import { rateLimiter } from "./ratelimit.ts";
 
 let isRunning = true;
 
+// FIXME: this needs to evolve with empirical data
 // Search queries for Gumroad internal discover engine
 const GUMROAD_SEARCH_QUERIES = [
   "vrchat tool",
@@ -32,6 +33,7 @@ const GUMROAD_SEARCH_QUERIES = [
   "vrchat prefab"
 ];
 
+// FIXME: need to run through an expansion validation before proceeding with this seed
 // Curated Jinxxy tags and categories
 const JINXXY_TAGS = [
   "tool", "tools", "script", "scripts", "system", "systems", "udon", "udonsharp",
@@ -39,6 +41,7 @@ const JINXXY_TAGS = [
   "physics", "preset", "animation"
 ];
 
+// FIXME: double check site structure
 const JINXXY_CATEGORIES = [
   "https://jinxxy.com/market/scripts-tools",
   "https://jinxxy.com/market/particles-shaders",
@@ -54,6 +57,7 @@ async function seedAllDomains() {
     logger.info("Seeding decentralized community VPM repositories from repositories.txt (300 repos)...");
     await CuratedDriver.ingestVpmRepositoriesList();
     
+    // FIXME: this needs a former discovery phase! it cant just be hardcoded this way, as there are way too many other distribution platforms that will be missed out, bad strategy
     const coreFeeds = [
       "https://vpm.anatawa12.com/vpm.json",
       "https://vpm.nadena.dev/vpm.json",
@@ -75,6 +79,7 @@ async function seedAllDomains() {
     logger.info("Seeding curated awesome-vrchat collections & expanded GitHub queries...");
     await CuratedDriver.ingestAwesomeVRChat();
 
+    // FIXME: this needs further initial pass for empirical validation, a proper discovery phase is necessary
     const githubQueries = [
       "topic:vrchat",
       "topic:vpm",
@@ -113,6 +118,7 @@ async function seedAllDomains() {
     }
   }
 
+  // FIXME: this is hardcoded, this needs evolving empirical data in the DB
   // High-signal multi-tag searches to catch tools filed outside Category 208
   const BOOTH_TAGS = [
     "エディタ拡張",
@@ -144,6 +150,7 @@ async function seedAllDomains() {
   logger.info("Seeding Gumroad storefront hubs & cross-linked creator stores...");
   GumroadDriver.harvestCrossLinks();
 
+  // FIXME: THIS IS HARDCODED, DO NOT DO THIS
   const gumroadHubs = [
     "https://vrlabs.gumroad.com",
     "https://dreadrith.gumroad.com",
@@ -465,6 +472,7 @@ async function main() {
   db.resetStaleFetching();
   await seedAllDomains();
 
+  // FIXME: need to link other scripts into this category for their automated cleanup once a saturation thresholds are passed,
   process.on("SIGINT", () => {
     logger.info("Received SIGINT. Shutting down all concurrent workers...");
     isRunning = false;

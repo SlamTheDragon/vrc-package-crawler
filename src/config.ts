@@ -10,6 +10,7 @@ export const CONFIG = {
   userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   
   // Optional GitHub Token for 5,000 req/hr API limit
+  // FIXME: AGENT: Inform user to set up github token
   githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "",
 
   // Rate limits and pacing (ms)
@@ -20,7 +21,8 @@ export const CONFIG = {
   jinxxyDelayMs: 1200,       // 1.2s delay between Jinxxy requests
   
   // Saturation threshold (0.0 to 1.0)
-  targetSaturationScore: 0.90,
+  // TODO: make it so that it is extremely saturated, almost as close as to 100%
+  targetSaturationScore: 0.99999,
   
   // Batch size for SQLite transaction chunks
   batchSize: 20

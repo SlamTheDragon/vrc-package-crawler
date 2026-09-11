@@ -1,0 +1,116 @@
+﻿import { CONFIG } from "./config.ts";
+import { logger } from "./logger.ts";
+import { db } from "./db.ts";
+import { VpmIndexDriver } from "./drivers/vpm_index.ts";
+import { GitHubDriver, TOP_VRCHAT_CREATORS } from "./drivers/github.ts";
+
+const VPM_DISCOVERY_QUERIES = [
+  "vpm vrchat sort:updated",
+  "vpm package listing vrchat sort:updated",
+  "vpm-listing vrchat sort:updated",
+  "VCC listing vrchat sort:updated",
+  "ALCOM vrchat sort:updated",
+  "\"index.json\" \"packages\" vrchat",
+  "\"vpm\" \"index.json\" vrchat"
+];
+
+export async function runVpmDiscovery() {
+  console.log("=================================================");
+  console.log("   VPM REPOSITORY DISCOVERY (Claude Skill Specs) ");
+  console.log("=================================================");
+
+  const initialVpmCount = (db as any).db.query("SELECT count(*) as c FROM entities WHERE platform = 'vpm'").get().c;
+  console.log(`Current VPM Packages in Database: ${initialVpmCount.toLocaleString()}`);
+
+  const candidateUrls = new Set<string>();
+
+  // 1. Search GitHub API with specialized VPM listing queries
+  console.log("\n[1/3] Executing high-signal GitHub API searches...");
+  for (const q of VPM_DISCOVERY_QUERIES) {
+    try {
+      console.log(` Searching: "${q}"...`);
+      const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&per_page=30&sort=updated&order=desc`;
+      const resp = await fetch(searchUrl, {
+        headers: {
+          "User-Agent": CONFIG.userAgent,
+          "Accept": "application/vnd.github.v3+json",
+          ...(CONFIG.githubToken ? { "Authorization": `Bearer ${CONFIG.githubToken}` } : {})
+        }
+      });
+
+      if (!resp.ok) {
+        console.log(`  Search HTTP ${resp.status} (Rate limited or forbidden)`);
+        continue;
+      }
+
+      const data = await resp.json();
+      const items = data.items || [];
+      console.log(`  Found ${items.length} repositories.`);
+
+      for (const item of items) {
+        db.queueUrl(item.html_url, "github");
+
+        const owner = item.owner?.login;
+        const repo = item.name;
+
+        if (item.has_pages && owner) {
+          candidateUrls.add(`https://${owner}.github.io/${repo}/index.json`);
+          candidateUrls.add(`https://${owner}.github.io/${repo}/vpm.json`);
+          candidateUrls.add(`https://${owner}.github.io/vpm/index.json`);
+        }
+
+        if (item.homepage && typeof item.homepage === "string" && item.homepage.startsWith("http")) {
+          const cleanHome = item.homepage.replace(/\/$/, "");
+          if (cleanHome.endsWith(".json")) {
+            candidateUrls.add(cleanHome);
+          } else {
+            candidateUrls.add(`${cleanHome}/index.json`);
+            candidateUrls.add(`${cleanHome}/vpm.json`);
+          }
+        }
+
+        candidateUrls.add(`https://raw.githubusercontent.com/${item.full_name}/HEAD/index.json`);
+        candidateUrls.add(`https://raw.githubusercontent.com/${item.full_name}/HEAD/vpm.json`);
+      }
+    } catch (err) {
+      console.error(`  Error searching "${q}":`, err);
+    }
+
+    await new Promise((r) => setTimeout(r, CONFIG.githubSearchDelayMs));
+  }
+
+  console.log(`\nCollected ${candidateUrls.size} candidate VPM manifest URLs.`);
+
+  // 2. Probing candidate manifests
+  console.log("\n[2/3] Probing candidate manifests for live VPM JSON feeds...");
+  let successfulFeeds = 0;
+
+  for (const url of candidateUrls) {
+    try {
+      const ok = await VpmIndexDriver.crawlManifest(url);
+      if (ok) {
+        successfulFeeds++;
+        db.markDone(url, "vpm");
+      }
+    } catch (_) {}
+  }
+
+  // 3. Ingest creator portfolios
+  // FIXME: this engine needs more context and scraping methods
+  console.log("\n[3/3] Ingesting creator portfolios for newly identified creators...");
+  await GitHubDriver.harvestCreatorRepos(TOP_VRCHAT_CREATORS);
+
+  const finalVpmCount = (db as any).db.query("SELECT count(*) as c FROM entities WHERE platform = 'vpm'").get().c;
+  const totalEntities = (db as any).db.query("SELECT count(*) as c FROM entities").get().c;
+
+  console.log("-------------------------------------------------");
+  console.log("  VPM DISCOVERY PIPELINE COMPLETE");
+  console.log(`  Initial VPM Packages: ${initialVpmCount.toLocaleString()}`);
+  console.log(`  Updated VPM Packages: ${finalVpmCount.toLocaleString()} (+${(finalVpmCount - initialVpmCount).toLocaleString()})`);
+  console.log(`  Total Vetted Packages Across All Platforms: ${totalEntities.toLocaleString()}`);
+  console.log("=================================================");
+}
+
+if (import.meta.main) {
+  runVpmDiscovery().catch(console.error);
+}

@@ -1,0 +1,8 @@
+- there are a lot of false positives added into the main categories
+- there are a lot of true positives added into the quarantined categories
+- 404 resolutions should try to point out on other query methods or crawling, or using a search engine
+- there are a lot of false positive source code repositories that act as the "umbrella" and not the source of such VPM/asset sources
+- retry errors/failed items and move them to a qualified discard section when the crawler tried its best to find the missing resource on all channels and global scopes
+- there is a need to crawl source code to identify relevance to tooling/helper paradigms for VRChat
+- release page's are a good way to indicate verified/existing VPM package distribution
+- instances such as `[INFO] [GitHub] Quarantined Repo: MagmaVRC/SimplXP (No VRChat or Unity ecosystem context found on GitHub)` needs to be properly investigated

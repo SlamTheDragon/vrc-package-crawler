@@ -17,6 +17,7 @@ export interface MinimalEntity {
   raw_json?: string;
 }
 
+// FIXME: need an on-time decision instead of relying on hardcoded seeds for a closely monitored filtering. Perhaps use a neural network?
 export class RelevanceFilter {
   // 1. Blacklisted generic software repository owners (GitHub)
   private static BLACKLIST_OWNERS = new Set([

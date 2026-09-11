@@ -76,6 +76,23 @@ export class GitHubDriver {
           if (evalRes.isRelevant) {
             db.saveEntity(entity);
             vetted++;
+
+            // Claude skill: Proactive VPM manifest discovery from GitHub search hits
+            if (r.has_pages) {
+              db.queueUrl(`https://${r.owner.login}.github.io/${r.name}/index.json`, "vpm");
+              db.queueUrl(`https://${r.owner.login}.github.io/${r.name}/vpm.json`, "vpm");
+              db.queueUrl(`https://${r.owner.login}.github.io/vpm/index.json`, "vpm");
+            }
+            if (r.homepage && typeof r.homepage === "string" && r.homepage.startsWith("http")) {
+              if (r.homepage.endsWith(".json")) {
+                db.queueUrl(r.homepage, "vpm");
+              } else {
+                const cleanHome = r.homepage.replace(/\/$/, "");
+                db.queueUrl(`${cleanHome}/index.json`, "vpm");
+                db.queueUrl(`${cleanHome}/vpm.json`, "vpm");
+              }
+            }
+            db.queueUrl(`https://raw.githubusercontent.com/${r.full_name}/HEAD/index.json`, "vpm");
           } else {
             db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
           }
@@ -231,6 +248,7 @@ export class GitHubDriver {
   }
 
   // Harvests full repository portfolios for prominent VRChat creator accounts
+  // FIXME: need to checkpoint to not repeat
   static async harvestCreatorRepos(creators: string[]): Promise<number> {
     logger.info(`[GitHub] Harvesting repository portfolios for ${creators.length} top creators...`);
     let totalHarvested = 0;
@@ -302,6 +320,7 @@ export class GitHubDriver {
   }
 }
 
+// FIXME: needs empirical validation
 export const TOP_VRCHAT_CREATORS = [
   "anatawa12",
   "bdunderscore",
@@ -340,6 +359,22 @@ export const TOP_VRCHAT_CREATORS = [
   "nadena",
   "baryon",
   "Varneon",
-  "z3y"
+  "z3y",
+  "REDSIM",
+  "Reava",
+  "orange3134",
+  "Udonite",
+  "lightbulb4",
+  "RealWhyKnot",
+  "you5248",
+  "MagmaVRC",
+  "AlanBacker",
+  "ElMoha943",
+  "mitsuya0077",
+  "lumixmc401",
+  "sizimityper",
+  "rassi0429",
+  "cympfh",
+  "yuna0x0"
 ];
 

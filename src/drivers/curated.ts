@@ -3,6 +3,7 @@ import { db } from "../db.ts";
 
 export class CuratedDriver {
   // Harvests all 300 community VPM repositories from repositories.txt
+  // FIXME: there are other VPM distribution platforms that try to claim the spot of the "centralized" ecosystem. this needs empirical data
   static async ingestVpmRepositoriesList(): Promise<number> {
     logger.info("[Curated] Fetching 300 decentralized community VPM repositories from repositories.txt...");
     try {
