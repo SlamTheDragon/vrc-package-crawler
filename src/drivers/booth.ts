@@ -1,6 +1,6 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
-import { db, type EntityRecord } from "../db.ts";
+import { rateLimiter } from "../ratelimit.ts";
 
 export class BoothDriver {
   private static sleep(ms: number) {
@@ -11,6 +11,10 @@ export class BoothDriver {
   static async crawlCategoryPage(pageUrl: string): Promise<string[]> {
     logger.info(`[BOOTH] Crawling category page: ${pageUrl}`);
     try {
+      await rateLimiter.waitIfBackoff("booth");
+      const delay = rateLimiter.getPacingDelayMs("booth", CONFIG.boothDelayMs);
+      await this.sleep(delay);
+
       const resp = await fetch(pageUrl, {
         headers: {
           "User-Agent": CONFIG.userAgent,
@@ -19,10 +23,17 @@ export class BoothDriver {
         }
       });
 
+      if (resp.status === 429 || resp.status === 403) {
+        rateLimiter.handleRateLimit("booth", resp);
+        return [];
+      }
+
       if (!resp.ok) {
         logger.error(`[BOOTH] Category HTTP Error ${resp.status} for ${pageUrl}`);
         return [];
       }
+
+      rateLimiter.handleSuccess("booth", CONFIG.boothDelayMs);
 
       const html = await resp.text();
       const itemMatches = html.match(/\/items\/(\d+)/g) || [];
@@ -45,7 +56,9 @@ export class BoothDriver {
   // Scrapes an individual item page and extracts Schema.org JSON-LD
   static async crawlItemDetail(itemUrl: string): Promise<boolean> {
     try {
-      await this.sleep(CONFIG.boothDelayMs);
+      await rateLimiter.waitIfBackoff("booth");
+      const delay = rateLimiter.getPacingDelayMs("booth", CONFIG.boothDelayMs);
+      await this.sleep(delay);
 
       const resp = await fetch(itemUrl, {
         headers: {
@@ -56,8 +69,7 @@ export class BoothDriver {
       });
 
       if (resp.status === 429 || resp.status === 403) {
-        logger.rateLimit("BOOTH", "Blocked/RateLimited", "Backoff 30s", 30000);
-        await this.sleep(30000);
+        rateLimiter.handleRateLimit("booth", resp);
         return false;
       }
 
@@ -65,6 +77,8 @@ export class BoothDriver {
         logger.warn(`[BOOTH] Item HTTP ${resp.status} for ${itemUrl}`);
         return false;
       }
+
+      rateLimiter.handleSuccess("booth", CONFIG.boothDelayMs);
 
       const html = await resp.text();
       const itemIdMatch = itemUrl.match(/items\/(\d+)/);

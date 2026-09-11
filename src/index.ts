@@ -7,6 +7,7 @@ import { VpmIndexDriver } from "./drivers/vpm_index.ts";
 import { GumroadDriver } from "./drivers/gumroad.ts";
 import { JinxxyDriver } from "./drivers/jinxxy.ts";
 import { CuratedDriver } from "./drivers/curated.ts";
+import { rateLimiter } from "./ratelimit.ts";
 
 let isRunning = true;
 
@@ -279,20 +280,29 @@ async function runVpmWorker() {
 async function runGumroadWorker() {
   logger.info("[Worker:Gumroad] Started.");
   let queryIndex = 0;
+  let lastDiscoverTime = 0;
+  const DISCOVER_COOLDOWN_MS = 60000; // 60s cooldown between discover query bursts
 
   while (isRunning) {
     let items = db.getNextPendingForPlatform("gumroad", 3);
 
-    // If pending queue is low, run internal Gumroad Discover queries to continuously find new creators & tools
+    // If pending queue is low, run internal Gumroad Discover queries ONLY if not in backoff and cooldown elapsed
     if (items.length < 2) {
-      const q = GUMROAD_SEARCH_QUERIES[queryIndex % GUMROAD_SEARCH_QUERIES.length];
-      queryIndex++;
-      logger.info(`[Worker:Gumroad] Queue low. Running discover search for '${q}'...`);
-      for (let p = 1; p <= 3; p++) {
-        const res = await GumroadDriver.crawlDiscoverQuery(q, p);
-        if (res.productsCount === 0) break;
+      const isBackingOff = rateLimiter.isBackingOff("gumroad:discover");
+      const cooldownElapsed = Date.now() - lastDiscoverTime > DISCOVER_COOLDOWN_MS;
+
+      if (!isBackingOff && cooldownElapsed) {
+        lastDiscoverTime = Date.now();
+        const q = GUMROAD_SEARCH_QUERIES[queryIndex % GUMROAD_SEARCH_QUERIES.length];
+        queryIndex++;
+        logger.info(`[Worker:Gumroad] Queue low (${items.length} items). Running discover search for '${q}'...`);
+        for (let p = 1; p <= 3; p++) {
+          if (!isRunning || rateLimiter.isBackingOff("gumroad:discover")) break;
+          const res = await GumroadDriver.crawlDiscoverQuery(q, p);
+          if (res.productsCount === 0) break;
+        }
+        items = db.getNextPendingForPlatform("gumroad", 3);
       }
-      items = db.getNextPendingForPlatform("gumroad", 3);
     }
 
     if (items.length === 0) {

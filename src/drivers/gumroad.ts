@@ -1,19 +1,30 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
+import { rateLimiter } from "../ratelimit.ts";
 
 export class GumroadDriver {
   private static sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // Crawls a Gumroad Discover search query page (e.g. query='vrchat tool', page=1)
+  // Crawls a Gumroad Discover search query page with exponential backoff & dynamic pacing
   static async crawlDiscoverQuery(query: string, page: number = 1): Promise<{ productsCount: number; sellersFound: string[] }> {
+    const key = "gumroad:discover";
+
+    // Wait if currently in backoff from previous 429
+    if (rateLimiter.isBackingOff(key)) {
+      const waitMs = rateLimiter.getRemainingBackoffMs(key);
+      logger.info(`[Gumroad:Discover] Endpoint is currently in backoff. Skipping query '${query}' for ${(waitMs / 1000).toFixed(0)}s.`);
+      return { productsCount: 0, sellersFound: [] };
+    }
+
     const url = `https://gumroad.com/discover?query=${encodeURIComponent(query)}&page=${page}`;
     logger.info(`[Gumroad:Discover] Searching '${query}' page ${page}...`);
 
     try {
-      await this.sleep(CONFIG.gumroadDelayMs);
+      const delay = rateLimiter.getPacingDelayMs(key, CONFIG.gumroadDelayMs);
+      await this.sleep(delay);
 
       const resp = await fetch(url, {
         headers: {
@@ -22,10 +33,18 @@ export class GumroadDriver {
         }
       });
 
+      if (resp.status === 429) {
+        rateLimiter.handleRateLimit(key, resp);
+        return { productsCount: 0, sellersFound: [] };
+      }
+
       if (!resp.ok) {
         logger.warn(`[Gumroad:Discover] HTTP ${resp.status} for query '${query}' page ${page}`);
         return { productsCount: 0, sellersFound: [] };
       }
+
+      // Record success
+      rateLimiter.handleSuccess(key, CONFIG.gumroadDelayMs);
 
       const html = await resp.text();
       const match = html.match(/data-page="([^"]+)"/);
@@ -94,9 +113,13 @@ export class GumroadDriver {
 
   // Crawls an individual product page
   static async crawlProduct(productUrl: string): Promise<boolean> {
+    const key = "gumroad";
+    await rateLimiter.waitIfBackoff(key);
+
     logger.info(`[Gumroad] Fetching product: ${productUrl}`);
     try {
-      await this.sleep(CONFIG.gumroadDelayMs);
+      const delay = rateLimiter.getPacingDelayMs(key, CONFIG.gumroadDelayMs);
+      await this.sleep(delay);
 
       const resp = await fetch(productUrl, {
         headers: {
@@ -105,10 +128,17 @@ export class GumroadDriver {
         }
       });
 
+      if (resp.status === 429) {
+        rateLimiter.handleRateLimit(key, resp);
+        return false;
+      }
+
       if (!resp.ok) {
         logger.warn(`[Gumroad] HTTP ${resp.status} for ${productUrl}`);
         return false;
       }
+
+      rateLimiter.handleSuccess(key, CONFIG.gumroadDelayMs);
 
       const html = await resp.text();
 
@@ -163,9 +193,13 @@ export class GumroadDriver {
 
   // Crawls creator storefront and parses Inertia.js data-page payload
   static async crawlStorefront(storeUrl: string): Promise<boolean> {
+    const key = "gumroad";
+    await rateLimiter.waitIfBackoff(key);
+
     logger.info(`[Gumroad] Spidering creator storefront: ${storeUrl}`);
     try {
-      await this.sleep(CONFIG.gumroadDelayMs);
+      const delay = rateLimiter.getPacingDelayMs(key, CONFIG.gumroadDelayMs);
+      await this.sleep(delay);
 
       const resp = await fetch(storeUrl, {
         headers: {
@@ -174,10 +208,17 @@ export class GumroadDriver {
         }
       });
 
+      if (resp.status === 429) {
+        rateLimiter.handleRateLimit(key, resp);
+        return false;
+      }
+
       if (!resp.ok) {
         logger.warn(`[Gumroad] Storefront HTTP ${resp.status} for ${storeUrl}`);
         return false;
       }
+
+      rateLimiter.handleSuccess(key, CONFIG.gumroadDelayMs);
 
       const htmlText = await resp.text();
       const match = htmlText.match(/data-page="([^"]+)"/);

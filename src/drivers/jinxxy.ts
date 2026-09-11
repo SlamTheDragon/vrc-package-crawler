@@ -1,6 +1,6 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
-import { db, type EntityRecord } from "../db.ts";
+import { rateLimiter } from "../ratelimit.ts";
 
 export class JinxxyDriver {
   private static sleep(ms: number) {
@@ -17,9 +17,13 @@ export class JinxxyDriver {
 
   // Crawls a curated marketplace category or tag URL
   static async crawlBrowsePage(browseUrl: string): Promise<string[]> {
+    const key = "jinxxy";
+    await rateLimiter.waitIfBackoff(key);
+
     logger.info(`[Jinxxy:Browse] Fetching browse page: ${browseUrl}`);
     try {
-      await this.sleep(CONFIG.jinxxyDelayMs);
+      const delay = rateLimiter.getPacingDelayMs(key, CONFIG.jinxxyDelayMs);
+      await this.sleep(delay);
 
       const resp = await fetch(browseUrl, {
         headers: {
@@ -28,10 +32,17 @@ export class JinxxyDriver {
         }
       });
 
+      if (resp.status === 429 || resp.status === 403) {
+        rateLimiter.handleRateLimit(key, resp);
+        return [];
+      }
+
       if (!resp.ok) {
         logger.warn(`[Jinxxy:Browse] HTTP ${resp.status} for ${browseUrl}`);
         return [];
       }
+
+      rateLimiter.handleSuccess(key, CONFIG.jinxxyDelayMs);
 
       const html = await resp.text();
       // Match product links: href="/CreatorName/ProductSlug"
@@ -69,9 +80,13 @@ export class JinxxyDriver {
 
   // Crawls an individual Jinxxy product page
   static async crawlProduct(productUrl: string): Promise<boolean> {
+    const key = "jinxxy";
+    await rateLimiter.waitIfBackoff(key);
+
     logger.info(`[Jinxxy:Product] Inspecting: ${productUrl}`);
     try {
-      await this.sleep(CONFIG.jinxxyDelayMs);
+      const delay = rateLimiter.getPacingDelayMs(key, CONFIG.jinxxyDelayMs);
+      await this.sleep(delay);
 
       const resp = await fetch(productUrl, {
         headers: {
@@ -80,10 +95,17 @@ export class JinxxyDriver {
         }
       });
 
+      if (resp.status === 429 || resp.status === 403) {
+        rateLimiter.handleRateLimit(key, resp);
+        return false;
+      }
+
       if (!resp.ok) {
         logger.warn(`[Jinxxy:Product] HTTP ${resp.status} for ${productUrl}`);
         return false;
       }
+
+      rateLimiter.handleSuccess(key, CONFIG.jinxxyDelayMs);
 
       const html = await resp.text();
 
