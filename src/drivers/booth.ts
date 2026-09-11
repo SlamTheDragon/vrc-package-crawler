@@ -1,5 +1,6 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
+import { db, type EntityRecord } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
 
 export class BoothDriver {
