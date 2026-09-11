@@ -1,25 +1,28 @@
 # VRC Package Crawler
 
-This tool discovers, crawls, and indexes unlisted VRChat packages, tools, and libraries across BOOTH, GitHub, decentralized VPM repositories, Gumroad, and Jinxxy.
+This tool discovers, crawls, and indexes unlisted VRChat packages, tools, and libraries.
+It scans BOOTH, GitHub, community VPM repositories, Gumroad, Jinxxy, and Itch.io.
 It saves all verified data into a local SQLite database.
 
 ## System Components
 
-- Runtime: Bun JavaScript runtime (F:\dev_tools\.bun\bin\bun.exe).
-- Database: SQLite with Write-Ahead Logging (crawler_state.db).
-- Relevance Gatekeeper: Multi-tier semantic filter module (src/filter.ts).
+- Runtime: Bun JavaScript runtime (`F:\dev_tools\.bun\bin\bun.exe`).
+- Database: SQLite with Write-Ahead Logging (`crawler_state.db`).
+- Relevance Gatekeeper: Multi-tier semantic filter module (`src/filter.ts`).
 - Logs: Text log files in the logs directory.
 
 ## File Locations
 
-- Database: F:\.repo\.main\vrc-package-crawler\crawler_state.db
-- Logs directory: F:\.repo\.main\vrc-package-crawler\logs\
-  - crawler.log: General crawl and discovery events.
-  - rate_limits.log: Rate limit events and sleep timers.
-  - errors.log: Network and parse errors.
-- Launcher script: F:\.repo\.main\vrc-package-crawler\run_crawler.bat
-- Monitor launcher: F:\.repo\.main\vrc-package-crawler\watch_status.bat
-- Purge utility: F:\.repo\.main\vrc-package-crawler\src\purge_pollution.ts
+- Database: `F:\.repo\.main\vrc-package-crawler\crawler_state.db`
+- Logs directory: `F:\.repo\.main\vrc-package-crawler\logs\`
+  - `crawler.log`: General crawl and discovery events.
+  - `rate_limits.log`: Rate limit events and sleep timers.
+  - `errors.log`: Network and parse errors.
+- Launcher script: `F:\.repo\.main\vrc-package-crawler\run_crawler.bat`
+- Monitor launcher: `F:\.repo\.main\vrc-package-crawler\watch_status.bat`
+- Purge utility: `F:\.repo\.main\vrc-package-crawler\src\purge_pollution.ts`
+- Catalog generator: `F:\.repo\.main\vrc-package-crawler\src\generate_uncataloged_doc.ts`
+- Output catalog: `Project Documentation\Resource Library\Uncataloged VRChat Tools & Packages.md`
 
 ## Operating Procedures
 
@@ -68,6 +71,19 @@ bun run src/purge_pollution.ts
 ```
 
 The script evaluates all records, keeps verified tools, and moves other items to the quarantined_entities table.
+
+### 5. Generate Uncataloged Packages Catalog
+
+To generate or refresh the categorized Obsidian catalog document, run this command:
+
+```powershell
+bun run src/generate_uncataloged_doc.ts
+```
+
+The script filters out all official VPM catalog packages.
+It classifies all uncataloged community tools into semantic categories.
+It writes the final Obsidian markdown file to:
+`Project Documentation\Resource Library\Uncataloged VRChat Tools & Packages.md`.
 
 ## Checkpoint Milestones
 

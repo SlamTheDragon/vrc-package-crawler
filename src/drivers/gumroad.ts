@@ -296,4 +296,31 @@ export class GumroadDriver {
       return false;
     }
   }
+
+  // Harvests all cross-linked Gumroad storefronts and product permalinks from existing entities
+  static harvestCrossLinks(): number {
+    logger.info("[Gumroad] Harvesting unqueued Gumroad cross-links from existing database entities...");
+    const rows = (db as any).db.query("SELECT external_links_json, raw_json FROM entities").all() as any[];
+    let queued = 0;
+
+    for (const r of rows) {
+      const text = `${r.external_links_json || ""} ${r.raw_json || ""}`;
+      const productMatches = text.match(/https?:\/\/[a-zA-Z0-9_-]+\.gumroad\.com\/l\/[a-zA-Z0-9_-]+/g) || [];
+      for (const pm of productMatches) {
+        if (RelevanceFilter.isUrlCandidateRelevant(pm, "gumroad")) {
+          if (db.queueUrl(pm, "gumroad")) queued++;
+        }
+      }
+
+      const storeMatches = text.match(/https?:\/\/[a-zA-Z0-9_-]+\.gumroad\.com(?!\/l\/)/g) || [];
+      for (const sm of storeMatches) {
+        if (!sm.includes("www.gumroad") && !sm.includes("discover")) {
+          if (db.queueUrl(sm, "gumroad")) queued++;
+        }
+      }
+    }
+
+    logger.info(`[Gumroad] Successfully queued ${queued} novel Gumroad storefront and product URLs into frontier.`);
+    return queued;
+  }
 }

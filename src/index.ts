@@ -2,10 +2,11 @@ import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
 import { db } from "./db.ts";
 import { BoothDriver } from "./drivers/booth.ts";
-import { GitHubDriver } from "./drivers/github.ts";
+import { GitHubDriver, TOP_VRCHAT_CREATORS } from "./drivers/github.ts";
 import { VpmIndexDriver } from "./drivers/vpm_index.ts";
 import { GumroadDriver } from "./drivers/gumroad.ts";
 import { JinxxyDriver } from "./drivers/jinxxy.ts";
+import { ItchDriver } from "./drivers/itch.ts";
 import { CuratedDriver } from "./drivers/curated.ts";
 import { rateLimiter } from "./ratelimit.ts";
 
@@ -94,70 +95,82 @@ async function seedAllDomains() {
     for (const q of githubQueries) {
       db.queueUrl(`https://api.github.com/search/repositories?q=${encodeURIComponent(q)}`, "github");
     }
+
+    // Direct Creator Portfolio Ingestion
+    logger.info("Harvesting top VRChat creator portfolios on GitHub...");
+    await GitHubDriver.harvestCreatorRepos(TOP_VRCHAT_CREATORS);
   }
 
-  // 3. Queue BOOTH browse pages and high-signal keyword searches
+  // 3. Queue BOOTH browse pages and high-signal multi-tag searches
+  const boothPages: { url: string; platform: "booth" }[] = [];
   if (metrics.platformStats["booth"].pending === 0 && metrics.platformStats["booth"].done === 0) {
     logger.info("Seeding BOOTH category browse pages (1-88)...");
-    const boothPages: { url: string; platform: "booth" }[] = [];
     for (let p = 1; p <= 88; p++) {
       boothPages.push({
         url: `https://booth.pm/ja/browse/3D%E3%83%84%E3%83%BC%E3%83%AB%E3%83%BB%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0?page=${p}`,
         platform: "booth"
       });
     }
+  }
 
-    // High signal searches to catch tools filed outside category 208
-    const boothSearches = [
-      "VRChat ツール",
-      "VRChat システム",
-      "Udon",
-      "Modular Avatar",
-      "lilToon"
-    ];
-    for (const bs of boothSearches) {
-      for (let p = 1; p <= 5; p++) {
-        boothPages.push({
-          url: `https://booth.pm/ja/search/${encodeURIComponent(bs)}?page=${p}`,
-          platform: "booth"
-        });
-      }
+  // High-signal multi-tag searches to catch tools filed outside Category 208
+  const BOOTH_TAGS = [
+    "エディタ拡張",
+    "AAO",
+    "VRCFury",
+    "NDMF",
+    "FaceEmo",
+    "GoGoLoco",
+    "SaccFlight",
+    "VirtualLens",
+    "QvPen",
+    "改変ツール",
+    "シェーダー",
+    "PhysBone"
+  ];
+  for (const bt of BOOTH_TAGS) {
+    for (let p = 1; p <= 10; p++) {
+      boothPages.push({
+        url: `https://booth.pm/ja/items?query=${encodeURIComponent(bt)}&page=${p}`,
+        platform: "booth"
+      });
     }
-
+  }
+  if (boothPages.length > 0) {
     db.queueBatchUrls(boothPages);
   }
 
-  // 4. Queue Western creator tool storefronts on Gumroad
-  if (metrics.platformStats["gumroad"].pending < 5) {
-    logger.info("Seeding Western creator tool hubs on Gumroad...");
-    const gumroadHubs = [
-      "https://vrlabs.gumroad.com",
-      "https://dreadrith.gumroad.com",
-      "https://architechvr.gumroad.com",
-      "https://aleasevr.gumroad.com",
-      "https://markcreator.gumroad.com",
-      "https://rollthered.gumroad.com",
-      "https://hfcred.gumroad.com",
-      "https://phasedragon.gumroad.com",
-      "https://hai-vr.gumroad.com",
-      "https://lyuma.gumroad.com",
-      "https://jessycat92.gumroad.com",
-      "https://boopdoodle.gumroad.com",
-      "https://zenithvr.gumroad.com",
-      "https://raicovr.gumroad.com",
-      "https://vrfluff.gumroad.com",
-      "https://liindy.gumroad.com",
-      "https://ktecharms.gumroad.com",
-      "https://heartmarksman.gumroad.com",
-      "https://anmeire.gumroad.com",
-      "https://aparche.gumroad.com",
-      "https://legacytwotails.gumroad.com",
-      "https://rezilloryker.gumroad.com",
-      "https://mcardellje.gumroad.com"
-    ];
-    for (const hub of gumroadHubs) {
-      db.queueUrl(hub, "gumroad");
-    }
+  // 4. Queue Western creator tool storefronts & cross-links on Gumroad
+  logger.info("Seeding Gumroad storefront hubs & cross-linked creator stores...");
+  GumroadDriver.harvestCrossLinks();
+
+  const gumroadHubs = [
+    "https://vrlabs.gumroad.com",
+    "https://dreadrith.gumroad.com",
+    "https://architechvr.gumroad.com",
+    "https://aleasevr.gumroad.com",
+    "https://markcreator.gumroad.com",
+    "https://rollthered.gumroad.com",
+    "https://hfcred.gumroad.com",
+    "https://phasedragon.gumroad.com",
+    "https://hai-vr.gumroad.com",
+    "https://lyuma.gumroad.com",
+    "https://jessycat92.gumroad.com",
+    "https://boopdoodle.gumroad.com",
+    "https://zenithvr.gumroad.com",
+    "https://raicovr.gumroad.com",
+    "https://vrfluff.gumroad.com",
+    "https://liindy.gumroad.com",
+    "https://ktecharms.gumroad.com",
+    "https://heartmarksman.gumroad.com",
+    "https://anmeire.gumroad.com",
+    "https://aparche.gumroad.com",
+    "https://legacytwotails.gumroad.com",
+    "https://rezilloryker.gumroad.com",
+    "https://mcardellje.gumroad.com"
+  ];
+  for (const hub of gumroadHubs) {
+    db.queueUrl(hub, "gumroad");
   }
 
   // 5. Seed Jinxxy marketplace categories, tags, and sitemaps
@@ -178,6 +191,24 @@ async function seedAllDomains() {
       }
     }
   }
+
+  // 6. Seed Itch.io tool browse feeds and searches
+  if (!metrics.platformStats["itch"] || metrics.platformStats["itch"].pending < 5) {
+    logger.info("Seeding Itch.io tool tags and searches...");
+    const itchFeeds = [
+      ...Array.from({ length: 10 }, (_, i) => `https://itch.io/tools/tag-vrchat?page=${i + 1}`),
+      ...Array.from({ length: 5 }, (_, i) => `https://itch.io/tools/tag-udon?page=${i + 1}`),
+      ...Array.from({ length: 5 }, (_, i) => `https://itch.io/tools/tag-vrchat-avatar?page=${i + 1}`),
+      ...Array.from({ length: 5 }, (_, i) => `https://itch.io/tools/tag-avatar?page=${i + 1}`),
+      "https://itch.io/search?q=vrchat+tool",
+      "https://itch.io/search?q=vrchat+shader",
+      "https://itch.io/search?q=vrchat+osc",
+      "https://itch.io/search?q=vrchat+udon"
+    ];
+    for (const f of itchFeeds) {
+      db.queueUrl(f, "itch");
+    }
+  }
 }
 
 // Dedicated BOOTH Worker
@@ -195,7 +226,12 @@ async function runBoothWorker() {
       db.markStatus(item.url, "fetching");
 
       try {
-        if (item.url.includes("/browse/") || item.url.includes("/search/")) {
+        if (
+          item.url.includes("/browse/") ||
+          item.url.includes("/search/") ||
+          item.url.includes("?query=") ||
+          item.url.includes("/items?")
+        ) {
           const itemUrls = await BoothDriver.crawlCategoryPage(item.url);
           for (const u of itemUrls) {
             db.queueUrl(u, "booth");
@@ -365,6 +401,45 @@ async function runJinxxyWorker() {
   logger.info("[Worker:Jinxxy] Stopped.");
 }
 
+// Dedicated Itch.io Worker (browse feeds, searches, and tool product pages)
+async function runItchWorker() {
+  logger.info("[Worker:Itch] Started.");
+  while (isRunning) {
+    const items = db.getNextPendingForPlatform("itch", 5);
+    if (items.length === 0) {
+      await new Promise((r) => setTimeout(r, 4000));
+      continue;
+    }
+
+    for (const item of items) {
+      if (!isRunning) break;
+      db.markStatus(item.url, "fetching");
+
+      try {
+        if (
+          item.url.includes("/tools/") ||
+          item.url.includes("/tag-") ||
+          item.url.includes("/search") ||
+          item.url.includes("itch.io/tools")
+        ) {
+          const productUrls = await ItchDriver.crawlBrowsePage(item.url);
+          for (const pu of productUrls) {
+            db.queueUrl(pu, "itch");
+          }
+          db.markStatus(item.url, "done");
+        } else {
+          const ok = await ItchDriver.crawlProduct(item.url);
+          db.markStatus(item.url, ok ? "done" : "failed");
+        }
+      } catch (err) {
+        logger.error(`[Worker:Itch] Error on ${item.url}`, err);
+        db.markStatus(item.url, "failed");
+      }
+    }
+  }
+  logger.info("[Worker:Itch] Stopped.");
+}
+
 // Heartbeat & Checkpoint Monitor
 async function runMonitor() {
   let cycle = 0;
@@ -399,13 +474,14 @@ async function main() {
     isRunning = false;
   });
 
-  logger.info("Launching concurrent domain workers: [BOOTH, GitHub, VPM, Gumroad, Jinxxy, Monitor]...");
+  logger.info("Launching concurrent domain workers: [BOOTH, GitHub, VPM, Gumroad, Jinxxy, Itch, Monitor]...");
   await Promise.all([
     runBoothWorker(),
     runGithubWorker(),
     runVpmWorker(),
     runGumroadWorker(),
     runJinxxyWorker(),
+    runItchWorker(),
     runMonitor()
   ]);
 

@@ -229,4 +229,117 @@ export class GitHubDriver {
       return false;
     }
   }
+
+  // Harvests full repository portfolios for prominent VRChat creator accounts
+  static async harvestCreatorRepos(creators: string[]): Promise<number> {
+    logger.info(`[GitHub] Harvesting repository portfolios for ${creators.length} top creators...`);
+    let totalHarvested = 0;
+
+    for (const creator of creators) {
+      try {
+        await this.sleep(CONFIG.githubSearchDelayMs);
+        const url = `https://api.github.com/users/${creator}/repos?per_page=100&type=owner`;
+        const resp = await fetch(url, { headers: this.getHeaders() });
+
+        if (resp.status === 403 || resp.status === 429) {
+          const reset = resp.headers.get("x-ratelimit-reset");
+          const remaining = resp.headers.get("x-ratelimit-remaining") || "0";
+          logger.rateLimit("GitHub", remaining, reset, 30000);
+          break; // Stop harvesting if rate limited
+        }
+
+        if (!resp.ok) {
+          logger.warn(`[GitHub] Failed to fetch repos for ${creator}: HTTP ${resp.status}`);
+          continue;
+        }
+
+        const repos = (await resp.json()) as any[];
+        if (!Array.isArray(repos)) continue;
+
+        let creatorVetted = 0;
+        for (const r of repos) {
+          if (r.fork) continue;
+          const repoUrl = r.html_url;
+
+          const entity: EntityRecord = {
+            id: `github:${r.full_name}`,
+            platform: "github",
+            url: repoUrl,
+            title: r.name,
+            author: r.owner?.login || creator,
+            description: r.description || "",
+            tags_json: JSON.stringify(r.topics || []),
+            external_links_json: JSON.stringify([r.homepage].filter(Boolean)),
+            raw_json: JSON.stringify({
+              stargazers_count: r.stargazers_count,
+              forks_count: r.forks_count,
+              default_branch: r.default_branch,
+              license: r.license?.spdx_id
+            })
+          };
+
+          const evalRes = RelevanceFilter.evaluate(entity);
+          if (evalRes.isRelevant) {
+            db.saveEntity(entity);
+            creatorVetted++;
+            totalHarvested++;
+          } else {
+            db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+          }
+
+          // Queue repo into frontier for deep README cross-link inspection
+          db.queueUrl(repoUrl, "github");
+        }
+
+        logger.info(`[GitHub] Creator @${creator}: Ingested ${creatorVetted}/${repos.length} vetted repositories.`);
+      } catch (e) {
+        logger.error(`[GitHub] Error harvesting repos for @${creator}`, e);
+      }
+    }
+
+    logger.info(`[GitHub] Completed creator portfolio harvest. Total vetted repos ingested: ${totalHarvested}`);
+    return totalHarvested;
+  }
 }
+
+export const TOP_VRCHAT_CREATORS = [
+  "anatawa12",
+  "bdunderscore",
+  "modular-avatar",
+  "hai-vr",
+  "vrcfury",
+  "poiyomi",
+  "lilxyzw",
+  "CyanLaser",
+  "MerlinVR",
+  "Dreadrith",
+  "ArchitechAnon",
+  "VRLabs",
+  "pumkin",
+  "d4rkmini",
+  "VRCFaceTracking",
+  "Reimajo",
+  "whiteflare",
+  "CascadianVR",
+  "RollTheRed",
+  "kurotu",
+  "JanSharp",
+  "thryrallo",
+  "JLChnToZ",
+  "yueby",
+  "netnarazaka",
+  "happyrobot33",
+  "sonic853",
+  "hoshinolabs",
+  "furality",
+  "sacc",
+  "techan",
+  "vrchat-community",
+  "rurre",
+  "razgriz-one",
+  "nadena",
+  "baryon",
+  "Varneon",
+  "z3y"
+];
+

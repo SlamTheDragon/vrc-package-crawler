@@ -335,14 +335,18 @@ export class RelevanceFilter {
         "ndmf", "liltoon", "poiyomi", "blendshape", "physbone", "dynamicbone",
         "gogoloco", "faceemo", "saccflight", "qvpen", "kurotu", "anatawa12",
         "nadena", "baryon", "d4rk", "pumkin", "cyanlaser", "vrclib", "lyuma",
-        "hai-vr", "unity", "blender", "facetrack", "openvr", "steamvr", "ovr"
+        "hai-vr", "unity", "blender", "facetrack", "openvr", "steamvr", "ovr",
+        "bdunderscore", "merlinvr", "dreadrith", "architech", "vrlabs", "reimajo",
+        "whiteflare", "cascadianvr", "rollthered", "jansharp", "thryrallo",
+        "jlchntoz", "yueby", "netnarazaka", "happyrobot", "sonic853", "hoshinolabs",
+        "furality", "sacc", "techan", "vrchat-community", "rurre", "razgriz", "varneon", "z3y"
       ];
 
       return VRC_URL_TERMS.some((term) => u.includes(term));
     }
 
-    // Fast reject obvious cosmetic slugs on Jinxxy & Gumroad
-    if (platform === "jinxxy" || platform === "gumroad") {
+    // Fast reject obvious cosmetic slugs on Jinxxy, Gumroad & Itch
+    if (platform === "jinxxy" || platform === "gumroad" || platform === "itch") {
       for (const pat of this.ASSET_EXCLUSION_PATTERNS) {
         if (pat.test(u)) return false;
       }
