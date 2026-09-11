@@ -2,6 +2,7 @@ import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
+import { RelevanceFilter } from "../filter.ts";
 
 export class BoothDriver {
   private static sleep(ms: number) {
@@ -143,8 +144,14 @@ export class BoothDriver {
         raw_json: JSON.stringify({ itemId, title, author, priceAmount, tags, extLinks })
       };
 
-      db.saveEntity(record);
-      logger.info(`[BOOTH] Ingested: [${itemId}] ${title.slice(0, 50)} by ${author}`);
+      const evalRes = RelevanceFilter.evaluate(record);
+      if (evalRes.isRelevant) {
+        db.saveEntity(record);
+        logger.info(`[BOOTH] Ingested: [${itemId}] ${title.slice(0, 50)} by ${author} (Score: ${evalRes.score})`);
+      } else {
+        db.quarantineEntity(record.id, record.platform, record.url, record.title, record.author, evalRes.reasons);
+        logger.info(`[BOOTH] Quarantined: [${itemId}] ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
+      }
       return true;
     } catch (e) {
       logger.error(`[BOOTH] Error processing item ${itemUrl}`, e);

@@ -1,12 +1,13 @@
 # VRC Package Crawler
 
 This tool discovers, crawls, and indexes unlisted VRChat packages, tools, and libraries across BOOTH, GitHub, decentralized VPM repositories, Gumroad, and Jinxxy.
-It saves all data into a local SQLite database.
+It saves all verified data into a local SQLite database.
 
 ## System Components
 
 - Runtime: Bun JavaScript runtime (F:\dev_tools\.bun\bin\bun.exe).
 - Database: SQLite with Write-Ahead Logging (crawler_state.db).
+- Relevance Gatekeeper: Multi-tier semantic filter module (src/filter.ts).
 - Logs: Text log files in the logs directory.
 
 ## File Locations
@@ -18,6 +19,7 @@ It saves all data into a local SQLite database.
   - errors.log: Network and parse errors.
 - Launcher script: F:\.repo\.main\vrc-package-crawler\run_crawler.bat
 - Monitor launcher: F:\.repo\.main\vrc-package-crawler\watch_status.bat
+- Purge utility: F:\.repo\.main\vrc-package-crawler\src\purge_pollution.ts
 
 ## Operating Procedures
 
@@ -25,15 +27,15 @@ It saves all data into a local SQLite database.
 
 To view continuous live crawler progress, run this command:
 
-`powershell
+```powershell
 bun run src/status.ts
-`
+```
 
 You can also run the monitor script:
 
-`cmd
+```cmd
 watch_status.bat
-`
+```
 
 The screen clears and updates every second.
 Push Ctrl + C to exit the monitor.
@@ -42,20 +44,30 @@ Push Ctrl + C to exit the monitor.
 
 To start the crawler in a new terminal window, run this batch file:
 
-`cmd
+```cmd
 run_crawler.bat
-`
+```
 
 You can also run this command in your terminal:
 
-`powershell
+```powershell
 bun run src/index.ts
-`
+```
 
 ### 3. Stop the Crawler
 
 To stop the crawler safely, push Ctrl + C in the terminal window.
 The engine finishes the active request, closes the database, and stops.
+
+### 4. Run Relevance Purge and Audit
+
+To audit the database and move non-tool records into quarantine, run this command:
+
+```powershell
+bun run src/purge_pollution.ts
+```
+
+The script evaluates all records, keeps verified tools, and moves other items to the quarantined_entities table.
 
 ## Checkpoint Milestones
 

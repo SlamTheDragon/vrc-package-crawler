@@ -80,6 +80,18 @@ export class CrawlerDB {
         notes TEXT
       );
     `);
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS quarantined_entities (
+        id TEXT PRIMARY KEY,
+        platform TEXT NOT NULL,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        author TEXT NOT NULL,
+        reasons_json TEXT,
+        quarantined_at TEXT NOT NULL
+      );
+    `);
   }
 
   public resetStaleFetching(): number {
@@ -184,12 +196,36 @@ export class CrawlerDB {
     }
   }
 
+  quarantineEntity(
+    id: string,
+    platform: string,
+    url: string,
+    title: string,
+    author: string,
+    reasons: string[]
+  ): boolean {
+    const now = new Date().toISOString();
+    try {
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO quarantined_entities (
+          id, platform, url, title, author, reasons_json, quarantined_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+      `);
+      const res = stmt.run(id, platform, url, title, author, JSON.stringify(reasons), now);
+      return res.changes > 0;
+    } catch (err) {
+      logger.error(`Failed to quarantine entity ${id}`, err);
+      return false;
+    }
+  }
+
   getMetrics() {
     const totalDiscovered = (this.db.prepare("SELECT COUNT(*) as c FROM frontier;").get() as any).c;
     const totalPending = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE status = 'pending';").get() as any).c;
     const totalDone = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE status = 'done';").get() as any).c;
     const totalFailed = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE status = 'failed';").get() as any).c;
     const totalEntities = (this.db.prepare("SELECT COUNT(*) as c FROM entities;").get() as any).c;
+    const totalQuarantined = (this.db.prepare("SELECT COUNT(*) as c FROM quarantined_entities;").get() as any).c;
 
     const platforms = ["booth", "github", "vpm", "gumroad", "jinxxy"];
     const platformStats: Record<string, { pending: number; done: number; entities: number }> = {};
@@ -207,6 +243,7 @@ export class CrawlerDB {
       totalDone,
       totalFailed,
       totalEntities,
+      totalQuarantined,
       platformStats
     };
   }

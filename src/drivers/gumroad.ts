@@ -2,6 +2,7 @@ import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
+import { RelevanceFilter } from "../filter.ts";
 
 export class GumroadDriver {
   private static sleep(ms: number) {
@@ -99,11 +100,16 @@ export class GumroadDriver {
           })
         };
 
-        db.saveEntity(entity);
-        saved++;
+        const evalRes = RelevanceFilter.evaluate(entity);
+        if (evalRes.isRelevant) {
+          db.saveEntity(entity);
+          saved++;
+        } else {
+          db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+        }
       }
 
-      logger.info(`[Gumroad:Discover] Ingested ${saved} products, queued ${sellersFound.length} creator storefronts for '${query}' page ${page}`);
+      logger.info(`[Gumroad:Discover] Ingested ${saved}/${products.length} vetted products, queued ${sellersFound.length} creator storefronts for '${query}' page ${page}`);
       return { productsCount: saved, sellersFound };
     } catch (e) {
       logger.error(`[Gumroad:Discover] Error for query '${query}' page ${page}`, e);
@@ -182,8 +188,14 @@ export class GumroadDriver {
         raw_json: JSON.stringify({ slug, title, author: creatorName, desc, extLinks })
       };
 
-      db.saveEntity(entity);
-      logger.info(`[Gumroad] Ingested: ${title.slice(0, 50)} by ${creatorName}`);
+      const evalRes = RelevanceFilter.evaluate(entity);
+      if (evalRes.isRelevant) {
+        db.saveEntity(entity);
+        logger.info(`[Gumroad] Ingested: ${title.slice(0, 50)} by ${creatorName} (Score: ${evalRes.score})`);
+      } else {
+        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+        logger.info(`[Gumroad] Quarantined: ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
+      }
       return true;
     } catch (e) {
       logger.error(`[Gumroad] Error crawling product ${productUrl}`, e);
@@ -267,12 +279,17 @@ export class GumroadDriver {
             })
           };
 
-          db.saveEntity(entity);
-          count++;
+          const evalRes = RelevanceFilter.evaluate(entity);
+          if (evalRes.isRelevant) {
+            db.saveEntity(entity);
+            count++;
+          } else {
+            db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+          }
         }
       }
 
-      logger.info(`[Gumroad] Ingested ${count} products from storefront: ${storeUrl} (${creatorName})`);
+      logger.info(`[Gumroad] Ingested ${count} vetted products from storefront: ${storeUrl} (${creatorName})`);
       return true;
     } catch (e) {
       logger.error(`[Gumroad] Error parsing storefront ${storeUrl}`, e);

@@ -1,6 +1,7 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
+import { RelevanceFilter } from "../filter.ts";
 
 export class GitHubDriver {
   private static sleep(ms: number) {
@@ -50,6 +51,7 @@ export class GitHubDriver {
         const repos = data.items || [];
         if (repos.length === 0) break;
 
+        let vetted = 0;
         for (const r of repos) {
           allRepoUrls.push(r.html_url);
 
@@ -69,10 +71,17 @@ export class GitHubDriver {
               license: r.license?.spdx_id
             })
           };
-          db.saveEntity(entity);
+
+          const evalRes = RelevanceFilter.evaluate(entity);
+          if (evalRes.isRelevant) {
+            db.saveEntity(entity);
+            vetted++;
+          } else {
+            db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+          }
         }
 
-        logger.info(`[GitHub] Page ${page}/${maxPages}: Ingested ${repos.length} repos for "${query}"`);
+        logger.info(`[GitHub] Page ${page}/${maxPages}: Ingested ${vetted}/${repos.length} vetted repos for "${query}"`);
         if (repos.length < 30) break; // Reached last page
       } catch (e) {
         logger.error(`[GitHub] Error on search page ${page} for: ${query}`, e);
@@ -128,13 +137,26 @@ export class GitHubDriver {
           }
 
           // Cross-reference extraction from README!
+          // ONLY queue outbound GitHub links if the target is pre-screened as relevant
           const links = readmeText.match(/https?:\/\/[^\s\)\"]+/g) || [];
           for (const l of links) {
             if (l.includes("github.com") && !l.includes(`${owner}/${repo}`)) {
-              const m = l.match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/);
+              const m = l.match(/https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/);
               if (m && !extLinks.includes(m[0])) {
-                extLinks.push(m[0]);
-                db.queueUrl(m[0], "github");
+                const targetUrl = m[0];
+                const targetLower = targetUrl.toLowerCase();
+                // Reject generic paths and blacklisted orgs
+                if (
+                  RelevanceFilter.isUrlCandidateRelevant(targetUrl, "github") &&
+                  !targetLower.includes("/actions") &&
+                  !targetLower.includes("/issues") &&
+                  !targetLower.includes("/pulls") &&
+                  !targetLower.includes("/blob/") &&
+                  !targetLower.includes("/tree/")
+                ) {
+                  extLinks.push(targetUrl);
+                  db.queueUrl(targetUrl, "github");
+                }
               }
             } else if (l.includes("booth.pm/ja/items/") || l.includes("booth.pm/en/items/")) {
               const m = l.match(/https:\/\/booth\.pm\/(?:ja|en)\/items\/\d+/);
@@ -145,8 +167,10 @@ export class GitHubDriver {
             } else if (l.includes("gumroad.com/l/")) {
               const m = l.match(/https:\/\/[^/]*gumroad\.com\/l\/[^/?#]+/);
               if (m && !extLinks.includes(m[0])) {
-                extLinks.push(m[0]);
-                db.queueUrl(m[0], "gumroad");
+                if (RelevanceFilter.isUrlCandidateRelevant(m[0], "gumroad")) {
+                  extLinks.push(m[0]);
+                  db.queueUrl(m[0], "gumroad");
+                }
               }
             } else if (l.endsWith("/vpm.json") || l.endsWith("/index.json")) {
               if (!extLinks.includes(l)) {
@@ -190,8 +214,15 @@ export class GitHubDriver {
         raw_json: JSON.stringify({ owner, repo, readmeLength: readmeText.length })
       };
 
-      db.saveEntity(entity);
-      logger.info(`[GitHub] Ingested Repo: ${owner}/${repo} (${extLinks.length} cross-links queued)`);
+      const evalRes = RelevanceFilter.evaluate(entity);
+      if (evalRes.isRelevant) {
+        db.saveEntity(entity);
+        logger.info(`[GitHub] Ingested Repo: ${owner}/${repo} (Score: ${evalRes.score}, Confidence: ${evalRes.confidence.toFixed(2)})`);
+      } else {
+        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+        logger.info(`[GitHub] Quarantined Repo: ${owner}/${repo} (${evalRes.reasons.join(", ")})`);
+      }
+
       return true;
     } catch (e) {
       logger.error(`[GitHub] Error crawling repo ${repoUrl}`, e);

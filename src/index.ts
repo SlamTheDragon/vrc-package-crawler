@@ -376,7 +376,7 @@ async function runMonitor() {
     const m = db.getMetrics();
     const S = m.totalDiscovered > 0 ? (m.totalDone / m.totalDiscovered) : 0;
     db.recordCheckpoint(S, `Cycle ${cycle} status check`);
-    logger.info(`[HEARTBEAT] Total: ${m.totalEntities} entities | Done: ${m.totalDone}/${m.totalDiscovered} | Saturation: ${(S * 100).toFixed(1)}%`);
+    logger.info(`[HEARTBEAT] Vetted Tools: ${m.totalEntities} | Quarantined: ${m.totalQuarantined} | Done: ${m.totalDone}/${m.totalDiscovered} | Saturation: ${(S * 100).toFixed(1)}%`);
   }
 }
 

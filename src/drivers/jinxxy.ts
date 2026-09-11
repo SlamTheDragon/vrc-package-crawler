@@ -2,6 +2,7 @@ import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
+import { RelevanceFilter } from "../filter.ts";
 
 export class JinxxyDriver {
   private static sleep(ms: number) {
@@ -66,12 +67,12 @@ export class JinxxyDriver {
         }
 
         const fullUrl = `https://jinxxy.com${path}`;
-        if (!discoveredUrls.includes(fullUrl)) {
+        if (!discoveredUrls.includes(fullUrl) && RelevanceFilter.isUrlCandidateRelevant(fullUrl, "jinxxy")) {
           discoveredUrls.push(fullUrl);
         }
       }
 
-      logger.info(`[Jinxxy:Browse] Found ${discoveredUrls.length} products on ${browseUrl}`);
+      logger.info(`[Jinxxy:Browse] Found ${discoveredUrls.length} candidate products on ${browseUrl}`);
       return discoveredUrls;
     } catch (e) {
       logger.error(`[Jinxxy:Browse] Error crawling ${browseUrl}`, e);
@@ -182,8 +183,14 @@ export class JinxxyDriver {
         })
       };
 
-      db.saveEntity(entity);
-      logger.info(`[Jinxxy:Product] Ingested: ${title.slice(0, 50)} by ${creatorName} (Cross-links: ${extLinks.length})`);
+      const evalRes = RelevanceFilter.evaluate(entity);
+      if (evalRes.isRelevant) {
+        db.saveEntity(entity);
+        logger.info(`[Jinxxy:Product] Ingested: ${title.slice(0, 50)} by ${creatorName} (Score: ${evalRes.score})`);
+      } else {
+        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+        logger.info(`[Jinxxy:Product] Quarantined: ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
+      }
       return true;
     } catch (e) {
       logger.error(`[Jinxxy:Product] Error inspecting ${productUrl}`, e);
@@ -214,9 +221,12 @@ export class JinxxyDriver {
         const slashCount = (path.match(/\//g) || []).length;
         if (slashCount !== 1) continue;
 
-        // Check if slug contains tool keywords
+        // Check if slug contains tool keywords and passes pre-screening
         const lower = path.toLowerCase();
-        if (this.TOOL_KEYWORDS.some((kw) => lower.includes(kw))) {
+        if (
+          this.TOOL_KEYWORDS.some((kw) => lower.includes(kw)) &&
+          RelevanceFilter.isUrlCandidateRelevant(u, "jinxxy")
+        ) {
           toolUrls.push(u);
         }
       }
