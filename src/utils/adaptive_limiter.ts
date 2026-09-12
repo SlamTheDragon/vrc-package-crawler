@@ -35,6 +35,7 @@ export class AdaptiveRateLimiter {
 
   private baseBackoffMs: number = 30000;
   private maxBackoffMs: number = 300000;
+  private isDraining: boolean = false;
 
   constructor() {
     // Default baseline configurations per crawling platform
@@ -154,11 +155,35 @@ export class AdaptiveRateLimiter {
     return Math.max(0, state.backoffUntil - Date.now());
   }
 
+  private async sleepPaced(ms: number): Promise<void> {
+    const end = Date.now() + ms;
+    while (!this.isDraining && Date.now() < end) {
+      const wait = Math.min(100, end - Date.now());
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+
+  /**
+   * Immediately drains all queues and cancels backoff sleeps on graceful shutdown.
+   */
+  drain(): void {
+    this.isDraining = true;
+    for (const [, state] of this.hosts) {
+      state.backoffUntil = 0;
+      state.isAcquired = false;
+      state.isInFlight = false;
+      while (state.waitQueue.length > 0) {
+        const next = state.waitQueue.shift()!;
+        try { next(); } catch (_) {}
+      }
+    }
+  }
+
   async waitIfBackoff(host: string): Promise<boolean> {
     const remaining = this.getRemainingBackoffMs(host);
     if (remaining > 0) {
       logger.info(`[RateLimiter] '${this.normalizeHost(host)}' is in backoff. Pausing for ${(remaining / 1000).toFixed(1)}s...`);
-      await new Promise((r) => setTimeout(r, remaining));
+      await this.sleepPaced(remaining);
       return true;
     }
     return false;
@@ -169,6 +194,10 @@ export class AdaptiveRateLimiter {
    * Guarantees strict single-request serialization per host (Mercator politeness).
    */
   async acquire(host: string): Promise<() => void> {
+    if (this.isDraining) {
+      return () => {};
+    }
+
     const norm = this.normalizeHost(host);
     const { state, config } = this.getOrCreateHost(norm);
 
@@ -181,6 +210,11 @@ export class AdaptiveRateLimiter {
       state.isInFlight = true;
     }
 
+    if (this.isDraining) {
+      state.isInFlight = false;
+      return () => {};
+    }
+
     state.isAcquired = true;
 
     // Check if host is in backoff (from a 429)
@@ -188,7 +222,13 @@ export class AdaptiveRateLimiter {
     if (state.backoffUntil > now) {
       const waitMs = state.backoffUntil - now;
       logger.info(`[RateLimiter] '${norm}' in backoff; waiting ${(waitMs / 1000).toFixed(1)}s before acquiring...`);
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      await this.sleepPaced(waitMs);
+    }
+
+    if (this.isDraining) {
+      state.isInFlight = false;
+      state.isAcquired = false;
+      return () => {};
     }
 
     // Enforce politeness delay with decorrelation jitter
@@ -198,7 +238,7 @@ export class AdaptiveRateLimiter {
 
     if (elapsed < requiredDelay) {
       const waitTime = requiredDelay - elapsed;
-      await new Promise((resolve) => setTimeout(resolve, waitTime));
+      await this.sleepPaced(waitTime);
     }
 
     const startTime = Date.now();

@@ -5,8 +5,22 @@ import { RelevanceFilter, CREATOR_ALIASES } from "../filter.ts";
 import { IanaRegistry } from "../utils/iana.ts";
 
 export class GitHubDriver {
-  private static sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private static isAborted = false;
+
+  public static abort() {
+    this.isAborted = true;
+  }
+
+  public static reset() {
+    this.isAborted = false;
+  }
+
+  private static async sleep(ms: number) {
+    const end = Date.now() + ms;
+    while (!this.isAborted && Date.now() < end) {
+      const wait = Math.min(100, end - Date.now());
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
   }
 
   private static getHeaders(): Record<string, string> {
@@ -22,10 +36,12 @@ export class GitHubDriver {
 
   // Searches repositories with multi-page pagination
   static async searchRepos(query: string, maxPages: number = 3): Promise<string[]> {
+    if (this.isAborted || db.isClosed) return [];
     logger.info(`[GitHub] Executing paginated search: "${query}" (up to ${maxPages} pages)`);
     const allRepoUrls: string[] = [];
 
     for (let page = 1; page <= maxPages; page++) {
+      if (this.isAborted || db.isClosed) break;
       try {
         await this.sleep(CONFIG.githubSearchDelayMs);
 
@@ -341,10 +357,12 @@ export class GitHubDriver {
 
   // Harvests full repository portfolios for prominent VRChat creator accounts with multi-tier fallback
   static async harvestCreatorRepos(creators: string[]): Promise<number> {
+    if (this.isAborted || db.isClosed) return 0;
     logger.info(`[GitHub] Harvesting repository portfolios for ${creators.length} creators...`);
     let totalHarvested = 0;
 
     for (const rawCreator of creators) {
+      if (this.isAborted || db.isClosed) break;
       if (!rawCreator || typeof rawCreator !== "string") continue;
       const cleanHandle = rawCreator.trim().replace(/^@/, "");
 
@@ -474,6 +492,7 @@ export class GitHubDriver {
 
   // Harvests portfolios for dynamically discovered creators from database truth sources (VPM manifests, cross-references, GitHub repos)
   static async harvestDiscoveredCreators(maxCreators: number = 150): Promise<number> {
+    if (this.isAborted || db.isClosed) return 0;
     logger.info("[GitHub] Deriving dynamic creator list from database entities truth source...");
     const discovered = new Set<string>();
 

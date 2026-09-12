@@ -6,12 +6,27 @@ import { RelevanceFilter } from "../filter.ts";
 import { CuratedDriver } from "./curated.ts";
 
 export class GumroadDriver {
-  private static sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private static isAborted = false;
+
+  public static abort() {
+    this.isAborted = true;
+  }
+
+  public static reset() {
+    this.isAborted = false;
+  }
+
+  private static async sleep(ms: number) {
+    const end = Date.now() + ms;
+    while (!this.isAborted && Date.now() < end) {
+      const wait = Math.min(100, end - Date.now());
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
   }
 
   // Crawls a Gumroad Discover search query page with exponential backoff & dynamic pacing
   static async crawlDiscoverQuery(query: string, page: number = 1): Promise<{ productsCount: number; sellersFound: string[] }> {
+    if (this.isAborted || db.isClosed) return { productsCount: 0, sellersFound: [] };
     const key = "gumroad:discover";
 
     // Wait if currently in backoff from previous 429
@@ -28,6 +43,7 @@ export class GumroadDriver {
     try {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.gumroadDelayMs);
       await this.sleep(delay);
+      if (this.isAborted || db.isClosed) return { productsCount: 0, sellersFound: [] };
 
       const resp = await fetch(url, {
         headers: {
@@ -127,6 +143,7 @@ export class GumroadDriver {
 
   // Crawls an individual product page
   static async crawlProduct(productUrl: string): Promise<boolean> {
+    if (this.isAborted || db.isClosed) return false;
     const key = "gumroad";
     await rateLimiter.waitIfBackoff(key);
 
@@ -134,6 +151,7 @@ export class GumroadDriver {
     try {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.gumroadDelayMs);
       await this.sleep(delay);
+      if (this.isAborted || db.isClosed) return false;
 
       let currentUrl = productUrl;
       let resp = await fetch(currentUrl, {
@@ -256,6 +274,7 @@ export class GumroadDriver {
 
   // Crawls creator storefront and parses Inertia.js data-page payload
   static async crawlStorefront(storeUrl: string): Promise<boolean> {
+    if (this.isAborted || db.isClosed) return false;
     const key = "gumroad";
     await rateLimiter.waitIfBackoff(key);
 
@@ -263,6 +282,7 @@ export class GumroadDriver {
     try {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.gumroadDelayMs);
       await this.sleep(delay);
+      if (this.isAborted || db.isClosed) return false;
 
       let currentStore = storeUrl;
       let resp = await fetch(currentStore, {

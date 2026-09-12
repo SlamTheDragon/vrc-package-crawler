@@ -4,8 +4,22 @@ import { db, type EntityRecord } from "../db.ts";
 import { RelevanceFilter } from "../filter.ts";
 
 export class VpmIndexDriver {
-  private static sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private static isAborted = false;
+
+  public static abort() {
+    this.isAborted = true;
+  }
+
+  public static reset() {
+    this.isAborted = false;
+  }
+
+  private static async sleep(ms: number) {
+    const end = Date.now() + ms;
+    while (!this.isAborted && Date.now() < end) {
+      const wait = Math.min(100, end - Date.now());
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
   }
 
   // Generates rich candidate URLs based on Claude skill pattern recognition
@@ -50,9 +64,11 @@ export class VpmIndexDriver {
 
   // Ingests a VPM index.json / vpm.json repository manifest or direct package.json with fallback probing
   static async crawlManifest(manifestUrl: string): Promise<boolean> {
+    if (this.isAborted || db.isClosed) return false;
     const candidates = this.getUrlCandidates(manifestUrl);
 
     for (const testUrl of candidates) {
+      if (this.isAborted || db.isClosed) break;
       try {
         await this.sleep(CONFIG.vpmIndexDelayMs);
 

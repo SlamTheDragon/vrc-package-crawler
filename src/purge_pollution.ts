@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { RelevanceFilter, type MinimalEntity } from "./filter.ts";
+import { CONFIG } from "./config.ts";
 
 console.log("\x1b[36m");
 console.log("==================================================================");
@@ -7,9 +8,10 @@ console.log("   VRC PACKAGE CRAWLER — CROSS-PLATFORM RELEVANCE PURGE & AUDIT  
 console.log("==================================================================");
 console.log("\x1b[0m");
 
-const db = new Database("crawler_state.db");
-db.run("PRAGMA journal_mode = WAL;");
-db.run("PRAGMA busy_timeout = 10000;");
+const db = new Database(CONFIG.dbPath);
+try {
+  db.run("PRAGMA journal_mode = WAL;");
+  db.run("PRAGMA busy_timeout = 10000;");
 
 // Ensure quarantined_entities exists
 db.run(`
@@ -114,6 +116,11 @@ console.log(`  Entities (Pristine Tools):   ${finalEntities}`);
 console.log(`  Quarantined Records:         ${finalQuarantined}`);
 console.log(`  Frontier Total:              ${finalFrontier}`);
 console.log(`  Frontier Pending:            ${finalPending}`);
+} finally {
+  try {
+    db.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    db.close();
+  } catch (_) {}
+}
 
-db.close();
 console.log("\nPurge process completed successfully.");

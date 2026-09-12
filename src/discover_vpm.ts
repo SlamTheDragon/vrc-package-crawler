@@ -15,24 +15,42 @@ const VPM_DISCOVERY_QUERIES = [
   "\"vpm\" \"index.json\" vrchat"
 ];
 
+let isVpmInterrupted = false;
+
+function shutdownVpm(signal: string) {
+  if (isVpmInterrupted) {
+    process.exit(130);
+  }
+  isVpmInterrupted = true;
+  console.log(`\n\x1b[33m[VPM DISCOVERY] Interrupted via ${signal}. Flushing database and exiting cleanly...\x1b[0m`);
+  try {
+    db.close();
+  } catch (_) {}
+  process.exit(0);
+}
+
 export async function runVpmDiscovery() {
   console.log("=================================================");
   console.log("   VPM REPOSITORY DISCOVERY (Claude Skill Specs) ");
   console.log("=================================================");
 
-  const initialVpmCount = (db as any).db.query("SELECT count(*) as c FROM entities WHERE platform = 'vpm'").get().c;
-  console.log(`Current VPM Packages in Database: ${initialVpmCount.toLocaleString()}`);
+  try {
+    const initialVpmCount = (db as any).db.query("SELECT count(*) as c FROM entities WHERE platform = 'vpm'").get().c;
+    console.log(`Current VPM Packages in Database: ${initialVpmCount.toLocaleString()}`);
 
-  // 0. Multi-author decentralized community registry ingestion
-  console.log("\n[0/4] Ingesting multi-maintainer community registries & live catalogs...");
-  await CuratedDriver.ingestAllCuratedSources();
+    // 0. Multi-author decentralized community registry ingestion
+    console.log("\n[0/4] Ingesting multi-maintainer community registries & live catalogs...");
+    await CuratedDriver.ingestAllCuratedSources();
 
-  const candidateUrls = new Set<string>();
+    if (isVpmInterrupted) return;
 
-  // 1. Search GitHub API with specialized VPM listing queries
-  console.log("\n[1/3] Executing high-signal GitHub API searches...");
-  for (const q of VPM_DISCOVERY_QUERIES) {
-    try {
+    const candidateUrls = new Set<string>();
+
+    // 1. Search GitHub API with specialized VPM listing queries
+    console.log("\n[1/3] Executing high-signal GitHub API searches...");
+    for (const q of VPM_DISCOVERY_QUERIES) {
+      if (isVpmInterrupted) break;
+      try {
       console.log(` Searching: "${q}"...`);
       const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&per_page=30&sort=updated&order=desc`;
       const resp = await fetch(searchUrl, {
@@ -91,6 +109,7 @@ export async function runVpmDiscovery() {
   let successfulFeeds = 0;
 
   for (const url of candidateUrls) {
+    if (isVpmInterrupted) break;
     try {
       const ok = await VpmIndexDriver.crawlManifest(url);
       if (ok) {
@@ -99,6 +118,8 @@ export async function runVpmDiscovery() {
       }
     } catch (_) {}
   }
+
+  if (isVpmInterrupted) return;
 
   // 3. Ingest creator portfolios dynamically derived from database truth sources
   console.log("\n[3/3] Ingesting creator portfolios dynamically derived from live truth sources...");
@@ -113,8 +134,19 @@ export async function runVpmDiscovery() {
   console.log(`  Updated VPM Packages: ${finalVpmCount.toLocaleString()} (+${(finalVpmCount - initialVpmCount).toLocaleString()})`);
   console.log(`  Total Vetted Packages Across All Platforms: ${totalEntities.toLocaleString()}`);
   console.log("=================================================");
+  } finally {
+    try {
+      db.close();
+    } catch (_) {}
+  }
 }
 
 if (import.meta.main) {
-  runVpmDiscovery().catch(console.error);
+  process.on("SIGINT", () => shutdownVpm("SIGINT"));
+  process.on("SIGTERM", () => shutdownVpm("SIGTERM"));
+  runVpmDiscovery().catch((err) => {
+    console.error("VPM discovery failed:", err);
+    try { db.close(); } catch (_) {}
+    process.exit(1);
+  });
 }

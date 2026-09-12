@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { RelevanceFilter, type MinimalEntity } from "./filter.ts";
+import { CONFIG } from "./config.ts";
 
 console.log("\x1b[36m");
 console.log("==================================================================");
@@ -7,9 +8,10 @@ console.log("   VRC PACKAGE CRAWLER — QUARANTINE VERIFICATION & SALVAGE PASS  
 console.log("==================================================================");
 console.log("\x1b[0m");
 
-const db = new Database("crawler_state.db");
-db.run("PRAGMA journal_mode = WAL;");
-db.run("PRAGMA busy_timeout = 10000;");
+const db = new Database(CONFIG.dbPath);
+try {
+  db.run("PRAGMA journal_mode = WAL;");
+  db.run("PRAGMA busy_timeout = 10000;");
 
 const quarantined = db.query("SELECT id, platform, url, title, author, reasons_json, quarantined_at FROM quarantined_entities").all() as any[];
 console.log(`Auditing ${quarantined.length} quarantined entities with central RelevanceFilter...`);
@@ -97,6 +99,11 @@ const remainingQuarantined = (db.query("SELECT COUNT(*) as c FROM quarantined_en
 console.log("\nUpdated Database State:");
 console.log(`  Pristine Entities in DB:    ${totalEntities}`);
 console.log(`  Confirmed Quarantined:      ${remainingQuarantined}`);
+} finally {
+  try {
+    db.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    db.close();
+  } catch (_) {}
+}
 
-db.close();
 console.log("\nPhase 1: Quarantine Verification Pass completed successfully.\n");

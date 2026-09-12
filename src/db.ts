@@ -29,6 +29,11 @@ export interface EntityRecord {
 
 export class CrawlerDB {
   private db: Database;
+  private isClosed: boolean = false;
+
+  public get closed(): boolean {
+    return this.isClosed;
+  }
 
   constructor() {
     this.db = new Database(CONFIG.dbPath, { create: true });
@@ -135,11 +140,16 @@ export class CrawlerDB {
   }
 
   public resetStaleFetching(): number {
-    const reset = this.db.run("UPDATE frontier SET status = 'pending' WHERE status = 'fetching';");
-    if (reset.changes > 0) {
-      logger.info(`Recovered from previous interruption: Reset ${reset.changes} hanging URLs to 'pending'.`);
+    if (this.isClosed) return 0;
+    try {
+      const reset = this.db.run("UPDATE frontier SET status = 'pending' WHERE status = 'fetching';");
+      if (reset.changes > 0) {
+        logger.info(`Recovered from previous interruption: Reset ${reset.changes} hanging URLs to 'pending'.`);
+      }
+      return reset.changes;
+    } catch {
+      return 0;
     }
-    return reset.changes;
   }
 
   private sanitizeUrl(rawUrl: string): string | null {
@@ -162,6 +172,7 @@ export class CrawlerDB {
   }
 
   queueUrl(url: string, platform: PlatformType): boolean {
+    if (this.isClosed) return false;
     const cleanUrl = this.sanitizeUrl(url);
     if (!cleanUrl) return false;
 
@@ -359,7 +370,14 @@ export class CrawlerDB {
   }
 
   close() {
-    this.db.close();
+    if (this.isClosed) return;
+    this.isClosed = true;
+    try {
+      this.db.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    } catch (_) {}
+    try {
+      this.db.close();
+    } catch (_) {}
   }
 }
 

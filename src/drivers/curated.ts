@@ -17,8 +17,22 @@ export const COMMUNITY_REGISTRY_SEEDS = [
 ];
 
 export class CuratedDriver {
-  private static sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private static isAborted = false;
+
+  public static abort() {
+    this.isAborted = true;
+  }
+
+  public static reset() {
+    this.isAborted = false;
+  }
+
+  private static async sleep(ms: number) {
+    const end = Date.now() + ms;
+    while (!this.isAborted && Date.now() < end) {
+      const wait = Math.min(100, end - Date.now());
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
   }
 
   private static getHeaders(): Record<string, string> {
@@ -68,12 +82,14 @@ export class CuratedDriver {
 
   // Ingests any community repository dynamically by probing manifests, source lists, and markdown
   static async ingestCommunityRepo(repoFullName: string): Promise<number> {
+    if (this.isAborted || db.isClosed) return 0;
     logger.info(`[Curated] Ingesting community registry: ${repoFullName}...`);
     let queued = 0;
     const branches = ["HEAD", "main", "master"];
 
     // 1. Probe for repositories.txt across branches
     for (const b of branches) {
+      if (this.isAborted || db.isClosed) break;
       try {
         const url = `https://raw.githubusercontent.com/${repoFullName}/${b}/repositories.txt`;
         const resp = await fetch(url, { headers: { "User-Agent": CONFIG.userAgent } });
@@ -81,6 +97,7 @@ export class CuratedDriver {
           const text = await resp.text();
           const lines = text.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
           for (const line of lines) {
+            if (this.isAborted || db.isClosed) break;
             if (line.startsWith("http") && db.queueUrl(line, "vpm")) queued++;
           }
           logger.info(`[Curated] Ingested ${queued} VPM feeds from ${repoFullName} (repositories.txt)`);
@@ -91,7 +108,9 @@ export class CuratedDriver {
 
     // 2. Probe for source.json / index.json / vpm.json across branches
     for (const b of branches) {
+      if (this.isAborted || db.isClosed) break;
       for (const fileName of ["source.json", "index.json", "vpm.json", "packages.json"]) {
+        if (this.isAborted || db.isClosed) break;
         try {
           const url = `https://raw.githubusercontent.com/${repoFullName}/${b}/${fileName}`;
           const resp = await fetch(url, { headers: { "User-Agent": CONFIG.userAgent } });
@@ -116,6 +135,7 @@ export class CuratedDriver {
 
     // 3. Probe for README.md across branches to extract cross-references
     for (const b of branches) {
+      if (this.isAborted || db.isClosed) break;
       try {
         const url = `https://raw.githubusercontent.com/${repoFullName}/${b}/README.md`;
         const resp = await fetch(url, { headers: { "User-Agent": CONFIG.userAgent } });
@@ -123,6 +143,7 @@ export class CuratedDriver {
           const text = await resp.text();
           const links = text.match(/https?:\/\/[^\s\)\"\'<>]+/g) || [];
           for (const link of links) {
+            if (this.isAborted || db.isClosed) break;
             const clean = link.replace(/[.,;)]+$/, "");
             if (clean.includes("github.com") && !clean.includes(repoFullName)) {
               const m = clean.match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/);
@@ -143,12 +164,14 @@ export class CuratedDriver {
     }
 
     // 4. Check GitHub Pages candidate URLs for the repo
-    const owner = repoFullName.split("/")[0];
-    const repo = repoFullName.split("/")[1];
-    if (owner && repo) {
-      db.queueUrl(`https://${owner}.github.io/${repo}/index.json`, "vpm");
-      db.queueUrl(`https://${owner}.github.io/${repo}/vpm.json`, "vpm");
-      db.queueUrl(`https://${owner}.github.io/vpm/index.json`, "vpm");
+    if (!this.isAborted && !db.isClosed) {
+      const owner = repoFullName.split("/")[0];
+      const repo = repoFullName.split("/")[1];
+      if (owner && repo) {
+        db.queueUrl(`https://${owner}.github.io/${repo}/index.json`, "vpm");
+        db.queueUrl(`https://${owner}.github.io/${repo}/vpm.json`, "vpm");
+        db.queueUrl(`https://${owner}.github.io/vpm/index.json`, "vpm");
+      }
     }
 
     return queued;
@@ -156,6 +179,7 @@ export class CuratedDriver {
 
   // Dynamically queries GitHub search API for new community VPM catalogs and awesome lists
   static async discoverRegistriesOnGitHub(): Promise<string[]> {
+    if (this.isAborted || db.isClosed) return [];
     logger.info("[Curated] Dynamically discovering community VPM registries and curated collections across GitHub...");
     const queries = [
       "vpm-repos in:name",
@@ -167,8 +191,10 @@ export class CuratedDriver {
     const discovered = new Set<string>();
 
     for (const q of queries) {
+      if (this.isAborted || db.isClosed) break;
       try {
         await this.sleep(CONFIG.githubSearchDelayMs);
+        if (this.isAborted || db.isClosed) break;
         const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&per_page=20&sort=updated`;
         const resp = await fetch(url, { headers: this.getHeaders() });
         if (!resp.ok) continue;
@@ -191,6 +217,7 @@ export class CuratedDriver {
 
   // Ingests all decentralized community VPM repositories across multiple maintainers
   static async ingestVpmRepositoriesList(): Promise<number> {
+    if (this.isAborted || db.isClosed) return 0;
     logger.info("[Curated] Ingesting decentralized community VPM repositories across multi-author registries...");
     let total = 0;
     const vpmRegistries = [
@@ -204,6 +231,7 @@ export class CuratedDriver {
     ];
 
     for (const repo of vpmRegistries) {
+      if (this.isAborted || db.isClosed) break;
       const c = await this.ingestCommunityRepo(repo);
       total += c;
     }
@@ -212,6 +240,7 @@ export class CuratedDriver {
 
   // Harvests curated links from multiple awesome-vrchat collections across independent maintainers
   static async ingestAwesomeVRChat(): Promise<number> {
+    if (this.isAborted || db.isClosed) return 0;
     logger.info("[Curated] Ingesting awesome-vrchat collections across independent maintainers...");
     let total = 0;
     const collections = [
@@ -221,6 +250,7 @@ export class CuratedDriver {
     ];
 
     for (const repo of collections) {
+      if (this.isAborted || db.isClosed) break;
       const c = await this.ingestCommunityRepo(repo);
       total += c;
     }
@@ -229,18 +259,23 @@ export class CuratedDriver {
 
   // Comprehensive multi-source ingestion combining seeded registries and live dynamic discovery
   static async ingestAllCuratedSources(): Promise<number> {
+    if (this.isAborted || db.isClosed) return 0;
     logger.info("[Curated] Launching comprehensive multi-source decentralized registry ingestion...");
     let totalQueued = 0;
 
     // 1. Ingest all decentralized bootstrap seeds
     for (const seed of COMMUNITY_REGISTRY_SEEDS) {
+      if (this.isAborted || db.isClosed) break;
       const count = await this.ingestCommunityRepo(seed);
       totalQueued += count;
     }
 
+    if (this.isAborted || db.isClosed) return totalQueued;
+
     // 2. Discover and ingest live dynamic registries on GitHub
     const liveRegistries = await this.discoverRegistriesOnGitHub();
     for (const reg of liveRegistries) {
+      if (this.isAborted || db.isClosed) break;
       if (!COMMUNITY_REGISTRY_SEEDS.includes(reg)) {
         const count = await this.ingestCommunityRepo(reg);
         totalQueued += count;

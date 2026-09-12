@@ -6,16 +6,18 @@ import path from "path";
 
 let isRunning = true;
 
-process.on("SIGINT", () => {
+const shutdownStatus = (signal: string) => {
+  if (!isRunning) return;
   isRunning = false;
   console.log("\n\x1b[33m[MONITOR] Stopped live status monitoring.\x1b[0m\n");
+  try {
+    db.close();
+  } catch (_) {}
   process.exit(0);
-});
+};
 
-process.on("SIGTERM", () => {
-  isRunning = false;
-  process.exit(0);
-});
+process.on("SIGINT", () => shutdownStatus("SIGINT"));
+process.on("SIGTERM", () => shutdownStatus("SIGTERM"));
 
 function renderProgressBar(percentage: number, length: number = 25): string {
   const filled = Math.min(length, Math.max(0, Math.round((percentage / 100) * length)));
@@ -155,7 +157,6 @@ async function runLiveMonitor() {
 
     console.log("\x1b[36m=================================================================================\x1b[0m");
     if (process.argv.includes("--once")) {
-      db.close();
       break;
     }
     console.log(" \x1b[90m[Press Ctrl+C to exit monitor]\x1b[0m");
@@ -166,6 +167,13 @@ async function runLiveMonitor() {
 
 runLiveMonitor().catch((err) => {
   console.error("Status monitor failed", err);
+  try {
+    db.close();
+  } catch (_) {}
   process.exit(1);
+}).finally(() => {
+  try {
+    db.close();
+  } catch (_) {}
 });
 

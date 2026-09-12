@@ -7,8 +7,10 @@ export const LOGS_DIR = process.env.CRAWLER_LOGS_DIR || path.resolve(BASE_DIR, "
 export const ARCHIVE_1_PATH = process.env.ARCHIVE_1_PATH || path.resolve(BASE_DIR, "crawler cache archive-1", "crawler_state.db");
 
 export const CONFIG = {
+  baseDir: BASE_DIR,
   dbPath: DB_PATH,
   logsDir: LOGS_DIR,
+  lockPath: path.resolve(BASE_DIR, "crawler.lock"),
   archive1Path: ARCHIVE_1_PATH,
   userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   

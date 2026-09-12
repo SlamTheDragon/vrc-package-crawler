@@ -1,9 +1,10 @@
-﻿import { Database } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 import fs from "fs";
 import path from "path";
 import { ToolClassifier } from "./classifier.ts";
+import { CONFIG } from "./config.ts";
 
-const DB_PATH = path.resolve(import.meta.dir, "../crawler_state.db");
+const DB_PATH = CONFIG.dbPath;
 const VPM_CATALOG_PATH = "G:\\.shortcut-targets-by-id\\1KzQrYkpxXhOtOkGJQIWYD76vThVypZOR\\Heavy Pilots\\Project Documentation\\Resource Library\\VPM Catalog Categorized.md";
 const OUTPUT_PATH = "G:\\.shortcut-targets-by-id\\1KzQrYkpxXhOtOkGJQIWYD76vThVypZOR\\Heavy Pilots\\Project Documentation\\Resource Library\\Uncataloged VRChat Tools & Packages.md";
 
@@ -66,12 +67,18 @@ export function generateUncatalogedCatalog(): { total: number; outputPath: strin
   console.log(`Loaded ${existingVpmIds.size} existing official VPM package IDs to filter out.`);
 
   const db = new Database(DB_PATH, { readonly: true });
-  const rows = db.query(`
-    SELECT id, platform, url, title, author, price_currency, price_amount, description, tags_json, external_links_json, raw_json
-    FROM entities
-    ORDER BY title ASC
-  `).all() as EntityRow[];
-  db.close();
+  let rows: EntityRow[] = [];
+  try {
+    rows = db.query(`
+      SELECT id, platform, url, title, author, price_currency, price_amount, description, tags_json, external_links_json, raw_json
+      FROM entities
+      ORDER BY title ASC
+    `).all() as EntityRow[];
+  } finally {
+    try {
+      db.close();
+    } catch (_) {}
+  }
 
   console.log(`Fetched ${rows.length} total vetted entities from database.`);
 

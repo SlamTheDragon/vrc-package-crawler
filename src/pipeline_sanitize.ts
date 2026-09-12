@@ -8,8 +8,35 @@ import { logger } from "./logger.ts";
 import { IanaRegistry } from "./utils/iana.ts";
 import { SimHash64, SimHashIndex } from "./utils/simhash.ts";
 
+let activePipelineDb: Database | null = null;
+let isPipelineInterrupted = false;
+
+function shutdownPipeline(signal: string) {
+  if (isPipelineInterrupted) {
+    process.exit(130);
+  }
+  isPipelineInterrupted = true;
+  console.log(`\n\x1b[33m[PIPELINE] Interrupted via ${signal}. Checkpointing SQLite WAL and closing database...\x1b[0m`);
+  if (activePipelineDb) {
+    try {
+      activePipelineDb.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    } catch (_) {}
+    try {
+      activePipelineDb.close();
+    } catch (_) {}
+    activePipelineDb = null;
+  }
+  process.exit(0);
+}
+
+export function abortPipelineSanitize() {
+  isPipelineInterrupted = true;
+}
+
 export async function runPipelineSanitize() {
+  isPipelineInterrupted = false;
   await IanaRegistry.init();
+  if (isPipelineInterrupted) return;
 
   console.log("\x1b[36m");
   console.log("==================================================================");
@@ -18,9 +45,11 @@ export async function runPipelineSanitize() {
   console.log("\x1b[0m");
 
   const db = new Database(CONFIG.dbPath);
-db.run("PRAGMA journal_mode = WAL;");
-db.run("PRAGMA synchronous = NORMAL;");
-db.run("PRAGMA busy_timeout = 10000;");
+  activePipelineDb = db;
+  try {
+    db.run("PRAGMA journal_mode = WAL;");
+    db.run("PRAGMA synchronous = NORMAL;");
+    db.run("PRAGMA busy_timeout = 10000;");
 
 // Ensure tables exist
 db.run(`
@@ -76,6 +105,7 @@ try {
 // =========================================================================
 // STEP 1: AUDIT & CLEAN RAW ENTITIES + QUARANTINE RECOVERY
 // =========================================================================
+if (isPipelineInterrupted) return;
 console.log("\n[Step 1/5] Auditing raw entities and salvaging legitimate quarantined items...");
 
 // 1.1 Recover falsely quarantined items (e.g. MagmaVRC/SimplXP, prominent creators)
@@ -169,6 +199,7 @@ console.log(`  - Non-Tools / Skeletons Purged to Quarantine: ${purgedCount}`);
 // =========================================================================
 // STEP 2: NORMALIZATION (TITLES, AUTHORS, DESCRIPTIONS)
 // =========================================================================
+if (isPipelineInterrupted) return;
 console.log("\n[Step 2/5] Normalizing titles, descriptions, and disambiguating authors...");
 
 function unescapeHtml(text: string): string {
@@ -434,9 +465,8 @@ if (fs.existsSync(ARCHIVE_1_PATH)) {
 // =========================================================================
 // STEP 4: MULTI-PLATFORM CANONICAL CLUSTERING (merged_packages)
 // =========================================================================
+if (isPipelineInterrupted) return;
 console.log("\n[Step 4/5] Executing multi-way canonical clustering into merged_packages...");
-
-db.run("DELETE FROM merged_packages;");
 
 function normalizeSlug(str: string): string {
   if (!str) return "";
@@ -860,6 +890,7 @@ const insertMerged = db.prepare(`
 `);
 
 db.transaction(() => {
+  db.run("DELETE FROM merged_packages;");
   for (const c of clusters) {
     insertMerged.run(
       c.id,
@@ -893,6 +924,7 @@ db.transaction(() => {
 // =========================================================================
 // STEP 5: DISCARD MANAGEMENT, OPTIMIZATION & INTEGRITY AUDIT
 // =========================================================================
+if (isPipelineInterrupted) return;
 console.log("\n[Step 5/5] Processing qualified discards, checkpointing database, and verifying integrity...");
 
 // Ensure qualified_discards table exists
@@ -943,10 +975,24 @@ console.log(`Consolidated Multi-Platform Records: ${(entities.length - finalMerg
 console.log(`  - QoL, Workflow & Toolchain:       ${qolCount.toLocaleString()} (${((qolCount / finalMerged) * 100).toFixed(1)}%)`);
 console.log(`  - Asset Additives (Gimmicks/Toys): ${assetCount.toLocaleString()} (${((assetCount / finalMerged) * 100).toFixed(1)}%)`);
 console.log("==================================================================\n");
-
-  db.close();
+  } finally {
+    if (activePipelineDb) {
+      try {
+        activePipelineDb.run("PRAGMA wal_checkpoint(TRUNCATE);");
+      } catch (_) {}
+      try {
+        activePipelineDb.close();
+      } catch (_) {}
+      activePipelineDb = null;
+    }
+  }
 }
 
 if (import.meta.main) {
-  runPipelineSanitize().catch(console.error);
+  process.on("SIGINT", () => shutdownPipeline("SIGINT"));
+  process.on("SIGTERM", () => shutdownPipeline("SIGTERM"));
+  runPipelineSanitize().catch((err) => {
+    console.error("Pipeline sanitization failed:", err);
+    process.exit(1);
+  });
 }

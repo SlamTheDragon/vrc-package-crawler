@@ -5,8 +5,22 @@ import { rateLimiter } from "../ratelimit.ts";
 import { RelevanceFilter } from "../filter.ts";
 
 export class JinxxyDriver {
-  private static sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private static isAborted = false;
+
+  public static abort() {
+    this.isAborted = true;
+  }
+
+  public static reset() {
+    this.isAborted = false;
+  }
+
+  private static async sleep(ms: number) {
+    const end = Date.now() + ms;
+    while (!this.isAborted && Date.now() < end) {
+      const wait = Math.min(100, end - Date.now());
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
   }
 
   // Keywords that identify tools, scripts, shaders, systems, and utilities
@@ -19,6 +33,7 @@ export class JinxxyDriver {
 
   // Crawls a curated marketplace category or tag URL
   static async crawlBrowsePage(browseUrl: string): Promise<string[]> {
+    if (this.isAborted || db.isClosed) return [];
     const key = "jinxxy";
     await rateLimiter.waitIfBackoff(key);
 
@@ -26,6 +41,7 @@ export class JinxxyDriver {
     try {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.jinxxyDelayMs);
       await this.sleep(delay);
+      if (this.isAborted || db.isClosed) return [];
 
       const resp = await fetch(browseUrl, {
         headers: {
@@ -82,6 +98,7 @@ export class JinxxyDriver {
 
   // Crawls an individual Jinxxy product page
   static async crawlProduct(productUrl: string): Promise<boolean> {
+    if (this.isAborted || db.isClosed) return false;
     const key = "jinxxy";
     await rateLimiter.waitIfBackoff(key);
 
@@ -89,6 +106,7 @@ export class JinxxyDriver {
     try {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.jinxxyDelayMs);
       await this.sleep(delay);
+      if (this.isAborted || db.isClosed) return false;
 
       let currentUrl = productUrl;
       let resp = await fetch(currentUrl, {

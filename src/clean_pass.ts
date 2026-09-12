@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { ToolClassifier } from "./classifier.ts";
+import { CONFIG } from "./config.ts";
 
 console.log("\x1b[36m");
 console.log("==================================================================");
@@ -7,9 +8,10 @@ console.log("   VRC PACKAGE CRAWLER — SECONDARY CLEAN PASS & NORMALIZATION    
 console.log("==================================================================");
 console.log("\x1b[0m");
 
-const db = new Database("crawler_state.db");
-db.run("PRAGMA journal_mode = WAL;");
-db.run("PRAGMA busy_timeout = 10000;");
+const db = new Database(CONFIG.dbPath);
+try {
+  db.run("PRAGMA journal_mode = WAL;");
+  db.run("PRAGMA busy_timeout = 10000;");
 
 function unescapeHtml(text: string): string {
   if (!text) return "";
@@ -145,7 +147,11 @@ for (const [cat, count] of Object.entries(categoryCounts)) {
   const pct = ((count / allEntities.length) * 100).toFixed(1);
   console.log(`  [${cat.padEnd(20)}] ${count.toString().padStart(5)} (${pct.padStart(5)}%)`);
 }
+} finally {
+  try {
+    db.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    db.close();
+  } catch (_) {}
+}
 
-db.run("PRAGMA wal_checkpoint(TRUNCATE);");
-db.close();
 console.log("\nPhase 2: True Clean Pass completed successfully.\n");

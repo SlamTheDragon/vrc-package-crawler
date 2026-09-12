@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { ToolClassifier } from "./classifier.ts";
+import { CONFIG } from "./config.ts";
 
 console.log("\x1b[36m");
 console.log("==================================================================");
@@ -7,9 +8,10 @@ console.log("   VRC PACKAGE CRAWLER — CROSS-REFERENCING & CANONICAL MERGE     
 console.log("==================================================================");
 console.log("\x1b[0m");
 
-const db = new Database("crawler_state.db");
-db.run("PRAGMA journal_mode = WAL;");
-db.run("PRAGMA busy_timeout = 10000;");
+const db = new Database(CONFIG.dbPath);
+try {
+  db.run("PRAGMA journal_mode = WAL;");
+  db.run("PRAGMA busy_timeout = 10000;");
 
 // Initialize merged_packages table
 db.run(`
@@ -396,10 +398,14 @@ for (const row of subcats) {
     currentCat = row.category;
     console.log(`\n[${currentCat}]`);
   }
-  const typeBadge = row.type === "QoL, Workflow & Toolchain" ? "[QoL]  " : "[Asset]";
-  console.log(`  ${typeBadge} ${row.subcategory.padEnd(45)}: ${row.cnt.toString().padStart(5)}`);
+    const typeBadge = row.type === "QoL, Workflow & Toolchain" ? "[QoL]  " : "[Asset]";
+    console.log(`  ${typeBadge} ${row.subcategory.padEnd(45)}: ${row.cnt.toString().padStart(5)}`);
+  }
+} finally {
+  try {
+    db.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    db.close();
+  } catch (_) {}
 }
 
-db.run("PRAGMA wal_checkpoint(TRUNCATE);");
-db.close();
 console.log("\nPhase 3 & 4 completed successfully.\n");

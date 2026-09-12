@@ -6,17 +6,33 @@ import { RelevanceFilter } from "../filter.ts";
 import { CuratedDriver } from "./curated.ts";
 
 export class BoothDriver {
-  private static sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private static isAborted = false;
+
+  public static abort() {
+    this.isAborted = true;
+  }
+
+  public static reset() {
+    this.isAborted = false;
+  }
+
+  private static async sleep(ms: number) {
+    const end = Date.now() + ms;
+    while (!this.isAborted && Date.now() < end) {
+      const wait = Math.min(100, end - Date.now());
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
   }
 
   // Parses listing card URLs from a category browse page
   static async crawlCategoryPage(pageUrl: string): Promise<string[]> {
+    if (this.isAborted || db.isClosed) return [];
     logger.info(`[BOOTH] Crawling category page: ${pageUrl}`);
     try {
       await rateLimiter.waitIfBackoff("booth");
       const delay = rateLimiter.getPacingDelayMs("booth", CONFIG.boothDelayMs);
       await this.sleep(delay);
+      if (this.isAborted || db.isClosed) return [];
 
       const resp = await fetch(pageUrl, {
         headers: {
@@ -84,10 +100,12 @@ export class BoothDriver {
 
   // Scrapes an individual item page and extracts Schema.org JSON-LD with 404 alternative path fallback
   static async crawlItemDetail(itemUrl: string): Promise<boolean> {
+    if (this.isAborted || db.isClosed) return false;
     try {
       await rateLimiter.waitIfBackoff("booth");
       const delay = rateLimiter.getPacingDelayMs("booth", CONFIG.boothDelayMs);
       await this.sleep(delay);
+      if (this.isAborted || db.isClosed) return false;
 
       let currentUrl = itemUrl;
       let resp = await fetch(currentUrl, {
