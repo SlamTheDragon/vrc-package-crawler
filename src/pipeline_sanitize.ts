@@ -54,11 +54,16 @@ db.run(`
     price_amount REAL DEFAULT 0,
     is_vcc INTEGER NOT NULL DEFAULT 0,
     tags_json TEXT DEFAULT '[]',
+    dependencies_json TEXT DEFAULT '{}',
     source_ids_json TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 `);
+
+try {
+  db.run("ALTER TABLE merged_packages ADD COLUMN dependencies_json TEXT DEFAULT '{}';");
+} catch {}
 
 // =========================================================================
 // STEP 1: AUDIT & CLEAN RAW ENTITIES + QUARANTINE RECOVERY
@@ -347,7 +352,26 @@ interface PackageCluster {
   price_amount: number;
   is_vcc: number;
   tags: Set<string>;
+  dependencies: Record<string, string>;
   source_ids: string[];
+}
+
+function extractDependencies(rawJsonStr: string): Record<string, string> {
+  if (!rawJsonStr) return {};
+  try {
+    const raw = JSON.parse(rawJsonStr);
+    const deps = raw.vpmDependencies || raw.dependencies;
+    if (deps && typeof deps === "object" && !Array.isArray(deps)) {
+      const cleanDeps: Record<string, string> = {};
+      for (const [k, v] of Object.entries(deps)) {
+        if (typeof k === "string" && k.trim()) {
+          cleanDeps[k.trim()] = typeof v === "string" ? v.trim() : String(v);
+        }
+      }
+      return cleanDeps;
+    }
+  } catch {}
+  return {};
 }
 
 const entities = db.query(`
@@ -389,6 +413,7 @@ for (const e of entities) {
     try { tags = JSON.parse(e.tags_json || "[]"); } catch {}
 
     const classification = ToolClassifier.classify(e.title, e.description, tags);
+    const deps = extractDependencies(e.raw_json);
 
     const cluster: PackageCluster = {
       id: pkgId,
@@ -407,6 +432,7 @@ for (const e of entities) {
       price_amount: 0,
       is_vcc: 1,
       tags: new Set([...tags, "vpm", "vcc"]),
+      dependencies: deps,
       source_ids: [e.id]
     };
 
@@ -414,7 +440,7 @@ for (const e of entities) {
     // A. Direct repo URL in manifest, entity url, or download url
     let linkedGh: any = null;
     const combinedUrls = `${e.url} ${raw.repo_url || ""} ${raw.download_url || ""}`;
-    const match = combinedUrls.match(/github\.com\/([^/]+)\/([^/#?]+)/i);
+    const match = combinedUrls.match(/github\.com\/([^\s/]+)\/([^\s/#?]+)/i);
     if (match) {
       const fullRepo = `${match[1]}/${match[2]}`.toLowerCase().replace(/\.git$/, "");
       cluster.github_url = `https://github.com/${match[1]}/${match[2].replace(/\.git$/, "")}`;
@@ -454,6 +480,12 @@ for (const e of entities) {
       cluster.platforms.add("github");
       cluster.github_url = linkedGh.url;
       cluster.source_ids.push(linkedGh.id);
+      const ghDeps = extractDependencies(linkedGh.raw_json);
+      for (const [k, v] of Object.entries(ghDeps)) {
+        if (!cluster.dependencies[k]) {
+          cluster.dependencies[k] = v;
+        }
+      }
       entityToCluster.set(linkedGh.id, cluster);
     }
 
@@ -475,6 +507,7 @@ for (const e of entities) {
     try { tags = JSON.parse(e.tags_json || "[]"); } catch {}
 
     const classification = ToolClassifier.classify(e.title, e.description, tags);
+    const deps = extractDependencies(e.raw_json);
 
     const cluster: PackageCluster = {
       id: e.id,
@@ -493,6 +526,7 @@ for (const e of entities) {
       price_amount: 0,
       is_vcc: 0,
       tags: new Set([...tags, "github", "open-source"]),
+      dependencies: deps,
       source_ids: [e.id]
     };
 
@@ -567,6 +601,14 @@ for (const e of entities) {
       let tags: string[] = [];
       try { tags = JSON.parse(e.tags_json || "[]"); } catch {}
       tags.forEach(t => matchedCluster!.tags.add(t));
+
+      const extraDeps = extractDependencies(e.raw_json);
+      for (const [k, v] of Object.entries(extraDeps)) {
+        if (!matchedCluster.dependencies[k]) {
+          matchedCluster.dependencies[k] = v;
+        }
+      }
+
       entityToCluster.set(e.id, matchedCluster);
       storeMerged++;
     } else {
@@ -574,6 +616,7 @@ for (const e of entities) {
       try { tags = JSON.parse(e.tags_json || "[]"); } catch {}
 
       const classification = ToolClassifier.classify(e.title, e.description, tags);
+      const deps = extractDependencies(e.raw_json);
 
       const cluster: PackageCluster = {
         id: e.id,
@@ -591,6 +634,7 @@ for (const e of entities) {
         price_amount: e.price_amount || 0,
         is_vcc: 0,
         tags: new Set([...tags, e.platform]),
+        dependencies: deps,
         source_ids: [e.id]
       };
 
@@ -615,9 +659,9 @@ const insertMerged = db.prepare(`
     id, name, canonical_id, author, category, subcategory, type,
     description, primary_platform, platforms_json, url, vcc_url,
     github_url, booth_url, gumroad_url, jinxxy_url, itch_url,
-    price_currency, price_amount, is_vcc, tags_json, source_ids_json
+    price_currency, price_amount, is_vcc, tags_json, dependencies_json, source_ids_json
   ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
   );
 `);
 
@@ -645,6 +689,7 @@ db.transaction(() => {
       c.price_amount,
       c.is_vcc,
       JSON.stringify(Array.from(c.tags)),
+      JSON.stringify(c.dependencies || {}),
       JSON.stringify(c.source_ids)
     );
   }
