@@ -190,9 +190,30 @@ export class VpmIndexDriver {
             continue;
           }
 
+          // Multi-Author & Contributor Extraction (preserves complete provenance)
+          const authorsList: string[] = [];
+          if (typeof latest.author === "string") {
+            const cleanA = latest.author.replace(/<[^>]+>/g, "").replace(/\([^)]+\)/g, "").trim();
+            if (cleanA) authorsList.push(cleanA);
+          } else if (latest.author?.name) {
+            authorsList.push(latest.author.name.trim());
+          }
+          if (Array.isArray(latest.authors)) {
+            for (const a of latest.authors) {
+              const name = typeof a === "string" ? a : a?.name;
+              if (name && !authorsList.includes(name.trim())) authorsList.push(name.trim());
+            }
+          }
+          if (Array.isArray(latest.contributors)) {
+            for (const c of latest.contributors) {
+              const name = typeof c === "string" ? c : c?.name;
+              if (name && !authorsList.includes(name.trim())) authorsList.push(name.trim());
+            }
+          }
+
           // Author Disambiguation:
           // Never let an aggregator manifest owner (e.g. "VRChat") usurp the author of an external package!
-          let author = latest.author?.name || "";
+          let author = authorsList.length > 0 ? authorsList[0] : "";
           if (!author || (isAggregator && (author.toLowerCase() === "vrchat" || author === repoAuthor))) {
             // Extract author from reverse-DNS vendor prefix
             const parts = pkgId.split(".").filter((p) => p !== "com" && p !== "net" && p !== "org" && p !== "dev" && p !== "io" && p !== "users");
@@ -201,6 +222,7 @@ export class VpmIndexDriver {
             } else {
               author = repoAuthor;
             }
+            if (!authorsList.includes(author)) authorsList.unshift(author);
           }
 
           // Origin Repo URL extraction:
@@ -244,7 +266,7 @@ export class VpmIndexDriver {
             platform: "vpm",
             url: canonicalItemUrl,
             title: title,
-            author: author,
+            author: authorsList.length > 1 ? authorsList.join(", ") : author,
             description: desc,
             tags_json: JSON.stringify([...(latest.keywords || []), ...vpmDeps]),
             external_links_json: JSON.stringify(extLinks),
@@ -252,6 +274,7 @@ export class VpmIndexDriver {
               pkgId,
               version: latest.version,
               displayName: latest.displayName,
+              authors: authorsList,
               vpmDependencies: latest.vpmDependencies,
               legacyFolders: latest.legacyFolders,
               repo_url: originRepoUrl,
@@ -292,6 +315,17 @@ export class VpmIndexDriver {
       const repoUrl = `https://github.com/${owner}/${cleanRepo}`;
       db.queueUrl(repoUrl, "github");
       logger.info(`[VPM] Manifest not found, routed repository to GitHub driver: ${repoUrl}`);
+
+      // If repository is a known community template (e.g. VPM-Package-Template), search GitHub for active packages using it!
+      if (cleanRepo.toLowerCase().includes("vpm-package-template") || cleanRepo.toLowerCase().includes("vpm-template")) {
+        logger.info(`[VPM] Detected VPM Template (${owner}/${cleanRepo}). Discovering community repositories using this template...`);
+        import("./github.ts").then(({ GitHubDriver }) => {
+          GitHubDriver.searchRepos(`"${cleanRepo}" in:name,description`, 2).then(urls => {
+            for (const u of urls) db.queueUrl(u, "github");
+          }).catch(() => {});
+        });
+      }
+
       import("./github.ts").then(({ GitHubDriver }) => {
         GitHubDriver.harvestCreatorRepos([owner]).catch(() => {});
       });

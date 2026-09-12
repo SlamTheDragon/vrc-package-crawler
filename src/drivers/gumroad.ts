@@ -243,7 +243,12 @@ export class GumroadDriver {
         logger.info(`[Gumroad] Quarantined: ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
       }
       return true;
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.message?.includes("ENOTFOUND") || e?.code === "ENOTFOUND") {
+        logger.warn(`[Gumroad] Dead subdomain detected for ${productUrl}. Archiving to qualified_discards.`);
+        db.discardFailedUrl(productUrl, "gumroad", "Dead subdomain (ENOTFOUND)");
+        return true;
+      }
       logger.error(`[Gumroad] Error crawling product ${productUrl}`, e);
       return false;
     }
@@ -368,7 +373,12 @@ export class GumroadDriver {
 
       logger.info(`[Gumroad] Ingested ${count} vetted products from storefront: ${storeUrl} (${creatorName})`);
       return true;
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.message?.includes("ENOTFOUND") || e?.code === "ENOTFOUND") {
+        logger.warn(`[Gumroad] Dead storefront subdomain detected for ${storeUrl}. Archiving to qualified_discards.`);
+        db.discardFailedUrl(storeUrl, "gumroad", "Dead storefront subdomain (ENOTFOUND)");
+        return true;
+      }
       logger.error(`[Gumroad] Error parsing storefront ${storeUrl}`, e);
       return false;
     }

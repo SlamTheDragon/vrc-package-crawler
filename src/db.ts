@@ -310,29 +310,40 @@ export class CrawlerDB {
 
   getMetrics() {
     const totalDiscovered = (this.db.prepare("SELECT COUNT(*) as c FROM frontier;").get() as any).c;
+    const totalFreshPending = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE status = 'pending' AND attempts = 0;").get() as any).c;
+    const totalRetrying = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE status = 'pending' AND attempts > 0;").get() as any).c;
     const totalPending = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE status = 'pending';").get() as any).c;
     const totalDone = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE status = 'done';").get() as any).c;
     const totalFailed = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE status = 'failed';").get() as any).c;
+    const totalDiscarded = (this.db.prepare("SELECT COUNT(*) as c FROM qualified_discards;").get() as any)?.c || 0;
     const totalEntities = (this.db.prepare("SELECT COUNT(*) as c FROM entities;").get() as any).c;
     const totalQuarantined = (this.db.prepare("SELECT COUNT(*) as c FROM quarantined_entities;").get() as any).c;
+    const totalMerged = (this.db.prepare("SELECT COUNT(*) as c FROM sqlite_master WHERE type='table' AND name='merged_packages';").get() as any)?.c
+      ? (this.db.prepare("SELECT COUNT(*) as c FROM merged_packages;").get() as any).c
+      : 0;
 
     const platforms = ["booth", "github", "vpm", "gumroad", "jinxxy", "itch"];
-    const platformStats: Record<string, { pending: number; done: number; entities: number }> = {};
+    const platformStats: Record<string, { pending: number; retrying: number; done: number; entities: number }> = {};
 
     for (const p of platforms) {
-      const pending = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE platform = ? AND status = 'pending';").get(p) as any).c;
+      const pending = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE platform = ? AND status = 'pending' AND attempts = 0;").get(p) as any).c;
+      const retrying = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE platform = ? AND status = 'pending' AND attempts > 0;").get(p) as any).c;
       const done = (this.db.prepare("SELECT COUNT(*) as c FROM frontier WHERE platform = ? AND status = 'done';").get(p) as any).c;
       const entities = (this.db.prepare("SELECT COUNT(*) as c FROM entities WHERE platform = ?;").get(p) as any).c;
-      platformStats[p] = { pending, done, entities };
+      platformStats[p] = { pending, retrying, done, entities };
     }
 
     return {
       totalDiscovered,
       totalPending,
+      totalFreshPending,
+      totalRetrying,
       totalDone,
       totalFailed,
+      totalDiscarded,
       totalEntities,
       totalQuarantined,
+      totalMerged,
       platformStats
     };
   }

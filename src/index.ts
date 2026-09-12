@@ -209,9 +209,9 @@ export async function seedAllDomains() {
   }
 }
 
-// Dedicated BOOTH Worker (concurrent item processing)
+// Dedicated BOOTH Worker (concurrent item processing with Adaptive AIMD politeness)
 async function runBoothWorker() {
-  logger.info("[Worker:BOOTH] Started.");
+  logger.info("[Worker:BOOTH] Started (Adaptive AIMD limiter).");
   while (isRunning) {
     const items = db.getNextPendingForPlatform("booth", 6);
     if (items.length === 0) {
@@ -226,6 +226,8 @@ async function runBoothWorker() {
     await Promise.allSettled(
       items.map(async (item) => {
         if (!isRunning) return;
+        const release = await rateLimiter.acquire("booth.pm");
+        const t0 = Date.now();
         try {
           if (
             item.url.includes("/browse/") ||
@@ -237,14 +239,23 @@ async function runBoothWorker() {
             for (const u of itemUrls) {
               db.queueUrl(u, "booth");
             }
+            rateLimiter.recordSuccess("booth.pm", Date.now() - t0);
             db.markStatus(item.url, "done");
           } else {
             const ok = await BoothDriver.crawlItemDetail(item.url);
+            if (ok) {
+              rateLimiter.recordSuccess("booth.pm", Date.now() - t0);
+            } else {
+              rateLimiter.recordFailure("booth.pm", false);
+            }
             db.markStatus(item.url, ok ? "done" : "failed");
           }
         } catch (err) {
+          rateLimiter.recordFailure("booth.pm", false);
           logger.error(`[Worker:BOOTH] Error on ${item.url}`, err);
           db.markStatus(item.url, "failed");
+        } finally {
+          release();
         }
       })
     );
@@ -254,7 +265,7 @@ async function runBoothWorker() {
 
 // Dedicated GitHub Worker (with paginated search and raw scraping)
 async function runGithubWorker() {
-  logger.info("[Worker:GitHub] Started.");
+  logger.info("[Worker:GitHub] Started (Adaptive AIMD limiter).");
   while (isRunning) {
     const items = db.getNextPendingForPlatform("github", 3);
     if (items.length === 0) {
@@ -269,6 +280,8 @@ async function runGithubWorker() {
     await Promise.allSettled(
       items.map(async (item) => {
         if (!isRunning) return;
+        const release = await rateLimiter.acquire("api.github.com");
+        const t0 = Date.now();
         try {
           if (item.url.includes("/search/")) {
             const qm = item.url.match(/\?q=([^&]+)/);
@@ -277,14 +290,23 @@ async function runGithubWorker() {
             for (const ru of repoUrls) {
               db.queueUrl(ru, "github");
             }
+            rateLimiter.recordSuccess("api.github.com", Date.now() - t0);
             db.markStatus(item.url, "done");
           } else {
             const ok = await GitHubDriver.crawlRepoDetail(item.url);
+            if (ok) {
+              rateLimiter.recordSuccess("api.github.com", Date.now() - t0);
+            } else {
+              rateLimiter.recordFailure("api.github.com", false);
+            }
             db.markStatus(item.url, ok ? "done" : "failed");
           }
         } catch (err) {
+          rateLimiter.recordFailure("api.github.com", false);
           logger.error(`[Worker:GitHub] Error on ${item.url}`, err);
           db.markStatus(item.url, "failed");
+        } finally {
+          release();
         }
       })
     );
@@ -294,7 +316,7 @@ async function runGithubWorker() {
 
 // Dedicated VPM Manifest Worker (fast concurrent JSON parser with fallback candidates)
 async function runVpmWorker() {
-  logger.info("[Worker:VPM] Started.");
+  logger.info("[Worker:VPM] Started (Adaptive AIMD limiter).");
   while (isRunning) {
     const items = db.getNextPendingForPlatform("vpm", 6);
     if (items.length === 0) {
@@ -309,12 +331,22 @@ async function runVpmWorker() {
     await Promise.allSettled(
       items.map(async (item) => {
         if (!isRunning) return;
+        const release = await rateLimiter.acquire("vpm");
+        const t0 = Date.now();
         try {
           const ok = await VpmIndexDriver.crawlManifest(item.url);
+          if (ok) {
+            rateLimiter.recordSuccess("vpm", Date.now() - t0);
+          } else {
+            rateLimiter.recordFailure("vpm", false);
+          }
           db.markStatus(item.url, ok ? "done" : "failed");
         } catch (err) {
+          rateLimiter.recordFailure("vpm", false);
           logger.error(`[Worker:VPM] Error on ${item.url}`, err);
           db.markStatus(item.url, "failed");
+        } finally {
+          release();
         }
       })
     );
@@ -322,68 +354,82 @@ async function runVpmWorker() {
   logger.info("[Worker:VPM] Stopped.");
 }
 
-// Dedicated Gumroad Worker (discover search, storefronts, and product pages)
+// Dedicated Gumroad Worker (strictly serialized per Mercator politeness to eliminate 429 backoffs)
 async function runGumroadWorker() {
-  logger.info("[Worker:Gumroad] Started.");
+  logger.info("[Worker:Gumroad] Started (serialized Mercator politeness queue & Adaptive AIMD limiter).");
   let queryIndex = 0;
   let lastDiscoverTime = 0;
   const DISCOVER_COOLDOWN_MS = 60000; // 60s cooldown between discover query bursts
 
   while (isRunning) {
-    let items = db.getNextPendingForPlatform("gumroad", 4);
+    const items = db.getNextPendingForPlatform("gumroad", 1);
+    const item = items[0];
 
     // If pending queue is low, run internal Gumroad Discover queries ONLY if not in backoff and cooldown elapsed
-    if (items.length < 2) {
-      const isBackingOff = rateLimiter.isBackingOff("gumroad:discover");
+    if (!item) {
+      const isBackingOff = rateLimiter.isBackingOff("gumroad.com");
       const cooldownElapsed = Date.now() - lastDiscoverTime > DISCOVER_COOLDOWN_MS;
 
       if (!isBackingOff && cooldownElapsed) {
         lastDiscoverTime = Date.now();
         const q = GUMROAD_SEARCH_QUERIES[queryIndex % GUMROAD_SEARCH_QUERIES.length];
         queryIndex++;
-        logger.info(`[Worker:Gumroad] Queue low (${items.length} items). Running discover search for '${q}'...`);
+        logger.info(`[Worker:Gumroad] Queue empty. Running discover search for '${q}'...`);
         for (let p = 1; p <= 3; p++) {
-          if (!isRunning || rateLimiter.isBackingOff("gumroad:discover")) break;
-          const res = await GumroadDriver.crawlDiscoverQuery(q, p);
-          if (res.productsCount === 0) break;
+          if (!isRunning || rateLimiter.isBackingOff("gumroad.com")) break;
+          const release = await rateLimiter.acquire("gumroad.com");
+          const t0 = Date.now();
+          try {
+            const res = await GumroadDriver.crawlDiscoverQuery(q, p);
+            rateLimiter.recordSuccess("gumroad.com", Date.now() - t0);
+            if (res.productsCount === 0) break;
+          } catch (err) {
+            rateLimiter.recordFailure("gumroad.com", false);
+            break;
+          } finally {
+            release();
+          }
         }
-        items = db.getNextPendingForPlatform("gumroad", 4);
       }
-    }
-
-    if (items.length === 0) {
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 4000));
       continue;
     }
 
-    for (const item of items) {
-      db.markStatus(item.url, "fetching");
-    }
-
-    await Promise.allSettled(
-      items.map(async (item) => {
-        if (!isRunning) return;
-        try {
-          if (item.url.includes("/l/")) {
-            const ok = await GumroadDriver.crawlProduct(item.url);
-            db.markStatus(item.url, ok ? "done" : "failed");
-          } else {
-            const ok = await GumroadDriver.crawlStorefront(item.url);
-            db.markStatus(item.url, ok ? "done" : "failed");
-          }
-        } catch (err) {
-          logger.error(`[Worker:Gumroad] Error on ${item.url}`, err);
-          db.markStatus(item.url, "failed");
+    db.markStatus(item.url, "fetching");
+    const release = await rateLimiter.acquire("gumroad.com");
+    const t0 = Date.now();
+    try {
+      if (item.url.includes("/l/")) {
+        const ok = await GumroadDriver.crawlProduct(item.url);
+        if (ok) {
+          rateLimiter.recordSuccess("gumroad.com", Date.now() - t0);
+        } else {
+          rateLimiter.recordFailure("gumroad.com", false);
         }
-      })
-    );
+        db.markStatus(item.url, ok ? "done" : "failed");
+      } else {
+        const ok = await GumroadDriver.crawlStorefront(item.url);
+        if (ok) {
+          rateLimiter.recordSuccess("gumroad.com", Date.now() - t0);
+        } else {
+          rateLimiter.recordFailure("gumroad.com", false);
+        }
+        db.markStatus(item.url, ok ? "done" : "failed");
+      }
+    } catch (err) {
+      rateLimiter.recordFailure("gumroad.com", false);
+      logger.error(`[Worker:Gumroad] Error on ${item.url}`, err);
+      db.markStatus(item.url, "failed");
+    } finally {
+      release();
+    }
   }
   logger.info("[Worker:Gumroad] Stopped.");
 }
 
 // Dedicated Jinxxy Worker (browse, tags, and product pages with cross-feeding)
 async function runJinxxyWorker() {
-  logger.info("[Worker:Jinxxy] Started.");
+  logger.info("[Worker:Jinxxy] Started (Adaptive AIMD limiter).");
   while (isRunning) {
     const items = db.getNextPendingForPlatform("jinxxy", 5);
     if (items.length === 0) {
@@ -398,20 +444,31 @@ async function runJinxxyWorker() {
     await Promise.allSettled(
       items.map(async (item) => {
         if (!isRunning) return;
+        const release = await rateLimiter.acquire("jinxxy.com");
+        const t0 = Date.now();
         try {
           if (item.url.includes("/market/")) {
             const productUrls = await JinxxyDriver.crawlBrowsePage(item.url);
             for (const pu of productUrls) {
               db.queueUrl(pu, "jinxxy");
             }
+            rateLimiter.recordSuccess("jinxxy.com", Date.now() - t0);
             db.markStatus(item.url, "done");
           } else {
             const ok = await JinxxyDriver.crawlProduct(item.url);
+            if (ok) {
+              rateLimiter.recordSuccess("jinxxy.com", Date.now() - t0);
+            } else {
+              rateLimiter.recordFailure("jinxxy.com", false);
+            }
             db.markStatus(item.url, ok ? "done" : "failed");
           }
         } catch (err) {
+          rateLimiter.recordFailure("jinxxy.com", false);
           logger.error(`[Worker:Jinxxy] Error on ${item.url}`, err);
           db.markStatus(item.url, "failed");
+        } finally {
+          release();
         }
       })
     );
@@ -421,7 +478,7 @@ async function runJinxxyWorker() {
 
 // Dedicated Itch.io Worker (browse feeds, searches, and tool product pages)
 async function runItchWorker() {
-  logger.info("[Worker:Itch] Started.");
+  logger.info("[Worker:Itch] Started (Adaptive AIMD limiter).");
   while (isRunning) {
     const items = db.getNextPendingForPlatform("itch", 5);
     if (items.length === 0) {
@@ -436,6 +493,8 @@ async function runItchWorker() {
     await Promise.allSettled(
       items.map(async (item) => {
         if (!isRunning) return;
+        const release = await rateLimiter.acquire("itch.io");
+        const t0 = Date.now();
         try {
           if (
             item.url.includes("/tools/") ||
@@ -447,14 +506,23 @@ async function runItchWorker() {
             for (const pu of productUrls) {
               db.queueUrl(pu, "itch");
             }
+            rateLimiter.recordSuccess("itch.io", Date.now() - t0);
             db.markStatus(item.url, "done");
           } else {
             const ok = await ItchDriver.crawlProduct(item.url);
+            if (ok) {
+              rateLimiter.recordSuccess("itch.io", Date.now() - t0);
+            } else {
+              rateLimiter.recordFailure("itch.io", false);
+            }
             db.markStatus(item.url, ok ? "done" : "failed");
           }
         } catch (err) {
+          rateLimiter.recordFailure("itch.io", false);
           logger.error(`[Worker:Itch] Error on ${item.url}`, err);
           db.markStatus(item.url, "failed");
+        } finally {
+          release();
         }
       })
     );
@@ -604,16 +672,6 @@ async function main() {
       stdio: "inherit"
     });
     console.log(`[PIPELINE] Sanitization process exited with code: ${sanitize.status}`);
-
-    const frontendDir = "F:\\.repo\\.fork\\vpm-catalog-forked";
-    const fs = await import("fs");
-    if (fs.existsSync(frontendDir)) {
-      const build = spawnSync("bun", ["run", "scripts/build-db.ts"], {
-        cwd: frontendDir,
-        stdio: "inherit"
-      });
-      console.log(`[FRONTEND] Catalog DB build process exited with code: ${build.status}`);
-    }
   } catch (err) {
     console.error("Error during automated post-crawl pipeline execution:", err);
   }

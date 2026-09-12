@@ -6,6 +6,7 @@ import { ToolClassifier } from "./classifier.ts";
 import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
 import { IanaRegistry } from "./utils/iana.ts";
+import { SimHash64, SimHashIndex } from "./utils/simhash.ts";
 
 export async function runPipelineSanitize() {
   await IanaRegistry.init();
@@ -40,6 +41,7 @@ db.run(`
     name TEXT NOT NULL,
     canonical_id TEXT NOT NULL,
     author TEXT NOT NULL,
+    authors_json TEXT DEFAULT '[]',
     category TEXT NOT NULL,
     subcategory TEXT NOT NULL,
     type TEXT NOT NULL,
@@ -64,6 +66,9 @@ db.run(`
   );
 `);
 
+try {
+  db.run("ALTER TABLE merged_packages ADD COLUMN authors_json TEXT DEFAULT '[]';");
+} catch {}
 try {
   db.run("ALTER TABLE merged_packages ADD COLUMN dependencies_json TEXT DEFAULT '{}';");
 } catch {}
@@ -199,44 +204,126 @@ function cleanTitle(rawTitle: string): string {
   return title.length > 0 ? title : unescapeHtml(rawTitle);
 }
 
-function cleanAuthor(rawAuthor: string, pkgId: string = "", repoUrl: string = ""): string {
-  let author = unescapeHtml(rawAuthor || "Unknown");
-  author = author.replace(/[@#].*$/, "");
-  author = author.replace(/\s+/g, " ").trim();
+function cleanSingleAuthorName(rawName: string): string {
+  if (!rawName) return "";
+  let a = unescapeHtml(rawName);
+  a = a.replace(/<[^>]+>/g, "").replace(/\([^)]+\)/g, "");
+  a = a.replace(/[@#].*$/, "");
+  a = a.replace(/\s+/g, " ").trim();
+  return a;
+}
 
-  // 1. Empirical Repository Ground Truth: If repoUrl provides an exact GitHub repo owner, use it!
+interface AuthorResolution {
+  primaryAuthor: string;
+  allAuthors: string[];
+}
+
+function resolveAuthors(
+  rawAuthor: string,
+  pkgId: string = "",
+  repoUrl: string = "",
+  rawAuthorsList?: any[]
+): AuthorResolution {
+  const authorsSet = new Set<string>();
+
+  // 1. Process structured rawAuthorsList (from manifest authors/contributors)
+  if (Array.isArray(rawAuthorsList)) {
+    for (const item of rawAuthorsList) {
+      const name = typeof item === "string" ? item : item?.name;
+      if (name && typeof name === "string") {
+        const cleaned = cleanSingleAuthorName(name);
+        if (cleaned && !IanaRegistry.isTld(cleaned) && cleaned.toLowerCase() !== "unknown") {
+          authorsSet.add(cleaned);
+        }
+      }
+    }
+  }
+
+  // 2. Process rawAuthor string (may be comma-separated e.g. "Author1, Author2")
+  if (rawAuthor) {
+    const parts = rawAuthor.split(/[,;\/&]+/).map(cleanSingleAuthorName).filter(Boolean);
+    for (const p of parts) {
+      if (p && !IanaRegistry.isTld(p) && p.toLowerCase() !== "unknown") {
+        authorsSet.add(p);
+      }
+    }
+  }
+
+  // 3. Empirical Repository Ground Truth: If repoUrl provides an exact GitHub repo owner, verify/augment
+  let ghOwner: string | null = null;
   if (repoUrl) {
     const ghMatch = repoUrl.match(/github\.com\/([a-zA-Z0-9_-]+)\//i);
     if (ghMatch && ghMatch[1]) {
       const owner = ghMatch[1];
-      if (owner.toLowerCase() === "vrchat") return "VRChat";
-      if (owner.length >= 2 && !IanaRegistry.isTld(owner)) {
-        return owner;
+      if (owner.toLowerCase() === "vrchat") {
+        ghOwner = "VRChat";
+      } else if (owner.length >= 2 && !IanaRegistry.isTld(owner)) {
+        ghOwner = owner;
       }
     }
   }
 
-  // 2. VRChat SDK Components: com.vrchat.* is authored by "VRChat"
+  // 4. VRChat SDK Components: com.vrchat.* is authored by "VRChat"
   const cleanId = pkgId.replace(/^vpm:/i, "");
-  if (cleanId.startsWith("com.vrchat.") || cleanId.startsWith("vrchat.")) {
-    return "VRChat";
+  const isVRChatOfficial = cleanId.startsWith("com.vrchat.") || cleanId.startsWith("vrchat.");
+
+  let primaryAuthor = "";
+
+  if (isVRChatOfficial) {
+    primaryAuthor = "VRChat";
+    authorsSet.add("VRChat");
+  } else if (ghOwner) {
+    if (authorsSet.size === 0 || Array.from(authorsSet).every(a => a.toLowerCase() === "vrchat" || a.toLowerCase() === "community")) {
+      primaryAuthor = ghOwner;
+      authorsSet.add(ghOwner);
+    } else {
+      const firstValid = Array.from(authorsSet).find(a => a.toLowerCase() !== "community" && a.toLowerCase() !== "vrchat");
+      primaryAuthor = firstValid || ghOwner;
+    }
   }
 
-  // 3. Author Disambiguation for VPM packages with generic, missing, or TLD-polluted authors
-  if (pkgId && (author.toLowerCase() === "vrchat" || author.toLowerCase() === "community" || !author || author === "Unknown" || IanaRegistry.isTld(author))) {
-    const parts = IanaRegistry.cleanReverseDnsSegments(cleanId);
-    if (parts.length > 0) {
-      const candidate = parts[0];
-      if (candidate.toLowerCase() === "vrchat") {
-        return "VRChat";
-      }
-      if (candidate.length >= 2 && !IanaRegistry.isTld(candidate)) {
-        return candidate;
+  // 5. Author Disambiguation for VPM packages with generic, missing, or TLD-polluted authors
+  if (!primaryAuthor || primaryAuthor.toLowerCase() === "vrchat" || primaryAuthor.toLowerCase() === "community" || IanaRegistry.isTld(primaryAuthor)) {
+    if (pkgId) {
+      const parts = IanaRegistry.cleanReverseDnsSegments(cleanId);
+      if (parts.length > 0) {
+        const candidate = parts[0];
+        if (candidate.toLowerCase() === "vrchat") {
+          primaryAuthor = "VRChat";
+        } else if (candidate.length >= 2 && !IanaRegistry.isTld(candidate)) {
+          primaryAuthor = candidate;
+        }
       }
     }
   }
 
-  return author.length > 0 ? author : "Unknown";
+  if (!primaryAuthor) {
+    const list = Array.from(authorsSet);
+    primaryAuthor = list.length > 0 ? list[0] : (cleanSingleAuthorName(rawAuthor) || "Unknown");
+  }
+
+  if (primaryAuthor && primaryAuthor !== "Unknown" && !authorsSet.has(primaryAuthor)) {
+    authorsSet.add(primaryAuthor);
+  }
+
+  const allAuthors = Array.from(authorsSet).filter(a => {
+    if (a.toLowerCase() === "community") return false;
+    if (a.toLowerCase() === "vrchat" && !isVRChatOfficial && (ghOwner !== "VRChat")) return false;
+    return true;
+  });
+
+  if (allAuthors.length === 0) {
+    allAuthors.push(primaryAuthor);
+  }
+
+  return {
+    primaryAuthor,
+    allAuthors
+  };
+}
+
+function cleanAuthor(rawAuthor: string, pkgId: string = "", repoUrl: string = "", rawAuthorsList?: any[]): string {
+  return resolveAuthors(rawAuthor, pkgId, repoUrl, rawAuthorsList).primaryAuthor;
 }
 
 const activeEntities = db.query(`
@@ -246,7 +333,7 @@ const activeEntities = db.query(`
 
 const updateEntityStmt = db.prepare(`
   UPDATE entities
-  SET title = ?, author = ?, description = ?, tags_json = ?, updated_at = ?
+  SET title = ?, author = ?, description = ?, tags_json = ?, raw_json = ?, updated_at = ?
   WHERE id = ?;
 `);
 
@@ -256,7 +343,7 @@ db.transaction(() => {
     let raw: any = {};
     try { raw = JSON.parse(e.raw_json || "{}"); } catch {}
     const repoUrl = raw.repo_url || e.url || "";
-    const cleanedA = cleanAuthor(e.author, e.platform === "vpm" ? e.id : "", repoUrl);
+    const authorRes = resolveAuthors(e.author, e.platform === "vpm" ? e.id : "", repoUrl, raw.authors);
     let desc = unescapeHtml(e.description || "");
     desc = desc.replace(/!\[.*?\]\(.*?\)/g, "").replace(/(?:https?:\/\/discord\.gg\/\S+)/gi, "").trim();
 
@@ -266,7 +353,9 @@ db.transaction(() => {
     if (e.title.includes("VRCFury") && !tags.includes("VRCFury")) tags.push("VRCFury");
     if (e.title.includes("NDMF") && !tags.includes("NDMF")) tags.push("NDMF");
 
-    updateEntityStmt.run(cleanedT, cleanedA, desc, JSON.stringify(tags), now, e.id);
+    raw.authors = authorRes.allAuthors;
+
+    updateEntityStmt.run(cleanedT, authorRes.primaryAuthor, desc, JSON.stringify(tags), JSON.stringify(raw), now, e.id);
   }
 })();
 console.log(`  Normalized ${activeEntities.length} active entities.`);
@@ -275,7 +364,7 @@ console.log(`  Normalized ${activeEntities.length} active entities.`);
 // STEP 3: RECONCILE MISSING ITEMS FROM ARCHIVE-1 (RAW DELTA ONLY)
 // =========================================================================
 console.log("\n[Step 3/5] Computing asymmetric raw delta from Archive-1...");
-const ARCHIVE_1_PATH = path.resolve(import.meta.dir, "../crawler cache archive-1/crawler_state.db");
+const ARCHIVE_1_PATH = CONFIG.archive1Path;
 let archive1Reconciled = 0;
 
 if (fs.existsSync(ARCHIVE_1_PATH)) {
@@ -303,19 +392,20 @@ if (fs.existsSync(ARCHIVE_1_PATH)) {
         let raw: any = {};
         try { raw = JSON.parse(r.raw_json || "{}"); } catch {}
         const repoUrl = raw.repo_url || r.url || "";
-        const cleanedA = cleanAuthor(r.author, r.platform === "vpm" ? r.id : "", repoUrl);
+        const authorRes = resolveAuthors(r.author, r.platform === "vpm" ? r.id : "", repoUrl, raw.authors);
+        raw.authors = authorRes.allAuthors;
         insertEntity.run(
           r.id,
           r.platform,
           r.url,
           cleanedT,
-          cleanedA,
+          authorRes.primaryAuthor,
           r.price_currency || (r.platform === "booth" ? "JPY" : "USD"),
           r.price_amount || 0,
           r.description || "",
           r.tags_json || "[]",
           r.external_links_json || "[]",
-          JSON.stringify({ ...JSON.parse(r.raw_json || "{}"), reconciled_from_archive1: true }),
+          JSON.stringify({ ...raw, reconciled_from_archive1: true }),
           now,
           now
         );
@@ -362,6 +452,7 @@ interface PackageCluster {
   name: string;
   canonical_id: string;
   author: string;
+  authors: Set<string>;
   category: string;
   subcategory: string;
   type: string;
@@ -428,6 +519,17 @@ for (const e of entities) {
 const clusters: PackageCluster[] = [];
 const entityToCluster = new Map<string, PackageCluster>();
 const clusterByAuthorTitle = new Map<string, PackageCluster>();
+const clusterByStoreUrl = new Map<string, PackageCluster>();
+const simHashIndex = new SimHashIndex();
+const clusterById = new Map<string, PackageCluster>();
+
+function registerClusterUrls(c: PackageCluster) {
+  if (c.url) clusterByStoreUrl.set(c.url, c);
+  if (c.booth_url) clusterByStoreUrl.set(c.booth_url, c);
+  if (c.gumroad_url) clusterByStoreUrl.set(c.gumroad_url, c);
+  if (c.jinxxy_url) clusterByStoreUrl.set(c.jinxxy_url, c);
+  if (c.itch_url) clusterByStoreUrl.set(c.itch_url, c);
+}
 
 // Stage 4.1: Seed clusters from VPM packages (highest fidelity)
 for (const e of entities) {
@@ -441,12 +543,14 @@ for (const e of entities) {
 
     const classification = ToolClassifier.classify(e.title, e.description, tags);
     const deps = extractDependencies(e.raw_json);
+    const authorRes = resolveAuthors(e.author, e.id, raw.repo_url || e.url, raw.authors);
 
     const cluster: PackageCluster = {
       id: pkgId,
       name: e.title,
       canonical_id: normalizeSlug(pkgId),
-      author: e.author,
+      author: authorRes.primaryAuthor,
+      authors: new Set(authorRes.allAuthors),
       category: classification.category,
       subcategory: classification.subcategory,
       type: classification.type,
@@ -507,6 +611,10 @@ for (const e of entities) {
       cluster.platforms.add("github");
       cluster.github_url = linkedGh.url;
       cluster.source_ids.push(linkedGh.id);
+      let ghRaw: any = {};
+      try { ghRaw = JSON.parse(linkedGh.raw_json || "{}"); } catch {}
+      const ghAuthorRes = resolveAuthors(linkedGh.author, "", linkedGh.url, ghRaw.authors);
+      ghAuthorRes.allAuthors.forEach(a => cluster.authors.add(a));
       const ghDeps = extractDependencies(linkedGh.raw_json);
       for (const [k, v] of Object.entries(ghDeps)) {
         if (!cluster.dependencies[k]) {
@@ -518,9 +626,14 @@ for (const e of entities) {
 
     clusters.push(cluster);
     entityToCluster.set(e.id, cluster);
+    clusterById.set(cluster.id, cluster);
+    if (cluster.description && cluster.description.length > 50) {
+      simHashIndex.insert(cluster.id, SimHash64.compute(`${cluster.name}\n${cluster.description}`));
+    }
 
     const atKey = `${normalizeSlug(cluster.author)}::${normalizeSlug(cluster.name)}`;
     clusterByAuthorTitle.set(atKey, cluster);
+    registerClusterUrls(cluster);
   }
 }
 console.log(`  [4.1] Seeded ${clusters.length} clusters from VPM packages.`);
@@ -533,6 +646,9 @@ for (const e of entities) {
     let tags: string[] = [];
     try { tags = JSON.parse(e.tags_json || "[]"); } catch {}
 
+    let raw: any = {};
+    try { raw = JSON.parse(e.raw_json || "{}"); } catch {}
+    const authorRes = resolveAuthors(e.author, "", e.url, raw.authors);
     const classification = ToolClassifier.classify(e.title, e.description, tags);
     const deps = extractDependencies(e.raw_json);
 
@@ -540,7 +656,8 @@ for (const e of entities) {
       id: e.id,
       name: e.title,
       canonical_id: normalizeSlug(slug),
-      author: e.author,
+      author: authorRes.primaryAuthor,
+      authors: new Set(authorRes.allAuthors),
       category: classification.category,
       subcategory: classification.subcategory,
       type: classification.type,
@@ -559,8 +676,13 @@ for (const e of entities) {
 
     clusters.push(cluster);
     entityToCluster.set(e.id, cluster);
+    clusterById.set(cluster.id, cluster);
+    if (cluster.description && cluster.description.length > 50) {
+      simHashIndex.insert(cluster.id, SimHash64.compute(`${cluster.name}\n${cluster.description}`));
+    }
     const atKey = `${normalizeSlug(cluster.author)}::${normalizeSlug(cluster.name)}`;
     clusterByAuthorTitle.set(atKey, cluster);
+    registerClusterUrls(cluster);
     ghClusters++;
   }
 }
@@ -600,16 +722,42 @@ for (const e of entities) {
       }
     }
 
-    // C. Check cross-storefront links (e.g. Booth link in Gumroad, or Gumroad link in Booth)
+    // C. Check cross-storefront links (O(1) URL lookup)
     if (!matchedCluster) {
       for (const link of extLinks) {
-        for (const c of clusters) {
-          if (c.url === link || c.booth_url === link || c.gumroad_url === link || c.jinxxy_url === link) {
-            matchedCluster = c;
-            break;
+        if (clusterByStoreUrl.has(link)) {
+          matchedCluster = clusterByStoreUrl.get(link)!;
+          break;
+        }
+      }
+    }
+
+    // D. Check 64-bit SimHash near-duplicate descriptions (Henzinger 2006)
+    if (!matchedCluster && simHashIndex.size > 0 && e.description && e.description.length > 60) {
+      const eHash = SimHash64.compute(`${e.title}\n${e.description}`);
+      const nearMatches = simHashIndex.query(eHash, 3);
+      if (nearMatches.length > 0) {
+        for (const match of nearMatches) {
+          const candidate = clusterById.get(match.id);
+          if (candidate && !candidate.platforms.has(e.platform)) {
+            const cleanId = e.id.replace(/^[a-z]+:/, "");
+            // Dependency anti-merge invariant: never merge if entity is in dependencies
+            if (!candidate.dependencies[cleanId]) {
+              const normAuthE = normalizeSlug(e.author);
+              const normAuthC = normalizeSlug(candidate.author);
+              if (
+                normAuthE === normAuthC ||
+                normAuthE.includes(normAuthC) ||
+                normAuthC.includes(normAuthE) ||
+                candidate.author === "Unknown" ||
+                e.author === "Unknown"
+              ) {
+                matchedCluster = candidate;
+                break;
+              }
+            }
           }
         }
-        if (matchedCluster) break;
       }
     }
 
@@ -625,6 +773,15 @@ for (const e of entities) {
         matchedCluster.price_amount = e.price_amount;
         matchedCluster.price_currency = e.price_currency || matchedCluster.price_currency;
       }
+
+      let raw: any = {};
+      try { raw = JSON.parse(e.raw_json || "{}"); } catch {}
+      const storeAuthorRes = resolveAuthors(e.author, "", e.url, raw.authors);
+      storeAuthorRes.allAuthors.forEach(a => matchedCluster!.authors.add(a));
+      if (matchedCluster.author === "Unknown" && storeAuthorRes.primaryAuthor !== "Unknown") {
+        matchedCluster.author = storeAuthorRes.primaryAuthor;
+      }
+
       let tags: string[] = [];
       try { tags = JSON.parse(e.tags_json || "[]"); } catch {}
       tags.forEach(t => matchedCluster!.tags.add(t));
@@ -637,8 +794,12 @@ for (const e of entities) {
       }
 
       entityToCluster.set(e.id, matchedCluster);
+      registerClusterUrls(matchedCluster);
       storeMerged++;
     } else {
+      let raw: any = {};
+      try { raw = JSON.parse(e.raw_json || "{}"); } catch {}
+      const authorRes = resolveAuthors(e.author, "", e.url, raw.authors);
       let tags: string[] = [];
       try { tags = JSON.parse(e.tags_json || "[]"); } catch {}
 
@@ -649,7 +810,8 @@ for (const e of entities) {
         id: e.id,
         name: e.title,
         canonical_id: normalizeSlug(e.id),
-        author: e.author,
+        author: authorRes.primaryAuthor,
+        authors: new Set(authorRes.allAuthors),
         category: classification.category,
         subcategory: classification.subcategory,
         type: classification.type,
@@ -672,8 +834,13 @@ for (const e of entities) {
 
       clusters.push(cluster);
       entityToCluster.set(e.id, cluster);
+      clusterById.set(cluster.id, cluster);
+      if (cluster.description && cluster.description.length > 50) {
+        simHashIndex.insert(cluster.id, SimHash64.compute(`${cluster.name}\n${cluster.description}`));
+      }
       const atKey = `${normalizeSlug(cluster.author)}::${normalizeSlug(cluster.name)}`;
       clusterByAuthorTitle.set(atKey, cluster);
+      registerClusterUrls(cluster);
       storeStandalone++;
     }
   }
@@ -683,12 +850,12 @@ console.log(`  [4.3] Storefronts merged: ${storeMerged} | Storefronts standalone
 // Insert into merged_packages
 const insertMerged = db.prepare(`
   INSERT INTO merged_packages (
-    id, name, canonical_id, author, category, subcategory, type,
+    id, name, canonical_id, author, authors_json, category, subcategory, type,
     description, primary_platform, platforms_json, url, vcc_url,
     github_url, booth_url, gumroad_url, jinxxy_url, itch_url,
     price_currency, price_amount, is_vcc, tags_json, dependencies_json, source_ids_json
   ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
   );
 `);
 
@@ -699,6 +866,7 @@ db.transaction(() => {
       c.name,
       c.canonical_id,
       c.author,
+      JSON.stringify(Array.from(c.authors)),
       c.category,
       c.subcategory,
       c.type,

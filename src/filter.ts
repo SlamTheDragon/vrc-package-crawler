@@ -125,7 +125,21 @@ export class RelevanceFilter {
     /\bcute\s+bat\b/i,
     /\bhorn\s+bundle\b/i,
     /\btailcoat\b/i,
-    /\bminigun\b/i
+    /\bminigun\b/i,
+    // Expanded Japanese & accessory cosmetic terms
+    /\b(?:wings?|feather|羽|翼)\b/i,
+    /\b(?:horns?|角)\b/i,
+    /\b(?:ears?|耳|ねこみみ|うさみみ|ケモ耳)\b/i,
+    /\b(?:tail|tails|しっぽ|尻尾)\b/i,
+    /\b(?:crown|tiara|王冠|ティアラ)\b/i,
+    /\b(?:glasses|megane|メガネ|眼鏡|サングラス)\b/i,
+    /\b(?:hat|cap|beanie|帽子|キャップ|ハット|ベレー帽)\b/i,
+    /\b(?:ring|rings|指輪|リング)\b/i,
+    /\b(?:necklace|choker|ネックレス|チョーカー)\b/i,
+    /\b(?:earrings?|ピアス|イヤリング)\b/i,
+    /\b(?:costume|outfit|dress|skirt|pants|hoodie|jacket|衣装|服|ドレス|スカート|パンツ|パーカー|ジャケット|水着|下着)\b/i,
+    /\b(?:hair|wig|髪|ヘア|ツインテール|ポニーテール|ボブ|ショートヘア|ロングヘア)\b/i,
+    /\b(?:texture|skin|eye|face|テクスチャ|アイテクスチャ|スキン|メイク)\b/i
   ];
 
   // 4. Strong Tool & System Inclusion Signals (+4 to +6)
@@ -325,7 +339,7 @@ export class RelevanceFilter {
       if (pat.test(titleLower)) {
         const isToolForAsset = [
           "tool", "tools", "fitter", "generator", "baker", "system", "script", "converter",
-          "setup", "gimmick", "ギミック", "ツール", "システム", "アドオン", "プラグイン"
+          "gimmick", "ギミック", "ツール", "システム", "アドオン", "プラグイン", "エディタ", "editor"
         ].some((t) => titleLower.includes(t));
 
         if (!isToolForAsset) {
@@ -385,9 +399,9 @@ export class RelevanceFilter {
       }
     }
 
-    // BOOTH Category 208 (3D Tools & Systems) baseline bonus
+    // BOOTH Category 208 (3D Tools & Systems) baseline bonus (requires additional tool signals to pass threshold 3)
     if (e.platform === "booth") {
-      score += 3;
+      score += 1;
       reasons.push("BOOTH Category 208 (3D Tools & Systems)");
     }
 
@@ -433,26 +447,20 @@ export class RelevanceFilter {
       // API search endpoints are always valid
       if (u.includes("api.github.com/search")) return true;
 
-      // Whitelisted creators are always relevant
-      const matchOwner = u.match(/github\.com\/([^/]+)/);
-      if (matchOwner && (CREATOR_WHITELIST.has(matchOwner[1].toLowerCase()) || matchOwner[1].toLowerCase().includes("magmavrc"))) {
-        return true;
+      // Filter out non-repository and non-code paths
+      if (
+        u.includes("/actions") ||
+        u.includes("/issues") ||
+        u.includes("/pulls") ||
+        u.includes("/commit/") ||
+        u.includes("/blob/") ||
+        u.includes("/tree/")
+      ) {
+        return false;
       }
 
-      // Repository URLs must contain at least one VRChat/Unity ecosystem keyword
-      const VRC_URL_TERMS = [
-        "vrchat", "vrc", "vpm", "udon", "avatar", "shader", "modular", "vrcfury",
-        "ndmf", "liltoon", "poiyomi", "blendshape", "physbone", "dynamicbone",
-        "gogoloco", "faceemo", "saccflight", "qvpen", "kurotu", "anatawa12",
-        "nadena", "baryon", "d4rk", "pumkin", "cyanlaser", "vrclib", "lyuma",
-        "hai-vr", "unity", "blender", "facetrack", "openvr", "steamvr", "ovr",
-        "bdunderscore", "merlinvr", "dreadrith", "architech", "vrlabs", "reimajo",
-        "whiteflare", "cascadianvr", "rollthered", "jansharp", "thryrallo",
-        "jlchntoz", "yueby", "netnarazaka", "happyrobot", "sonic853", "hoshinolabs",
-        "furality", "sacc", "techan", "vrchat-community", "rurre", "razgriz", "varneon", "z3y", "magmavrc"
-      ];
-
-      return VRC_URL_TERMS.some((term) => u.includes(term));
+      // Graph propagation: allow candidate repositories to be crawled and inspected for package.json/release assets
+      return true;
     }
 
     // Fast reject obvious cosmetic slugs on Jinxxy, Gumroad & Itch
