@@ -1,7 +1,8 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
-import { RelevanceFilter, TOP_VRCHAT_CREATORS, CREATOR_ALIASES } from "../filter.ts";
+import { RelevanceFilter, CREATOR_ALIASES } from "../filter.ts";
+import { IanaRegistry } from "../utils/iana.ts";
 
 export class GitHubDriver {
   private static sleep(ms: number) {
@@ -340,11 +341,25 @@ export class GitHubDriver {
 
   // Harvests full repository portfolios for prominent VRChat creator accounts with multi-tier fallback
   static async harvestCreatorRepos(creators: string[]): Promise<number> {
-    logger.info(`[GitHub] Harvesting repository portfolios for ${creators.length} top creators...`);
+    logger.info(`[GitHub] Harvesting repository portfolios for ${creators.length} creators...`);
     let totalHarvested = 0;
 
     for (const rawCreator of creators) {
-      const creator = CREATOR_ALIASES[rawCreator.toLowerCase()] || rawCreator;
+      if (!rawCreator || typeof rawCreator !== "string") continue;
+      const cleanHandle = rawCreator.trim().replace(/^@/, "");
+
+      // Dynamic ground-truth validation: valid GitHub handle syntax, not an IANA TLD, not an SDK namespace
+      if (
+        cleanHandle.length < 3 ||
+        cleanHandle.length > 39 ||
+        !/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/.test(cleanHandle) ||
+        IanaRegistry.isTld(cleanHandle) ||
+        ["base", "worlds", "avatars", "core", "community", "unknown", "listing-action-type-detection"].includes(cleanHandle.toLowerCase())
+      ) {
+        continue;
+      }
+
+      const creator = CREATOR_ALIASES[cleanHandle.toLowerCase()] || cleanHandle;
       if (this.harvestedCreators.has(creator.toLowerCase())) continue;
 
       const existing = db.prepare(
@@ -386,17 +401,17 @@ export class GitHubDriver {
             resolvedPath = "organization";
             logger.info(`[GitHub] Alternative path resolved: @${creator} is an active GitHub organization! Ingesting repos...`);
           } else if (orgResp.status === 404) {
-            // Tier 3: Search API query for creator + vrchat (alternative path)
-            logger.info(`[GitHub] Creator @${creator} 404 under /users/ and /orgs/. Probing alternative path via search API...`);
+            // Tier 3: Targeted Search API query with creator user/org scope
+            logger.info(`[GitHub] Creator @${creator} 404 under /users/ and /orgs/. Probing alternative path via targeted search API...`);
             await this.sleep(CONFIG.githubSearchDelayMs);
-            const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(rawCreator + " vrchat")}&per_page=10`;
+            const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent("user:" + creator + " vrchat")}&per_page=10`;
             const searchResp = await fetch(searchUrl, { headers: this.getHeaders() });
             if (searchResp.ok) {
               const searchData = (await searchResp.json()) as any;
               if (searchData.items && searchData.items.length > 0) {
                 repos = searchData.items;
                 resolvedPath = "search_discovery";
-                logger.info(`[GitHub] Alternative path resolved via search for "${rawCreator}": discovered ${repos.length} repository matches!`);
+                logger.info(`[GitHub] Alternative path resolved via targeted search for @${creator}: discovered ${repos.length} repository matches!`);
               }
             }
           }
@@ -458,45 +473,41 @@ export class GitHubDriver {
   }
 
   // Harvests portfolios for dynamically discovered creators from database truth sources (VPM manifests, cross-references, GitHub repos)
-  static async harvestDiscoveredCreators(maxCreators: number = 100): Promise<number> {
+  static async harvestDiscoveredCreators(maxCreators: number = 150): Promise<number> {
     logger.info("[GitHub] Deriving dynamic creator list from database entities truth source...");
     const discovered = new Set<string>();
 
     // 1. Extract creators from verified VPM packages and community registries
     const vpmAuthors = db.prepare(`
       SELECT DISTINCT author FROM entities 
-      WHERE platform = 'vpm' AND author IS NOT NULL AND author != '' AND author != 'Unknown'
+      WHERE author IS NOT NULL AND author != '' AND author != 'Unknown' AND author != 'VRChat'
       LIMIT ?;
     `).all(maxCreators) as { author: string }[];
     for (const r of vpmAuthors) {
-      if (r.author && r.author.length < 40 && !r.author.includes(" ")) {
-        discovered.add(r.author);
+      const clean = (r.author || "").trim().replace(/^@/, "");
+      if (clean.length >= 3 && clean.length <= 39 && /^[a-zA-Z0-9_-]+$/.test(clean) && !IanaRegistry.isTld(clean)) {
+        discovered.add(clean);
       }
     }
 
     // 2. Extract owners from GitHub entity URLs
     const ghUrls = db.prepare(`
       SELECT url FROM entities 
-      WHERE platform = 'github' AND url LIKE 'https://github.com/%'
+      WHERE (platform = 'github' OR url LIKE '%github.com/%')
       LIMIT ?;
-    `).all(maxCreators * 2) as { url: string }[];
+    `).all(maxCreators * 3) as { url: string }[];
     for (const r of ghUrls) {
-      const match = r.url.match(/https:\/\/github\.com\/([^/]+)/);
-      if (match && match[1] && !match[1].includes(".") && match[1].length < 40) {
-        discovered.add(match[1]);
+      const match = r.url.match(/github\.com\/([a-zA-Z0-9_-]+)\//i);
+      if (match && match[1] && !match[1].includes(".") && match[1].length >= 3 && match[1].length <= 39 && !IanaRegistry.isTld(match[1])) {
+        if (match[1].toLowerCase() !== "vrchat") {
+          discovered.add(match[1]);
+        }
       }
     }
 
-    // 3. Include bootstrap creator seeds to ensure cold-start coverage
-    for (const c of TOP_VRCHAT_CREATORS) {
-      discovered.add(c);
-    }
-
     const creatorList = Array.from(discovered);
-    logger.info(`[GitHub] Harvesting dynamically discovered portfolios for ${creatorList.length} creators...`);
+    logger.info(`[GitHub] Harvesting dynamically discovered portfolios for ${creatorList.length} creators derived from truth sources...`);
     return this.harvestCreatorRepos(creatorList);
   }
 }
-
-export { TOP_VRCHAT_CREATORS } from "../filter.ts";
 

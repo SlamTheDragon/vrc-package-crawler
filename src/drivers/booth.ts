@@ -3,6 +3,7 @@ import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
 import { RelevanceFilter } from "../filter.ts";
+import { CuratedDriver } from "./curated.ts";
 
 export class BoothDriver {
   private static sleep(ms: number) {
@@ -181,6 +182,9 @@ export class BoothDriver {
           db.queueUrl(gh, "github");
         }
       }
+
+      // Autonomously extract any VPM / registry feeds from page description & links
+      CuratedDriver.extractAndQueueRegistries(html);
 
       // Extract tags
       const tagMatches = html.match(/class="[^"]*tag-name[^"]*"[^>]*>([^<]+)<\/a>/g) || [];

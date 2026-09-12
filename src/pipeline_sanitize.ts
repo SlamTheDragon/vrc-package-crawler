@@ -5,8 +5,11 @@ import { RelevanceFilter, type MinimalEntity, CREATOR_WHITELIST } from "./filter
 import { ToolClassifier } from "./classifier.ts";
 import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
+import { IanaRegistry } from "./utils/iana.ts";
 
 export async function runPipelineSanitize() {
+  await IanaRegistry.init();
+
   console.log("\x1b[36m");
   console.log("==================================================================");
   console.log("   VRC PACKAGE CRAWLER — UNIFIED DETERMINISTIC SANITIZATION PASS  ");
@@ -196,21 +199,39 @@ function cleanTitle(rawTitle: string): string {
   return title.length > 0 ? title : unescapeHtml(rawTitle);
 }
 
-function cleanAuthor(rawAuthor: string, pkgId: string = ""): string {
+function cleanAuthor(rawAuthor: string, pkgId: string = "", repoUrl: string = ""): string {
   let author = unescapeHtml(rawAuthor || "Unknown");
   author = author.replace(/[@#].*$/, "");
   author = author.replace(/\s+/g, " ").trim();
 
-  // Author Disambiguation for VPM packages
-  // If author is generic "VRChat" or "Community", extract author from reverse-DNS namespace!
-  if (pkgId && (author.toLowerCase() === "vrchat" || author.toLowerCase() === "community" || !author)) {
-    const cleanId = pkgId.replace(/^vpm:/, "");
-    const parts = cleanId.split(".").filter(p => p !== "com" && p !== "net" && p !== "org" && p !== "dev" && p !== "io" && p !== "users");
+  // 1. Empirical Repository Ground Truth: If repoUrl provides an exact GitHub repo owner, use it!
+  if (repoUrl) {
+    const ghMatch = repoUrl.match(/github\.com\/([a-zA-Z0-9_-]+)\//i);
+    if (ghMatch && ghMatch[1]) {
+      const owner = ghMatch[1];
+      if (owner.toLowerCase() === "vrchat") return "VRChat";
+      if (owner.length >= 2 && !IanaRegistry.isTld(owner)) {
+        return owner;
+      }
+    }
+  }
+
+  // 2. VRChat SDK Components: com.vrchat.* is authored by "VRChat"
+  const cleanId = pkgId.replace(/^vpm:/i, "");
+  if (cleanId.startsWith("com.vrchat.") || cleanId.startsWith("vrchat.")) {
+    return "VRChat";
+  }
+
+  // 3. Author Disambiguation for VPM packages with generic, missing, or TLD-polluted authors
+  if (pkgId && (author.toLowerCase() === "vrchat" || author.toLowerCase() === "community" || !author || author === "Unknown" || IanaRegistry.isTld(author))) {
+    const parts = IanaRegistry.cleanReverseDnsSegments(cleanId);
     if (parts.length > 0) {
-      if (parts[0].toLowerCase() === "vrchat" && parts.length > 1) {
-        author = parts[1];
-      } else {
-        author = parts[0];
+      const candidate = parts[0];
+      if (candidate.toLowerCase() === "vrchat") {
+        return "VRChat";
+      }
+      if (candidate.length >= 2 && !IanaRegistry.isTld(candidate)) {
+        return candidate;
       }
     }
   }
@@ -232,7 +253,10 @@ const updateEntityStmt = db.prepare(`
 db.transaction(() => {
   for (const e of activeEntities) {
     const cleanedT = cleanTitle(e.title);
-    const cleanedA = cleanAuthor(e.author, e.platform === "vpm" ? e.id : "");
+    let raw: any = {};
+    try { raw = JSON.parse(e.raw_json || "{}"); } catch {}
+    const repoUrl = raw.repo_url || e.url || "";
+    const cleanedA = cleanAuthor(e.author, e.platform === "vpm" ? e.id : "", repoUrl);
     let desc = unescapeHtml(e.description || "");
     desc = desc.replace(/!\[.*?\]\(.*?\)/g, "").replace(/(?:https?:\/\/discord\.gg\/\S+)/gi, "").trim();
 
@@ -276,7 +300,10 @@ if (fs.existsSync(ARCHIVE_1_PATH)) {
       const evalRes = RelevanceFilter.evaluate(r);
       if (evalRes.isRelevant) {
         const cleanedT = cleanTitle(r.title);
-        const cleanedA = cleanAuthor(r.author, r.platform === "vpm" ? r.id : "");
+        let raw: any = {};
+        try { raw = JSON.parse(r.raw_json || "{}"); } catch {}
+        const repoUrl = raw.repo_url || r.url || "";
+        const cleanedA = cleanAuthor(r.author, r.platform === "vpm" ? r.id : "", repoUrl);
         insertEntity.run(
           r.id,
           r.platform,

@@ -2,7 +2,7 @@ import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
 import { db } from "./db.ts";
 import { BoothDriver } from "./drivers/booth.ts";
-import { GitHubDriver, TOP_VRCHAT_CREATORS } from "./drivers/github.ts";
+import { GitHubDriver } from "./drivers/github.ts";
 import { VpmIndexDriver } from "./drivers/vpm_index.ts";
 import { GumroadDriver } from "./drivers/gumroad.ts";
 import { JinxxyDriver } from "./drivers/jinxxy.ts";
@@ -60,13 +60,10 @@ const JINXXY_CATEGORIES = [
 
 export async function seedAllDomains() {
   const metrics = db.getMetrics();
-  logger.info("Checking domain seed status...");
+  logger.info("Checking domain seed status and initializing fast frontier queues...");
 
   // 1. Ingest decentralized VPM repositories
   if (metrics.platformStats["vpm"].pending < 10 && metrics.platformStats["vpm"].done < 50) {
-    logger.info("Seeding decentralized community VPM repositories from repositories.txt (300 repos)...");
-    await CuratedDriver.ingestVpmRepositoriesList();
-    
     const coreFeeds = [
       "https://vpm.anatawa12.com/vpm.json",
       "https://vpm.nadena.dev/vpm.json",
@@ -83,11 +80,8 @@ export async function seedAllDomains() {
     }
   }
 
-  // 2. Ingest multi-maintainer community registries & expanded GitHub queries
+  // 2. Queue high-signal GitHub queries into frontier
   if (metrics.platformStats["github"].pending < 50) {
-    logger.info("Seeding decentralized community registries, multi-author catalogs & expanded GitHub queries...");
-    await CuratedDriver.ingestAllCuratedSources();
-
     const githubQueries = [
       "topic:vrchat",
       "topic:vpm",
@@ -116,10 +110,6 @@ export async function seedAllDomains() {
     for (const q of githubQueries) {
       db.queueUrl(`https://api.github.com/search/repositories?q=${encodeURIComponent(q)}`, "github");
     }
-
-    // Dynamic Creator Portfolio Ingestion derived from truth sources
-    logger.info("Harvesting dynamically discovered VRChat creator portfolios on GitHub...");
-    await GitHubDriver.harvestDiscoveredCreators();
   }
 
   // 3. Queue BOOTH browse pages and high-signal multi-tag searches
@@ -134,66 +124,18 @@ export async function seedAllDomains() {
     }
 
     const BOOTH_TAGS = [
-      "エディタ拡張",
-      "AAO",
-      "VRCFury",
-      "NDMF",
-      "FaceEmo",
-      "GoGoLoco",
-      "SaccFlight",
-      "VirtualLens",
-      "QvPen",
-      "改変ツール",
-      "シェーダー",
-      "PhysBone",
-      "UdonSharp",
-      "Udon",
-      "ModularAvatar",
-      "AvatarOptimizer",
-      "lilToon",
-      "Poiyomi",
-      "Kisekae",
-      "VRChatツール",
-      "アバター改変",
-      "ワールドギミック",
-      "ギミック",
-      "OSC",
-      "CyanTrigger",
-      "MA対応",
-      "VRCFury対応",
-      "AAO対応",
-      "NDMF対応",
-      "便利ツール",
-      "アバター改変ツール",
-      "表情設定",
-      "ポーズ",
-      "追従",
-      "アニメーション",
-      "パーティクル",
-      "ライト",
-      "時計",
-      "マーカー",
-      "フライト",
-      "コライダー",
-      "コンストレイント",
-      "オーディオ",
-      "揺れもの",
-      "ワールド制作",
-      "テクスチャ改変",
-      "TexTransTool",
-      "AvatarAssembler",
-      "Mochie",
-      "DynamicBone",
-      "USharpVideo",
-      "VRCSDK3",
-      "FaceTracking",
-      "EyeTracking",
-      "SlimeVR",
-      "EasySetup",
-      "ギミック付き",
-      "カメラ",
-      "メニュー",
-      "衣装改変"
+      "エディタ拡張", "AAO", "VRCFury", "NDMF", "FaceEmo", "GoGoLoco",
+      "SaccFlight", "VirtualLens", "QvPen", "改変ツール", "シェーダー",
+      "PhysBone", "UdonSharp", "Udon", "ModularAvatar", "AvatarOptimizer",
+      "lilToon", "Poiyomi", "Kisekae", "VRChatツール", "アバター改変",
+      "ワールドギミック", "ギミック", "OSC", "CyanTrigger", "MA対応",
+      "VRCFury対応", "AAO対応", "NDMF対応", "便利ツール", "アバター改変ツール",
+      "表情設定", "ポーズ", "追従", "アニメーション", "パーティクル",
+      "ライト", "時計", "マーカー", "フライト", "コライダー",
+      "コンストレイント", "オーディオ", "揺れもの", "ワールド制作", "テクスチャ改変",
+      "TexTransTool", "AvatarAssembler", "Mochie", "DynamicBone", "USharpVideo",
+      "VRCSDK3", "FaceTracking", "EyeTracking", "SlimeVR", "EasySetup",
+      "ギミック付き", "カメラ", "メニュー", "衣装改変"
     ];
     for (const bt of BOOTH_TAGS) {
       for (let p = 1; p <= 15; p++) {
@@ -208,10 +150,7 @@ export async function seedAllDomains() {
     }
   }
 
-  // 4. Queue Western creator tool storefronts & cross-links on Gumroad
-  logger.info("Seeding Gumroad storefront hubs & cross-linked creator stores...");
-  GumroadDriver.harvestCrossLinks();
-
+  // 4. Queue Western creator tool storefronts on Gumroad
   const gumroadHubs = [
     "https://vrlabs.gumroad.com",
     "https://dreadrith.gumroad.com",
@@ -241,28 +180,18 @@ export async function seedAllDomains() {
     db.queueUrl(hub, "gumroad");
   }
 
-  // 5. Seed Jinxxy marketplace categories, tags, and sitemaps
+  // 5. Seed Jinxxy marketplace categories and tags
   if (!metrics.platformStats["jinxxy"] || metrics.platformStats["jinxxy"].pending < 30) {
-    logger.info("Seeding Jinxxy categories, tags, and product sitemaps...");
     for (const catUrl of JINXXY_CATEGORIES) {
       db.queueUrl(catUrl, "jinxxy");
     }
     for (const tag of JINXXY_TAGS) {
       db.queueUrl(`https://jinxxy.com/market/browse?tags=${encodeURIComponent(tag)}`, "jinxxy");
     }
-
-    // Scan Jinxxy product sitemaps 1 through 25 for tool keywords
-    for (let sIdx = 1; sIdx <= 25; sIdx++) {
-      const toolUrls = await JinxxyDriver.scanSitemapForTools(sIdx);
-      for (const tu of toolUrls) {
-        db.queueUrl(tu, "jinxxy");
-      }
-    }
   }
 
   // 6. Seed Itch.io tool browse feeds and searches
   if (!metrics.platformStats["itch"] || metrics.platformStats["itch"].pending < 10) {
-    logger.info("Seeding Itch.io tool tags and searches...");
     const itchFeeds = [
       ...Array.from({ length: 15 }, (_, i) => `https://itch.io/tools/tag-vrchat?page=${i + 1}`),
       ...Array.from({ length: 10 }, (_, i) => `https://itch.io/tools/tag-udon?page=${i + 1}`),
@@ -280,41 +209,45 @@ export async function seedAllDomains() {
   }
 }
 
-// Dedicated BOOTH Worker
+// Dedicated BOOTH Worker (concurrent item processing)
 async function runBoothWorker() {
   logger.info("[Worker:BOOTH] Started.");
   while (isRunning) {
-    const items = db.getNextPendingForPlatform("booth", 10);
+    const items = db.getNextPendingForPlatform("booth", 6);
     if (items.length === 0) {
       await new Promise((r) => setTimeout(r, 4000));
       continue;
     }
 
     for (const item of items) {
-      if (!isRunning) break;
       db.markStatus(item.url, "fetching");
-
-      try {
-        if (
-          item.url.includes("/browse/") ||
-          item.url.includes("/search/") ||
-          item.url.includes("?query=") ||
-          item.url.includes("/items?")
-        ) {
-          const itemUrls = await BoothDriver.crawlCategoryPage(item.url);
-          for (const u of itemUrls) {
-            db.queueUrl(u, "booth");
-          }
-          db.markStatus(item.url, "done");
-        } else {
-          const ok = await BoothDriver.crawlItemDetail(item.url);
-          db.markStatus(item.url, ok ? "done" : "failed");
-        }
-      } catch (err) {
-        logger.error(`[Worker:BOOTH] Error on ${item.url}`, err);
-        db.markStatus(item.url, "failed");
-      }
     }
+
+    await Promise.allSettled(
+      items.map(async (item) => {
+        if (!isRunning) return;
+        try {
+          if (
+            item.url.includes("/browse/") ||
+            item.url.includes("/search/") ||
+            item.url.includes("?query=") ||
+            item.url.includes("/items?")
+          ) {
+            const itemUrls = await BoothDriver.crawlCategoryPage(item.url);
+            for (const u of itemUrls) {
+              db.queueUrl(u, "booth");
+            }
+            db.markStatus(item.url, "done");
+          } else {
+            const ok = await BoothDriver.crawlItemDetail(item.url);
+            db.markStatus(item.url, ok ? "done" : "failed");
+          }
+        } catch (err) {
+          logger.error(`[Worker:BOOTH] Error on ${item.url}`, err);
+          db.markStatus(item.url, "failed");
+        }
+      })
+    );
   }
   logger.info("[Worker:BOOTH] Stopped.");
 }
@@ -330,53 +263,61 @@ async function runGithubWorker() {
     }
 
     for (const item of items) {
-      if (!isRunning) break;
       db.markStatus(item.url, "fetching");
-
-      try {
-        if (item.url.includes("/search/")) {
-          const qm = item.url.match(/\?q=([^&]+)/);
-          const query = qm ? decodeURIComponent(qm[1]) : "vrchat";
-          const repoUrls = await GitHubDriver.searchRepos(query, 5);
-          for (const ru of repoUrls) {
-            db.queueUrl(ru, "github");
-          }
-          db.markStatus(item.url, "done");
-        } else {
-          const ok = await GitHubDriver.crawlRepoDetail(item.url);
-          db.markStatus(item.url, ok ? "done" : "failed");
-        }
-      } catch (err) {
-        logger.error(`[Worker:GitHub] Error on ${item.url}`, err);
-        db.markStatus(item.url, "failed");
-      }
     }
+
+    await Promise.allSettled(
+      items.map(async (item) => {
+        if (!isRunning) return;
+        try {
+          if (item.url.includes("/search/")) {
+            const qm = item.url.match(/\?q=([^&]+)/);
+            const query = qm ? decodeURIComponent(qm[1]) : "vrchat";
+            const repoUrls = await GitHubDriver.searchRepos(query, 5);
+            for (const ru of repoUrls) {
+              db.queueUrl(ru, "github");
+            }
+            db.markStatus(item.url, "done");
+          } else {
+            const ok = await GitHubDriver.crawlRepoDetail(item.url);
+            db.markStatus(item.url, ok ? "done" : "failed");
+          }
+        } catch (err) {
+          logger.error(`[Worker:GitHub] Error on ${item.url}`, err);
+          db.markStatus(item.url, "failed");
+        }
+      })
+    );
   }
   logger.info("[Worker:GitHub] Stopped.");
 }
 
-// Dedicated VPM Manifest Worker (fast JSON parser with fallback candidates)
+// Dedicated VPM Manifest Worker (fast concurrent JSON parser with fallback candidates)
 async function runVpmWorker() {
   logger.info("[Worker:VPM] Started.");
   while (isRunning) {
-    const items = db.getNextPendingForPlatform("vpm", 5);
+    const items = db.getNextPendingForPlatform("vpm", 6);
     if (items.length === 0) {
       await new Promise((r) => setTimeout(r, 3000));
       continue;
     }
 
     for (const item of items) {
-      if (!isRunning) break;
       db.markStatus(item.url, "fetching");
-
-      try {
-        const ok = await VpmIndexDriver.crawlManifest(item.url);
-        db.markStatus(item.url, ok ? "done" : "failed");
-      } catch (err) {
-        logger.error(`[Worker:VPM] Error on ${item.url}`, err);
-        db.markStatus(item.url, "failed");
-      }
     }
+
+    await Promise.allSettled(
+      items.map(async (item) => {
+        if (!isRunning) return;
+        try {
+          const ok = await VpmIndexDriver.crawlManifest(item.url);
+          db.markStatus(item.url, ok ? "done" : "failed");
+        } catch (err) {
+          logger.error(`[Worker:VPM] Error on ${item.url}`, err);
+          db.markStatus(item.url, "failed");
+        }
+      })
+    );
   }
   logger.info("[Worker:VPM] Stopped.");
 }
@@ -389,7 +330,7 @@ async function runGumroadWorker() {
   const DISCOVER_COOLDOWN_MS = 60000; // 60s cooldown between discover query bursts
 
   while (isRunning) {
-    let items = db.getNextPendingForPlatform("gumroad", 3);
+    let items = db.getNextPendingForPlatform("gumroad", 4);
 
     // If pending queue is low, run internal Gumroad Discover queries ONLY if not in backoff and cooldown elapsed
     if (items.length < 2) {
@@ -406,7 +347,7 @@ async function runGumroadWorker() {
           const res = await GumroadDriver.crawlDiscoverQuery(q, p);
           if (res.productsCount === 0) break;
         }
-        items = db.getNextPendingForPlatform("gumroad", 3);
+        items = db.getNextPendingForPlatform("gumroad", 4);
       }
     }
 
@@ -416,22 +357,26 @@ async function runGumroadWorker() {
     }
 
     for (const item of items) {
-      if (!isRunning) break;
       db.markStatus(item.url, "fetching");
-
-      try {
-        if (item.url.includes("/l/")) {
-          const ok = await GumroadDriver.crawlProduct(item.url);
-          db.markStatus(item.url, ok ? "done" : "failed");
-        } else {
-          const ok = await GumroadDriver.crawlStorefront(item.url);
-          db.markStatus(item.url, ok ? "done" : "failed");
-        }
-      } catch (err) {
-        logger.error(`[Worker:Gumroad] Error on ${item.url}`, err);
-        db.markStatus(item.url, "failed");
-      }
     }
+
+    await Promise.allSettled(
+      items.map(async (item) => {
+        if (!isRunning) return;
+        try {
+          if (item.url.includes("/l/")) {
+            const ok = await GumroadDriver.crawlProduct(item.url);
+            db.markStatus(item.url, ok ? "done" : "failed");
+          } else {
+            const ok = await GumroadDriver.crawlStorefront(item.url);
+            db.markStatus(item.url, ok ? "done" : "failed");
+          }
+        } catch (err) {
+          logger.error(`[Worker:Gumroad] Error on ${item.url}`, err);
+          db.markStatus(item.url, "failed");
+        }
+      })
+    );
   }
   logger.info("[Worker:Gumroad] Stopped.");
 }
@@ -447,25 +392,29 @@ async function runJinxxyWorker() {
     }
 
     for (const item of items) {
-      if (!isRunning) break;
       db.markStatus(item.url, "fetching");
-
-      try {
-        if (item.url.includes("/market/")) {
-          const productUrls = await JinxxyDriver.crawlBrowsePage(item.url);
-          for (const pu of productUrls) {
-            db.queueUrl(pu, "jinxxy");
-          }
-          db.markStatus(item.url, "done");
-        } else {
-          const ok = await JinxxyDriver.crawlProduct(item.url);
-          db.markStatus(item.url, ok ? "done" : "failed");
-        }
-      } catch (err) {
-        logger.error(`[Worker:Jinxxy] Error on ${item.url}`, err);
-        db.markStatus(item.url, "failed");
-      }
     }
+
+    await Promise.allSettled(
+      items.map(async (item) => {
+        if (!isRunning) return;
+        try {
+          if (item.url.includes("/market/")) {
+            const productUrls = await JinxxyDriver.crawlBrowsePage(item.url);
+            for (const pu of productUrls) {
+              db.queueUrl(pu, "jinxxy");
+            }
+            db.markStatus(item.url, "done");
+          } else {
+            const ok = await JinxxyDriver.crawlProduct(item.url);
+            db.markStatus(item.url, ok ? "done" : "failed");
+          }
+        } catch (err) {
+          logger.error(`[Worker:Jinxxy] Error on ${item.url}`, err);
+          db.markStatus(item.url, "failed");
+        }
+      })
+    );
   }
   logger.info("[Worker:Jinxxy] Stopped.");
 }
@@ -481,32 +430,81 @@ async function runItchWorker() {
     }
 
     for (const item of items) {
-      if (!isRunning) break;
       db.markStatus(item.url, "fetching");
-
-      try {
-        if (
-          item.url.includes("/tools/") ||
-          item.url.includes("/tag-") ||
-          item.url.includes("/search") ||
-          item.url.includes("itch.io/tools")
-        ) {
-          const productUrls = await ItchDriver.crawlBrowsePage(item.url);
-          for (const pu of productUrls) {
-            db.queueUrl(pu, "itch");
-          }
-          db.markStatus(item.url, "done");
-        } else {
-          const ok = await ItchDriver.crawlProduct(item.url);
-          db.markStatus(item.url, ok ? "done" : "failed");
-        }
-      } catch (err) {
-        logger.error(`[Worker:Itch] Error on ${item.url}`, err);
-        db.markStatus(item.url, "failed");
-      }
     }
+
+    await Promise.allSettled(
+      items.map(async (item) => {
+        if (!isRunning) return;
+        try {
+          if (
+            item.url.includes("/tools/") ||
+            item.url.includes("/tag-") ||
+            item.url.includes("/search") ||
+            item.url.includes("itch.io/tools")
+          ) {
+            const productUrls = await ItchDriver.crawlBrowsePage(item.url);
+            for (const pu of productUrls) {
+              db.queueUrl(pu, "itch");
+            }
+            db.markStatus(item.url, "done");
+          } else {
+            const ok = await ItchDriver.crawlProduct(item.url);
+            db.markStatus(item.url, ok ? "done" : "failed");
+          }
+        } catch (err) {
+          logger.error(`[Worker:Itch] Error on ${item.url}`, err);
+          db.markStatus(item.url, "failed");
+        }
+      })
+    );
   }
   logger.info("[Worker:Itch] Stopped.");
+}
+
+// Dedicated Curated Registry Worker (decentralized multi-maintainer registries & GitHub live discovery)
+async function runCuratedRegistryWorker() {
+  logger.info("[Worker:CuratedRegistry] Started.");
+  let lastRun = 0;
+  const INTERVAL_MS = 15 * 60 * 1000; // Run every 15 minutes
+
+  while (isRunning) {
+    const now = Date.now();
+    if (now - lastRun > INTERVAL_MS) {
+      try {
+        logger.info("[Worker:CuratedRegistry] Running decentralized registry discovery & multi-maintainer ingestion...");
+        await CuratedDriver.ingestAllCuratedSources();
+        lastRun = Date.now();
+      } catch (err) {
+        logger.error("[Worker:CuratedRegistry] Error during curated registry ingestion", err);
+      }
+    }
+    await new Promise((r) => setTimeout(r, 10000));
+  }
+  logger.info("[Worker:CuratedRegistry] Stopped.");
+}
+
+// Dedicated Creator Harvest Worker (dynamically discovers creators from database truth sources)
+async function runCreatorHarvestWorker() {
+  logger.info("[Worker:CreatorHarvest] Started.");
+  await new Promise((r) => setTimeout(r, 15000)); // Delay 15s so other workers can start populating first
+  let lastRun = 0;
+  const INTERVAL_MS = 20 * 60 * 1000; // Run every 20 minutes
+
+  while (isRunning) {
+    const now = Date.now();
+    if (now - lastRun > INTERVAL_MS) {
+      try {
+        logger.info("[Worker:CreatorHarvest] Harvesting creator portfolios dynamically derived from truth sources...");
+        await GitHubDriver.harvestDiscoveredCreators(75);
+        lastRun = Date.now();
+      } catch (err) {
+        logger.error("[Worker:CreatorHarvest] Error harvesting creator portfolios", err);
+      }
+    }
+    await new Promise((r) => setTimeout(r, 10000));
+  }
+  logger.info("[Worker:CreatorHarvest] Stopped.");
 }
 
 // Heartbeat & Checkpoint Monitor with Saturation Ceiling Detector
@@ -578,7 +576,7 @@ async function main() {
     isRunning = false;
   });
 
-  logger.info("Launching concurrent domain workers: [BOOTH, GitHub, VPM, Gumroad, Jinxxy, Itch, Monitor]...");
+  logger.info("Launching concurrent domain workers: [BOOTH, GitHub, VPM, Gumroad, Jinxxy, Itch, CuratedRegistry, CreatorHarvest, Monitor]...");
   await Promise.all([
     runBoothWorker(),
     runGithubWorker(),
@@ -586,6 +584,8 @@ async function main() {
     runGumroadWorker(),
     runJinxxyWorker(),
     runItchWorker(),
+    runCuratedRegistryWorker(),
+    runCreatorHarvestWorker(),
     runMonitor()
   ]);
 

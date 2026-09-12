@@ -32,6 +32,40 @@ export class CuratedDriver {
     return headers;
   }
 
+  // Autonomously extracts any VPM feeds, scoped registries, and repositories from arbitrary text/HTML/markdown
+  static extractAndQueueRegistries(text: string): number {
+    if (!text) return 0;
+    let queued = 0;
+
+    // 1. Extract vcc://vpm/addRepo?url=... URIs
+    const vccMatches = text.match(/vcc:\/\/vpm\/addRepo\?url=([^"'\s<>)]+)/gi) || [];
+    for (const vm of vccMatches) {
+      try {
+        const u = new URL(vm);
+        const repoUrl = u.searchParams.get("url");
+        if (repoUrl && repoUrl.startsWith("http")) {
+          if (db.queueUrl(repoUrl, "vpm")) queued++;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Extract direct manifest JSON endpoints
+    const jsonMatches = text.match(/https?:\/\/[^\s"'<>)\]]+\/(?:index|vpm|packages|source|default_repositories)\.json/gi) || [];
+    for (const jm of jsonMatches) {
+      const clean = jm.replace(/[.,;)]+$/, "");
+      if (db.queueUrl(clean, "vpm")) queued++;
+    }
+
+    // 3. Extract repositories.txt URLs
+    const txtMatches = text.match(/https?:\/\/[^\s"'<>)\]]+\/repositories\.txt/gi) || [];
+    for (const tm of txtMatches) {
+      const clean = tm.replace(/[.,;)]+$/, "");
+      if (db.queueUrl(clean, "vpm")) queued++;
+    }
+
+    return queued;
+  }
+
   // Ingests any community repository dynamically by probing manifests, source lists, and markdown
   static async ingestCommunityRepo(repoFullName: string): Promise<number> {
     logger.info(`[Curated] Ingesting community registry: ${repoFullName}...`);

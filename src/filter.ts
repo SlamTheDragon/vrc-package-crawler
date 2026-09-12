@@ -187,6 +187,11 @@ export class RelevanceFilter {
 
     // A. Check uncustomized sample templates and dummy test packages (reject immediately)
     if (
+      titleLower === "0" ||
+      idLower === "vpm:0" ||
+      idLower.includes("listing-action-type-detection") ||
+      idLower.includes("bug-report") ||
+      titleLower.includes("listing action type detection") ||
       titleLower === "vrchat example package" ||
       titleLower === "example package 1" ||
       titleLower === "example package 2" ||

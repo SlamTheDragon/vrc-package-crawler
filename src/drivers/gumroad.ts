@@ -3,6 +3,7 @@ import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
 import { RelevanceFilter } from "../filter.ts";
+import { CuratedDriver } from "./curated.ts";
 
 export class GumroadDriver {
   private static sleep(ms: number) {
@@ -217,6 +218,9 @@ export class GumroadDriver {
           db.queueUrl(gh, "github");
         }
       }
+
+      // Autonomously extract any VPM / registry feeds from page description & links
+      CuratedDriver.extractAndQueueRegistries(html);
 
       const entity: EntityRecord = {
         id: `gumroad:${slug}`,
