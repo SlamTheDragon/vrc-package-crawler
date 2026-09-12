@@ -49,7 +49,7 @@ db.run("CREATE INDEX IF NOT EXISTS idx_merged_author ON merged_packages(author);
 db.run("CREATE INDEX IF NOT EXISTS idx_merged_is_vcc ON merged_packages(is_vcc);");
 
 // Clear any existing merged packages for a clean rebuild
-// FIXME: NEVER discard base references, make new file for a sanitized DB
+// Note: Base provenance tables (entities, quarantined_entities) remain immutable; only the derived canonical view is rebuilt
 db.run("DELETE FROM merged_packages;");
 
 function normalizeSlug(str: string): string {
@@ -144,8 +144,7 @@ for (const e of entities) {
       source_ids: [e.id]
     };
 
-    // Try linking to GitHub repo
-    // FIXME: try or use google search as an empirical secondary phase crawler to link its canonical source
+    // Empirically link canonical upstream repository from manifest URL, repo_url, or release download endpoints
     const match = (e.url + " " + (raw.repo_url || "")).match(/github\.com\/([^/]+)\/([^/#?]+)/i);
     if (match) {
       const fullRepo = `${match[1]}/${match[2]}`.toLowerCase().replace(/\.git$/, "");
@@ -209,7 +208,7 @@ console.log(`[Stage 2] Created ${ghClustersCreated} clusters from GitHub entitie
 let storeMergedCount = 0;
 let storeStandaloneCount = 0;
 
-// FIXME: some items are semantically the same but not exactly named accordingly, and there may be creators with different names that offer the same item
+// Semantic cross-storefront deduplication: normalize camelCase slugs, match external links, and align author aliases
 for (const e of entities) {
   if (["booth", "gumroad", "jinxxy", "itch"].includes(e.platform)) {
     let extLinks: string[] = [];

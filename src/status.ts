@@ -97,13 +97,17 @@ async function runLiveMonitor() {
       console.log(`   • \x1b[34m${catName}\x1b[0m : \x1b[1m\x1b[32m${countStr}\x1b[0m (${pct}%)`);
     }
     console.log("\x1b[36m=================================================================\x1b[0m");
+    if (process.argv.includes("--once")) {
+      db.close();
+      break;
+    }
     console.log(" \x1b[90m[Press Ctrl+C to exit monitor]\x1b[0m");
 
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 }
 
 runLiveMonitor().catch((err) => {
-  console.error("Monitor error:", err);
+  console.error("Status monitor failed", err);
   process.exit(1);
 });

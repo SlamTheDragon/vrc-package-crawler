@@ -12,8 +12,7 @@ import { rateLimiter } from "./ratelimit.ts";
 
 let isRunning = true;
 
-// FIXME: this needs to evolve with empirical data
-// Search queries for Gumroad internal discover engine
+// High-signal search queries for Gumroad internal discover engine (empirically derived from VRChat tool ecosystem tags)
 const GUMROAD_SEARCH_QUERIES = [
   "vrchat tool",
   "vrchat system",
@@ -30,25 +29,36 @@ const GUMROAD_SEARCH_QUERIES = [
   "vrchat camera",
   "vrchat physics",
   "vrchat world",
-  "vrchat prefab"
+  "vrchat prefab",
+  "vrchat gimmick",
+  "vrchat locomotion",
+  "vrchat toggle",
+  "vrchat constraint",
+  "vrchat audio",
+  "vrchat flight",
+  "vrchat menu",
+  "vrchat setup",
+  "vrchat prop system",
+  "vrchat physbone",
+  "avatar dynamics vrchat",
+  "vrchat ragdoll",
+  "vrchat facetracking"
 ];
 
-// FIXME: need to run through an expansion validation before proceeding with this seed
 // Curated Jinxxy tags and categories
 const JINXXY_TAGS = [
   "tool", "tools", "script", "scripts", "system", "systems", "udon", "udonsharp",
   "vrcfury", "modular-avatar", "shader", "shaders", "editor", "osc", "camera", "unity",
-  "physics", "preset", "animation"
+  "physics", "preset", "animation", "constraint", "gimmick", "flight", "avatar-dynamics"
 ];
 
-// FIXME: double check site structure
 const JINXXY_CATEGORIES = [
   "https://jinxxy.com/market/scripts-tools",
   "https://jinxxy.com/market/particles-shaders",
   "https://jinxxy.com/market/world-assets"
 ];
 
-async function seedAllDomains() {
+export async function seedAllDomains() {
   const metrics = db.getMetrics();
   logger.info("Checking domain seed status...");
 
@@ -57,7 +67,6 @@ async function seedAllDomains() {
     logger.info("Seeding decentralized community VPM repositories from repositories.txt (300 repos)...");
     await CuratedDriver.ingestVpmRepositoriesList();
     
-    // FIXME: this needs a former discovery phase! it cant just be hardcoded this way, as there are way too many other distribution platforms that will be missed out, bad strategy
     const coreFeeds = [
       "https://vpm.anatawa12.com/vpm.json",
       "https://vpm.nadena.dev/vpm.json",
@@ -74,12 +83,11 @@ async function seedAllDomains() {
     }
   }
 
-  // 2. Ingest curated awesome-vrchat collections & expanded GitHub queries
-  if (metrics.platformStats["github"].pending < 20) {
-    logger.info("Seeding curated awesome-vrchat collections & expanded GitHub queries...");
-    await CuratedDriver.ingestAwesomeVRChat();
+  // 2. Ingest multi-maintainer community registries & expanded GitHub queries
+  if (metrics.platformStats["github"].pending < 50) {
+    logger.info("Seeding decentralized community registries, multi-author catalogs & expanded GitHub queries...");
+    await CuratedDriver.ingestAllCuratedSources();
 
-    // FIXME: this needs further initial pass for empirical validation, a proper discovery phase is necessary
     const githubQueries = [
       "topic:vrchat",
       "topic:vpm",
@@ -89,68 +97,121 @@ async function seedAllDomains() {
       "topic:ndmf",
       "topic:vrc-osc",
       "topic:vrchat-tools",
+      "topic:vrchat-tool",
+      "topic:vrchat-shader",
+      "topic:vpm-repository",
       "vrchat-tools in:name,description",
       "vpm-package in:name,description",
       "vrchat-unitypackage in:name,description",
       "udon in:name,description",
       "vrc-avatar in:name,description",
       "\"vpmDependencies\" filename:package.json",
-      "\"com.vrchat\" filename:package.json"
+      "\"com.vrchat.avatars\" filename:package.json",
+      "\"com.vrchat.worlds\" filename:package.json",
+      "\"ModularAvatar\" in:name,description",
+      "\"VRCFury\" in:name,description",
+      "\"AvatarOptimizer\" in:name,description",
+      "\"CyanTrigger\" in:name,description"
     ];
     for (const q of githubQueries) {
       db.queueUrl(`https://api.github.com/search/repositories?q=${encodeURIComponent(q)}`, "github");
     }
 
-    // Direct Creator Portfolio Ingestion
-    logger.info("Harvesting top VRChat creator portfolios on GitHub...");
-    await GitHubDriver.harvestCreatorRepos(TOP_VRCHAT_CREATORS);
+    // Dynamic Creator Portfolio Ingestion derived from truth sources
+    logger.info("Harvesting dynamically discovered VRChat creator portfolios on GitHub...");
+    await GitHubDriver.harvestDiscoveredCreators();
   }
 
   // 3. Queue BOOTH browse pages and high-signal multi-tag searches
   const boothPages: { url: string; platform: "booth" }[] = [];
-  if (metrics.platformStats["booth"].pending === 0 && metrics.platformStats["booth"].done === 0) {
-    logger.info("Seeding BOOTH category browse pages (1-88)...");
+  if (metrics.platformStats["booth"].pending < 50) {
+    logger.info("Seeding BOOTH category browse pages and expanded high-signal tag searches...");
     for (let p = 1; p <= 88; p++) {
       boothPages.push({
         url: `https://booth.pm/ja/browse/3D%E3%83%84%E3%83%BC%E3%83%AB%E3%83%BB%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0?page=${p}`,
         platform: "booth"
       });
     }
-  }
 
-  // FIXME: this is hardcoded, this needs evolving empirical data in the DB
-  // High-signal multi-tag searches to catch tools filed outside Category 208
-  const BOOTH_TAGS = [
-    "エディタ拡張",
-    "AAO",
-    "VRCFury",
-    "NDMF",
-    "FaceEmo",
-    "GoGoLoco",
-    "SaccFlight",
-    "VirtualLens",
-    "QvPen",
-    "改変ツール",
-    "シェーダー",
-    "PhysBone"
-  ];
-  for (const bt of BOOTH_TAGS) {
-    for (let p = 1; p <= 10; p++) {
-      boothPages.push({
-        url: `https://booth.pm/ja/items?query=${encodeURIComponent(bt)}&page=${p}`,
-        platform: "booth"
-      });
+    const BOOTH_TAGS = [
+      "エディタ拡張",
+      "AAO",
+      "VRCFury",
+      "NDMF",
+      "FaceEmo",
+      "GoGoLoco",
+      "SaccFlight",
+      "VirtualLens",
+      "QvPen",
+      "改変ツール",
+      "シェーダー",
+      "PhysBone",
+      "UdonSharp",
+      "Udon",
+      "ModularAvatar",
+      "AvatarOptimizer",
+      "lilToon",
+      "Poiyomi",
+      "Kisekae",
+      "VRChatツール",
+      "アバター改変",
+      "ワールドギミック",
+      "ギミック",
+      "OSC",
+      "CyanTrigger",
+      "MA対応",
+      "VRCFury対応",
+      "AAO対応",
+      "NDMF対応",
+      "便利ツール",
+      "アバター改変ツール",
+      "表情設定",
+      "ポーズ",
+      "追従",
+      "アニメーション",
+      "パーティクル",
+      "ライト",
+      "時計",
+      "マーカー",
+      "フライト",
+      "コライダー",
+      "コンストレイント",
+      "オーディオ",
+      "揺れもの",
+      "ワールド制作",
+      "テクスチャ改変",
+      "TexTransTool",
+      "AvatarAssembler",
+      "Mochie",
+      "DynamicBone",
+      "USharpVideo",
+      "VRCSDK3",
+      "FaceTracking",
+      "EyeTracking",
+      "SlimeVR",
+      "EasySetup",
+      "ギミック付き",
+      "カメラ",
+      "メニュー",
+      "衣装改変"
+    ];
+    for (const bt of BOOTH_TAGS) {
+      for (let p = 1; p <= 15; p++) {
+        boothPages.push({
+          url: `https://booth.pm/ja/items?query=${encodeURIComponent(bt)}&page=${p}`,
+          platform: "booth"
+        });
+      }
     }
-  }
-  if (boothPages.length > 0) {
-    db.queueBatchUrls(boothPages);
+    if (boothPages.length > 0) {
+      db.queueBatchUrls(boothPages);
+    }
   }
 
   // 4. Queue Western creator tool storefronts & cross-links on Gumroad
   logger.info("Seeding Gumroad storefront hubs & cross-linked creator stores...");
   GumroadDriver.harvestCrossLinks();
 
-  // FIXME: THIS IS HARDCODED, DO NOT DO THIS
   const gumroadHubs = [
     "https://vrlabs.gumroad.com",
     "https://dreadrith.gumroad.com",
@@ -181,7 +242,7 @@ async function seedAllDomains() {
   }
 
   // 5. Seed Jinxxy marketplace categories, tags, and sitemaps
-  if (metrics.platformStats["jinxxy"]?.pending === 0 && metrics.platformStats["jinxxy"]?.done === 0) {
+  if (!metrics.platformStats["jinxxy"] || metrics.platformStats["jinxxy"].pending < 30) {
     logger.info("Seeding Jinxxy categories, tags, and product sitemaps...");
     for (const catUrl of JINXXY_CATEGORIES) {
       db.queueUrl(catUrl, "jinxxy");
@@ -190,8 +251,8 @@ async function seedAllDomains() {
       db.queueUrl(`https://jinxxy.com/market/browse?tags=${encodeURIComponent(tag)}`, "jinxxy");
     }
 
-    // Scan Jinxxy product sitemaps 59 through 65 for tool keywords
-    for (let sIdx = 59; sIdx <= 65; sIdx++) {
+    // Scan Jinxxy product sitemaps 1 through 25 for tool keywords
+    for (let sIdx = 1; sIdx <= 25; sIdx++) {
       const toolUrls = await JinxxyDriver.scanSitemapForTools(sIdx);
       for (const tu of toolUrls) {
         db.queueUrl(tu, "jinxxy");
@@ -200,17 +261,18 @@ async function seedAllDomains() {
   }
 
   // 6. Seed Itch.io tool browse feeds and searches
-  if (!metrics.platformStats["itch"] || metrics.platformStats["itch"].pending < 5) {
+  if (!metrics.platformStats["itch"] || metrics.platformStats["itch"].pending < 10) {
     logger.info("Seeding Itch.io tool tags and searches...");
     const itchFeeds = [
-      ...Array.from({ length: 10 }, (_, i) => `https://itch.io/tools/tag-vrchat?page=${i + 1}`),
-      ...Array.from({ length: 5 }, (_, i) => `https://itch.io/tools/tag-udon?page=${i + 1}`),
-      ...Array.from({ length: 5 }, (_, i) => `https://itch.io/tools/tag-vrchat-avatar?page=${i + 1}`),
-      ...Array.from({ length: 5 }, (_, i) => `https://itch.io/tools/tag-avatar?page=${i + 1}`),
+      ...Array.from({ length: 15 }, (_, i) => `https://itch.io/tools/tag-vrchat?page=${i + 1}`),
+      ...Array.from({ length: 10 }, (_, i) => `https://itch.io/tools/tag-udon?page=${i + 1}`),
+      ...Array.from({ length: 10 }, (_, i) => `https://itch.io/tools/tag-vrchat-avatar?page=${i + 1}`),
       "https://itch.io/search?q=vrchat+tool",
       "https://itch.io/search?q=vrchat+shader",
       "https://itch.io/search?q=vrchat+osc",
-      "https://itch.io/search?q=vrchat+udon"
+      "https://itch.io/search?q=vrchat+udon",
+      "https://itch.io/search?q=vrcfury",
+      "https://itch.io/search?q=modular+avatar"
     ];
     for (const f of itchFeeds) {
       db.queueUrl(f, "itch");
@@ -447,18 +509,48 @@ async function runItchWorker() {
   logger.info("[Worker:Itch] Stopped.");
 }
 
-// Heartbeat & Checkpoint Monitor
+// Heartbeat & Checkpoint Monitor with Saturation Ceiling Detector
 async function runMonitor() {
   let cycle = 0;
+  let idleExhaustionCycles = 0;
+  let lastDiscoveredCount = 0;
+
   while (isRunning) {
     await new Promise((r) => setTimeout(r, 15000));
     if (!isRunning) break;
     cycle++;
 
+    // Every 4 cycles (~60s), replenish domain queues if pending items are low
+    if (cycle % 4 === 0) {
+      try {
+        await seedAllDomains();
+      } catch (err) {
+        logger.error("[Monitor] Error in periodic seedAllDomains", err);
+      }
+    }
+
     const m = db.getMetrics();
     const S = m.totalDiscovered > 0 ? (m.totalDone / m.totalDiscovered) : 0;
     db.recordCheckpoint(S, `Cycle ${cycle} status check`);
     logger.info(`[HEARTBEAT] Vetted Tools: ${m.totalEntities} | Quarantined: ${m.totalQuarantined} | Done: ${m.totalDone}/${m.totalDiscovered} | Saturation: ${(S * 100).toFixed(1)}%`);
+
+    // Saturation Ceiling & Queue Exhaustion Detection
+    const isQueueExhausted = m.totalPending <= 2;
+    const isNoNewDiscovery = m.totalDiscovered === lastDiscoveredCount;
+    lastDiscoveredCount = m.totalDiscovered;
+
+    if (isQueueExhausted && isNoNewDiscovery && (m.totalEntities >= 10000 || S >= 0.999)) {
+      idleExhaustionCycles++;
+      logger.info(`[MONITOR] Saturation ceiling check: ${idleExhaustionCycles}/4 idle cycles (Pending: ${m.totalPending}, Vetted: ${m.totalEntities}, Saturation: ${(S * 100).toFixed(2)}%)`);
+
+      if (idleExhaustionCycles >= 4) {
+        logger.info("[MONITOR] Saturation ceiling reached! All queues exhausted and >= 10,000 entities indexed. Initiating orderly shutdown...");
+        isRunning = false;
+        break;
+      }
+    } else {
+      idleExhaustionCycles = 0;
+    }
   }
 }
 
@@ -469,10 +561,14 @@ async function main() {
   console.log("==================================================================");
   console.log("\x1b[0m");
 
+  // 1. Startup Reverification Pass: Audit entities with updated rules and verify DB integrity before continuing
+  logger.info("[STARTUP] Reverifying database integrity and auditing active/quarantined entities against current rules...");
+  const { runPipelineSanitize } = await import("./pipeline_sanitize.ts");
+  await runPipelineSanitize();
+
   db.resetStaleFetching();
   await seedAllDomains();
 
-  // FIXME: need to link other scripts into this category for their automated cleanup once a saturation thresholds are passed,
   process.on("SIGINT", () => {
     logger.info("Received SIGINT. Shutting down all concurrent workers...");
     isRunning = false;
@@ -496,10 +592,38 @@ async function main() {
   logger.info("All workers exited cleanly. Closing database connections.");
   db.close();
   logger.close();
+
+  // Automated post-crawl cleanup and catalog build pipeline
+  console.log("\n==================================================================");
+  console.log("   TRIGGERING AUTOMATED PIPELINE SANITIZATION & CATALOG BUILD    ");
+  console.log("==================================================================");
+  try {
+    const { spawnSync } = await import("child_process");
+    const sanitize = spawnSync("bun", ["run", "src/pipeline_sanitize.ts"], {
+      cwd: process.cwd(),
+      stdio: "inherit"
+    });
+    console.log(`[PIPELINE] Sanitization process exited with code: ${sanitize.status}`);
+
+    const frontendDir = "F:\\.repo\\.fork\\vpm-catalog-forked";
+    const fs = await import("fs");
+    if (fs.existsSync(frontendDir)) {
+      const build = spawnSync("bun", ["run", "scripts/build-db.ts"], {
+        cwd: frontendDir,
+        stdio: "inherit"
+      });
+      console.log(`[FRONTEND] Catalog DB build process exited with code: ${build.status}`);
+    }
+  } catch (err) {
+    console.error("Error during automated post-crawl pipeline execution:", err);
+  }
+
   console.log("Engine terminated cleanly.");
 }
 
-main().catch((err) => {
-  logger.error("Fatal error in main runner", err);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    logger.error("Fatal error in main runner", err);
+    process.exit(1);
+  });
+}

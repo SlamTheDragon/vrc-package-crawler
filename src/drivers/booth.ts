@@ -30,6 +30,32 @@ export class BoothDriver {
         return [];
       }
 
+      // 404 alternative path fallback: try locale swap between /en/ and /ja/
+      if (resp.status === 404) {
+        const altUrl = pageUrl.includes("/en/browse/")
+          ? pageUrl.replace("/en/browse/", "/ja/browse/")
+          : pageUrl.includes("/ja/browse/")
+          ? pageUrl.replace("/ja/browse/", "/en/browse/")
+          : "";
+        if (altUrl) {
+          logger.info(`[BOOTH] Category 404 on ${pageUrl}, testing alternative path: ${altUrl}`);
+          await this.sleep(delay);
+          const altResp = await fetch(altUrl, {
+            headers: {
+              "User-Agent": CONFIG.userAgent,
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Accept-Language": "ja,en-US;q=0.9,en;q=0.8"
+            }
+          });
+          if (altResp.ok) {
+            logger.info(`[BOOTH] Alternative category path resolved successfully: ${altUrl}`);
+            return this.crawlCategoryPage(altUrl);
+          }
+        }
+        logger.warn(`[BOOTH] Category HTTP 404 for ${pageUrl} (no alternative paths succeeded)`);
+        return [];
+      }
+
       if (!resp.ok) {
         logger.error(`[BOOTH] Category HTTP Error ${resp.status} for ${pageUrl}`);
         return [];
@@ -55,14 +81,15 @@ export class BoothDriver {
     }
   }
 
-  // Scrapes an individual item page and extracts Schema.org JSON-LD
+  // Scrapes an individual item page and extracts Schema.org JSON-LD with 404 alternative path fallback
   static async crawlItemDetail(itemUrl: string): Promise<boolean> {
     try {
       await rateLimiter.waitIfBackoff("booth");
       const delay = rateLimiter.getPacingDelayMs("booth", CONFIG.boothDelayMs);
       await this.sleep(delay);
 
-      const resp = await fetch(itemUrl, {
+      let currentUrl = itemUrl;
+      let resp = await fetch(currentUrl, {
         headers: {
           "User-Agent": CONFIG.userAgent,
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -75,16 +102,45 @@ export class BoothDriver {
         return false;
       }
 
+      // 404 alternative path fallback: probe canonical /ja/, /en/, and root /items/
+      const itemIdMatch = currentUrl.match(/items\/(\d+)/);
+      const itemId = itemIdMatch ? itemIdMatch[1] : "";
+
+      if (resp.status === 404 && itemId) {
+        const fallbacks = [
+          `https://booth.pm/ja/items/${itemId}`,
+          `https://booth.pm/en/items/${itemId}`,
+          `https://booth.pm/items/${itemId}`
+        ].filter((u) => u !== currentUrl);
+
+        for (const altUrl of fallbacks) {
+          logger.info(`[BOOTH] Item 404 on ${currentUrl}, probing alternative path: ${altUrl}`);
+          await this.sleep(CONFIG.boothDelayMs);
+          const altResp = await fetch(altUrl, {
+            headers: {
+              "User-Agent": CONFIG.userAgent,
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Accept-Language": "ja,en-US;q=0.9,en;q=0.8"
+            }
+          });
+          if (altResp.ok) {
+            logger.info(`[BOOTH] Alternative item path resolved: ${altUrl}`);
+            resp = altResp;
+            currentUrl = altUrl;
+            break;
+          }
+        }
+      }
+
       if (!resp.ok) {
-        logger.warn(`[BOOTH] Item HTTP ${resp.status} for ${itemUrl}`);
+        logger.warn(`[BOOTH] Item HTTP ${resp.status} for ${currentUrl} (all alternative paths failed)`);
         return false;
       }
 
       rateLimiter.handleSuccess("booth", CONFIG.boothDelayMs);
 
       const html = await resp.text();
-      const itemIdMatch = itemUrl.match(/items\/(\d+)/);
-      const itemId = itemIdMatch ? itemIdMatch[1] : itemUrl;
+      const finalItemId = itemId || currentUrl;
 
       // Extract JSON-LD
       const jsonLdMatch = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
@@ -131,26 +187,26 @@ export class BoothDriver {
       const tags = tagMatches.map((t) => t.replace(/<[^>]+>/g, "").trim());
 
       const record: EntityRecord = {
-        id: `booth:${itemId}`,
+        id: `booth:${finalItemId}`,
         platform: "booth",
-        url: itemUrl,
-        title: title || `BOOTH Item ${itemId}`,
+        url: currentUrl,
+        title: title || `BOOTH Item ${finalItemId}`,
         author: author,
         price_currency: priceCurrency,
         price_amount: priceAmount,
         description: description,
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
-        raw_json: JSON.stringify({ itemId, title, author, priceAmount, tags, extLinks })
+        raw_json: JSON.stringify({ itemId: finalItemId, title, author, priceAmount, tags, extLinks })
       };
 
       const evalRes = RelevanceFilter.evaluate(record);
       if (evalRes.isRelevant) {
         db.saveEntity(record);
-        logger.info(`[BOOTH] Ingested: [${itemId}] ${title.slice(0, 50)} by ${author} (Score: ${evalRes.score})`);
+        logger.info(`[BOOTH] Ingested: [${finalItemId}] ${title.slice(0, 50)} by ${author} (Score: ${evalRes.score})`);
       } else {
         db.quarantineEntity(record.id, record.platform, record.url, record.title, record.author, evalRes.reasons);
-        logger.info(`[BOOTH] Quarantined: [${itemId}] ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
+        logger.info(`[BOOTH] Quarantined: [${finalItemId}] ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
       }
       return true;
     } catch (e) {

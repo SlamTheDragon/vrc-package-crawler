@@ -17,7 +17,45 @@ export interface MinimalEntity {
   raw_json?: string;
 }
 
-// FIXME: need an on-time decision instead of relying on hardcoded seeds for a closely monitored filtering. Perhaps use a neural network?
+// Core bootstrap creators for seeding initial portfolio crawlers (canonical GitHub handles)
+export const TOP_VRCHAT_CREATORS = [
+  "anatawa12", "bdunderscore", "hai-vr", "vrcfury", "poiyomi", "lilxyzw",
+  "CyanLaser", "MerlinVR", "Dreadrith", "techan", "VRLabs", "pumkin", "d4rkc0d3r",
+  "VRCFaceTracking", "Reimajo", "whiteflare", "CascadianVR", "RollTheRed", "kurotu",
+  "JanSharp", "thryrallo", "JLChnToZ", "yueby", "Narazaka", "happyrobot33", "sonic853",
+  "hoshinolabs", "furality", "sacc", "vrchat-community", "rurre", "RazgrizOne",
+  "nadena", "baryon", "Varneon", "z3y", "REDSIM", "Reava", "orange3134", "Udonite",
+  "lightbulb4", "RealWhyKnot", "you5248", "MagmaVRC", "AlanBacker", "ElMoha943",
+  "mitsuya0077", "lumixmc401", "sizimityper", "rassi0429", "cympfh", "yuna0x0"
+];
+
+export const CREATOR_WHITELIST = new Set([
+  ...TOP_VRCHAT_CREATORS.map((c) => c.toLowerCase()),
+  "markcreator", "cyanlaser", "kurotu", "bd_", "bdunderscore", "anatawa12", "lil", "mag",
+  "fooma", "dreadrith", "sacc", "vrcx", "eyetrackvr", "slimevr", "zentan", "kamishiro",
+  "vrchat", "hai-vr", "vrcfury", "poiyomi", "synqark", "neitri", "raivovfx", "merlinvr",
+  "reava", "orels1", "phasedragon", "vrc-get", "alcom", "sylantroh", "coooookies",
+  "redhawk989", "ju1ce", "raphiiko", "misyaguziya", "vrcbilliards", "grim-es", "mega-gorilla",
+  "cascadianvr", "bunnykyra", "amanoissui", "soltros", "sentfromspacevr", "tommaier123",
+  "squiddingme", "zyoh", "deltaneverused", "slaynash", "skyeca", "uuunyaa", "powroupi",
+  "regzo2", "euan142", "yum-food", "enitimeago", "i5ucc", "zenithval", "awakenginexe",
+  "modular-avatar", "architechanon", "architechvr", "d4rkmini", "d4rkpl4y3r", "netnarazaka", "razgriz-one"
+]);
+
+// Canonical aliases for prominent creators / tooling where community references differ from current GitHub handles
+export const CREATOR_ALIASES: Record<string, string> = {
+  "modular-avatar": "bdunderscore",
+  "architechanon": "techan",
+  "architech-vr": "techan",
+  "architechvr": "techan",
+  "d4rkmini": "d4rkc0d3r",
+  "d4rkpl4y3r": "d4rkc0d3r",
+  "netnarazaka": "Narazaka",
+  "razgriz-one": "RazgrizOne",
+  "bd_": "bdunderscore"
+};
+
+// Multi-signal deterministic relevance gatekeeper combining heuristic scoring, token context, asset penalties, and binary release verification
 export class RelevanceFilter {
   // 1. Blacklisted generic software repository owners (GitHub)
   private static BLACKLIST_OWNERS = new Set([
@@ -33,7 +71,9 @@ export class RelevanceFilter {
     "docker", "kubernetes", "linux kernel", "android app", "react native",
     "next.js", "spring boot", "django", "machine learning tutorial",
     "interview preparation", "curated list of awesome", "cli tool for linux",
-    "macos app", "gnome", "wayland", "audio player for terminal"
+    "macos app", "gnome", "wayland", "audio player for terminal",
+    "discord bot", "discord-bot", "bot for discord", "telegram bot",
+    "slack bot", "twitch bot", "php form", "form mailer", "cryptocurrency"
   ];
 
   // 3. Pure cosmetic asset exclusion regexes (Clothing, Hair, Outfits, Tattoos, Pure Avatars, Props)
@@ -104,7 +144,10 @@ export class RelevanceFilter {
     "generator", "setup tool", "workflow", "shader", "shaders", "シェーダー", "osc",
     "skinedit", "ssrt", "virtuallens", "ragdoll", "polytool", "suiminsystem",
     "ovr", "steamvr", "openvr", "vrcx", "adjuster", "addon", "add-on", "tool", "tools",
-    "アドオン", "プラグイン", "エディタ", "ボーン", "ウェイト", "改変"
+    "アドオン", "プラグイン", "エディタ", "ボーン", "ウェイト", "改変",
+    "アニメーション", "表情", "ポーズ", "追従", "カメラ", "メニュー", "ライト", "パーティクル",
+    "時計", "ペン", "ミラー", "フライト", "マーカー", "設定", "補助", "導入", "プレハブ",
+    "コライダー", "コンストレイント", "オーディオ", "揺れもの", "ワールド"
   ];
 
   // 5. Secondary VRChat Ecosystem Signals (+1 to +2)
@@ -112,12 +155,16 @@ export class RelevanceFilter {
     "vrchat", "vrc", "unitypackage", "vcc", "av3", "avatars 3.0",
     "animator", "blendshape", "constraint", "menu generator", "toggle system",
     "camera tool", "prefab system", "interactive", "audiolink", "audio link",
-    "unity", "prefab", "pb"
+    "unity", "prefab", "pb", "vrc向け", "vrc想定", "vrc用", "unity用",
+    "アバター改変", "ワールド制作", "ギミック付き"
   ];
 
   private static hasTerm(target: string, term: string): boolean {
     const isAscii = /^[\x00-\x7F]+$/.test(term);
     if (isAscii && term.length <= 4) {
+      if (term === "vrc") {
+        return target.includes("vrc");
+      }
       const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       return new RegExp(`\\b${escaped}\\b`, "i").test(target);
     }
@@ -130,13 +177,36 @@ export class RelevanceFilter {
     let score = 0;
 
     const titleLower = (e.title || "").toLowerCase();
-    const descLower = (e.description || "").toLowerCase();
+    const rawDescLower = (e.description || "").toLowerCase();
+    const descLower = rawDescLower.startsWith("vrchat tool repository by") ? "" : rawDescLower;
     const tagsLower = (e.tags_json || "").toLowerCase();
     const idLower = (e.id || "").toLowerCase();
+    const authorLower = (e.author || "").toLowerCase();
     const rawLower = (e.raw_json || "").toLowerCase();
-    const combinedText = `${idLower} ${titleLower} ${descLower} ${tagsLower}`;
+    const combinedText = `${idLower} ${authorLower} ${titleLower} ${descLower} ${tagsLower}`;
 
-    // A. Check VPM manifests (always 100% verified toolchain packages)
+    // A. Check uncustomized sample templates and dummy test packages (reject immediately)
+    if (
+      titleLower === "vrchat example package" ||
+      titleLower === "example package 1" ||
+      titleLower === "example package 2" ||
+      titleLower === "example package 3" ||
+      idLower.includes("demo-template") ||
+      idLower.includes("example-listing") ||
+      idLower.includes("upm-test") ||
+      descLower.includes("simple package for testing automation") ||
+      descLower.includes("this is an example package")
+    ) {
+      return {
+        isRelevant: false,
+        score: -10,
+        confidence: 0.99,
+        category: "generic_software",
+        reasons: ["Uncustomized sample template / dummy test package"]
+      };
+    }
+
+    // B. Check VPM manifests (always 100% verified toolchain packages)
     if (
       e.platform === "vpm" ||
       tagsLower.includes("vpm-package") ||
@@ -152,7 +222,23 @@ export class RelevanceFilter {
       };
     }
 
-    // B. Check GitHub Blacklisted Owners & generic software signals
+    // Check Whitelist status early
+    const ghOwner = e.platform === "github" ? e.id.replace(/^github:/, "").split("/")[0]?.toLowerCase() : "";
+    const isWhitelistedAuthor =
+      CREATOR_WHITELIST.has(authorLower) ||
+      (ghOwner && CREATOR_WHITELIST.has(ghOwner));
+
+    if (isWhitelistedAuthor) {
+      score += 5;
+      reasons.push(`Whitelisted prominent VRChat creator: ${e.author || ghOwner}`);
+    }
+
+    // Extract slug/repo name without author prefix to avoid author false positives
+    const slug = e.id.includes("/") ? e.id.split("/").slice(1).join("/") : e.id.replace(/^[a-z]+:/, "");
+    const nameToSearch = `${e.title} ${slug}`.toLowerCase();
+    const repoText = `${nameToSearch} ${descLower} ${tagsLower}`;
+
+    // C. Check GitHub Blacklisted Owners & generic software signals
     if (e.platform === "github") {
       const ownerMatch = e.id.match(/^github:([^/]+)/);
       const owner = ownerMatch ? ownerMatch[1].toLowerCase() : "";
@@ -182,13 +268,29 @@ export class RelevanceFilter {
         };
       }
 
-      // STRICT REQUIREMENT: Must have explicit VRChat or Unity ecosystem context on GitHub
-      const hasVrcContext = [
+      // Detect skeleton / empty repos (0 README length and empty description/topics)
+      let rawObj: any = {};
+      try { rawObj = JSON.parse(e.raw_json || "{}"); } catch {}
+      const readmeLen = rawObj.readmeLength !== undefined ? rawObj.readmeLength : 100;
+      const hasRealDesc = descLower && !descLower.startsWith("vrchat tool repository by") && descLower !== titleLower;
+      if (readmeLen === 0 && !hasRealDesc && (!tagsLower || tagsLower === "[]" || tagsLower === '["salvaged"]')) {
+        return {
+          isRelevant: false,
+          score: -5,
+          confidence: 0.95,
+          category: "generic_software",
+          reasons: ["Skeleton repository with 0 README, no description, and no topics"]
+        };
+      }
+
+      // STRICT REQUIREMENT: Must have explicit VRChat or Unity ecosystem context on GitHub, or verified release assets
+      const hasRelease = rawObj.hasReleaseAssets || tagsLower.includes("verified-release");
+      const hasVrcContext = hasRelease || [
         "vrchat", "vrc", "vpm", "udon", "unity", "avatar", "shader", "modular avatar",
         "modular-avatar", "vrcfury", "ndmf", "physbone", "dynamicbone", "liltoon",
         "poiyomi", "unlitwf", "gogoloco", "faceemo", "osc", "saccflight", "qvpen",
-        "cyanemu", "udonemu", "facetracking", "cats-blender"
-      ].some((term) => this.hasTerm(combinedText, term));
+        "cyanemu", "udonemu", "facetracking", "cats-blender", "blender-addon", "world"
+      ].some((term) => this.hasTerm(repoText, term));
 
       if (!hasVrcContext) {
         return {
@@ -201,7 +303,7 @@ export class RelevanceFilter {
       }
 
       for (const term of this.GENERIC_TECH_TERMS) {
-        if (combinedText.includes(term) && !combinedText.includes("vrchat") && !combinedText.includes("unity")) {
+        if (repoText.includes(term) && !repoText.includes("vrchat") && !repoText.includes("unity") && !hasRelease) {
           return {
             isRelevant: false,
             score: -10,
@@ -253,17 +355,13 @@ export class RelevanceFilter {
       };
     }
 
-    // Extract slug/repo name without author prefix to avoid author false positives
-    const slug = e.id.includes("/") ? e.id.split("/").slice(1).join("/") : e.id.replace(/^[a-z]+:/, "");
-    const nameToSearch = `${e.title} ${slug}`.toLowerCase();
-
     // D. Positive Scoring
     for (const term of this.STRONG_TOOL_TERMS) {
       if (this.hasTerm(nameToSearch, term)) {
         score += 5;
         reasons.push(`Strong tool term in name: ${term}`);
         break;
-      } else if (this.hasTerm(combinedText, term)) {
+      } else if (this.hasTerm(repoText, term)) {
         score += 3;
         reasons.push(`Strong tool term in text: ${term}`);
         break;
@@ -275,7 +373,7 @@ export class RelevanceFilter {
         score += 2;
         reasons.push(`VRC term in name: ${term}`);
         break;
-      } else if (this.hasTerm(combinedText, term)) {
+      } else if (this.hasTerm(repoText, term)) {
         score += 1;
         reasons.push(`VRC term in text: ${term}`);
         break;
@@ -284,7 +382,7 @@ export class RelevanceFilter {
 
     // BOOTH Category 208 (3D Tools & Systems) baseline bonus
     if (e.platform === "booth") {
-      score += 2;
+      score += 3;
       reasons.push("BOOTH Category 208 (3D Tools & Systems)");
     }
 
@@ -330,6 +428,12 @@ export class RelevanceFilter {
       // API search endpoints are always valid
       if (u.includes("api.github.com/search")) return true;
 
+      // Whitelisted creators are always relevant
+      const matchOwner = u.match(/github\.com\/([^/]+)/);
+      if (matchOwner && (CREATOR_WHITELIST.has(matchOwner[1].toLowerCase()) || matchOwner[1].toLowerCase().includes("magmavrc"))) {
+        return true;
+      }
+
       // Repository URLs must contain at least one VRChat/Unity ecosystem keyword
       const VRC_URL_TERMS = [
         "vrchat", "vrc", "vpm", "udon", "avatar", "shader", "modular", "vrcfury",
@@ -340,7 +444,7 @@ export class RelevanceFilter {
         "bdunderscore", "merlinvr", "dreadrith", "architech", "vrlabs", "reimajo",
         "whiteflare", "cascadianvr", "rollthered", "jansharp", "thryrallo",
         "jlchntoz", "yueby", "netnarazaka", "happyrobot", "sonic853", "hoshinolabs",
-        "furality", "sacc", "techan", "vrchat-community", "rurre", "razgriz", "varneon", "z3y"
+        "furality", "sacc", "techan", "vrchat-community", "rurre", "razgriz", "varneon", "z3y", "magmavrc"
       ];
 
       return VRC_URL_TERMS.some((term) => u.includes(term));

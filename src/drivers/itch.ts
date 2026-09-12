@@ -73,7 +73,8 @@ export class ItchDriver {
       const delay = rateLimiter.getPacingDelayMs(key, 1500);
       await this.sleep(delay);
 
-      const resp = await fetch(productUrl, {
+      let currentUrl = productUrl;
+      let resp = await fetch(currentUrl, {
         headers: {
           "User-Agent": CONFIG.userAgent,
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
@@ -85,8 +86,42 @@ export class ItchDriver {
         return false;
       }
 
+      // 404 alternative path fallback: probe creator profile or Itch search
+      if (resp.status === 404) {
+        const m = currentUrl.match(/https?:\/\/([^.]+)\.itch\.io\/([^/?#]+)/);
+        const creator = m ? m[1] : "";
+        const slug = m ? m[2] : "";
+
+        if (creator && slug) {
+          logger.info(`[Itch:Product] Product 404 on ${currentUrl}. Probing creator storefront: https://${creator}.itch.io...`);
+          await this.sleep(1000);
+          try {
+            const authorResp = await fetch(`https://${creator}.itch.io`, {
+              headers: { "User-Agent": CONFIG.userAgent }
+            });
+            if (authorResp.ok) {
+              const authorHtml = await authorResp.text();
+              const foundLinks = authorHtml.match(new RegExp(`https://${creator}\\.itch\\.io/[a-zA-Z0-9_-]+`, "g")) || [];
+              const similar = foundLinks.find((l) => l.toLowerCase().includes(slug.toLowerCase().slice(0, 5)));
+              if (similar && similar !== currentUrl) {
+                logger.info(`[Itch:Product] Alternative path resolved on creator profile: ${similar}`);
+                return this.crawlProduct(similar);
+              }
+            }
+          } catch (_) {}
+
+          // Search fallback
+          logger.info(`[Itch:Product] Probing alternative path via search for "${slug}"...`);
+          const searchUrls = await this.crawlBrowsePage(`https://itch.io/search?q=${encodeURIComponent(slug.replace(/[-_]/g, " "))}`);
+          if (searchUrls.length > 0) {
+            logger.info(`[Itch:Product] Discovered ${searchUrls.length} alternative paths via search`);
+            return this.crawlProduct(searchUrls[0]);
+          }
+        }
+      }
+
       if (!resp.ok) {
-        logger.warn(`[Itch:Product] HTTP ${resp.status} for ${productUrl}`);
+        logger.warn(`[Itch:Product] HTTP ${resp.status} for ${currentUrl} (all alternative paths failed)`);
         return false;
       }
 

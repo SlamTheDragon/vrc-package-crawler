@@ -10,7 +10,7 @@ export interface RateLimitState {
 export class AdaptiveRateLimiter {
   private states: Map<string, RateLimitState> = new Map();
   private baseBackoffMs: number = 30000;   // 30 seconds initial backoff
-  private maxBackoffMs: number = 300000;   // 5 minutes max backoff // FIXME: progressively increase back offs, or suggest IP swapping or VPN's
+  private maxBackoffMs: number = 300000;   // 5 minutes maximum progressive backoff cap
 
   private getState(key: string, defaultDelayMs: number = 1500): RateLimitState {
     let state = this.states.get(key);

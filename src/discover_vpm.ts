@@ -1,8 +1,9 @@
-﻿import { CONFIG } from "./config.ts";
+import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
 import { db } from "./db.ts";
 import { VpmIndexDriver } from "./drivers/vpm_index.ts";
-import { GitHubDriver, TOP_VRCHAT_CREATORS } from "./drivers/github.ts";
+import { GitHubDriver } from "./drivers/github.ts";
+import { CuratedDriver } from "./drivers/curated.ts";
 
 const VPM_DISCOVERY_QUERIES = [
   "vpm vrchat sort:updated",
@@ -21,6 +22,10 @@ export async function runVpmDiscovery() {
 
   const initialVpmCount = (db as any).db.query("SELECT count(*) as c FROM entities WHERE platform = 'vpm'").get().c;
   console.log(`Current VPM Packages in Database: ${initialVpmCount.toLocaleString()}`);
+
+  // 0. Multi-author decentralized community registry ingestion
+  console.log("\n[0/4] Ingesting multi-maintainer community registries & live catalogs...");
+  await CuratedDriver.ingestAllCuratedSources();
 
   const candidateUrls = new Set<string>();
 
@@ -95,13 +100,12 @@ export async function runVpmDiscovery() {
     } catch (_) {}
   }
 
-  // 3. Ingest creator portfolios
-  // FIXME: this engine needs more context and scraping methods
-  console.log("\n[3/3] Ingesting creator portfolios for newly identified creators...");
-  await GitHubDriver.harvestCreatorRepos(TOP_VRCHAT_CREATORS);
+  // 3. Ingest creator portfolios dynamically derived from database truth sources
+  console.log("\n[3/3] Ingesting creator portfolios dynamically derived from live truth sources...");
+  await GitHubDriver.harvestDiscoveredCreators();
 
-  const finalVpmCount = (db as any).db.query("SELECT count(*) as c FROM entities WHERE platform = 'vpm'").get().c;
-  const totalEntities = (db as any).db.query("SELECT count(*) as c FROM entities").get().c;
+  const finalVpmCount = (db.query("SELECT count(*) as c FROM entities WHERE platform = 'vpm'").get() as any).c;
+  const totalEntities = (db.query("SELECT count(*) as c FROM entities").get() as any).c;
 
   console.log("-------------------------------------------------");
   console.log("  VPM DISCOVERY PIPELINE COMPLETE");

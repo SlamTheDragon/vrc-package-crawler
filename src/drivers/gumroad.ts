@@ -20,8 +20,9 @@ export class GumroadDriver {
       return { productsCount: 0, sellersFound: [] };
     }
 
-    const url = `https://gumroad.com/discover?query=${encodeURIComponent(query)}&page=${page}`;
-    logger.info(`[Gumroad:Discover] Searching '${query}' page ${page}...`);
+    const offset = (page - 1) * 36;
+    const url = `https://gumroad.com/discover?query=${encodeURIComponent(query)}&from=${offset}`;
+    logger.info(`[Gumroad:Discover] Searching '${query}' from offset ${offset} (page ${page})...`);
 
     try {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.gumroadDelayMs);
@@ -40,7 +41,7 @@ export class GumroadDriver {
       }
 
       if (!resp.ok) {
-        logger.warn(`[Gumroad:Discover] HTTP ${resp.status} for query '${query}' page ${page}`);
+        logger.warn(`[Gumroad:Discover] HTTP ${resp.status} for query '${query}' offset ${offset}`);
         return { productsCount: 0, sellersFound: [] };
       }
 
@@ -50,7 +51,7 @@ export class GumroadDriver {
       const html = await resp.text();
       const match = html.match(/data-page="([^"]+)"/);
       if (!match) {
-        logger.warn(`[Gumroad:Discover] No data-page found for query '${query}' page ${page}`);
+        logger.warn(`[Gumroad:Discover] No data-page found for query '${query}' offset ${offset}`);
         return { productsCount: 0, sellersFound: [] };
       }
 
@@ -64,6 +65,11 @@ export class GumroadDriver {
       const sr = data.props?.search_results || {};
       const products = sr.products || [];
       const sellersFound: string[] = [];
+
+      if (products.length === 0) {
+        logger.info(`[Gumroad:Discover] Query '${query}' reached end of results at offset ${offset}.`);
+        return { productsCount: 0, sellersFound: [] };
+      }
 
       let saved = 0;
       for (const p of products) {
@@ -80,6 +86,7 @@ export class GumroadDriver {
         }
 
         const cleanUrl = sellerProfile ? `${sellerProfile}/l/${permalink}` : `https://gumroad.com/l/${permalink}`;
+        db.queueUrl(cleanUrl, "gumroad");
 
         const entity: EntityRecord = {
           id: `gumroad:${permalink}`,
@@ -109,11 +116,11 @@ export class GumroadDriver {
         }
       }
 
-      logger.info(`[Gumroad:Discover] Ingested ${saved}/${products.length} vetted products, queued ${sellersFound.length} creator storefronts for '${query}' page ${page}`);
-      return { productsCount: saved, sellersFound };
+      logger.info(`[Gumroad:Discover] Ingested ${saved}/${products.length} vetted products, queued ${sellersFound.length} creator storefronts for '${query}' offset ${offset}`);
+      return { productsCount: products.length, savedCount: saved, sellersFound };
     } catch (e) {
-      logger.error(`[Gumroad:Discover] Error for query '${query}' page ${page}`, e);
-      return { productsCount: 0, sellersFound: [] };
+      logger.error(`[Gumroad:Discover] Error for query '${query}' offset ${offset}`, e);
+      return { productsCount: 0, savedCount: 0, sellersFound: [] };
     }
   }
 
@@ -127,7 +134,8 @@ export class GumroadDriver {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.gumroadDelayMs);
       await this.sleep(delay);
 
-      const resp = await fetch(productUrl, {
+      let currentUrl = productUrl;
+      let resp = await fetch(currentUrl, {
         headers: {
           "User-Agent": CONFIG.userAgent,
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
@@ -139,8 +147,42 @@ export class GumroadDriver {
         return false;
       }
 
+      // 404 alternative path fallback: try swapping between subdomain and root domain, or Discover search
+      if (resp.status === 404) {
+        const slugMatch = currentUrl.match(/gumroad\.com\/l\/([^/?#]+)/);
+        const slug = slugMatch ? slugMatch[1] : "";
+        const isSubdomain = /https?:\/\/[^.]+\.gumroad\.com\/l\//.test(currentUrl);
+
+        if (slug && isSubdomain) {
+          const rootUrl = `https://gumroad.com/l/${slug}`;
+          logger.info(`[Gumroad] Product 404 on subdomain ${currentUrl}, probing alternative path: ${rootUrl}`);
+          await this.sleep(CONFIG.gumroadDelayMs);
+          const rootResp = await fetch(rootUrl, {
+            headers: {
+              "User-Agent": CONFIG.userAgent,
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            }
+          });
+          if (rootResp.ok) {
+            logger.info(`[Gumroad] Alternative product path resolved: ${rootUrl}`);
+            resp = rootResp;
+            currentUrl = rootUrl;
+          }
+        }
+
+        // If still 404, try Discover query fallback for the slug
+        if (resp.status === 404 && slug) {
+          logger.info(`[Gumroad] Product 404 on ${currentUrl}. Probing alternative path via Discover search: "${slug}"...`);
+          const discRes = await this.crawlDiscoverQuery(slug.replace(/[-_]/g, " "), 1);
+          if (discRes.productsCount > 0) {
+            logger.info(`[Gumroad] Discovered ${discRes.productsCount} products via fallback search for "${slug}"`);
+            return true;
+          }
+        }
+      }
+
       if (!resp.ok) {
-        logger.warn(`[Gumroad] HTTP ${resp.status} for ${productUrl}`);
+        logger.warn(`[Gumroad] HTTP ${resp.status} for ${currentUrl} (all alternative paths failed)`);
         return false;
       }
 
@@ -213,7 +255,8 @@ export class GumroadDriver {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.gumroadDelayMs);
       await this.sleep(delay);
 
-      const resp = await fetch(storeUrl, {
+      let currentStore = storeUrl;
+      let resp = await fetch(currentStore, {
         headers: {
           "User-Agent": CONFIG.userAgent,
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
@@ -225,8 +268,37 @@ export class GumroadDriver {
         return false;
       }
 
+      // 404 alternative path fallback: try path-based profile or Discover search
+      if (resp.status === 404) {
+        const subMatch = currentStore.match(/https?:\/\/([^.]+)\.gumroad\.com/);
+        const creator = subMatch ? subMatch[1] : "";
+        if (creator && creator !== "www") {
+          const pathUrl = `https://gumroad.com/${creator}`;
+          logger.info(`[Gumroad] Storefront 404 on subdomain ${currentStore}, probing alternative path: ${pathUrl}`);
+          await this.sleep(CONFIG.gumroadDelayMs);
+          const pathResp = await fetch(pathUrl, {
+            headers: {
+              "User-Agent": CONFIG.userAgent,
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            }
+          });
+          if (pathResp.ok) {
+            logger.info(`[Gumroad] Alternative storefront path resolved: ${pathUrl}`);
+            resp = pathResp;
+            currentStore = pathUrl;
+          } else if (pathResp.status === 404) {
+            logger.info(`[Gumroad] Storefront 404 on both subdomain and path. Probing alternative path via Discover search: "${creator}"...`);
+            const discRes = await this.crawlDiscoverQuery(creator, 1);
+            if (discRes.productsCount > 0) {
+              logger.info(`[Gumroad] Discovered ${discRes.productsCount} products for creator "${creator}" via fallback search`);
+              return true;
+            }
+          }
+        }
+      }
+
       if (!resp.ok) {
-        logger.warn(`[Gumroad] Storefront HTTP ${resp.status} for ${storeUrl}`);
+        logger.warn(`[Gumroad] Storefront HTTP ${resp.status} for ${currentStore} (all alternative paths failed)`);
         return false;
       }
 
@@ -282,6 +354,7 @@ export class GumroadDriver {
           const evalRes = RelevanceFilter.evaluate(entity);
           if (evalRes.isRelevant) {
             db.saveEntity(entity);
+            db.queueUrl(cleanUrl, "gumroad");
             count++;
           } else {
             db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);

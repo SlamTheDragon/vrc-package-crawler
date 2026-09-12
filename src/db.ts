@@ -35,6 +35,22 @@ export class CrawlerDB {
     this.initSchema();
   }
 
+  prepare(sql: string) {
+    return this.db.prepare(sql);
+  }
+
+  query(sql: string) {
+    return this.db.query(sql);
+  }
+
+  run(sql: string, params?: any[]) {
+    return this.db.run(sql, params);
+  }
+
+  transaction(fn: (...args: any[]) => any) {
+    return this.db.transaction(fn);
+  }
+
   private initSchema() {
     // Enable WAL mode for high concurrency and crash resilience
     this.db.run("PRAGMA journal_mode = WAL;");
@@ -92,6 +108,30 @@ export class CrawlerDB {
         quarantined_at TEXT NOT NULL
       );
     `);
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS qualified_discards (
+        url TEXT PRIMARY KEY,
+        platform TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        attempts INTEGER DEFAULT 1,
+        discarded_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  public discardFailedUrl(url: string, platform: string, reason: string): boolean {
+    const now = new Date().toISOString();
+    try {
+      this.db.run(`
+        INSERT OR REPLACE INTO qualified_discards (url, platform, reason, attempts, discarded_at)
+        VALUES (?, ?, ?, COALESCE((SELECT attempts FROM frontier WHERE url = ?), 1), ?);
+      `, [url, platform, reason, url, now]);
+      this.db.run("DELETE FROM frontier WHERE url = ?;", [url]);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   public resetStaleFetching(): number {
@@ -102,14 +142,36 @@ export class CrawlerDB {
     return reset.changes;
   }
 
+  private sanitizeUrl(rawUrl: string): string | null {
+    if (!rawUrl || typeof rawUrl !== "string") return null;
+    let clean = rawUrl.trim();
+    if (clean.startsWith("(") && clean.endsWith(")")) {
+      clean = clean.slice(1, -1).trim();
+    }
+    clean = clean.replace(/^https?:\/\/https?:\/\//i, "https://");
+    clean = clean.replace(/^https?:\/\/\(https?:\/\//i, "https://");
+    clean = clean.replace(/^(https?:\/\/)(https?:\/\/)/i, "$1");
+    if (!clean.startsWith("http://") && !clean.startsWith("https://")) return null;
+    try {
+      const parsed = new URL(clean);
+      if (!parsed.hostname || !parsed.hostname.includes(".")) return null;
+      return parsed.href;
+    } catch {
+      return null;
+    }
+  }
+
   queueUrl(url: string, platform: PlatformType): boolean {
+    const cleanUrl = this.sanitizeUrl(url);
+    if (!cleanUrl) return false;
+
     const now = new Date().toISOString();
     try {
       const stmt = this.db.prepare(`
         INSERT OR IGNORE INTO frontier (url, platform, status, attempts, discovered_at, updated_at)
         VALUES (?, ?, 'pending', 0, ?, ?);
       `);
-      const result = stmt.run(url, platform, now, now);
+      const result = stmt.run(cleanUrl, platform, now, now);
       return result.changes > 0;
     } catch (e) {
       return false;
@@ -126,7 +188,9 @@ export class CrawlerDB {
     let count = 0;
     this.db.transaction(() => {
       for (const item of items) {
-        const res = insert.run(item.url, item.platform, now, now);
+        const cleanUrl = this.sanitizeUrl(item.url);
+        if (!cleanUrl) continue;
+        const res = insert.run(cleanUrl, item.platform, now, now);
         if (res.changes > 0) count++;
       }
     })();
@@ -145,17 +209,27 @@ export class CrawlerDB {
   }
 
   getNextPendingForPlatform(platform: PlatformType, limit: number = 5): FrontierItem[] {
-    const stmt = this.db.prepare(`
+    const genLimit = Math.max(1, Math.floor(limit * 0.2));
+    const genItems = this.db.prepare(`
       SELECT url, platform, status, attempts, discovered_at, updated_at
       FROM frontier
-      WHERE platform = ? AND status = 'pending'
+      WHERE platform = ? AND status = 'pending' AND (url LIKE '%?query=%' OR url LIKE '%/browse/%' OR url LIKE '%/search%' OR url LIKE '%page=%')
       ORDER BY discovered_at ASC
       LIMIT ?;
-    `);
-    return stmt.all(platform, limit) as FrontierItem[];
+    `).all(platform, genLimit) as FrontierItem[];
+
+    const itemRows = this.db.prepare(`
+      SELECT url, platform, status, attempts, discovered_at, updated_at
+      FROM frontier
+      WHERE platform = ? AND status = 'pending' AND NOT (url LIKE '%?query=%' OR url LIKE '%/browse/%' OR url LIKE '%/search%' OR url LIKE '%page=%')
+      ORDER BY discovered_at ASC
+      LIMIT ?;
+    `).all(platform, limit - genItems.length) as FrontierItem[];
+
+    return [...genItems, ...itemRows];
   }
 
-  markStatus(url: string, status: "fetching" | "done" | "failed") {
+  markStatus(url: string, status: "fetching" | "done" | "failed", reason: string = "Request failed or 404") {
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
       UPDATE frontier
@@ -163,6 +237,13 @@ export class CrawlerDB {
       WHERE url = ?;
     `);
     stmt.run(status, now, url);
+
+    if (status === "failed") {
+      const row = this.db.prepare("SELECT platform, attempts FROM frontier WHERE url = ?;").get(url) as any;
+      if (row && (row.attempts >= 3 || url.includes(".booth.pm/") || url.includes("example.github.io"))) {
+        this.discardFailedUrl(url, row.platform, reason);
+      }
+    }
   }
 
   saveEntity(entity: EntityRecord): boolean {
@@ -175,17 +256,17 @@ export class CrawlerDB {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       `);
       const res = stmt.run(
-        entity.id,
-        entity.platform,
-        entity.url,
-        entity.title,
-        entity.author,
-        entity.price_currency || null,
-        entity.price_amount !== undefined ? entity.price_amount : null,
-        entity.description || "",
-        entity.tags_json || "[]",
-        entity.external_links_json || "[]",
-        entity.raw_json || "{}",
+        String(entity.id || ""),
+        String(entity.platform || ""),
+        String(entity.url || ""),
+        String(entity.title || "Untitled"),
+        String(entity.author || "Unknown"),
+        entity.price_currency ? String(entity.price_currency) : null,
+        typeof entity.price_amount === "number" && !isNaN(entity.price_amount) ? entity.price_amount : null,
+        String(entity.description || ""),
+        String(entity.tags_json || "[]"),
+        String(entity.external_links_json || "[]"),
+        String(entity.raw_json || "{}"),
         now,
         now
       );
@@ -211,7 +292,15 @@ export class CrawlerDB {
           id, platform, url, title, author, reasons_json, quarantined_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?);
       `);
-      const res = stmt.run(id, platform, url, title, author, JSON.stringify(reasons), now);
+      const res = stmt.run(
+        String(id || ""),
+        String(platform || ""),
+        String(url || ""),
+        String(title || "Untitled"),
+        String(author || "Unknown"),
+        JSON.stringify(reasons || []),
+        now
+      );
       return res.changes > 0;
     } catch (err) {
       logger.error(`Failed to quarantine entity ${id}`, err);
