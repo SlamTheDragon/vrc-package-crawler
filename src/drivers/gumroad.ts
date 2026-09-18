@@ -269,6 +269,8 @@ export class GumroadDriver {
         description: desc,
         tags_json: JSON.stringify(["gumroad", "vrchat"]),
         external_links_json: JSON.stringify(extLinks),
+        origin_created_at: originCreatedAt,
+        origin_updated_at: originUpdatedAt,
         raw_json: JSON.stringify({ slug, title, author: creatorName, desc, extLinks, originCreatedAt, originUpdatedAt })
       };
 
@@ -382,6 +384,11 @@ export class GumroadDriver {
           const cleanUrl = p.url.split("?")[0];
           const permalink = p.permalink || cleanUrl.split("/l/")[1] || cleanUrl;
 
+          let pCreated = p.published_at || p.created_at || null;
+          let pUpdated = p.updated_at || null;
+          if (pCreated) { try { pCreated = new Date(pCreated).toISOString(); } catch (_) { pCreated = null; } }
+          if (pUpdated) { try { pUpdated = new Date(pUpdated).toISOString(); } catch (_) { pUpdated = null; } }
+
           const entity: EntityRecord = {
             id: `gumroad:${permalink}`,
             platform: "gumroad",
@@ -393,10 +400,14 @@ export class GumroadDriver {
             description: p.description || `${p.name} on Gumroad by ${creatorName}`,
             tags_json: JSON.stringify(["gumroad", "vrchat"]),
             external_links_json: JSON.stringify([storeUrl]),
+            origin_created_at: pCreated,
+            origin_updated_at: pUpdated,
             raw_json: JSON.stringify({
               ratings: p.ratings,
               thumbnail_url: p.thumbnail_url,
-              filetypes: p.filetypes_data
+              filetypes: p.filetypes_data,
+              originCreatedAt: pCreated,
+              originUpdatedAt: pUpdated
             })
           };
 
@@ -427,7 +438,7 @@ export class GumroadDriver {
   // Harvests all cross-linked Gumroad storefronts and product permalinks from existing entities
   static harvestCrossLinks(): number {
     logger.info("[Gumroad] Harvesting unqueued Gumroad cross-links from existing database entities...");
-    const rows = (db as any).db.query("SELECT external_links_json, raw_json FROM entities").all() as any[];
+    const rows = db.query("SELECT external_links_json, raw_json FROM entities WHERE is_quarantined = 0").all() as any[];
     let queued = 0;
 
     for (const r of rows) {

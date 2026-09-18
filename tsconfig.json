@@ -16,5 +16,5 @@
     "allowJs": true,
     "types": ["bun-types"]
   },
-  "exclude": ["scratch", "node_modules", "bin"]
+  "exclude": ["scratch", "node_modules", "bin", "dist"]
 }

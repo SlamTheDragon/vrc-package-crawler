@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { runEdgeSync } from "../src/sync.ts";
-import { dbV2 } from "../src/db_v2.ts";
+import { db } from "../src/db.ts";
 
 describe("Decoupled Cloudflare Edge Sync", () => {
   it("executes dry-run synchronization and updates high-watermark checkpoint", async () => {
@@ -9,7 +9,7 @@ describe("Decoupled Cloudflare Edge Sync", () => {
     expect(result.isDryRun).toBe(true);
 
     // Verify checkpoint was recorded in sync_checkpoints
-    const checkpoint = dbV2.query(`
+    const checkpoint = db.query(`
       SELECT * FROM sync_checkpoints
       WHERE sync_target = 'cloudflare_d1' AND status = 'success'
       ORDER BY id DESC

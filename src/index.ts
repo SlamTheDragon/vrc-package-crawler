@@ -1,7 +1,6 @@
 import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
 import { db } from "./db.ts";
-import { dbV2 } from "./db_v2.ts";
 import { BoothDriver } from "./drivers/booth.ts";
 import { GitHubDriver } from "./drivers/github.ts";
 import { VpmIndexDriver } from "./drivers/vpm_index.ts";
@@ -15,7 +14,6 @@ import { runPipelineSanitize, abortPipelineSanitize } from "./pipeline_sanitize.
 import { CrawlerIpcServer } from "./utils/ipc.ts";
 import { poissonScheduler } from "./utils/poisson_scheduler.ts";
 import { robotsEnforcer } from "./utils/robots.ts";
-import { runZeroLossMigration } from "./migrate_v2.ts";
 
 let isRunning = true;
 
@@ -734,11 +732,18 @@ async function runCreatorHarvestWorker() {
   logger.info("[Worker:CreatorHarvest] Stopped.");
 }
 
-// Continuous 24/7 Monitor with Cho-Garcia-Molina Poisson Refresh & Periodic 15m Projections
+// Continuous 24/7 Monitor with Cho-Garcia-Molina Poisson Refresh, 15m Projections, 30m Steering Pull, and 4h Edge Sync
 async function runMonitor() {
   let cycle = 0;
   let lastProjectionTime = Date.now();
-  const PROJECTION_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+  let lastSteeringTime = Date.now();
+  let lastSyncTime = Date.now();
+  let lastMediaIndexTime = Date.now();
+
+  const PROJECTION_INTERVAL_MS = 15 * 60 * 1000;   // 15 minutes
+  const STEERING_INTERVAL_MS = 30 * 60 * 1000;     // 30 minutes
+  const SYNC_INTERVAL_MS = 4 * 60 * 60 * 1000;      // 4 hours
+  const MEDIA_INDEX_INTERVAL_MS = 5 * 60 * 1000;   // 5 minutes
 
   while (isRunning) {
     await sleepOrInterrupt(15000);
@@ -773,6 +778,43 @@ async function runMonitor() {
         await runPipelineSanitize();
       } catch (err) {
         logger.error("[MONITOR] Error during periodic projection synthesis", err);
+      }
+    }
+
+    // 3. Periodic 30-minute steering ingestion (Cloudflare R2 download + local directory)
+    if (Date.now() - lastSteeringTime >= STEERING_INTERVAL_MS) {
+      lastSteeringTime = Date.now();
+      try {
+        const { pullReportsFromDirectory, processPendingReports } = await import("./steering.ts");
+        const pulled = await pullReportsFromDirectory();
+        if (pulled > 0) {
+          await processPendingReports();
+        }
+      } catch (err) {
+        logger.error("[MONITOR] Error during periodic steering ingest", err);
+      }
+    }
+
+    // 4. Periodic 4-hour Cloudflare edge sync upload
+    if (Date.now() - lastSyncTime >= SYNC_INTERVAL_MS) {
+      lastSyncTime = Date.now();
+      logger.info("[MONITOR] Initiating scheduled 4-hour Cloudflare edge sync upload...");
+      try {
+        const { runEdgeSync } = await import("./sync.ts");
+        await runEdgeSync();
+      } catch (err) {
+        logger.error("[MONITOR] Error during periodic edge sync", err);
+      }
+    }
+
+    // 5. Periodic 5-minute low-resolution proxy image indexer
+    if (Date.now() - lastMediaIndexTime >= MEDIA_INDEX_INTERVAL_MS) {
+      lastMediaIndexTime = Date.now();
+      try {
+        const { ImageProxyService } = await import("./utils/image_proxy.ts");
+        await ImageProxyService.indexPendingMedia(25);
+      } catch (err) {
+        logger.error("[MONITOR] Error during periodic media indexing", err);
       }
     }
   }
@@ -829,8 +871,26 @@ async function main() {
   }
 
   if (process.argv.includes("sync")) {
-    const { runEdgeSync } = await import("./sync.ts");
-    await runEdgeSync();
+    const res = await CrawlerIpcServer.sendCommand("sync");
+    if (res.success) {
+      console.log("[CLI] Edge sync triggered successfully on active daemon.");
+    } else {
+      const { runEdgeSync } = await import("./sync.ts");
+      await runEdgeSync();
+    }
+    process.exit(0);
+  }
+
+  if (process.argv.includes("steering")) {
+    const res = await CrawlerIpcServer.sendCommand("steering");
+    if (res.success) {
+      console.log("[CLI] Steering ingest triggered successfully on active daemon.");
+    } else {
+      const { pullReportsFromDirectory, processPendingReports } = await import("./steering.ts");
+      const pulled = await pullReportsFromDirectory();
+      const stats = await processPendingReports();
+      console.log(`[CLI] Steering processed offline: ${pulled} pulled, ${stats.applied} applied, ${stats.failed} failed.`);
+    }
     process.exit(0);
   }
 
@@ -871,7 +931,6 @@ async function main() {
       try {
         db.resetStaleFetching();
         db.close();
-        dbV2.close();
         ipcServer.stop();
       } catch (_) {}
       ProcessLock.release();
@@ -894,7 +953,6 @@ async function main() {
     } catch (_) {}
     try {
       db.resetStaleFetching();
-      dbV2.resetStaleFetching();
     } catch (_) {}
   };
 
@@ -905,6 +963,15 @@ async function main() {
     },
     onProject: async () => {
       await runPipelineSanitize();
+    },
+    onSync: async () => {
+      const { runEdgeSync } = await import("./sync.ts");
+      await runEdgeSync();
+    },
+    onSteering: async () => {
+      const { pullReportsFromDirectory, processPendingReports } = await import("./steering.ts");
+      await pullReportsFromDirectory();
+      await processPendingReports();
     }
   });
 
@@ -969,8 +1036,8 @@ async function main() {
       console.log("==================================================================");
       try {
         await runPipelineSanitize();
-        const { generateUncatalogedCatalog } = await import("./generate_uncataloged_doc.ts");
-        generateUncatalogedCatalog();
+        const { runDatabaseExport } = await import("./exporter.ts");
+        await runDatabaseExport("catalog");
         console.log("[PIPELINE] Post-crawl sanitization & catalog generation completed successfully.");
       } catch (err) {
         console.error("Error during automated post-crawl pipeline execution:", err);
@@ -983,11 +1050,9 @@ async function main() {
     } catch (_) {}
     try {
       db.resetStaleFetching();
-      dbV2.resetStaleFetching();
     } catch (_) {}
     try {
       db.close();
-      dbV2.close();
     } catch (_) {}
     try {
       await logger.close();

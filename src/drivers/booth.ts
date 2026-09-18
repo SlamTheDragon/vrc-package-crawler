@@ -230,6 +230,7 @@ export class BoothDriver {
         description: description,
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
+        origin_created_at: originCreatedAt,
         raw_json: JSON.stringify({ itemId: finalItemId, title, author, priceAmount, tags, extLinks, originCreatedAt })
       };
 

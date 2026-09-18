@@ -221,6 +221,15 @@ export class JinxxyDriver {
         }
       }
 
+      // Extract published date if available
+      let originCreatedAt: string | null = null;
+      const dateMatch = html.match(/(?:itemprop=["']datePublished["']|property=["']article:published_time["'])\s+content=["'](.*?)["']/i);
+      if (dateMatch && dateMatch[1]) {
+        try {
+          originCreatedAt = new Date(dateMatch[1]).toISOString();
+        } catch (_) {}
+      }
+
       const entity: EntityRecord = {
         id: `jinxxy:${creatorName}/${productSlug}`,
         platform: "jinxxy",
@@ -232,11 +241,13 @@ export class JinxxyDriver {
         description: desc,
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
+        origin_created_at: originCreatedAt,
         raw_json: JSON.stringify({
           creator: creatorName,
           slug: productSlug,
           tags: tags,
-          extLinks: extLinks
+          extLinks: extLinks,
+          originCreatedAt
         })
       };
 

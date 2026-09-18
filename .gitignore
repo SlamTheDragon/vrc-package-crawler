@@ -32,6 +32,8 @@ scratch/
 
 # Legacy archive folders
 crawler-cache-archive-2.unclean/
+archive/
 
 # Generated output data
 out/
+test_*.db

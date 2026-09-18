@@ -9,7 +9,7 @@ describe("Exportable Database Generator & FTS5 Indexing", () => {
 
   it("exports catalog into standalone SQLite database with working FTS5", async () => {
     if (fs.existsSync(testCatalogPath)) {
-      fs.unlinkSync(testCatalogPath);
+      try { fs.unlinkSync(testCatalogPath); } catch (_) {}
     }
 
     const exportedPath = await runDatabaseExport("catalog", "test_vrc_catalog.db");
@@ -17,14 +17,14 @@ describe("Exportable Database Generator & FTS5 Indexing", () => {
 
     const testDb = new Database(exportedPath);
 
-    // Verify tables exist
+    // Verify tables exist with clean normalized names
     const tables = testDb.query("SELECT name FROM sqlite_master WHERE type='table';").all().map((r: any) => r.name);
-    expect(tables).toContain("canonical_packages_v2");
-    expect(tables).toContain("package_fronts_v2");
+    expect(tables).toContain("canonical_packages");
+    expect(tables).toContain("package_fronts");
     expect(tables).toContain("packages_fts");
 
     // Verify packages exist
-    const pkgCount = (testDb.query("SELECT COUNT(*) as c FROM canonical_packages_v2;").get() as any).c;
+    const pkgCount = (testDb.query("SELECT COUNT(*) as c FROM canonical_packages;").get() as any).c;
     expect(pkgCount).toBeGreaterThan(0);
 
     // Verify FTS5 query
@@ -33,10 +33,15 @@ describe("Exportable Database Generator & FTS5 Indexing", () => {
 
     testDb.close();
 
-    // Clean up on Windows after brief handle release
-    await new Promise(r => setTimeout(r, 200));
-    try {
-      fs.unlinkSync(exportedPath);
-    } catch (_) {}
-  });
+    // Clean up on Windows after brief handle release with retry
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 150));
+      try {
+        if (fs.existsSync(exportedPath)) fs.unlinkSync(exportedPath);
+        if (fs.existsSync(`${exportedPath}-wal`)) fs.unlinkSync(`${exportedPath}-wal`);
+        if (fs.existsSync(`${exportedPath}-shm`)) fs.unlinkSync(`${exportedPath}-shm`);
+        if (!fs.existsSync(exportedPath)) break;
+      } catch (_) {}
+    }
+  }, 30000);
 });

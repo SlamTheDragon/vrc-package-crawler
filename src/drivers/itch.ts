@@ -206,6 +206,16 @@ export class ItchDriver {
         }
       }
 
+      // Extract published date if available
+      let originCreatedAt: string | null = null;
+      const dateMatch = html.match(/(?:itemprop=["']datePublished["']|property=["']article:published_time["'])\s+content=["'](.*?)["']/i) ||
+                        html.match(/<abbr\s+class=["']date["'][^>]*title=["'](.*?)["']/i);
+      if (dateMatch && dateMatch[1]) {
+        try {
+          originCreatedAt = new Date(dateMatch[1]).toISOString();
+        } catch (_) {}
+      }
+
       const entity: EntityRecord = {
         id: `itch:${creator}/${productUrl.split("/").pop()}`,
         platform: "itch",
@@ -217,7 +227,8 @@ export class ItchDriver {
         description: desc || `${title} on Itch.io by ${creator}`,
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
-        raw_json: JSON.stringify({ creator, title, extLinks, tags })
+        origin_created_at: originCreatedAt,
+        raw_json: JSON.stringify({ creator, title, extLinks, tags, originCreatedAt })
       };
 
       const evalRes = RelevanceFilter.evaluate(entity);

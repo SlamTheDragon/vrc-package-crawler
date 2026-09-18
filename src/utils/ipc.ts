@@ -1,18 +1,28 @@
 import { logger } from "../logger.ts";
-import { dbV2 } from "../db_v2.ts";
+import { db } from "../db.ts";
 
 export interface IpcServerCallbacks {
   onStop: () => void;
   onRecrawl?: () => Promise<void>;
   onProject?: () => Promise<void>;
   onExport?: () => Promise<void>;
+  onSync?: () => Promise<void>;
+  onSteering?: () => Promise<void>;
 }
 
 export class CrawlerIpcServer {
   private server: any = null;
-  private readonly PORT = 8765;
+  private PORT: number;
   private readonly HOST = "127.0.0.1";
   private startTime = Date.now();
+
+  constructor(customPort?: number) {
+    this.PORT = customPort || (process.env.CRAWLER_IPC_PORT ? parseInt(process.env.CRAWLER_IPC_PORT, 10) : 8765);
+  }
+
+  public get port(): number {
+    return this.PORT;
+  }
 
   public start(callbacks: IpcServerCallbacks) {
     try {
@@ -24,7 +34,7 @@ export class CrawlerIpcServer {
           const path = url.pathname;
 
           if (path === "/health" || path === "/status") {
-            const metrics = dbV2.getMetrics();
+            const metrics = db.getMetrics();
             const uptimeSec = Math.floor((Date.now() - this.startTime) / 1000);
             return Response.json({
               status: "running",
@@ -58,6 +68,22 @@ export class CrawlerIpcServer {
             return Response.json({ status: "triggered", action: "projection" });
           }
 
+          if (path === "/sync") {
+            logger.info("[IPC] Received edge sync trigger via loopback IPC.");
+            if (callbacks.onSync) {
+              callbacks.onSync().catch(err => logger.error("[IPC] Sync failed", err));
+            }
+            return Response.json({ status: "triggered", action: "sync" });
+          }
+
+          if (path === "/steering") {
+            logger.info("[IPC] Received steering pull trigger via loopback IPC.");
+            if (callbacks.onSteering) {
+              callbacks.onSteering().catch(err => logger.error("[IPC] Steering failed", err));
+            }
+            return Response.json({ status: "triggered", action: "steering" });
+          }
+
           if (path === "/export") {
             logger.info("[IPC] Received export trigger via loopback IPC.");
             if (callbacks.onExport) {
@@ -85,33 +111,29 @@ export class CrawlerIpcServer {
     }
   }
 
-  public static async sendCommand(command: string): Promise<{ success: boolean; data?: any; error?: string }> {
-    const url = `http://127.0.0.1:8765/${command}`;
+  public static async sendCommand(command: string, customPort?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    const p = customPort || (process.env.CRAWLER_IPC_PORT ? parseInt(process.env.CRAWLER_IPC_PORT, 10) : 8765);
+    const url = `http://127.0.0.1:${p}/${command}`;
     try {
       const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
+        method: "GET",
+        headers: { "Accept": "application/json" }
       });
-      const json = await resp.json();
-      return { success: resp.ok, data: json };
-    } catch (err) {
-      return {
-        success: false,
-        error: `Could not connect to crawler daemon on 127.0.0.1:8765: ${String(err)}`
-      };
+      if (!resp.ok) {
+        return { success: false, error: `HTTP ${resp.status}: ${resp.statusText}` };
+      }
+      const data = await resp.json();
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message || String(err) };
     }
   }
 
-  public static async getStatus(): Promise<{ running: boolean; data?: any }> {
-    try {
-      const resp = await fetch("http://127.0.0.1:8765/status");
-      if (resp.ok) {
-        const data = await resp.json();
-        return { running: true, data };
-      }
-      return { running: false };
-    } catch {
-      return { running: false };
+  public static async getStatus(customPort?: number): Promise<{ running: boolean; data?: any }> {
+    const res = await this.sendCommand("status", customPort);
+    if (res.success && res.data) {
+      return { running: true, data: res.data };
     }
+    return { running: false };
   }
 }

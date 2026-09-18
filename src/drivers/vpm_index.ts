@@ -111,6 +111,11 @@ export class VpmIndexDriver {
             if (originRepoUrl) extLinks.push(originRepoUrl);
             if (data.author?.url) extLinks.push(data.author.url);
 
+            let originCreatedAt = data.published_at || data.created_at || data.date || null;
+            let originUpdatedAt = data.updated_at || null;
+            if (originCreatedAt) { try { originCreatedAt = new Date(originCreatedAt).toISOString(); } catch (_) { originCreatedAt = null; } }
+            if (originUpdatedAt) { try { originUpdatedAt = new Date(originUpdatedAt).toISOString(); } catch (_) { originUpdatedAt = null; } }
+
             const entity: EntityRecord = {
               id: `vpm:${pkgId}`,
               platform: "vpm",
@@ -120,6 +125,8 @@ export class VpmIndexDriver {
               description: desc,
               tags_json: JSON.stringify([...(data.keywords || []), "vpm-package", ...vpmDeps]),
               external_links_json: JSON.stringify(extLinks),
+              origin_created_at: originCreatedAt,
+              origin_updated_at: originUpdatedAt,
               raw_json: JSON.stringify({
                 pkgId,
                 version: data.version,
@@ -127,7 +134,9 @@ export class VpmIndexDriver {
                 vpmDependencies: data.vpmDependencies,
                 repo_url: originRepoUrl,
                 manifest_url: testUrl,
-                is_direct_package: true
+                is_direct_package: true,
+                originCreatedAt,
+                originUpdatedAt
               })
             };
 
@@ -277,6 +286,11 @@ export class VpmIndexDriver {
 
           const canonicalItemUrl = originRepoUrl || latest.url || testUrl;
 
+          let originCreatedAt = latest.published_at || latest.created_at || latest.date || null;
+          let originUpdatedAt = latest.updated_at || null;
+          if (originCreatedAt) { try { originCreatedAt = new Date(originCreatedAt).toISOString(); } catch (_) { originCreatedAt = null; } }
+          if (originUpdatedAt) { try { originUpdatedAt = new Date(originUpdatedAt).toISOString(); } catch (_) { originUpdatedAt = null; } }
+
           const entity: EntityRecord = {
             id: `vpm:${pkgId}`,
             platform: "vpm",
@@ -286,6 +300,8 @@ export class VpmIndexDriver {
             description: desc,
             tags_json: JSON.stringify([...(latest.keywords || []), ...vpmDeps]),
             external_links_json: JSON.stringify(extLinks),
+            origin_created_at: originCreatedAt,
+            origin_updated_at: originUpdatedAt,
             raw_json: JSON.stringify({
               pkgId,
               version: latest.version,
@@ -296,7 +312,9 @@ export class VpmIndexDriver {
               repo_url: originRepoUrl,
               download_url: latest.url,
               manifest_url: testUrl,
-              is_from_aggregator: isAggregator
+              is_from_aggregator: isAggregator,
+              originCreatedAt,
+              originUpdatedAt
             })
           };
 

@@ -1,4 +1,4 @@
-import { dbV2 } from "../db_v2.ts";
+import { db } from "../db.ts";
 import { logger } from "../logger.ts";
 
 export class PoissonScheduler {
@@ -13,9 +13,9 @@ export class PoissonScheduler {
   public requeueStaleUrls(limit: number = 50): number {
     const now = new Date().toISOString();
     try {
-      const rows = dbV2.query(`
+      const rows = db.query(`
         SELECT url, platform, fetch_interval_sec, attempts
-        FROM frontier_v2
+        FROM frontier
         WHERE (status = 'done' OR (status = 'failed' AND attempts < 5))
           AND next_fetch_at <= ?
         ORDER BY next_fetch_at ASC
@@ -24,23 +24,14 @@ export class PoissonScheduler {
 
       if (rows.length === 0) return 0;
 
-      const updateStmt = dbV2.prepare(`
-        UPDATE frontier_v2
-        SET status = 'pending', updated_at = ?
-        WHERE url = ?;
-      `);
-      const updateV1Stmt = dbV2.prepare(`
+      const updateStmt = db.prepare(`
         UPDATE frontier
         SET status = 'pending', updated_at = ?
         WHERE url = ?;
       `);
-
-      dbV2.transaction(() => {
+      db.transaction(() => {
         for (const r of rows) {
           updateStmt.run(now, r.url);
-          try {
-            updateV1Stmt.run(now, r.url);
-          } catch (_) {}
         }
       })();
 
@@ -63,7 +54,7 @@ export class PoissonScheduler {
   ) {
     const now = new Date().toISOString();
     try {
-      const row = dbV2.query("SELECT fetch_interval_sec FROM frontier_v2 WHERE url = ?;").get(url) as any;
+      const row = db.query("SELECT fetch_interval_sec FROM frontier WHERE url = ?;").get(url) as any;
       const currentInterval = row?.fetch_interval_sec || this.DEFAULT_INTERVAL_SEC;
 
       let nextInterval: number;
@@ -77,8 +68,8 @@ export class PoissonScheduler {
 
       const nextFetchAt = new Date(Date.now() + nextInterval * 1000).toISOString();
 
-      dbV2.run(`
-        UPDATE frontier_v2
+      db.run(`
+        UPDATE frontier
         SET status = 'done',
             etag = COALESCE(?, etag),
             last_modified = COALESCE(?, last_modified),

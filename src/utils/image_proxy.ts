@@ -1,4 +1,4 @@
-import { dbV2, type MediaCacheRecord } from "../db_v2.ts";
+import { db, type MediaCacheRecord, type CrawlerDB } from "../db.ts";
 import { logger } from "../logger.ts";
 import { CONFIG } from "../config.ts";
 
@@ -276,13 +276,15 @@ export class ImageProxyService {
   /**
    * Processes an image into WebP (480x270, quality 75), BlurHash, and 64-bit pHash.
    */
-  public static async processAndCacheImage(imageUrl: string): Promise<MediaCacheRecord | null> {
-    const existing = dbV2.query("SELECT * FROM media_cache_v2 WHERE source_url = ?;").get(imageUrl) as any;
+  public static async processAndCacheImage(imageUrl: string, customDb?: CrawlerDB): Promise<MediaCacheRecord | null> {
+    const targetDb = customDb || db;
+    const cleanUrl = sanitizeOutboundUrl(imageUrl);
+    const existing = targetDb.query("SELECT * FROM media_cache WHERE source_url = ?;").get(cleanUrl) as any;
     if (existing) {
       return existing as MediaCacheRecord;
     }
 
-    const fetched = await this.fetchImageBufferGuarded(imageUrl);
+    const fetched = await this.fetchImageBufferGuarded(cleanUrl);
     if (!fetched) return null;
 
     let webpData: Buffer | null = null;
@@ -300,7 +302,7 @@ export class ImageProxyService {
 
       if (sharpModule) {
         const img = sharpModule(fetched.buffer);
-        // Transcode to WebP 480x270
+        // Transcode to low-res Fair Use WebP thumbnail (480x270, quality 75)
         webpData = await img
           .clone()
           .resize(480, 270, { fit: "cover" })
@@ -338,7 +340,7 @@ export class ImageProxyService {
 
     const record: MediaCacheRecord = {
       id,
-      source_url: imageUrl,
+      source_url: cleanUrl,
       webp_data: webpData,
       webp_size_bytes: webpData?.length || 0,
       blurhash,
@@ -350,8 +352,8 @@ export class ImageProxyService {
     };
 
     try {
-      dbV2.run(`
-        INSERT OR REPLACE INTO media_cache_v2 (
+      targetDb.run(`
+        INSERT OR REPLACE INTO media_cache (
           id, source_url, webp_data, webp_size_bytes, blurhash, phash_64,
           width, height, content_type, etag, last_processed_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?);
@@ -362,8 +364,71 @@ export class ImageProxyService {
       ]);
       return record;
     } catch (err) {
-      logger.error(`[ImageProxy] Failed to store media cache for ${imageUrl}`, err);
+      logger.error(`[ImageProxy] Failed to store media cache for ${cleanUrl}`, err);
       return record;
+    }
+  }
+
+  /**
+   * Indexes pending images for canonical packages that currently lack a media_id.
+   * Scans constituent entities in the observation lake for image candidates.
+   */
+  public static async indexPendingMedia(limit: number = 25, customDb?: CrawlerDB): Promise<number> {
+    const targetDb = customDb || db;
+    try {
+      const packagesWithoutMedia = targetDb.query(`
+        SELECT canonical_id, source_ids_json
+        FROM canonical_packages
+        WHERE media_id IS NULL
+        LIMIT ?;
+      `).all(limit) as any[];
+
+      if (packagesWithoutMedia.length === 0) return 0;
+
+      let indexedCount = 0;
+      for (const pkg of packagesWithoutMedia) {
+        let sourceIds: string[] = [];
+        try { sourceIds = JSON.parse(pkg.source_ids_json || "[]"); } catch (_) {}
+        if (sourceIds.length === 0) continue;
+
+        // Query entities for image URLs
+        const placeholders = sourceIds.map(() => "?").join(",");
+        const entitiesWithRaw = targetDb.query(`
+          SELECT raw_json FROM entities WHERE id IN (${placeholders})
+        `).all(...sourceIds) as any[];
+
+        let candidateImageUrl: string | null = null;
+        for (const ent of entitiesWithRaw) {
+          try {
+            const raw = JSON.parse(ent.raw_json || "{}");
+            const img = raw.thumbnail_url || raw.imageUrl || raw.image || raw.ogImage || raw.preview_url || raw.iconUrl;
+            if (img && typeof img === "string" && img.startsWith("http")) {
+              candidateImageUrl = img;
+              break;
+            }
+          } catch (_) {}
+        }
+
+        if (candidateImageUrl) {
+          const mediaRecord = await this.processAndCacheImage(candidateImageUrl, targetDb);
+          if (mediaRecord) {
+            targetDb.run(`
+              UPDATE canonical_packages
+              SET media_id = ?
+              WHERE canonical_id = ?;
+            `, [mediaRecord.id, pkg.canonical_id]);
+            indexedCount++;
+          }
+        }
+      }
+
+      if (indexedCount > 0) {
+        logger.info(`[ImageProxy] Indexed ${indexedCount} low-resolution proxy images for canonical packages.`);
+      }
+      return indexedCount;
+    } catch (err) {
+      logger.error("[ImageProxy] Error during batch media indexation", err);
+      return 0;
     }
   }
 }

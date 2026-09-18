@@ -323,6 +323,13 @@ export class GitHubDriver {
         }
       } catch (_) {}
 
+      let originUpdatedAt: string | null = null;
+      if (rawLastModified) {
+        try {
+          originUpdatedAt = new Date(rawLastModified).toISOString();
+        } catch (_) {}
+      }
+
       const entity: EntityRecord = {
         id: `github:${owner}/${repo}`,
         platform: "github",
@@ -332,6 +339,7 @@ export class GitHubDriver {
         description: description,
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
+        origin_updated_at: originUpdatedAt,
         raw_json: JSON.stringify({
           owner,
           repo,
@@ -339,7 +347,8 @@ export class GitHubDriver {
           hasReleaseAssets,
           latestReleaseAsset,
           etag: rawEtag,
-          lastModified: rawLastModified
+          lastModified: rawLastModified,
+          originUpdatedAt
         })
       };
 
@@ -387,7 +396,7 @@ export class GitHubDriver {
       if (this.harvestedCreators.has(creator.toLowerCase())) continue;
 
       const existing = db.prepare(
-        "SELECT COUNT(*) as c FROM entities WHERE platform = 'github' AND (LOWER(author) = LOWER(?) OR LOWER(author) = LOWER(?));"
+        "SELECT COUNT(*) as c FROM entities WHERE is_quarantined = 0 AND platform = 'github' AND (LOWER(author) = LOWER(?) OR LOWER(author) = LOWER(?));"
       ).get(creator, rawCreator) as any;
       if (existing && existing.c >= 3) {
         this.harvestedCreators.add(creator.toLowerCase());
@@ -462,11 +471,15 @@ export class GitHubDriver {
             description: r.description || "",
             tags_json: JSON.stringify(r.topics || []),
             external_links_json: JSON.stringify([r.homepage].filter(Boolean)),
+            origin_created_at: r.created_at || null,
+            origin_updated_at: r.updated_at || null,
             raw_json: JSON.stringify({
               stargazers_count: r.stargazers_count,
               forks_count: r.forks_count,
               default_branch: r.default_branch,
               license: r.license?.spdx_id,
+              originCreatedAt: r.created_at,
+              originUpdatedAt: r.updated_at,
               resolved_via: resolvedPath
             })
           };
@@ -505,7 +518,7 @@ export class GitHubDriver {
     // 1. Extract creators from verified VPM packages and community registries
     const vpmAuthors = db.prepare(`
       SELECT DISTINCT author FROM entities 
-      WHERE author IS NOT NULL AND author != '' AND author != 'Unknown' AND author != 'VRChat'
+      WHERE is_quarantined = 0 AND author IS NOT NULL AND author != '' AND author != 'Unknown' AND author != 'VRChat'
       LIMIT ?;
     `).all(maxCreators) as { author: string }[];
     for (const r of vpmAuthors) {
@@ -518,7 +531,7 @@ export class GitHubDriver {
     // 2. Extract owners from GitHub entity URLs
     const ghUrls = db.prepare(`
       SELECT url FROM entities 
-      WHERE (platform = 'github' OR url LIKE '%github.com/%')
+      WHERE is_quarantined = 0 AND (platform = 'github' OR url LIKE '%github.com/%')
       LIMIT ?;
     `).all(maxCreators * 3) as { url: string }[];
     for (const r of ghUrls) {

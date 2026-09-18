@@ -153,7 +153,7 @@ flowchart TD
 Run this SQL script in the Cloudflare D1 console to initialize the remote catalog schema:
 
 ```sql
-CREATE TABLE IF NOT EXISTS canonical_packages_v2 (
+CREATE TABLE IF NOT EXISTS canonical_packages (
   id TEXT PRIMARY KEY,
   canonical_id TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS canonical_packages_v2 (
   updated_at TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_remote_category ON canonical_packages_v2(category);
-CREATE INDEX IF NOT EXISTS idx_remote_type ON canonical_packages_v2(type);
-CREATE INDEX IF NOT EXISTS idx_remote_vcc ON canonical_packages_v2(is_vcc);
+CREATE INDEX IF NOT EXISTS idx_remote_category ON canonical_packages(category);
+CREATE INDEX IF NOT EXISTS idx_remote_type ON canonical_packages(type);
+CREATE INDEX IF NOT EXISTS idx_remote_vcc ON canonical_packages(is_vcc);
 ```

@@ -21,27 +21,29 @@ dist/vrc-crawler-linux        -- Linux daemon binary
 
 | Component | Description |
 |---|---|
-| Poisson Refresh Scheduler | Adaptively re-crawls URLs based on observed change frequency (lambda). Replaces the legacy saturation-stop batch model. |
-| CQRS Observation Lake | `entities_v2` stores 100% of raw crawl payloads immutably. Relevance status flags quarantined items without destroying data. |
-| Canonical Projection Engine | Runs every 15 minutes. Synthesizes `canonical_packages_v2` and `package_fronts_v2` from the observation lake. |
-| WebP Image Proxy Pipeline | Downloads, transcodes, and stores compliant low-resolution thumbnails. Computes BlurHash and perceptual hash (pHash). |
-| Loopback IPC Control | Daemon listens on `127.0.0.1:8765`. Allows `vrc-monitor.exe` to send graceful shutdown signals. |
-| Cloudflare Edge Sync | `vrc-sync.exe` pushes incremental deltas to Cloudflare D1 and uploads WebP thumbnails to Cloudflare R2 via high-watermark cursors. |
-| Exportable Single-File Catalog | `VACUUM INTO` generates a defragmented `vrc_catalog.db` with SQLite FTS5 for zero-latency offline querying. |
+| Poisson Refresh Scheduler | Adaptively re-crawls URLs based on observed change frequency (lambda). Replaces the legacy saturation-stop batch model with 24/7 continuous operation. |
+| CQRS Observation Lake | `entities` stores 100% of raw crawl payloads immutably. Relevance status flags quarantined items without destroying data. |
+| Canonical Projection Engine | Runs every 15 minutes. Synthesizes `canonical_packages` and `package_fronts` from the observation lake. |
+| WebP Image Proxy Pipeline | Downloads, transcodes, and stores compliant low-resolution thumbnails (480x270). Computes BlurHash and 64-bit DCT perceptual hash (pHash). |
+| Loopback IPC Control | Daemon listens on `127.0.0.1:8765`. Provides `/stop`, `/recrawl`, `/project`, `/sync`, and `/steering` endpoints. |
+| Cloudflare Edge Sync | `vrc-sync` pushes incremental deltas to Cloudflare D1 every 4 hours via high-watermark cursors. |
+| Autonomous Steering Engine | Pulls Schema 4 community feedback every 30 minutes from Cloudflare R2 / local directories, applying curator overrides and tuning search patterns. |
+| Exportable Single-File Catalog | Generates defragmented `vrc_catalog.db` with SQLite FTS5 for zero-latency offline querying. |
 
 ### Database
 
 The single canonical database is `crawler_state.db`, created next to the binary on first run. It contains:
 
-- `frontier_v2` -- URL queue with adaptive re-crawl scheduling
-- `entities_v2` -- Immutable raw observation lake (all platforms)
-- `canonical_packages_v2` -- Deduplicated catalog projections
-- `package_fronts_v2` -- Per-platform storefront mappings
-- `media_cache_v2` -- Proxied WebP image metadata
+- `frontier` -- URL queue with Cho-Garcia-Molina Poisson adaptive scheduling
+- `entities` -- Immutable raw observation lake (all platforms)
+- `canonical_packages` -- Deduplicated catalog projections with lifecycle & confidence tracking
+- `package_fronts` -- Per-platform storefront mappings (BOOTH, GitHub, Gumroad, Jinxxy, Itch)
+- `media_cache` -- Proxied low-resolution WebP image metadata, BlurHash, and 64-bit pHash
+- `curator_overrides` -- Persistent community and author overrides surviving projection rebuilds
+- `user_reports` -- Inbound user feedback and steering reports (Schema 4)
+- `search_patterns` -- Closed-loop dynamic discovery query seeds and negative filter tokens
+- `creator_opt_outs` -- Legal exclusion registry with regex and bio-token verification
 - `sync_checkpoints` -- High-watermark cursors for edge sync
-- `user_reports_v2` -- Inbound user feedback and steering reports
-- `search_patterns_v2` -- Discovery query seeds and negative filter tokens
-- `creator_optouts` -- Self-service creator opt-out registry
 
 ---
 
@@ -49,21 +51,28 @@ The single canonical database is `crawler_state.db`, created next to the binary 
 
 ```
 vrc-package-crawler/
-  src/                        Source files
+  src/                        Core crawler engine and foundation
     drivers/                  Per-platform crawl drivers (BOOTH, GitHub, Gumroad, Jinxxy, Itch, VPM)
-    utils/                    Shared utilities (image proxy, robots.txt enforcer, Poisson scheduler, IPC)
-    index.ts                  Main daemon entry point
-    status.ts                 Console monitor entry point
-    sync.ts                   Edge sync entry point
-    exporter.ts               Single-file catalog exporter
-    db.ts / db_v2.ts          Database layer (V1 compatibility + V2 schema)
-    migrate_v2.ts             One-time V1-to-V2 migration script
-    pipeline_sanitize.ts      Canonical projection and name arbitration engine
+    utils/                    Shared utilities (image proxy, robots.txt enforcer, Poisson scheduler, IPC, lock)
+    tools/                    Separated auxiliary toolset source codes
+      server.ts               Headless API gateway (Schemas 1, 2, 4 & image proxy)
+      status.ts               Console monitor and loopback IPC CLI
+      sync.ts                 Edge sync tool (Cloudflare D1/R2)
+      steering.ts             Autonomous steering & Cloudflare R2 pull engine
+      exporter.ts             Single-file catalog and data lake exporter
+      pipeline_sanitize.ts    Canonical projection, SimHash clustering, and umbrella tagging
+      discover_vpm.ts         VPM community repository discoverer
+    index.ts                  Main 24/7 daemon entry point
+    db.ts                     Unified SQLite database layer with auto-upgrade
+    filter.ts                 Relevance and safety filters
+    classifier.ts             Taxonomy classification
     config.ts                 Path resolution and runtime configuration
   docs/                       Specification documents
-    ARCHITECTURE_AND_COMPLIANCE_GUIDE.md
+    DISCOVERY_RULES.md        Discovery, relevance scoring, and re-audit rules
+    COMPREHENSIVE_SYSTEM_ARCHITECTURE.md Comprehensive engineering blueprint & guardrails audit
+    ARCHITECTURE_AND_COMPLIANCE_GUIDE.md Legal, contractual, and technical boundaries
     REPORTING_SCHEMAS.md      Schemas 1-4 for downstream/upstream client ingestion
-    EDGE_SYNC_AND_SCALE_GUIDE.md
+    EDGE_SYNC_AND_SCALE_GUIDE.md Cloudflare edge synchronization guide
     VRChat Asset Indexing Standards.md
     topics/                   Deep-dive technical topics
   tests/                      Bun test suites
@@ -71,12 +80,12 @@ vrc-package-crawler/
     vrc-crawler.exe           Background daemon binary (Windows)
     vrc-monitor.exe           Console monitor binary (Windows)
     vrc-sync.exe              Cloudflare edge sync binary (Windows)
+    vrc-server.exe            Headless API gateway binary (Windows)
     vrc-crawler-linux         Background daemon binary (Linux)
     crawler_state.db          Live SQLite database (created on first run)
     logs/                     Rotating log files
     .env                      Local environment secrets (you create this)
     .env.example              Configuration template (committed, copy to .env)
-  archive/legacy/             Pre-redesign launch scripts (archived for reference)
 ```
 
 > [!IMPORTANT]
@@ -105,12 +114,6 @@ bun run build:all
 #    Copy the template into dist/ and fill in your tokens
 copy .env.example dist\.env
 # Edit dist\.env and set GITHUB_TOKEN and optionally CLOUDFLARE_* variables
-
-# 4. (First time only) Run the V2 database migration from dist/
-#    This creates crawler_state.db inside dist/ and migrates any legacy data
-Set-Location dist
-.\vrc-crawler.exe migrate
-Set-Location ..
 ```
 
 For **development mode** (runs via Bun interpreter, DB emits to project root):
