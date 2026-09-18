@@ -1,4 +1,4 @@
-﻿# VRC Package Crawler
+# VRC Package Crawler
 
 A continuous 24/7 background service that discovers, crawls, and indexes unlisted VRChat tools and packages from BOOTH, GitHub, Gumroad, Jinxxy, Itch.io, and decentralized VPM registries. It maintains a local SQLite database and exports a lightweight single-file catalog for use by external applications.
 
@@ -67,10 +67,20 @@ vrc-package-crawler/
     VRChat Asset Indexing Standards.md
     topics/                   Deep-dive technical topics
   tests/                      Bun test suites
-  dist/                       Compiled standalone binaries (gitignored)
+  dist/                       Isolated runtime environment (gitignored)
+    vrc-crawler.exe           Background daemon binary (Windows)
+    vrc-monitor.exe           Console monitor binary (Windows)
+    vrc-sync.exe              Cloudflare edge sync binary (Windows)
+    vrc-crawler-linux         Background daemon binary (Linux)
+    crawler_state.db          Live SQLite database (created on first run)
+    logs/                     Rotating log files
+    .env                      Local environment secrets (you create this)
+    .env.example              Configuration template (committed, copy to .env)
   archive/legacy/             Pre-redesign launch scripts (archived for reference)
-  logs/                       Rotating log files (gitignored)
 ```
+
+> [!IMPORTANT]
+> `dist/` is the fully isolated runtime environment. Binaries, the database, logs, and `.env` all live together inside `dist/`. The project root contains only source code and documentation. Never run the binaries from the project root — always invoke them from `dist/` or use an absolute path so data files emit correctly.
 
 ---
 
@@ -88,15 +98,25 @@ vrc-package-crawler/
 # 1. Install dependencies
 bun install
 
-# 2. Copy and configure environment variables
-copy .env.example .env
-# Edit .env and set GITHUB_TOKEN, and optionally CLOUDFLARE_* variables
-
-# 3. Run the V2 database migration (one-time only)
-bun run migrate
-
-# 4. Build all standalone binaries
+# 2. Build all standalone binaries into dist/
 bun run build:all
+
+# 3. Configure environment variables for dist/
+#    Copy the template into dist/ and fill in your tokens
+copy .env.example dist\.env
+# Edit dist\.env and set GITHUB_TOKEN and optionally CLOUDFLARE_* variables
+
+# 4. (First time only) Run the V2 database migration from dist/
+#    This creates crawler_state.db inside dist/ and migrates any legacy data
+Set-Location dist
+.\vrc-crawler.exe migrate
+Set-Location ..
+```
+
+For **development mode** (runs via Bun interpreter, DB emits to project root):
+```powershell
+copy .env.example .env
+bun run start
 ```
 
 ---
