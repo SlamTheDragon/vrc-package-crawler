@@ -25,6 +25,7 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
   if (fs.existsSync(fullTargetPath)) {
     try {
       fs.unlinkSync(fullTargetPath);
+      await new Promise((r) => setTimeout(r, 100));
     } catch (e) {
       logger.warn(`[Exporter] Could not delete existing ${fullTargetPath}, will attempt overwrite: ${e}`);
     }
@@ -45,6 +46,7 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
   logger.info("[Exporter] Building lightweight defragmented catalog database with SQLite FTS5...");
   const catDb = new Database(fullTargetPath, { create: true });
 
+  catDb.run("PRAGMA busy_timeout = 10000;");
   catDb.run("PRAGMA journal_mode = DELETE;");
   catDb.run("PRAGMA page_size = 4096;");
 
