@@ -1,8 +1,37 @@
+# Dependencies
 node_modules/
+.bun-cache/
+
+# Build output (use dist/ for distribution binaries)
+dist/
+bin/
+
+# Database files - only crawler_state.db is canonical; never commit DB data
+*.db
 *.db-journal
 *.db-shm
 *.db-wal
-.cache/
+*.db-bak
+*.db-bak-shm
+*.db-bak-wal
+
+# Log files (keep placeholder so logs/ directory is tracked)
 logs/*.log
 !logs/.gitkeep
+
+# Environment secrets
 .env
+.env.*
+!.env.example
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
+
+# Scratch and temporary files
+scratch/
+
+# Legacy archive folders
+crawler-cache-archive-2.unclean/
+
+# Generated output data
+out/

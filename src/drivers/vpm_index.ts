@@ -81,7 +81,7 @@ export class VpmIndexDriver {
 
         if (!resp.ok) continue;
 
-        const data = await resp.json();
+        const data = (await resp.json()) as any;
         if (!data || typeof data !== "object") continue;
 
         // Check A: Multi-package repository manifest

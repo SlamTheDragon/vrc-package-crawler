@@ -6,9 +6,21 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
-    "status": "bun run src/status.ts"
+    "monitor": "bun run src/status.ts",
+    "migrate": "bun run src/migrate_v2.ts",
+    "sync": "bun run src/sync.ts",
+    "export": "bun run src/exporter.ts",
+    "build:crawler": "bun build --compile --windows-hide-console --outfile=dist/vrc-crawler.exe src/index.ts",
+    "build:monitor": "bun build --compile --outfile=dist/vrc-monitor.exe src/status.ts",
+    "build:sync": "bun build --compile --outfile=dist/vrc-sync.exe src/sync.ts",
+    "build:linux": "bun build --compile --target=bun-linux-x64 --outfile=dist/vrc-crawler-linux src/index.ts",
+    "build:all": "bun run build:crawler && bun run build:monitor && bun run build:sync && bun run build:linux",
+    "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "latest"
+  },
+  "dependencies": {
+    "sharp": "^0.35.4"
   }
 }

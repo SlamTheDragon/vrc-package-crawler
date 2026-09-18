@@ -66,7 +66,7 @@ export async function runVpmDiscovery() {
         continue;
       }
 
-      const data = await resp.json();
+      const data = (await resp.json()) as any;
       const items = data.items || [];
       console.log(`  Found ${items.length} repositories.`);
 
@@ -114,7 +114,7 @@ export async function runVpmDiscovery() {
       const ok = await VpmIndexDriver.crawlManifest(url);
       if (ok) {
         successfulFeeds++;
-        db.markDone(url, "vpm");
+        db.markStatus(url, "done");
       }
     } catch (_) {}
   }

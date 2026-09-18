@@ -1,6 +1,9 @@
 import { db } from "./db.ts";
+import { dbV2 } from "./db_v2.ts";
 import { CONFIG } from "./config.ts";
-import { ToolClassifier } from "./classifier.ts";
+import { CrawlerIpcServer } from "./utils/ipc.ts";
+import { runDatabaseExport } from "./exporter.ts";
+import { runEdgeSync } from "./sync.ts";
 import fs from "fs";
 import path from "path";
 
@@ -12,6 +15,7 @@ const shutdownStatus = (signal: string) => {
   console.log("\n\x1b[33m[MONITOR] Stopped live status monitoring.\x1b[0m\n");
   try {
     db.close();
+    dbV2.close();
   } catch (_) {}
   process.exit(0);
 };
@@ -38,31 +42,44 @@ function formatDuration(seconds: number): string {
 
 const startTime = Date.now();
 let initialDone = -1;
-let cachedCategoryCounts: Record<string, number> = {};
-let lastCategoryCheck = 0;
 
+/**
+ * Sub-millisecond SQL projection query using pre-indexed SQLite tables.
+ * Eliminates O(N) JavaScript regex classification overhead entirely.
+ */
 function getCategoryBreakdown(): Record<string, number> {
-  const now = Date.now();
-  if (now - lastCategoryCheck > 5000 || Object.keys(cachedCategoryCounts).length === 0) {
-    lastCategoryCheck = now;
-    const rows = (db as any).db.query("SELECT title, description, tags_json FROM entities").all() as any[];
-    const counts: Record<string, number> = {
-      "Avatars": 0,
-      "World Creation": 0,
-      "Shaders & Visuals": 0,
-      "Tools & Utilities": 0
-    };
+  const counts: Record<string, number> = {
+    "Avatars": 0,
+    "World Creation": 0,
+    "Shaders & Visuals": 0,
+    "Tools & Utilities": 0
+  };
+
+  try {
+    const rows = dbV2.query(`
+      SELECT category, COUNT(*) as c
+      FROM canonical_packages_v2
+      GROUP BY category;
+    `).all() as any[];
+
     for (const r of rows) {
-      let tags: string[] = [];
-      try {
-        tags = JSON.parse(r.tags_json || "[]");
-      } catch (_) {}
-      const res = ToolClassifier.classify(r.title, r.description, tags);
-      counts[res.category] = (counts[res.category] || 0) + 1;
+      if (r.category && counts[r.category] !== undefined) {
+        counts[r.category] = r.c;
+      } else if (r.category) {
+        counts[r.category] = r.c;
+      }
     }
-    cachedCategoryCounts = counts;
+  } catch (_) {
+    // Fallback if canonical_packages_v2 is not yet initialized
+    try {
+      const rows = db.query("SELECT category, COUNT(*) as c FROM merged_packages GROUP BY category;").all() as any[];
+      for (const r of rows) {
+        if (r.category) counts[r.category] = r.c;
+      }
+    } catch (_) {}
   }
-  return cachedCategoryCounts;
+
+  return counts;
 }
 
 function getRecentLogs(maxLines: number = 4): string[] {
@@ -78,6 +95,55 @@ function getRecentLogs(maxLines: number = 4): string[] {
   } catch {
     return [];
   }
+}
+
+let notificationMessage = "";
+let notificationTimeout = 0;
+
+function setNotification(msg: string) {
+  notificationMessage = msg;
+  notificationTimeout = Date.now() + 4000;
+}
+
+// Setup keyboard interactivity if running in a interactive terminal
+if (process.stdin.isTTY && !process.argv.includes("--once")) {
+  try {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.setEncoding("utf8");
+
+    process.stdin.on("data", async (keyStr: string) => {
+      const key = keyStr.toLowerCase();
+      if (key === "\u0003" || key === "q") {
+        // [q] or Ctrl+C: Signal daemon shutdown and exit monitor
+        console.log("\n\x1b[33m[MONITOR] Dispatching graceful shutdown to daemon...\x1b[0m");
+        await CrawlerIpcServer.sendCommand("stop");
+        shutdownStatus("KEYPRESS_Q");
+      } else if (key === "r") {
+        // [r]: Force re-crawl
+        const res = await CrawlerIpcServer.sendCommand("recrawl");
+        setNotification(res.success ? "✓ Freshness re-crawl triggered on daemon" : `✗ Re-crawl failed: ${res.error}`);
+      } else if (key === "s") {
+        // [s]: Immediate edge sync
+        setNotification("⏳ Running immediate Cloudflare edge sync...");
+        try {
+          const res = await runEdgeSync({ batchSize: 50 });
+          setNotification(`✓ Edge sync complete: ${res.syncedPackages} packages synced (Dry-run: ${res.isDryRun})`);
+        } catch (err: any) {
+          setNotification(`✗ Edge sync failed: ${err.message}`);
+        }
+      } else if (key === "e") {
+        // [e]: Export DB
+        setNotification("⏳ Exporting defragmented catalog database (vrc_catalog.db)...");
+        try {
+          const out = await runDatabaseExport("catalog");
+          setNotification(`✓ Export successful: ${path.basename(out)} ready`);
+        } catch (err: any) {
+          setNotification(`✗ Export failed: ${err.message}`);
+        }
+      }
+    });
+  } catch (_) {}
 }
 
 async function runLiveMonitor() {
@@ -99,11 +165,12 @@ async function runLiveMonitor() {
       const remainingSec = Math.round(metrics.totalPending / ratePerSec);
       etaStr = formatDuration(remainingSec);
     } else if (metrics.totalPending === 0) {
-      etaStr = "Complete (Frontier Exhausted)";
+      etaStr = "Freshness Idle (24/7 Poisson)";
     }
 
     const catCounts = getCategoryBreakdown();
-    const recentLogs = getRecentLogs(15);
+    const recentLogs = getRecentLogs(6);
+    const ipcStatus = await CrawlerIpcServer.getStatus();
 
     // Clear terminal screen and move cursor to top-left
     process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
@@ -112,16 +179,17 @@ async function runLiveMonitor() {
     console.log("\x1b[1m\x1b[32m               VRC PACKAGE CRAWLER — LIVE HARVESTER MONITOR                      \x1b[0m");
     console.log("\x1b[36m=================================================================================\x1b[0m");
     console.log(` \x1b[90mUpdated:\x1b[0m ${new Date().toLocaleTimeString()}   |   \x1b[90mSession:\x1b[0m ${formatDuration(elapsedSec)}   |   \x1b[90mThroughput:\x1b[0m \x1b[32m+${ratePerMin} URLs/min\x1b[0m`);
-    console.log(` \x1b[90mETA:\x1b[0m \x1b[33m${etaStr}\x1b[0m   |   \x1b[90mDatabase:\x1b[0m ${CONFIG.dbPath}`);
+    const ghAuthStr = CONFIG.githubToken ? "\x1b[32mAuthenticated (5k/hr)\x1b[0m" : "\x1b[33mUnauthenticated (60/hr)\x1b[0m";
+    const daemonStr = ipcStatus.running ? `\x1b[32mActive (Port ${ipcStatus.data.port})\x1b[0m` : "\x1b[31mOffline / Inactive\x1b[0m";
+    console.log(` \x1b[90mDaemon:\x1b[0m  ${daemonStr}   |   \x1b[90mGitHub API:\x1b[0m ${ghAuthStr}   |   \x1b[90mETA:\x1b[0m \x1b[33m${etaStr}\x1b[0m`);
     console.log("\x1b[36m---------------------------------------------------------------------------------\x1b[0m");
     console.log(` \x1b[1mTotal Discovered URLs:\x1b[0m     ${metrics.totalDiscovered.toLocaleString()}`);
     console.log(` \x1b[1mFresh Pending Queue:\x1b[0m       \x1b[34m${metrics.totalFreshPending.toLocaleString()}\x1b[0m (Unvisited candidates)`);
     console.log(` \x1b[1mRetrying Queue:\x1b[0m            \x1b[33m${metrics.totalRetrying.toLocaleString()}\x1b[0m (Temporary network backoff/transient errors)`);
     console.log(` \x1b[1mTerminal Failed:\x1b[0m           \x1b[31m${metrics.totalFailed.toLocaleString()}\x1b[0m (Active failed status)`);
-    console.log(` \x1b[1mQualified Discards:\x1b[0m        \x1b[90m${metrics.totalDiscarded.toLocaleString()}\x1b[0m (Archived dead endpoints / permanent 404s)`);
     console.log(` \x1b[1mHarvested & Processed:\x1b[0m     \x1b[32m${metrics.totalDone.toLocaleString()}\x1b[0m`);
     console.log(` \x1b[1mVetted VRChat Tools:\x1b[0m       \x1b[1m\x1b[32m${metrics.totalEntities.toLocaleString()}\x1b[0m (Pristine observations)`);
-    console.log(` \x1b[1mCanonical Merged Tools:\x1b[0m    \x1b[1m\x1b[35m${metrics.totalMerged.toLocaleString()}\x1b[0m (Deduplicated catalog packages)`);
+    console.log(` \x1b[1mCanonical Catalog Tools:\x1b[0m   \x1b[1m\x1b[35m${metrics.totalMerged.toLocaleString()}\x1b[0m (Deduplicated canonical packages)`);
     console.log(` \x1b[1mQuarantined Pollution:\x1b[0m     \x1b[33m${(metrics.totalQuarantined || 0).toLocaleString()}\x1b[0m (Cosmetics / non-VR software)`);
     console.log(` \x1b[1mSaturation Index:\x1b[0m          ${renderProgressBar(S)} \x1b[33m${S.toFixed(2)}%\x1b[0m (Target: >= ${(CONFIG.targetSaturationScore * 100).toFixed(0)}%)`);
     console.log("\x1b[36m---------------------------------------------------------------------------------\x1b[0m");
@@ -135,17 +203,17 @@ async function runLiveMonitor() {
       console.log(`   • \x1b[35m${pName}\x1b[0m : Fresh = \x1b[34m${freshStr}\x1b[0m | Retry = \x1b[33m${retryStr}\x1b[0m | Done = ${doneStr} | Vetted = \x1b[32m${entStr}\x1b[0m`);
     }
     console.log("\x1b[36m---------------------------------------------------------------------------------\x1b[0m");
-    console.log("\x1b[1m Semantic Category Breakdown (Vetted Tools):\x1b[0m");
+    console.log("\x1b[1m Pre-Indexed Semantic Categories (canonical_packages_v2):\x1b[0m");
     for (const [cat, count] of Object.entries(catCounts)) {
       const catName = cat.padEnd(20);
       const countStr = count.toLocaleString().padStart(5);
-      const pct = metrics.totalEntities > 0 ? ((count / metrics.totalEntities) * 100).toFixed(1) : "0.0";
+      const pct = metrics.totalMerged > 0 ? ((count / metrics.totalMerged) * 100).toFixed(1) : "0.0";
       console.log(`   • \x1b[34m${catName}\x1b[0m : \x1b[1m\x1b[32m${countStr}\x1b[0m (${pct}%)`);
     }
 
     if (recentLogs.length > 0) {
       console.log("\x1b[36m---------------------------------------------------------------------------------\x1b[0m");
-      console.log("\x1b[1m Recent Crawler Engine Activity Stream (index.ts):\x1b[0m");
+      console.log("\x1b[1m Recent Crawler Engine Activity Stream:\x1b[0m");
       for (const logLine of recentLogs) {
         let colored = logLine;
         if (logLine.includes("[INFO]")) colored = logLine.replace("[INFO]", "\x1b[32m[INFO]\x1b[0m").slice(0, 60);
@@ -156,10 +224,16 @@ async function runLiveMonitor() {
     }
 
     console.log("\x1b[36m=================================================================================\x1b[0m");
+    if (Date.now() < notificationTimeout && notificationMessage) {
+      console.log(` \x1b[1m\x1b[33m${notificationMessage}\x1b[0m`);
+      console.log("\x1b[36m---------------------------------------------------------------------------------\x1b[0m");
+    }
+
     if (process.argv.includes("--once")) {
       break;
     }
-    console.log(" \x1b[90m[Press Ctrl+C to exit monitor]\x1b[0m");
+
+    console.log(" \x1b[1mControls:\x1b[0m \x1b[32m[r]\x1b[0m Force Re-crawl  |  \x1b[34m[s]\x1b[0m Edge Sync  |  \x1b[35m[e]\x1b[0m Export DB  |  \x1b[31m[q]\x1b[0m Shutdown");
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
@@ -169,11 +243,12 @@ runLiveMonitor().catch((err) => {
   console.error("Status monitor failed", err);
   try {
     db.close();
+    dbV2.close();
   } catch (_) {}
   process.exit(1);
 }).finally(() => {
   try {
     db.close();
+    dbV2.close();
   } catch (_) {}
 });
-

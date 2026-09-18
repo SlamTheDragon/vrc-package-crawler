@@ -208,6 +208,17 @@ export class BoothDriver {
       const tagMatches = html.match(/class="[^"]*tag-name[^"]*"[^>]*>([^<]+)<\/a>/g) || [];
       const tags = tagMatches.map((t) => t.replace(/<[^>]+>/g, "").trim());
 
+      // Extract origin created date from DOM
+      let originCreatedAt: string | null = null;
+      const createdMatch = html.match(/<div[^>]*class="[^"]*item-created-date[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+      if (createdMatch) {
+        const text = createdMatch[1].replace(/<[^>]+>/g, "").trim();
+        const d = new Date(text);
+        if (!isNaN(d.getTime())) {
+          originCreatedAt = d.toISOString();
+        }
+      }
+
       const record: EntityRecord = {
         id: `booth:${finalItemId}`,
         platform: "booth",
@@ -219,7 +230,7 @@ export class BoothDriver {
         description: description,
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
-        raw_json: JSON.stringify({ itemId: finalItemId, title, author, priceAmount, tags, extLinks })
+        raw_json: JSON.stringify({ itemId: finalItemId, title, author, priceAmount, tags, extLinks, originCreatedAt })
       };
 
       const evalRes = RelevanceFilter.evaluate(record);

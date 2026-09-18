@@ -9,12 +9,12 @@
     "noEmit": true,
     "composite": true,
     "strict": true,
-    "downlevelIteration": true,
     "skipLibCheck": true,
     "jsx": "react-jsx",
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "allowJs": true,
     "types": ["bun-types"]
-  }
+  },
+  "exclude": ["scratch", "node_modules", "bin"]
 }

@@ -25,7 +25,7 @@ export class GumroadDriver {
   }
 
   // Crawls a Gumroad Discover search query page with exponential backoff & dynamic pacing
-  static async crawlDiscoverQuery(query: string, page: number = 1): Promise<{ productsCount: number; sellersFound: string[] }> {
+  static async crawlDiscoverQuery(query: string, page: number = 1): Promise<{ productsCount: number; sellersFound: string[]; savedCount?: number }> {
     if (this.isAborted || db.isClosed) return { productsCount: 0, sellersFound: [] };
     const key = "gumroad:discover";
 
@@ -240,6 +240,26 @@ export class GumroadDriver {
       // Autonomously extract any VPM / registry feeds from page description & links
       CuratedDriver.extractAndQueueRegistries(html);
 
+      // Extract Inertia data-page properties (published_at, updated_at)
+      let originCreatedAt: string | null = null;
+      let originUpdatedAt: string | null = null;
+      const inertiaMatch = html.match(/data-page="([^"]+)"/);
+      if (inertiaMatch) {
+        try {
+          const unescaped = inertiaMatch[1]
+            .replace(/&quot;/g, '"')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>');
+          const pageData = JSON.parse(unescaped);
+          const p = pageData.props?.product;
+          if (p) {
+            if (p.published_at) originCreatedAt = new Date(p.published_at).toISOString();
+            if (p.updated_at) originUpdatedAt = new Date(p.updated_at).toISOString();
+          }
+        } catch (_) {}
+      }
+
       const entity: EntityRecord = {
         id: `gumroad:${slug}`,
         platform: "gumroad",
@@ -249,7 +269,7 @@ export class GumroadDriver {
         description: desc,
         tags_json: JSON.stringify(["gumroad", "vrchat"]),
         external_links_json: JSON.stringify(extLinks),
-        raw_json: JSON.stringify({ slug, title, author: creatorName, desc, extLinks })
+        raw_json: JSON.stringify({ slug, title, author: creatorName, desc, extLinks, originCreatedAt, originUpdatedAt })
       };
 
       const evalRes = RelevanceFilter.evaluate(entity);

@@ -1,6 +1,7 @@
 import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
 import { db } from "./db.ts";
+import { dbV2 } from "./db_v2.ts";
 import { BoothDriver } from "./drivers/booth.ts";
 import { GitHubDriver } from "./drivers/github.ts";
 import { VpmIndexDriver } from "./drivers/vpm_index.ts";
@@ -11,6 +12,10 @@ import { CuratedDriver } from "./drivers/curated.ts";
 import { rateLimiter } from "./ratelimit.ts";
 import { ProcessLock } from "./utils/lock.ts";
 import { runPipelineSanitize, abortPipelineSanitize } from "./pipeline_sanitize.ts";
+import { CrawlerIpcServer } from "./utils/ipc.ts";
+import { poissonScheduler } from "./utils/poisson_scheduler.ts";
+import { robotsEnforcer } from "./utils/robots.ts";
+import { runZeroLossMigration } from "./migrate_v2.ts";
 
 let isRunning = true;
 
@@ -242,6 +247,14 @@ async function runBoothWorker() {
           db.markStatus(item.url, "pending");
           return;
         }
+
+        const allowed = await robotsEnforcer.isAllowed(item.url);
+        if (!allowed) {
+          logger.info(`[Worker:BOOTH] Skipping URL disallowed by robots.txt: ${item.url}`);
+          db.markStatus(item.url, "done", "Disallowed by robots.txt");
+          return;
+        }
+
         const release = await rateLimiter.acquire("booth.pm");
         if (!isRunning) {
           db.markStatus(item.url, "pending");
@@ -428,8 +441,7 @@ async function runGumroadWorker() {
   while (isRunning) {
     const items = db.getNextPendingForPlatform("gumroad", 1);
     const item = items[0];
-
-    // If pending queue is low, run internal Gumroad Discover queries ONLY if not in backoff and cooldown elapsed
+    // If pending queue is low, run internal Gumroad Discover queries ONLY if not in backoff, cooldown elapsed, AND below saturation target
     if (!item) {
       const isBackingOff = rateLimiter.isBackingOff("gumroad.com");
       const cooldownElapsed = Date.now() - lastDiscoverTime > DISCOVER_COOLDOWN_MS;
@@ -465,6 +477,13 @@ async function runGumroadWorker() {
 
     if (!isRunning) {
       break;
+    }
+
+    const allowed = await robotsEnforcer.isAllowed(item.url);
+    if (!allowed) {
+      logger.info(`[Worker:Gumroad] Skipping URL disallowed by robots.txt: ${item.url}`);
+      db.markStatus(item.url, "done", "Disallowed by robots.txt");
+      continue;
     }
 
     db.markStatus(item.url, "fetching");
@@ -537,6 +556,14 @@ async function runJinxxyWorker() {
           db.markStatus(item.url, "pending");
           return;
         }
+
+        const allowed = await robotsEnforcer.isAllowed(item.url);
+        if (!allowed) {
+          logger.info(`[Worker:Jinxxy] Skipping URL disallowed by robots.txt: ${item.url}`);
+          db.markStatus(item.url, "done", "Disallowed by robots.txt");
+          return;
+        }
+
         const release = await rateLimiter.acquire("jinxxy.com");
         if (!isRunning) {
           db.markStatus(item.url, "pending");
@@ -603,6 +630,14 @@ async function runItchWorker() {
           db.markStatus(item.url, "pending");
           return;
         }
+
+        const allowed = await robotsEnforcer.isAllowed(item.url);
+        if (!allowed) {
+          logger.info(`[Worker:Itch] Skipping URL disallowed by robots.txt: ${item.url}`);
+          db.markStatus(item.url, "done", "Disallowed by robots.txt");
+          return;
+        }
+
         const release = await rateLimiter.acquire("itch.io");
         if (!isRunning) {
           db.markStatus(item.url, "pending");
@@ -699,53 +734,106 @@ async function runCreatorHarvestWorker() {
   logger.info("[Worker:CreatorHarvest] Stopped.");
 }
 
-// Heartbeat & Checkpoint Monitor with Saturation Ceiling Detector
+// Continuous 24/7 Monitor with Cho-Garcia-Molina Poisson Refresh & Periodic 15m Projections
 async function runMonitor() {
   let cycle = 0;
-  let idleExhaustionCycles = 0;
-  let lastDiscoveredCount = 0;
+  let lastProjectionTime = Date.now();
+  const PROJECTION_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
   while (isRunning) {
     await sleepOrInterrupt(15000);
     if (!isRunning) break;
     cycle++;
 
-    // Every 4 cycles (~60s), replenish domain queues if pending items are low
-    if (cycle % 4 === 0) {
-      try {
-        await seedAllDomains();
-      } catch (err) {
-        logger.error("[Monitor] Error in periodic seedAllDomains", err);
-      }
-    }
-
     const m = db.getMetrics();
     const S = m.totalDiscovered > 0 ? (m.totalDone / m.totalDiscovered) : 0;
     db.recordCheckpoint(S, `Cycle ${cycle} status check`);
     logger.info(`[HEARTBEAT] Vetted Tools: ${m.totalEntities} | Quarantined: ${m.totalQuarantined} | Done: ${m.totalDone}/${m.totalDiscovered} | Saturation: ${(S * 100).toFixed(1)}%`);
 
-    // Saturation Ceiling & Queue Exhaustion Detection
-    const isQueueExhausted = m.totalPending <= 2;
-    const isNoNewDiscovery = m.totalDiscovered === lastDiscoveredCount;
-    lastDiscoveredCount = m.totalDiscovered;
-
-    if (isQueueExhausted && isNoNewDiscovery && (m.totalEntities >= 10000 || S >= 0.999)) {
-      idleExhaustionCycles++;
-      logger.info(`[MONITOR] Saturation ceiling check: ${idleExhaustionCycles}/4 idle cycles (Pending: ${m.totalPending}, Vetted: ${m.totalEntities}, Saturation: ${(S * 100).toFixed(2)}%)`);
-
-      if (idleExhaustionCycles >= 4) {
-        logger.info("[MONITOR] Saturation ceiling reached! All queues exhausted and >= 10,000 entities indexed. Initiating orderly shutdown...");
-        isRunning = false;
-        break;
+    // 1. Cho-Garcia-Molina Poisson refresh scheduler when pending queues are low
+    if (m.totalPending <= 25) {
+      const requeued = poissonScheduler.requeueStaleUrls(50);
+      if (requeued > 0) {
+        logger.info(`[MONITOR] Cho-Garcia-Molina Poisson scheduler re-enqueued ${requeued} stale URLs for freshness verification.`);
+      } else if (cycle % 4 === 0) {
+        // Replenish domain discovery queries when queues are calm
+        try {
+          await seedAllDomains();
+        } catch (err) {
+          logger.error("[Monitor] Error during background seedAllDomains", err);
+        }
       }
-    } else {
-      idleExhaustionCycles = 0;
+    }
+
+    // 2. Periodic 15-minute catalog projection synthesis
+    if (Date.now() - lastProjectionTime >= PROJECTION_INTERVAL_MS) {
+      lastProjectionTime = Date.now();
+      logger.info("[MONITOR] Initiating scheduled 15-minute catalog projection synthesis...");
+      try {
+        await runPipelineSanitize();
+      } catch (err) {
+        logger.error("[MONITOR] Error during periodic projection synthesis", err);
+      }
     }
   }
   logger.info("[Monitor] Stopped.");
 }
 
 async function main() {
+  // Handle CLI commands before acquiring lock
+  if (process.argv.includes("stop")) {
+    const res = await CrawlerIpcServer.sendCommand("stop");
+    if (res.success) {
+      console.log("[CLI] Graceful shutdown signal dispatched to running crawler daemon.");
+    } else {
+      console.error(`[CLI] Shutdown command failed: ${res.error}`);
+    }
+    process.exit(res.success ? 0 : 1);
+  }
+
+  if (process.argv.includes("status") && !process.argv.includes("--once")) {
+    const res = await CrawlerIpcServer.getStatus();
+    if (res.running) {
+      console.log("[CLI] Crawler daemon is active:", JSON.stringify(res.data, null, 2));
+    } else {
+      console.log("[CLI] Crawler daemon is not currently running.");
+    }
+    process.exit(0);
+  }
+
+  if (process.argv.includes("recrawl")) {
+    const res = await CrawlerIpcServer.sendCommand("recrawl");
+    if (res.success) {
+      console.log("[CLI] Freshness re-crawl triggered successfully on active daemon.");
+    } else {
+      console.error(`[CLI] Recrawl command failed: ${res.error}`);
+    }
+    process.exit(res.success ? 0 : 1);
+  }
+
+  if (process.argv.includes("project")) {
+    const res = await CrawlerIpcServer.sendCommand("project");
+    if (res.success) {
+      console.log("[CLI] Projection rebuild triggered successfully on active daemon.");
+    } else {
+      console.error(`[CLI] Projection rebuild failed: ${res.error}`);
+    }
+    process.exit(res.success ? 0 : 1);
+  }
+
+  if (process.argv.includes("export")) {
+    const { runDatabaseExport } = await import("./exporter.ts");
+    const mode = process.argv.includes("--lake") ? "lake" : "catalog";
+    await runDatabaseExport(mode);
+    process.exit(0);
+  }
+
+  if (process.argv.includes("sync")) {
+    const { runEdgeSync } = await import("./sync.ts");
+    await runEdgeSync();
+    process.exit(0);
+  }
+
   console.log("\x1b[36m");
   console.log("==================================================================");
   console.log("   VRC PACKAGE CRAWLER — MULTI-DOMAIN CONCURRENT HARVESTER ENGINE ");
@@ -758,6 +846,8 @@ async function main() {
     process.exit(1);
   }
 
+  const ipcServer = new CrawlerIpcServer();
+
   BoothDriver.reset();
   GitHubDriver.reset();
   VpmIndexDriver.reset();
@@ -765,6 +855,13 @@ async function main() {
   JinxxyDriver.reset();
   ItchDriver.reset();
   CuratedDriver.reset();
+
+  if (CONFIG.githubToken) {
+    const masked = CONFIG.githubToken.slice(0, 4) + "..." + CONFIG.githubToken.slice(-4);
+    logger.info(`[STARTUP] GitHub Token loaded (${masked}): 5,000 req/hr authenticated API quota active.`);
+  } else {
+    logger.warn("[STARTUP] No GitHub Token detected in environment (GITHUB_TOKEN / GH_TOKEN empty): Unauthenticated 60 req/hr limit active.");
+  }
 
   let isInterrupted = false;
 
@@ -774,6 +871,8 @@ async function main() {
       try {
         db.resetStaleFetching();
         db.close();
+        dbV2.close();
+        ipcServer.stop();
       } catch (_) {}
       ProcessLock.release();
       process.exit(130);
@@ -781,6 +880,7 @@ async function main() {
     logger.info(`Received ${signal}. Draining queues and initiating graceful worker shutdown...`);
     isRunning = false;
     isInterrupted = true;
+    ipcServer.stop();
     BoothDriver.abort();
     GitHubDriver.abort();
     VpmIndexDriver.abort();
@@ -794,8 +894,19 @@ async function main() {
     } catch (_) {}
     try {
       db.resetStaleFetching();
+      dbV2.resetStaleFetching();
     } catch (_) {}
   };
+
+  ipcServer.start({
+    onStop: () => initiateShutdown("IPC /stop command"),
+    onRecrawl: async () => {
+      poissonScheduler.requeueStaleUrls(100);
+    },
+    onProject: async () => {
+      await runPipelineSanitize();
+    }
+  });
 
   process.on("SIGINT", () => initiateShutdown("SIGINT"));
   process.on("SIGTERM", () => initiateShutdown("SIGTERM"));
@@ -868,10 +979,15 @@ async function main() {
   } finally {
     logger.info("Orderly engine shutdown: resetting in-flight tasks, flushing database, and releasing lock...");
     try {
+      ipcServer.stop();
+    } catch (_) {}
+    try {
       db.resetStaleFetching();
+      dbV2.resetStaleFetching();
     } catch (_) {}
     try {
       db.close();
+      dbV2.close();
     } catch (_) {}
     try {
       await logger.close();

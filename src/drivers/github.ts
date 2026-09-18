@@ -64,7 +64,7 @@ export class GitHubDriver {
           break;
         }
 
-        const data = await resp.json();
+        const data = (await resp.json()) as any;
         const repos = data.items || [];
         if (repos.length === 0) break;
 
@@ -150,6 +150,8 @@ export class GitHubDriver {
       let description = "";
       const tags: string[] = [];
       const extLinks: string[] = [];
+      let rawEtag: string | null = null;
+      let rawLastModified: string | null = null;
 
       // 1. Try raw package.json first across branch candidates (detects VPM packages directly with 0 rate limit!)
       const branchCandidates = ["HEAD", "main", "master"];
@@ -158,7 +160,9 @@ export class GitHubDriver {
           const pkgUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/package.json`;
           const pkgResp = await fetch(pkgUrl, { headers: { "User-Agent": CONFIG.userAgent } });
           if (pkgResp.ok) {
-            const pkg = await pkgResp.json();
+            rawEtag = pkgResp.headers.get("etag");
+            rawLastModified = pkgResp.headers.get("last-modified");
+            const pkg = (await pkgResp.json()) as any;
             if (pkg.name) title = pkg.displayName || pkg.name;
             if (pkg.author?.name) author = pkg.author.name;
             if (pkg.description) description = pkg.description;
@@ -333,7 +337,9 @@ export class GitHubDriver {
           repo,
           readmeLength: readmeText.length,
           hasReleaseAssets,
-          latestReleaseAsset
+          latestReleaseAsset,
+          etag: rawEtag,
+          lastModified: rawLastModified
         })
       };
 
@@ -400,7 +406,7 @@ export class GitHubDriver {
         let resp = await fetch(userUrl, { headers: this.getHeaders() });
 
         if (resp.status === 403 || resp.status === 429) {
-          const reset = resp.headers.get("x-ratelimit-reset");
+          const reset = resp.headers.get("x-ratelimit-reset") || "0";
           const remaining = resp.headers.get("x-ratelimit-remaining") || "0";
           logger.rateLimit("GitHub", remaining, reset, 30000);
           break; // Stop harvesting if rate limited
@@ -429,7 +435,7 @@ export class GitHubDriver {
               if (searchData.items && searchData.items.length > 0) {
                 repos = searchData.items;
                 resolvedPath = "search_discovery";
-                logger.info(`[GitHub] Alternative path resolved via targeted search for @${creator}: discovered ${repos.length} repository matches!`);
+                logger.info(`[GitHub] Alternative path resolved via targeted search for @${creator}: discovered ${repos?.length || 0} repository matches!`);
               }
             }
           }

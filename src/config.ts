@@ -1,18 +1,20 @@
 import path from "path";
 
 // Grounded working-directory path resolution (no hardcoded absolute system paths)
-export const BASE_DIR = process.cwd();
+const isBunRuntime = process.execPath.endsWith("bun.exe") || process.execPath.endsWith("bun");
+export const BASE_DIR = isBunRuntime
+  ? path.resolve(import.meta.dir, "..")   // dev: project root
+  : path.dirname(process.execPath);         // compiled: next to the .exe
+
 export const DB_PATH = process.env.CRAWLER_DB_PATH || path.resolve(BASE_DIR, "crawler_state.db");
 export const LOGS_DIR = process.env.CRAWLER_LOGS_DIR || path.resolve(BASE_DIR, "logs");
-export const ARCHIVE_1_PATH = process.env.ARCHIVE_1_PATH || path.resolve(BASE_DIR, "crawler cache archive-1", "crawler_state.db");
 
 export const CONFIG = {
   baseDir: BASE_DIR,
   dbPath: DB_PATH,
   logsDir: LOGS_DIR,
   lockPath: path.resolve(BASE_DIR, "crawler.lock"),
-  archive1Path: ARCHIVE_1_PATH,
-  userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  userAgent: "VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)",
   
   // GitHub Token for 5,000 req/hr API limit (supports GITHUB_TOKEN or GH_TOKEN env vars)
   githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "",

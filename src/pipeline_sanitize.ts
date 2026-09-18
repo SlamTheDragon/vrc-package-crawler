@@ -7,6 +7,8 @@ import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
 import { IanaRegistry } from "./utils/iana.ts";
 import { SimHash64, SimHashIndex } from "./utils/simhash.ts";
+import { dbV2 } from "./db_v2.ts";
+import { sanitizeOutboundUrl } from "./utils/image_proxy.ts";
 
 let activePipelineDb: Database | null = null;
 let isPipelineInterrupted = false;
@@ -92,6 +94,59 @@ db.run(`
     source_ids_json TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS canonical_packages_v2 (
+    id TEXT PRIMARY KEY,
+    canonical_id TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    author TEXT NOT NULL,
+    authors_json TEXT DEFAULT '[]',
+    category TEXT NOT NULL,
+    subcategory TEXT NOT NULL,
+    type TEXT NOT NULL,
+    description TEXT,
+    primary_platform TEXT NOT NULL,
+    platforms_json TEXT NOT NULL,
+    url TEXT NOT NULL,
+    vcc_url TEXT,
+    github_url TEXT,
+    booth_url TEXT,
+    gumroad_url TEXT,
+    jinxxy_url TEXT,
+    itch_url TEXT,
+    price_currency TEXT DEFAULT 'USD',
+    price_amount REAL DEFAULT 0,
+    is_vcc INTEGER NOT NULL DEFAULT 0,
+    tags_json TEXT DEFAULT '[]',
+    dependencies_json TEXT DEFAULT '{}',
+    source_ids_json TEXT NOT NULL,
+    media_id TEXT,
+    origin_created_at TEXT,
+    origin_updated_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS package_fronts_v2 (
+    id TEXT PRIMARY KEY,
+    canonical_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    platform_item_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    author TEXT NOT NULL,
+    price_currency TEXT,
+    price_amount REAL,
+    origin_created_at TEXT,
+    origin_updated_at TEXT,
+    raw_entity_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
   );
 `);
 
@@ -394,8 +449,8 @@ console.log(`  Normalized ${activeEntities.length} active entities.`);
 // =========================================================================
 // STEP 3: RECONCILE MISSING ITEMS FROM ARCHIVE-1 (RAW DELTA ONLY)
 // =========================================================================
-console.log("\n[Step 3/5] Computing asymmetric raw delta from Archive-1...");
-const ARCHIVE_1_PATH = CONFIG.archive1Path;
+// Archive-1 database was retired after V2 migration. This step is permanently skipped.
+const ARCHIVE_1_PATH = "";
 let archive1Reconciled = 0;
 
 if (fs.existsSync(ARCHIVE_1_PATH)) {
@@ -524,9 +579,10 @@ function extractDependencies(rawJsonStr: string): Record<string, string> {
 
 const entities = db.query(`
   SELECT id, platform, url, title, author, price_currency, price_amount,
-         description, tags_json, external_links_json, raw_json
+         description, tags_json, external_links_json, raw_json, created_at, updated_at
   FROM entities
 `).all() as any[];
+const entityMap = new Map<string, any>(entities.map(e => [e.id, e]));
 
 console.log(`Clustering ${entities.length} pristine entities across all platforms...`);
 
@@ -877,7 +933,7 @@ for (const e of entities) {
 }
 console.log(`  [4.3] Storefronts merged: ${storeMerged} | Storefronts standalone: ${storeStandalone}`);
 
-// Insert into merged_packages
+// Insert into merged_packages and Schema V2 projections
 const insertMerged = db.prepare(`
   INSERT INTO merged_packages (
     id, name, canonical_id, author, authors_json, category, subcategory, type,
@@ -889,35 +945,119 @@ const insertMerged = db.prepare(`
   );
 `);
 
+const insertCanonicalV2 = db.prepare(`
+  INSERT OR REPLACE INTO canonical_packages_v2 (
+    id, canonical_id, name, author, authors_json, category, subcategory, type,
+    description, primary_platform, platforms_json, url, vcc_url,
+    github_url, booth_url, gumroad_url, jinxxy_url, itch_url,
+    price_currency, price_amount, is_vcc, tags_json, dependencies_json, source_ids_json,
+    media_id, origin_created_at, origin_updated_at, created_at, updated_at
+  ) VALUES (
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?
+  );
+`);
+
+const insertFrontV2 = db.prepare(`
+  INSERT OR REPLACE INTO package_fronts_v2 (
+    id, canonical_id, platform, platform_item_id, url, title, author,
+    price_currency, price_amount, origin_created_at, origin_updated_at,
+    raw_entity_id, created_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+`);
+
 db.transaction(() => {
   db.run("DELETE FROM merged_packages;");
+  db.run("DELETE FROM canonical_packages_v2;");
+  db.run("DELETE FROM package_fronts_v2;");
+  const timestampNow = new Date().toISOString();
+
   for (const c of clusters) {
+    // Enforce creator opt-out compliance
+    if (dbV2.isCreatorOptedOut(c.author)) {
+      continue;
+    }
+
+    // Resolve earliest origin_created_at and latest origin_updated_at from constituent entities
+    let originCreatedAt: string | null = null;
+    let originUpdatedAt: string | null = null;
+    for (const sid of c.source_ids) {
+      const ent = entityMap.get(sid);
+      if (ent) {
+        let raw: any = {};
+        try { raw = JSON.parse(ent.raw_json || "{}"); } catch {}
+        const cDate = raw.originCreatedAt || raw.published_at || ent.created_at;
+        const uDate = raw.originUpdatedAt || raw.updated_at || ent.updated_at;
+        if (cDate && (!originCreatedAt || cDate < originCreatedAt)) originCreatedAt = cDate;
+        if (uDate && (!originUpdatedAt || uDate > originUpdatedAt)) originUpdatedAt = uDate;
+      }
+    }
+    if (!originCreatedAt) originCreatedAt = timestampNow;
+    if (!originUpdatedAt) originUpdatedAt = timestampNow;
+
+    const authorsJson = JSON.stringify(Array.from(c.authors));
+    const platformsJson = JSON.stringify(Array.from(c.platforms));
+    const tagsJson = JSON.stringify(Array.from(c.tags));
+    const depsJson = JSON.stringify(c.dependencies || {});
+    const sourceIdsJson = JSON.stringify(c.source_ids);
+
+    // Sanitize outbound links to maintain canonical creator traffic invariants
+    const cleanUrl = sanitizeOutboundUrl(c.url);
+    const cleanVccUrl = c.vcc_url ? sanitizeOutboundUrl(c.vcc_url) : null;
+    const cleanGithubUrl = c.github_url ? sanitizeOutboundUrl(c.github_url) : null;
+    const cleanBoothUrl = c.booth_url ? sanitizeOutboundUrl(c.booth_url) : null;
+    const cleanGumroadUrl = c.gumroad_url ? sanitizeOutboundUrl(c.gumroad_url) : null;
+    const cleanJinxxyUrl = c.jinxxy_url ? sanitizeOutboundUrl(c.jinxxy_url) : null;
+    const cleanItchUrl = c.itch_url ? sanitizeOutboundUrl(c.itch_url) : null;
+
     insertMerged.run(
-      c.id,
-      c.name,
-      c.canonical_id,
-      c.author,
-      JSON.stringify(Array.from(c.authors)),
-      c.category,
-      c.subcategory,
-      c.type,
-      c.description,
-      c.primary_platform,
-      JSON.stringify(Array.from(c.platforms)),
-      c.url,
-      c.vcc_url || null,
-      c.github_url || null,
-      c.booth_url || null,
-      c.gumroad_url || null,
-      c.jinxxy_url || null,
-      c.itch_url || null,
-      c.price_currency,
-      c.price_amount,
-      c.is_vcc,
-      JSON.stringify(Array.from(c.tags)),
-      JSON.stringify(c.dependencies || {}),
-      JSON.stringify(c.source_ids)
+      c.id, c.name, c.canonical_id, c.author, authorsJson,
+      c.category, c.subcategory, c.type, c.description,
+      c.primary_platform, platformsJson, cleanUrl,
+      cleanVccUrl, cleanGithubUrl, cleanBoothUrl,
+      cleanGumroadUrl, cleanJinxxyUrl, cleanItchUrl,
+      c.price_currency, c.price_amount, c.is_vcc,
+      tagsJson, depsJson, sourceIdsJson
     );
+
+    insertCanonicalV2.run(
+      c.id, c.canonical_id, c.name, c.author, authorsJson,
+      c.category, c.subcategory, c.type, c.description,
+      c.primary_platform, platformsJson, cleanUrl,
+      cleanVccUrl, cleanGithubUrl, cleanBoothUrl,
+      cleanGumroadUrl, cleanJinxxyUrl, cleanItchUrl,
+      c.price_currency, c.price_amount, c.is_vcc,
+      tagsJson, depsJson, sourceIdsJson,
+      originCreatedAt, originUpdatedAt,
+      timestampNow, timestampNow
+    );
+
+    const storefronts = [
+      { p: "booth", u: cleanBoothUrl },
+      { p: "gumroad", u: cleanGumroadUrl },
+      { p: "github", u: cleanGithubUrl },
+      { p: "jinxxy", u: cleanJinxxyUrl },
+      { p: "itch", u: cleanItchUrl }
+    ];
+    for (const sf of storefronts) {
+      if (sf.u) {
+        insertFrontV2.run(
+          `front_${c.canonical_id}_${sf.p}`,
+          c.canonical_id,
+          sf.p,
+          sf.u,
+          sf.u,
+          c.name,
+          c.author,
+          c.price_currency,
+          c.price_amount,
+          originCreatedAt,
+          originUpdatedAt,
+          c.id,
+          timestampNow,
+          timestampNow
+        );
+      }
+    }
   }
 })();
 
