@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import fs from "fs";
 import path from "path";
 import { db } from "../src/db.ts";
-import { processPendingReports, pullReportsFromDirectory } from "../src/steering.ts";
+import { processPendingReports, pullReportsFromDirectory } from "../src/tools/steering.ts";
 
 describe("Autonomous Steering Engine (5 Discrete Branches & Pull-Based Ingestion)", () => {
   const testPkgId = `test_steering_pkg_${Date.now()}`;
@@ -36,9 +36,11 @@ describe("Autonomous Steering Engine (5 Discrete Branches & Pull-Based Ingestion
 
   afterAll(() => {
     // Cleanup test data
-    db.rawDb.run("DELETE FROM canonical_packages WHERE canonical_id = ?;", [testCanonicalId]);
-    db.rawDb.run("DELETE FROM entities WHERE id = 'booth:999999';");
-    db.rawDb.run("DELETE FROM curator_overrides WHERE canonical_id = ?;", [testCanonicalId]);
+    db.rawDb.run("DELETE FROM canonical_packages WHERE canonical_id = ? OR canonical_id LIKE 'test-%';", [testCanonicalId]);
+    db.rawDb.run("DELETE FROM entities WHERE id = 'booth:999999' OR id LIKE 'test_%';");
+    db.rawDb.run("DELETE FROM curator_overrides WHERE canonical_id = ? OR canonical_id LIKE 'test-%';", [testCanonicalId]);
+    db.rawDb.run("DELETE FROM user_reports WHERE target_package_id = ? OR target_package_id LIKE 'test-%' OR report_id LIKE 'rep_%';", [testCanonicalId]);
+    db.rawDb.run("DELETE FROM search_patterns WHERE query LIKE 'test%' OR query LIKE '%osc-dance-framework%';");
   });
 
   it("processes BRANCH_CATEGORIZATION: updates overrides and immediate canonical projection", async () => {

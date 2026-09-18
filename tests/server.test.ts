@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import crypto from "crypto";
-import { startServer } from "../src/server.ts";
+import { startServer } from "../src/server/index.ts";
 import { db } from "../src/db.ts";
 
 describe("Headless API Server (Schemas 1, 2, 4 & Gateway Controls)", () => {
@@ -16,6 +16,8 @@ describe("Headless API Server (Schemas 1, 2, 4 & Gateway Controls)", () => {
     if (serverInstance) {
       serverInstance.stop(true);
     }
+    db.rawDb.run("DELETE FROM user_reports WHERE target_package_id = 'com-vrchat-sample-cat' OR target_package_id = 'test-pkg' OR report_id LIKE 'rep_cat_%' OR report_id LIKE 'rep_rate_%';");
+    db.rawDb.run("DELETE FROM curator_overrides WHERE canonical_id = 'com-vrchat-sample-cat' OR canonical_id = 'test-pkg';");
   });
 
   it("handles GET /v1/health with metrics and uptime", async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { runEdgeSync } from "../src/sync.ts";
+import { runEdgeSync } from "../src/sync/index.ts";
 import { db } from "../src/db.ts";
 
 describe("Decoupled Cloudflare Edge Sync", () => {

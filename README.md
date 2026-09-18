@@ -52,21 +52,25 @@ The single canonical database is `crawler_state.db`, created next to the binary 
 ```
 vrc-package-crawler/
   src/                        Core crawler engine and foundation
+    crawler/                  Autonomous 24/7 crawler daemon (vrc-crawler.exe / linux)
+      index.ts
+    monitor/                  Interactive console monitor & IPC status CLI (vrc-monitor.exe)
+      index.ts
+    sync/                     Cloudflare D1/R2 incremental sync daemon (vrc-sync.exe)
+      index.ts
+    server/                   Headless REST API server (Schemas 1, 2, 4) (vrc-server.exe)
+      index.ts
+    tools/                    Auxiliary maintenance toolset
+      pipeline_sanitize.ts    Canonical projection, SimHash clustering, and umbrella tagging
+      exporter.ts             Single-file catalog and data lake exporter
+      steering.ts             Autonomous steering & Cloudflare R2 pull engine
+      discover_vpm.ts         VPM community repository discoverer
     drivers/                  Per-platform crawl drivers (BOOTH, GitHub, Gumroad, Jinxxy, Itch, VPM)
     utils/                    Shared utilities (image proxy, robots.txt enforcer, Poisson scheduler, IPC, lock)
-    tools/                    Separated auxiliary toolset source codes
-      server.ts               Headless API gateway (Schemas 1, 2, 4 & image proxy)
-      status.ts               Console monitor and loopback IPC CLI
-      sync.ts                 Edge sync tool (Cloudflare D1/R2)
-      steering.ts             Autonomous steering & Cloudflare R2 pull engine
-      exporter.ts             Single-file catalog and data lake exporter
-      pipeline_sanitize.ts    Canonical projection, SimHash clustering, and umbrella tagging
-      discover_vpm.ts         VPM community repository discoverer
-    index.ts                  Main 24/7 daemon entry point
     db.ts                     Unified SQLite database layer with auto-upgrade
     filter.ts                 Relevance and safety filters
     classifier.ts             Taxonomy classification
-    config.ts                 Path resolution and runtime configuration
+    config.ts                 Path resolution and runtime configuration (sole canonical DB in dist/)
   docs/                       Specification documents
     DISCOVERY_RULES.md        Discovery, relevance scoring, and re-audit rules
     COMPREHENSIVE_SYSTEM_ARCHITECTURE.md Comprehensive engineering blueprint & guardrails audit

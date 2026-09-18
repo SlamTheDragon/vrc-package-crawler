@@ -455,7 +455,7 @@ function extractDependencies(rawJsonStr: string): Record<string, string> {
 
 const entities = db.query(`
   SELECT id, platform, url, title, author, price_currency, price_amount,
-         description, tags_json, external_links_json, raw_json, origin_created_at, origin_updated_at, created_at, updated_at
+         description, tags_json, external_links_json, raw_json, origin_created_at, origin_updated_at, observed_at, created_at, updated_at
   FROM entities
   WHERE is_quarantined = 0
 `).all() as any[];
@@ -881,11 +881,21 @@ db.transaction(() => {
         try { raw = JSON.parse(ent.raw_json || "{}"); } catch {}
 
         // Upstream platform timestamps
-        const upstreamCreated = ent.origin_created_at || raw.originCreatedAt || raw.published_at || null;
+        const explicitUpstreamCreated = raw.originCreatedAt || raw.published_at || null;
+        const upstreamCreated = explicitUpstreamCreated || ent.origin_created_at || null;
         const upstreamUpdated = ent.origin_updated_at || raw.originUpdatedAt || null;
 
+        // An authoritative upstream creation date comes from the platform API/DOM (e.g. raw.originCreatedAt)
+        // or an ent.origin_created_at that is distinct from the crawler's observation timestamp
+        const isAuthoritative = Boolean(
+          explicitUpstreamCreated ||
+          (ent.origin_created_at && (!ent.observed_at || ent.origin_created_at !== ent.observed_at))
+        );
+
         if (upstreamCreated) {
-          hasAuthoritativeDate = true;
+          if (isAuthoritative) {
+            hasAuthoritativeDate = true;
+          }
           if (!originCreatedAt || upstreamCreated < originCreatedAt) {
             originCreatedAt = upstreamCreated;
           }
@@ -902,6 +912,10 @@ db.transaction(() => {
           earliestLocalObservedAt = localObserved;
         }
       }
+    }
+
+    if (!originCreatedAt && earliestLocalObservedAt) {
+      originCreatedAt = earliestLocalObservedAt;
     }
 
     // Determine confidence:

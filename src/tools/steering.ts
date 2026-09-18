@@ -3,7 +3,7 @@ import path from "path";
 import { logger } from "../logger.ts";
 import { db, type CrawlerDB, type UserReport, type PlatformType } from "../db.ts";
 import { sanitizeOutboundUrl } from "../utils/image_proxy.ts";
-import { validateSchema4Payload } from "../server.ts";
+import { validateSchema4Payload } from "../server/index.ts";
 
 export interface SteeringOptions {
   reportsDir?: string;

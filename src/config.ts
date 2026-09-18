@@ -6,14 +6,18 @@ export const BASE_DIR = isBunRuntime
   ? path.resolve(import.meta.dir, "..")   // dev: project root
   : path.dirname(process.execPath);         // compiled: next to the .exe
 
-export const DB_PATH = process.env.CRAWLER_DB_PATH || path.resolve(BASE_DIR, "crawler_state.db");
-export const LOGS_DIR = process.env.CRAWLER_LOGS_DIR || path.resolve(BASE_DIR, "logs");
+// The sole canonical database and runtime artifacts reside in dist/
+export const CANONICAL_DIR = isBunRuntime ? path.resolve(BASE_DIR, "dist") : BASE_DIR;
+
+export const DB_PATH = process.env.CRAWLER_DB_PATH || path.resolve(CANONICAL_DIR, "crawler_state.db");
+export const LOGS_DIR = process.env.CRAWLER_LOGS_DIR || path.resolve(CANONICAL_DIR, "logs");
 
 export const CONFIG = {
-  baseDir: BASE_DIR,
+  baseDir: CANONICAL_DIR,
+  projectDir: BASE_DIR,
   dbPath: DB_PATH,
   logsDir: LOGS_DIR,
-  lockPath: path.resolve(BASE_DIR, "crawler.lock"),
+  lockPath: path.resolve(CANONICAL_DIR, "crawler.lock"),
   userAgent: "VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)",
   
   // GitHub Token for 5,000 req/hr API limit (supports GITHUB_TOKEN or GH_TOKEN env vars)

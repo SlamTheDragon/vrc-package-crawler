@@ -126,7 +126,7 @@ Follow these steps to schedule or execute full re-discovery and re-audit passes:
 Run this command to reset all frontier records to pending:
 
 ```powershell
-bun -e "import { Database } from 'bun:sqlite'; const db = new Database('crawler_state.db'); db.run(\"UPDATE frontier SET status = 'pending', attempts = 0, next_fetch_at = datetime('now');\"); console.log('Marked all frontier URLs for re-discovery.');"
+bun -e "import { Database } from 'bun:sqlite'; const db = new Database('dist/crawler_state.db'); db.run(\"UPDATE frontier SET status = 'pending', attempts = 0, next_fetch_at = datetime('now');\"); console.log('Marked all frontier URLs for re-discovery.');"
 ```
 
 ### Step 2: Trigger Live Freshness Sweep via IPC
@@ -179,3 +179,41 @@ $$I_{\text{new}} = \begin{cases} \max(I_{\min}, \lfloor I_{\text{current}} / 1.5
 - $I_{\min} = 6 \text{ hours}$
 - $I_{\max} = 30 \text{ days}$
 - $I_{\text{default}} = 24 \text{ hours}$
+
+---
+
+## 9. Canonical Database Integrity (`dist/crawler_state.db`)
+
+### 9.1 Sole Canonical Database Location
+The single authoritative operational SQLite database is located strictly at:
+`dist/crawler_state.db`
+
+No operational data is stored in the project root. Both development runtimes (`bun run ...`) and standalone compiled executables (`dist/vrc-*.exe`) resolve `CONFIG.dbPath` directly to `dist/crawler_state.db`.
+
+### 9.2 Invariant Guarantees
+1. **Zero Database Ambiguity:** Any database file placed outside `dist/` is an invalid development artifact.
+2. **Crash Resilience:** WAL mode (`PRAGMA journal_mode = WAL;`) and synchronous normal (`PRAGMA synchronous = NORMAL;`) ensure zero corruption during unexpected power outages.
+3. **Audit Trail Immutability:** The observation lake (`entities`) preserves 100% of discovered entity payloads even when an entity is quarantined or delisted.
+4. **Decoupled Storefront Timestamps:** The canonical projection separates authoritative upstream platform dates (`origin_created_at`) from local ingestion timestamps (`created_at`).
+
+---
+
+## 10. Toolset Source Separation and Binary Architecture
+
+Each standalone binary distribution corresponds to a dedicated source directory:
+
+| Executable Output | Dedicated Source Directory | Purpose & Runtime Model |
+| :--- | :--- | :--- |
+| `dist/vrc-crawler.exe` | `src/crawler/index.ts` | 24/7 background crawling daemon with Mercator host pacing |
+| `dist/vrc-crawler-linux` | `src/crawler/index.ts` | Headless Linux background service binary |
+| `dist/vrc-monitor.exe` | `src/monitor/index.ts` | Real-time terminal dashboard, IPC control CLI, and metrics |
+| `dist/vrc-sync.exe` | `src/sync/index.ts` | Cloudflare D1/R2 high-watermark incremental sync daemon |
+| `dist/vrc-server.exe` | `src/server/index.ts` | Headless REST API server (Schemas 1, 2, 4 & WebP media proxy) |
+
+### 10.1 Maintenance Toolset (`src/tools/`)
+Offline and scheduled maintenance scripts remain isolated under `src/tools/`:
+- `src/tools/pipeline_sanitize.ts`: Deterministic SimHash-64 & Jaro-Winkler canonical clustering and deduplication pass (`bun run sanitize`).
+- `src/tools/exporter.ts`: Lightweight standalone catalog exporter with SQLite FTS5 index (`bun run export`).
+- `src/tools/steering.ts`: Autonomous Schema 4 feedback puller and curator override applicator (`bun run steering`).
+- `src/tools/discover_vpm.ts`: Autonomous discovery of decentralized VPM community index repositories (`bun run discover:vpm`).
+

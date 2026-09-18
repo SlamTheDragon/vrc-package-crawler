@@ -1,8 +1,6 @@
 import { db, type PlatformMetrics } from "../db.ts";
 import { CONFIG } from "../config.ts";
 import { CrawlerIpcServer } from "../utils/ipc.ts";
-import { runDatabaseExport } from "../exporter.ts";
-import { runEdgeSync } from "../sync.ts";
 import fs from "fs";
 import path from "path";
 
@@ -114,11 +112,17 @@ if (process.stdin.isTTY && !process.argv.includes("--once")) {
         const res = await CrawlerIpcServer.sendCommand("recrawl");
         setNotification(res.success ? "✓ Freshness re-crawl triggered on daemon" : `✗ Re-crawl failed: ${res.error}`);
       } else if (key === "s") {
-        // [s]: Immediate edge sync
-        setNotification("⏳ Running immediate Cloudflare edge sync...");
+        // [s]: Immediate edge sync via daemon IPC (or offline fallback)
+        setNotification("⏳ Triggering Cloudflare edge sync...");
         try {
-          const res = await runEdgeSync({ batchSize: 50 });
-          setNotification(`✓ Edge sync complete: ${res.syncedPackages} packages synced (Dry-run: ${res.isDryRun})`);
+          const ipcRes = await CrawlerIpcServer.sendCommand("sync");
+          if (ipcRes.success) {
+            setNotification("✓ Edge sync dispatched to running daemon");
+          } else {
+            const { runEdgeSync } = await import("../sync/index.ts");
+            const res = await runEdgeSync({ batchSize: 50 });
+            setNotification(`✓ Edge sync complete: ${res.syncedPackages} packages synced (Dry-run: ${res.isDryRun})`);
+          }
         } catch (err: any) {
           setNotification(`✗ Edge sync failed: ${err.message}`);
         }
@@ -126,6 +130,7 @@ if (process.stdin.isTTY && !process.argv.includes("--once")) {
         // [e]: Export DB
         setNotification("⏳ Exporting defragmented catalog database (vrc_catalog.db)...");
         try {
+          const { runDatabaseExport } = await import("../tools/exporter.ts");
           const out = await runDatabaseExport("catalog");
           setNotification(`✓ Export successful: ${path.basename(out)} ready`);
         } catch (err: any) {

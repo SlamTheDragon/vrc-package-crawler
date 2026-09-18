@@ -2,14 +2,19 @@ import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import fs from "fs";
 import path from "path";
-import { runDatabaseExport } from "../src/exporter.ts";
+import { runDatabaseExport } from "../src/tools/exporter.ts";
+import { CONFIG } from "../src/config.ts";
 
 describe("Exportable Database Generator & FTS5 Indexing", () => {
-  const testCatalogPath = path.resolve(process.cwd(), "test_vrc_catalog.db");
+  const testCatalogPath = path.resolve(CONFIG.baseDir, "test_vrc_catalog.db");
 
   it("exports catalog into standalone SQLite database with working FTS5", async () => {
     if (fs.existsSync(testCatalogPath)) {
       try { fs.unlinkSync(testCatalogPath); } catch (_) {}
+    }
+    const rootPath = path.resolve(process.cwd(), "test_vrc_catalog.db");
+    if (fs.existsSync(rootPath)) {
+      try { fs.unlinkSync(rootPath); } catch (_) {}
     }
 
     const exportedPath = await runDatabaseExport("catalog", "test_vrc_catalog.db");

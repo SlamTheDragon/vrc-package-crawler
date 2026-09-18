@@ -31,7 +31,7 @@ flowchart TD
 
     subgraph "Layer 3: Closed-Loop Steering & Feedback"
         REPORTS[("user_reports\n(Schema 4 Branched Feedback)")]
-        STEER["src/steering.ts\n(Autonomous Processing Loop)"]
+        STEER["src/tools/steering.ts\n(Autonomous Processing Loop)"]
         OVERRIDES[("curator_overrides\n(Persistent Overrides)")]
         PATTERNS[("search_patterns\n(Dynamic Boost / Suppress)")]
         REPORTS --> STEER
@@ -42,9 +42,9 @@ flowchart TD
     end
 
     subgraph "Layer 4: Headless Gateways & Edge Distribution"
-        HTTP["src/server.ts\n(Headless Bun HTTP Gateway :8080)"]
-        SYNC["src/sync.ts\n(Delta Sync Daemon)"]
-        EXPORT["src/exporter.ts\n(FTS5 Offline Catalog Generator)"]
+        HTTP["src/server/index.ts\n(Headless Bun HTTP Gateway :8080)"]
+        SYNC["src/sync/index.ts\n(Delta Sync Daemon)"]
+        EXPORT["src/tools/exporter.ts\n(FTS5 Offline Catalog Generator)"]
         CANONICAL --> HTTP
         CANONICAL --> SYNC
         CANONICAL --> EXPORT
@@ -70,11 +70,11 @@ The engine requires **zero runtime dependencies** on host servers. All dependenc
 
 | Binary | Source | Target | Purpose |
 |---|---|---|---|
-| `dist/vrc-crawler.exe` | `src/index.ts` | Windows x64 | Autonomous crawling daemon with Mercator host schedulers |
-| `dist/vrc-server.exe` | `src/tools/server.ts` | Windows x64 | Headless REST gateway for Schemas 1, 2, and 4 |
-| `dist/vrc-sync.exe` | `src/tools/sync.ts` | Windows x64 | High-watermark Cloudflare D1/R2 incremental synchronizer |
-| `dist/vrc-monitor.exe` | `src/tools/status.ts` | Windows x64 | Real-time CLI terminal dashboard and saturation metrics |
-| `dist/vrc-crawler-linux` | `src/index.ts` | Linux x64 | Headless Linux service binary |
+| `dist/vrc-crawler.exe` | `src/crawler/index.ts` | Windows x64 | Autonomous crawling daemon with Mercator host schedulers |
+| `dist/vrc-server.exe` | `src/server/index.ts` | Windows x64 | Headless REST gateway for Schemas 1, 2, and 4 |
+| `dist/vrc-sync.exe` | `src/sync/index.ts` | Windows x64 | High-watermark Cloudflare D1/R2 incremental synchronizer |
+| `dist/vrc-monitor.exe` | `src/monitor/index.ts` | Windows x64 | Real-time CLI terminal dashboard and saturation metrics |
+| `dist/vrc-crawler-linux` | `src/crawler/index.ts` | Linux x64 | Headless Linux service binary |
 
 Compilation Command:
 ```bash
@@ -392,7 +392,7 @@ External tools and platforms (such as VRCX, Obsidian, Unity Editor, and communit
 
 ---
 
-## 5. Autonomous Steering Engine Mechanics (`src/steering.ts`)
+## 5. Autonomous Steering Engine Mechanics (`src/tools/steering.ts`)
 
 The steering subsystem runs continuously inside the crawler daemon or as a decoupled cron process (`bun run steering`):
 
