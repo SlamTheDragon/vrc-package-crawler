@@ -40,7 +40,7 @@ describe("Autonomous Steering Engine (5 Discrete Branches & Pull-Based Ingestion
     db.rawDb.run("DELETE FROM entities WHERE id = 'booth:999999' OR id LIKE 'test_%';");
     db.rawDb.run("DELETE FROM curator_overrides WHERE canonical_id = ? OR canonical_id LIKE 'test-%';", [testCanonicalId]);
     db.rawDb.run("DELETE FROM user_reports WHERE target_package_id = ? OR target_package_id LIKE 'test-%' OR report_id LIKE 'rep_%';", [testCanonicalId]);
-    db.rawDb.run("DELETE FROM search_patterns WHERE query LIKE 'test%' OR query LIKE '%osc-dance-framework%';");
+    db.rawDb.run("DELETE FROM search_patterns WHERE query = 'avatar rigging optimizer' OR query = 'Original Tool Name' OR query LIKE 'test%' OR query LIKE '%osc-dance-framework%';");
   });
 
   it("processes BRANCH_CATEGORIZATION: updates overrides and immediate canonical projection", async () => {

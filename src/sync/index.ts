@@ -8,9 +8,46 @@ export interface SyncConfig {
   r2BucketName?: string;
   isDryRun: boolean;
   batchSize: number;
+  resetWatermark?: boolean;
 }
 
-export function getSyncConfig(): SyncConfig {
+export function getSyncConfig(argv: string[] = process.argv.slice(2)): SyncConfig {
+  let isDryRunArg = false;
+  let batchSize = 50;
+  let resetWatermark = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--help" || arg === "-h") {
+      console.log(`
+VRChat Package Crawler - Cloudflare Edge Synchronizer
+Usage:
+  vrc-sync.exe [options]
+  bun run sync [options]
+
+Options:
+  --dry-run               Validate payloads without network mutations
+  --batch-size, -b <N>    Batch size per transaction (default: 50)
+  --full, --reset         Reset high-watermark checkpoint and sync from beginning
+  --help, -h              Show this help message
+
+Environment Variables:
+  CLOUDFLARE_ACCOUNT_ID    Cloudflare account identifier
+  CLOUDFLARE_API_TOKEN     API token with D1 and R2 permissions
+  CLOUDFLARE_D1_DATABASE_ID Destination D1 database UUID
+  CLOUDFLARE_R2_BUCKET_NAME Destination R2 media bucket name
+`);
+      process.exit(0);
+    } else if (arg === "--dry-run") {
+      isDryRunArg = true;
+    } else if ((arg === "--batch-size" || arg === "-b") && i + 1 < argv.length) {
+      const parsed = parseInt(argv[++i], 10);
+      if (!isNaN(parsed) && parsed > 0) batchSize = parsed;
+    } else if (arg === "--full" || arg === "--reset") {
+      resetWatermark = true;
+    }
+  }
+
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
   const d1DatabaseId = process.env.CLOUDFLARE_D1_DATABASE_ID;
@@ -23,26 +60,38 @@ export function getSyncConfig(): SyncConfig {
     apiToken,
     d1DatabaseId,
     r2BucketName,
-    isDryRun: !isConfigured || process.argv.includes("--dry-run"),
-    batchSize: 50
+    isDryRun: !isConfigured || isDryRunArg,
+    batchSize,
+    resetWatermark
   };
 }
 
 export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<{ syncedPackages: number; isDryRun: boolean }> {
   const config: SyncConfig = { ...getSyncConfig(), ...customConfig };
 
-  logger.info(`[EdgeSync] Initializing Cloudflare edge sync (Dry-run: ${config.isDryRun})...`);
+  logger.info(`[EdgeSync] Initializing Cloudflare edge sync (Dry-run: ${config.isDryRun}, Batch: ${config.batchSize})...`);
 
   // 1. Get high-watermark from sync_checkpoints
-  const lastCheckpoint = db.query(`
-    SELECT last_synced_rowid, last_synced_id
-    FROM sync_checkpoints
-    WHERE sync_target = 'cloudflare_d1' AND status = 'success'
-    ORDER BY id DESC
-    LIMIT 1;
-  `).get() as any;
+  let watermarkRowId = 0;
+  if (!config.resetWatermark) {
+    const lastCheckpoint = db.query(`
+      SELECT last_synced_rowid, last_synced_id
+      FROM sync_checkpoints
+      WHERE sync_target = 'cloudflare_d1' AND status = 'success'
+      ORDER BY id DESC
+      LIMIT 1;
+    `).get() as any;
 
-  const watermarkRowId = lastCheckpoint?.last_synced_rowid || 0;
+    watermarkRowId = lastCheckpoint?.last_synced_rowid || 0;
+
+    // Detect if canonical_packages table was rebuilt or rowids reset
+    const maxRowInDb = (db.query("SELECT MAX(rowid) as max_r FROM canonical_packages;").get() as any)?.max_r || 0;
+    if (watermarkRowId > maxRowInDb && maxRowInDb > 0) {
+      logger.warn(`[EdgeSync] Watermark rowid (${watermarkRowId}) exceeds table max (${maxRowInDb}). Table was rebuilt; resetting sync from beginning.`);
+      watermarkRowId = 0;
+    }
+  }
+
   logger.info(`[EdgeSync] High-watermark rowid: ${watermarkRowId}`);
 
   // 2. Fetch incremental records from canonical_packages

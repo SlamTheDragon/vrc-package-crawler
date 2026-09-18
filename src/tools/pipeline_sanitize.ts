@@ -1047,7 +1047,8 @@ db.transaction(() => {
       { p: "gumroad", u: cleanGumroadUrl },
       { p: "github", u: cleanGithubUrl },
       { p: "jinxxy", u: cleanJinxxyUrl },
-      { p: "itch", u: cleanItchUrl }
+      { p: "itch", u: cleanItchUrl },
+      { p: "vpm", u: cleanVccUrl || (c.platforms.has("vpm") || c.primary_platform === "vpm" ? cleanUrl : null) }
     ];
     for (const sf of storefronts) {
       if (sf.u) {

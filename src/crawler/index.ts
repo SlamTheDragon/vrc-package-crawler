@@ -863,34 +863,26 @@ export async function main() {
     process.exit(res.success ? 0 : 1);
   }
 
-  if (process.argv.includes("export")) {
-    const { runDatabaseExport } = await import("../tools/exporter.ts");
-    const mode = process.argv.includes("--lake") ? "lake" : "catalog";
-    await runDatabaseExport(mode);
-    process.exit(0);
-  }
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    console.log(`
+VRChat Package Crawler - Harvester Daemon
+Usage:
+  vrc-crawler.exe [command] [options]
+  bun run start [command] [options]
 
-  if (process.argv.includes("sync")) {
-    const res = await CrawlerIpcServer.sendCommand("sync");
-    if (res.success) {
-      console.log("[CLI] Edge sync triggered successfully on active daemon.");
-    } else {
-      const { runEdgeSync } = await import("../sync/index.ts");
-      await runEdgeSync();
-    }
-    process.exit(0);
-  }
+Commands (dispatched to running daemon via loopback IPC):
+  status                  Show active crawler daemon status
+  stop                    Trigger graceful shutdown on running daemon
+  recrawl                 Trigger Poisson freshness re-crawl sweep
+  project                 Trigger canonical projection synthesis pass
 
-  if (process.argv.includes("steering")) {
-    const res = await CrawlerIpcServer.sendCommand("steering");
-    if (res.success) {
-      console.log("[CLI] Steering ingest triggered successfully on active daemon.");
-    } else {
-      const { pullReportsFromDirectory, processPendingReports } = await import("../tools/steering.ts");
-      const pulled = await pullReportsFromDirectory();
-      const stats = await processPendingReports();
-      console.log(`[CLI] Steering processed offline: ${pulled} pulled, ${stats.applied} applied, ${stats.failed} failed.`);
-    }
+Options:
+  --help, -h              Show this help message
+
+For monitoring, run: dist/vrc-monitor.exe
+For edge sync, run:  dist/vrc-sync.exe
+For HTTP API, run:   dist/vrc-server.exe
+`);
     process.exit(0);
   }
 

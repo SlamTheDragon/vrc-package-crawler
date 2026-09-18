@@ -95,9 +95,38 @@ export function validateSchema4Payload(body: any): { valid: boolean; errors?: st
   };
 }
 
+export function parseServerArgs(argv: string[] = process.argv.slice(2)): Partial<ServerConfig> {
+  const config: Partial<ServerConfig> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--help" || arg === "-h") {
+      console.log(`
+VRChat Package Crawler - Headless HTTP REST Gateway
+Usage:
+  vrc-server.exe [options]
+  bun run server [options]
+
+Options:
+  --port, -p <number>     Port to bind HTTP server (default: 8080 or PORT env var)
+  --host, -H <string>     Host IP interface (default: 0.0.0.0 or HOST env var)
+  --token <string>        Secret API token for authorized endpoints
+  --help, -h              Show this help message
+`);
+      process.exit(0);
+    } else if ((arg === "--port" || arg === "-p") && i + 1 < argv.length) {
+      config.port = parseInt(argv[++i], 10);
+    } else if ((arg === "--host" || arg === "-H") && i + 1 < argv.length) {
+      config.host = argv[++i];
+    } else if (arg === "--token" && i + 1 < argv.length) {
+      config.apiToken = argv[++i];
+    }
+  }
+  return config;
+}
+
 export function startServer(config: ServerConfig = {}) {
-  const port = config.port || parseInt(process.env.API_PORT || "8091", 10);
-  const host = config.host || process.env.API_HOST || "0.0.0.0";
+  const port = config.port || parseInt(process.env.PORT || process.env.API_PORT || "8080", 10);
+  const host = config.host || process.env.HOST || process.env.API_HOST || "0.0.0.0";
   const apiToken = config.apiToken || process.env.API_SECRET_TOKEN;
   const targetDb = config.db || db;
 
@@ -350,5 +379,6 @@ export function startServer(config: ServerConfig = {}) {
 }
 
 if (import.meta.main) {
-  startServer();
+  const cliConfig = parseServerArgs();
+  startServer(cliConfig);
 }

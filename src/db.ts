@@ -717,6 +717,23 @@ export class CrawlerDB {
     }
   }
 
+  public requeueAllForRediscovery(): number {
+    if (this._isClosed) return 0;
+    const now = new Date().toISOString();
+    try {
+      const res = this.db.run(`
+        UPDATE frontier
+        SET status = 'pending',
+            attempts = 0,
+            next_fetch_at = ?,
+            updated_at = ?;
+      `, [now, now]);
+      return res.changes;
+    } catch {
+      return 0;
+    }
+  }
+
   public saveEntity(record: EntityRecord): boolean {
     if (this._isClosed) return false;
     const now = new Date().toISOString();

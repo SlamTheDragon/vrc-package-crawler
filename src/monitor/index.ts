@@ -19,6 +19,82 @@ const shutdownStatus = (signal: string) => {
 process.on("SIGINT", () => shutdownStatus("SIGINT"));
 process.on("SIGTERM", () => shutdownStatus("SIGTERM"));
 
+// CLI Subcommand Handling
+const cliArgs = process.argv.slice(2);
+if (cliArgs.includes("--help") || cliArgs.includes("-h")) {
+  console.log(`
+VRChat Package Crawler - Live Monitor & CLI Control Console
+Usage:
+  vrc-monitor.exe [command] [options]
+  bun run monitor [command] [options]
+
+Commands:
+  status                  Query and display running crawler daemon status
+  stop                    Send graceful shutdown signal to running daemon
+  recrawl                 Trigger Poisson freshness re-crawl sweep on daemon
+  project                 Trigger canonical projection synthesis pass on daemon
+  sync                    Trigger Cloudflare edge sync on daemon
+
+Options:
+  --once                  Render a single metrics snapshot and exit
+  --help, -h              Show this help message
+
+Interactive Hotkeys (in live dashboard):
+  [r] Force Re-crawl  |  [p] Project Rebuild  |  [s] Edge Sync  |  [q] Shutdown
+`);
+  process.exit(0);
+}
+
+if (cliArgs.includes("stop")) {
+  const res = await CrawlerIpcServer.sendCommand("stop");
+  if (res.success) {
+    console.log("[CLI] Graceful shutdown signal dispatched to running crawler daemon.");
+  } else {
+    console.error(`[CLI] Shutdown command failed: ${res.error}`);
+  }
+  process.exit(res.success ? 0 : 1);
+}
+
+if (cliArgs.includes("status") && !cliArgs.includes("--once")) {
+  const res = await CrawlerIpcServer.getStatus();
+  if (res.running) {
+    console.log("[CLI] Crawler daemon is active:\n" + JSON.stringify(res.data, null, 2));
+  } else {
+    console.log("[CLI] Crawler daemon is not currently running (offline).");
+  }
+  process.exit(0);
+}
+
+if (cliArgs.includes("recrawl")) {
+  const res = await CrawlerIpcServer.sendCommand("recrawl");
+  if (res.success) {
+    console.log("[CLI] Freshness re-crawl triggered successfully on active daemon.");
+  } else {
+    console.error(`[CLI] Recrawl command failed: ${res.error}`);
+  }
+  process.exit(res.success ? 0 : 1);
+}
+
+if (cliArgs.includes("project")) {
+  const res = await CrawlerIpcServer.sendCommand("project");
+  if (res.success) {
+    console.log("[CLI] Projection rebuild triggered successfully on active daemon.");
+  } else {
+    console.error(`[CLI] Projection rebuild failed: ${res.error}`);
+  }
+  process.exit(res.success ? 0 : 1);
+}
+
+if (cliArgs.includes("sync")) {
+  const res = await CrawlerIpcServer.sendCommand("sync");
+  if (res.success) {
+    console.log("[CLI] Edge sync triggered successfully on active daemon.");
+  } else {
+    console.error(`[CLI] Edge sync failed: ${res.error}`);
+  }
+  process.exit(res.success ? 0 : 1);
+}
+
 function renderProgressBar(percentage: number, length: number = 25): string {
   const filled = Math.min(length, Math.max(0, Math.round((percentage / 100) * length)));
   const empty = length - filled;
@@ -112,30 +188,20 @@ if (process.stdin.isTTY && !process.argv.includes("--once")) {
         const res = await CrawlerIpcServer.sendCommand("recrawl");
         setNotification(res.success ? "✓ Freshness re-crawl triggered on daemon" : `✗ Re-crawl failed: ${res.error}`);
       } else if (key === "s") {
-        // [s]: Immediate edge sync via daemon IPC (or offline fallback)
-        setNotification("⏳ Triggering Cloudflare edge sync...");
-        try {
-          const ipcRes = await CrawlerIpcServer.sendCommand("sync");
-          if (ipcRes.success) {
-            setNotification("✓ Edge sync dispatched to running daemon");
-          } else {
-            const { runEdgeSync } = await import("../sync/index.ts");
-            const res = await runEdgeSync({ batchSize: 50 });
-            setNotification(`✓ Edge sync complete: ${res.syncedPackages} packages synced (Dry-run: ${res.isDryRun})`);
-          }
-        } catch (err: any) {
-          setNotification(`✗ Edge sync failed: ${err.message}`);
-        }
+        // [s]: Immediate edge sync via daemon IPC
+        setNotification("⏳ Triggering Cloudflare edge sync via daemon IPC...");
+        const ipcRes = await CrawlerIpcServer.sendCommand("sync");
+        setNotification(ipcRes.success ? "✓ Edge sync dispatched to running daemon" : `✗ Edge sync failed: ${ipcRes.error}`);
+      } else if (key === "p") {
+        // [p]: Immediate projection rebuild via daemon IPC
+        setNotification("⏳ Triggering canonical projection rebuild via daemon IPC...");
+        const ipcRes = await CrawlerIpcServer.sendCommand("project");
+        setNotification(ipcRes.success ? "✓ Projection rebuild dispatched to running daemon" : `✗ Projection rebuild failed: ${ipcRes.error}`);
       } else if (key === "e") {
-        // [e]: Export DB
-        setNotification("⏳ Exporting defragmented catalog database (vrc_catalog.db)...");
-        try {
-          const { runDatabaseExport } = await import("../tools/exporter.ts");
-          const out = await runDatabaseExport("catalog");
-          setNotification(`✓ Export successful: ${path.basename(out)} ready`);
-        } catch (err: any) {
-          setNotification(`✗ Export failed: ${err.message}`);
-        }
+        // [e]: Export DB via daemon IPC
+        setNotification("⏳ Triggering catalog export via daemon IPC...");
+        const ipcRes = await CrawlerIpcServer.sendCommand("export");
+        setNotification(ipcRes.success ? "✓ Export dispatched to running daemon" : `✗ Export failed: ${ipcRes.error}`);
       }
     });
   } catch (_) {}
@@ -229,7 +295,7 @@ async function runLiveMonitor() {
       break;
     }
 
-    console.log(" \x1b[1mControls:\x1b[0m \x1b[32m[r]\x1b[0m Force Re-crawl  |  \x1b[34m[s]\x1b[0m Edge Sync  |  \x1b[35m[e]\x1b[0m Export DB  |  \x1b[31m[q]\x1b[0m Shutdown");
+    console.log(" \x1b[1mControls:\x1b[0m \x1b[32m[r]\x1b[0m Re-crawl  |  \x1b[34m[p]\x1b[0m Projections  |  \x1b[35m[s]\x1b[0m Edge Sync  |  \x1b[36m[e]\x1b[0m Export DB  |  \x1b[31m[q]\x1b[0m Shutdown");
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }

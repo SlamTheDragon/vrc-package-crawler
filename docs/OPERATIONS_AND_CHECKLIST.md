@@ -95,50 +95,67 @@ Runs the multi-threaded autonomous harvesting engine with Mercator host schedule
 
 **Syntax:**
 ```powershell
-.\dist\vrc-crawler.exe [options]
+.\dist\vrc-crawler.exe [command] [options]
 # Or via bun:
-bun run start
+bun run start [command] [options]
 ```
+
+**Commands (dispatched to running daemon via loopback IPC):**
+- `status`: Queries and prints active crawler daemon health and metrics.
+- `stop`: Dispatches graceful shutdown signal to running daemon.
+- `recrawl`: Triggers an immediate Poisson stale URL freshness sweep.
+- `project`: Triggers an immediate canonical projection synthesis pass.
+
+**Parameters & Flags:**
+- `--help`, `-h`: Displays command-line help and usage.
 
 **Environment Variables:**
 - `GITHUB_TOKEN` / `GH_TOKEN`: GitHub personal access token (switches API from 60 to 5,000 req/hr).
 - `CRAWLER_DB_PATH`: Custom path to SQLite database (defaults to `dist/crawler_state.db`).
 - `CRAWLER_LOGS_DIR`: Custom path to log directory (defaults to `dist/logs`).
+- `CRAWLER_IPC_PORT`: Custom loopback IPC port (defaults to `8765`).
 
-**Daemon Loopback IPC Control (`127.0.0.1:8765`):**
-- `GET /status`: Returns JSON status of active workers, memory, and queue lengths.
-- `POST /recrawl`: Triggers an immediate Poisson stale URL freshness sweep.
-- `POST /project`: Triggers an immediate canonical projection synthesis pass.
-- `POST /sync`: Triggers an immediate Cloudflare edge synchronization pass.
-- `POST /steering`: Triggers an immediate community feedback ingestion pass.
-- `POST /stop`: Gracefully shuts down the background daemon.
+**Daemon Loopback IPC API (`127.0.0.1:8765`):**
+- `GET /status` / `GET /health`: JSON status of active workers, memory, uptime, and queue lengths.
+- `GET /recrawl`: Triggers an immediate Poisson stale URL freshness sweep.
+- `GET /project`: Triggers an immediate canonical projection synthesis pass.
+- `GET /sync`: Triggers an immediate Cloudflare edge synchronization pass.
+- `GET /steering`: Triggers an immediate community feedback ingestion pass.
+- `GET /export`: Triggers an immediate catalog export.
+- `GET /stop`: Gracefully shuts down the background daemon.
 
 **Interactive Keystrokes (when attached to stdin):**
-- `q`: Gracefully flush database WAL and terminate.
-- `s`: Trigger Cloudflare edge sync.
-- `r`: Trigger freshness sweep.
-- `p`: Trigger manual projection rebuild.
+- `q`: Gracefully flush database WAL, release single-instance lock, and terminate.
 
 ---
 
 ### 4.2 `dist/vrc-monitor.exe` (Terminal Telemetry & Control CLI)
 
-Live full-screen dashboard displaying queue telemetry, throughput, pre-indexed categories, and recent crawler events.
+Live full-screen dashboard displaying queue telemetry, throughput, pre-indexed categories, and recent crawler events. Also serves as the primary CLI control interface for the daemon.
 
 **Syntax:**
 ```powershell
-.\dist\vrc-monitor.exe [options]
+.\dist\vrc-monitor.exe [command] [options]
 # Or via bun:
-bun run monitor
+bun run monitor [command] [options]
 ```
 
-**Parameters & Flags:**
-- `--once`: Renders a single snapshot of system metrics and exits immediately (useful for scripts and cron monitoring).
+**CLI Commands:**
+- `status`: Displays current daemon IPC status, active port, uptime, and exits.
+- `stop`: Dispatches a graceful shutdown signal to the running daemon and exits.
+- `recrawl`: Triggers an immediate freshness sweep on the running daemon and exits.
+- `project`: Triggers a canonical projection rebuild on the running daemon and exits.
+- `sync`: Triggers an edge sync pass on the running daemon and exits.
 
-**Interactive Hotkeys:**
+**Parameters & Flags:**
+- `--once`: Renders a single snapshot of system metrics and exits immediately (useful for scripts, cron, and health checks).
+- `--help`, `-h`: Displays monitor usage and interactive key commands.
+
+**Interactive Hotkeys (in live dashboard mode):**
 - `[r]`: Dispatches an immediate re-crawl request to the daemon via IPC.
-- `[s]`: Dispatches an edge sync request to the daemon (with offline fallback).
-- `[e]`: Exports a defragmented `vrc_catalog.db` with FTS5 search index.
+- `[p]`: Dispatches a canonical projection rebuild request to the daemon via IPC.
+- `[s]`: Dispatches an edge sync request to the daemon via IPC.
+- `[e]`: Dispatches a catalog export request to the daemon via IPC.
 - `[q]`: Signals the running daemon to stop cleanly and exits the monitor.
 
 ---
@@ -151,14 +168,19 @@ Incremental delta synchronizer that pushes new/updated canonical packages to Clo
 ```powershell
 .\dist\vrc-sync.exe [options]
 # Or via bun:
-bun run sync
+bun run sync [options]
 ```
 
 **Parameters & Flags:**
 - `--dry-run`: Validates batch payload structures and displays diffs without executing network mutations to Cloudflare.
-- `--batch-size <N>`: Sets the transaction batch size (default: `50`).
+- `--batch-size <N>`, `-b <N>`: Sets the transaction batch size (default: `50`).
+- `--full`, `--reset`: Resets high-watermark checkpoint to 0 and re-syncs the entire catalog from the beginning.
+- `--help`, `-h`: Displays sync CLI usage and required environment variables.
 
-**Required Environment Variables (for active sync):**
+**Automatic Rebuild Detection:**
+If `canonical_packages` is rebuilt or truncated, the synchronizer automatically detects when `watermarkRowId > maxRowIdInDb` and resets the watermark to 0 to prevent silent desynchronization.
+
+**Required Environment Variables (for live sync):**
 - `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account ID.
 - `CLOUDFLARE_API_TOKEN`: API Token with D1 and R2 edit permissions.
 - `CLOUDFLARE_D1_DATABASE_ID`: Destination D1 UUID.
@@ -168,23 +190,25 @@ bun run sync
 
 ### 4.4 `dist/vrc-server.exe` (Headless REST Gateway)
 
-High-performance Bun HTTP server providing client discovery endpoints.
+High-performance Bun HTTP server providing client discovery endpoints for community tools.
 
 **Syntax:**
 ```powershell
 .\dist\vrc-server.exe [options]
 # Or via bun:
-bun run server
+bun run server [options]
 ```
 
 **Parameters & Flags:**
-- `--port <N>`: Port to bind to (default: `8080` or `PORT` environment variable).
-- `--host <ip>`: Host interface to bind to (default: `0.0.0.0` or `HOST` environment variable).
+- `--port <N>`, `-p <N>`: Port to bind HTTP server (default: `8080`, or `PORT` / `API_PORT` environment variable).
+- `--host <ip>`, `-H <ip>`: Host interface to bind to (default: `0.0.0.0`, or `HOST` / `API_HOST` environment variable).
+- `--token <secret>`: Secret API bearer token for privileged administrative routes.
+- `--help`, `-h`: Displays server usage and endpoint reference.
 
 **API Endpoints:**
 - `GET /v1/health`: Server uptime, memory metrics, and catalog counts.
 - `GET /v1/packages`: Schema 1 cursor-paginated delta stream with SHA-256 validation digest.
-- `GET /v1/index.json`: Schema 2 VCC/ALCOM community repository manifest.
+- `GET /v1/vpm/index.json` / `GET /v1/index.json`: Schema 2 VCC/ALCOM community repository manifest.
 - `GET /v1/media/:id`: Serves cached low-resolution WebP images.
 - `POST /v1/reports`: Ingests Schema 4 community steering reports (categorization, irrelevance, listing, tags, discovery queries). Enforces sliding-window rate limit (10 reports/min per IP/fingerprint).
 

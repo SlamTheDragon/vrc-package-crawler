@@ -72,6 +72,9 @@ export class GitHubDriver {
         for (const r of repos) {
           allRepoUrls.push(r.html_url);
 
+          const originCreated = r.created_at || null;
+          const originUpdated = r.updated_at || r.pushed_at || null;
+
           const entity: EntityRecord = {
             id: `github:${r.full_name}`,
             platform: "github",
@@ -81,11 +84,15 @@ export class GitHubDriver {
             description: r.description || "",
             tags_json: JSON.stringify(r.topics || []),
             external_links_json: JSON.stringify([r.homepage].filter(Boolean)),
+            origin_created_at: originCreated,
+            origin_updated_at: originUpdated,
             raw_json: JSON.stringify({
               stargazers_count: r.stargazers_count,
               forks_count: r.forks_count,
               default_branch: r.default_branch,
-              license: r.license?.spdx_id
+              license: r.license?.spdx_id,
+              originCreatedAt: originCreated,
+              originUpdatedAt: originUpdated
             })
           };
 
@@ -323,10 +330,31 @@ export class GitHubDriver {
         }
       } catch (_) {}
 
+      let originCreatedAt: string | null = null;
       let originUpdatedAt: string | null = null;
       if (rawLastModified) {
         try {
           originUpdatedAt = new Date(rawLastModified).toISOString();
+        } catch (_) {}
+      }
+
+      // If GitHub Token is available, fetch exact upstream creation and push dates
+      if (CONFIG.githubToken) {
+        try {
+          const apiResp = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+            headers: this.getHeaders()
+          });
+          if (apiResp.ok) {
+            const apiData = (await apiResp.json()) as any;
+            if (apiData.created_at) originCreatedAt = apiData.created_at;
+            if (apiData.pushed_at || apiData.updated_at) originUpdatedAt = apiData.pushed_at || apiData.updated_at;
+            if (!description && apiData.description) description = apiData.description;
+            if (apiData.topics && Array.isArray(apiData.topics)) {
+              for (const tp of apiData.topics) {
+                if (!tags.includes(tp)) tags.push(tp);
+              }
+            }
+          }
         } catch (_) {}
       }
 
@@ -339,6 +367,7 @@ export class GitHubDriver {
         description: description,
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
+        origin_created_at: originCreatedAt,
         origin_updated_at: originUpdatedAt,
         raw_json: JSON.stringify({
           owner,
@@ -348,6 +377,7 @@ export class GitHubDriver {
           latestReleaseAsset,
           etag: rawEtag,
           lastModified: rawLastModified,
+          originCreatedAt,
           originUpdatedAt
         })
       };

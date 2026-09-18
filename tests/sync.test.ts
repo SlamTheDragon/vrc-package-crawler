@@ -1,8 +1,12 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, afterAll } from "bun:test";
 import { runEdgeSync } from "../src/sync/index.ts";
 import { db } from "../src/db.ts";
 
 describe("Decoupled Cloudflare Edge Sync", () => {
+  afterAll(() => {
+    db.run("DELETE FROM sync_checkpoints;");
+  });
+
   it("executes dry-run synchronization and updates high-watermark checkpoint", async () => {
     // Run sync in dry-run mode
     const result = await runEdgeSync({ isDryRun: true, batchSize: 5 });
