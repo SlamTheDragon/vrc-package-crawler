@@ -152,8 +152,9 @@ export class VpmIndexDriver {
               }
               return true;
             } else {
-              db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+              db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
             }
+
           }
           continue;
         }

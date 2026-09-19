@@ -301,6 +301,16 @@ export class ImageProxyService {
       } catch (_) {}
 
       if (sharpModule) {
+        // Quality gate: probe actual pixel dimensions before processing
+        const meta = await sharpModule(fetched.buffer).metadata();
+        const srcW = meta.width || 0;
+        const srcH = meta.height || 0;
+        if (srcW > 0 && srcH > 0 && Math.min(srcW, srcH) < 200) {
+          // Image is too small to be a meaningful preview — treat as icon/logo, skip
+          logger.debug(`[ImageProxy] Rejecting icon-sized image (${srcW}x${srcH}): ${cleanUrl}`);
+          return null;
+        }
+
         const img = sharpModule(fetched.buffer);
         // Transcode to low-res Fair Use WebP thumbnail (480x270, quality 75)
         webpData = await img
@@ -334,6 +344,7 @@ export class ImageProxyService {
       logger.warn(`[ImageProxy] Error during image transcoding: ${String(err)}`);
       webpData = fetched.buffer;
     }
+
 
     const id = `media_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const now = new Date().toISOString();
@@ -371,55 +382,101 @@ export class ImageProxyService {
 
   /**
    * Indexes pending images for canonical packages that currently lack a media_id.
-   * Scans constituent entities in the observation lake for image candidates.
+   *
+   * Uses an entity-first approach to avoid head-of-line blocking: queries entities with
+   * a candidate image URL not yet cached, processes them, then links the cached media
+   * record back to the canonical package.
+   *
+   * Quality guardrails applied:
+   *  - URL pattern filter: skip known icon/logo/favicon/avatar URL patterns
+   *  - Dimension filter: reject images smaller than 200×200 after decode (via Sharp metadata)
+   *  - Content-Type guardrail: only image/* payloads accepted (inherited from fetchImageBufferGuarded)
+   *  - Socket guardrail: max 2MB payload (inherited from fetchImageBufferGuarded)
+   *  - Zero video downloads: youtube_urls and video_urls are stored as plain strings only
    */
   public static async indexPendingMedia(limit: number = 25, customDb?: CrawlerDB): Promise<number> {
     const targetDb = customDb || db;
     try {
-      const packagesWithoutMedia = targetDb.query(`
-        SELECT canonical_id, source_ids_json
-        FROM canonical_packages
-        WHERE media_id IS NULL
+      // Entity-first query: find entities with a thumbnail_url or media_urls NOT yet in media_cache.
+      // This avoids HOL blocking on packages whose entities have no media at all.
+      const candidateEntities = targetDb.rawDb.prepare(`
+        SELECT e.id AS entity_id, e.platform, e.raw_json
+        FROM entities e
+        WHERE e.is_quarantined = 0
+          AND e.raw_json IS NOT NULL
+          AND e.raw_json != '{}'
+          AND (
+            e.raw_json LIKE '%"thumbnail_url"%'
+            OR e.raw_json LIKE '%"media_urls"%'
+          )
         LIMIT ?;
-      `).all(limit) as any[];
+      `).all(limit * 4) as any[]; // oversample to account for already-cached URLs
 
-      if (packagesWithoutMedia.length === 0) return 0;
+      if (candidateEntities.length === 0) return 0;
+
+      // Known icon/logo/favicon URL patterns to skip (quality filter at URL level)
+      const skipPatterns = [
+        /\/favicon\./i, /\/icon[s]?\./i, /\/logo[s]?\./i,
+        /\/user-profile\//i, /\/avatar\//i, /\/a\/[^/]+\.(png|jpg|gif|webp)$/i,
+        /[?&]s=(\d+)(&|$)/, // GitHub avatar size param — raw avatars are square icons
+        /opengraph\.githubassets\.com/, // exclude GitHub OG cards from WebP download
+      ];
 
       let indexedCount = 0;
-      for (const pkg of packagesWithoutMedia) {
-        let sourceIds: string[] = [];
-        try { sourceIds = JSON.parse(pkg.source_ids_json || "[]"); } catch (_) {}
-        if (sourceIds.length === 0) continue;
 
-        // Query entities for image URLs
-        const placeholders = sourceIds.map(() => "?").join(",");
-        const entitiesWithRaw = targetDb.query(`
-          SELECT raw_json FROM entities WHERE id IN (${placeholders})
-        `).all(...sourceIds) as any[];
+      for (const ent of candidateEntities) {
+        if (indexedCount >= limit) break;
+        let raw: any = {};
+        try { raw = JSON.parse(ent.raw_json || "{}"); } catch (_) { continue; }
 
-        let candidateImageUrl: string | null = null;
-        for (const ent of entitiesWithRaw) {
-          try {
-            const raw = JSON.parse(ent.raw_json || "{}");
-            const img = raw.thumbnail_url || raw.imageUrl || raw.image || raw.ogImage || raw.preview_url || raw.iconUrl;
-            if (img && typeof img === "string" && img.startsWith("http")) {
-              candidateImageUrl = img;
-              break;
-            }
-          } catch (_) {}
+        // Collect candidate URLs: prefer thumbnail_url, then first entry of media_urls
+        const candidates: string[] = [];
+        if (raw.thumbnail_url && typeof raw.thumbnail_url === "string" && raw.thumbnail_url.startsWith("http")) {
+          candidates.push(raw.thumbnail_url);
         }
-
-        if (candidateImageUrl) {
-          const mediaRecord = await this.processAndCacheImage(candidateImageUrl, targetDb);
-          if (mediaRecord) {
-            targetDb.run(`
-              UPDATE canonical_packages
-              SET media_id = ?
-              WHERE canonical_id = ?;
-            `, [mediaRecord.id, pkg.canonical_id]);
-            indexedCount++;
+        if (Array.isArray(raw.media_urls)) {
+          for (const mu of raw.media_urls) {
+            if (typeof mu === "string" && mu.startsWith("http") && !candidates.includes(mu)) {
+              candidates.push(mu);
+            }
           }
         }
+        if (candidates.length === 0) continue;
+
+        // Pick first un-cached candidate URL
+        let selectedUrl: string | null = null;
+        for (const candidate of candidates) {
+          const cleanUrl = sanitizeOutboundUrl(candidate);
+          // URL-level quality filter
+          if (skipPatterns.some((p) => p.test(cleanUrl))) continue;
+          // Check if already cached
+          const alreadyCached = targetDb.query("SELECT id FROM media_cache WHERE source_url = ? LIMIT 1;").get(cleanUrl) as any;
+          if (!alreadyCached) {
+            selectedUrl = cleanUrl;
+            break;
+          }
+        }
+        if (!selectedUrl) continue;
+
+        const mediaRecord = await this.processAndCacheImage(selectedUrl, targetDb);
+        if (!mediaRecord) continue;
+
+        // Find all canonical packages that include this entity and have no media_id yet
+        const pkgs = targetDb.rawDb.prepare(`
+          SELECT canonical_id FROM canonical_packages
+          WHERE media_id IS NULL
+            AND source_ids_json LIKE ?
+        `).all(`%"${ent.entity_id}"%`) as any[];
+
+        for (const pkg of pkgs) {
+          targetDb.run(`
+            UPDATE canonical_packages
+            SET media_id = ?
+            WHERE canonical_id = ?;
+          `, [mediaRecord.id, pkg.canonical_id]);
+        }
+
+        indexedCount++;
       }
 
       if (indexedCount > 0) {
@@ -431,4 +488,5 @@ export class ImageProxyService {
       return 0;
     }
   }
+
 }

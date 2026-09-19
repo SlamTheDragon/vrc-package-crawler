@@ -1,10 +1,75 @@
 import { db, type PlatformMetrics } from "../db.ts";
 import { CONFIG } from "../config.ts";
 import { CrawlerIpcServer } from "../utils/ipc.ts";
+import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 
+export function launchDaemonProcess(): { success: boolean; pid?: number; error?: string } {
+  try {
+    const isBun = process.execPath.endsWith("bun.exe") || process.execPath.endsWith("bun");
+    const binaryName = process.platform === "win32" ? "vrc-crawler.exe" : "vrc-crawler";
+
+    const nextToExec = path.resolve(path.dirname(process.execPath), binaryName);
+    const distBinary = path.resolve(CONFIG.projectDir, "dist", binaryName);
+    const scriptPath = path.resolve(CONFIG.projectDir, "src/crawler/index.ts");
+
+    let targetExe: string | null = null;
+    let fallbackScript: string | null = null;
+
+    if (!isBun && fs.existsSync(nextToExec)) {
+      targetExe = nextToExec;
+    } else if (fs.existsSync(distBinary)) {
+      targetExe = distBinary;
+    } else if (fs.existsSync(scriptPath)) {
+      fallbackScript = scriptPath;
+    } else {
+      return { success: false, error: "Neither crawler binary nor source script found" };
+    }
+
+    let child;
+    if (process.platform === "win32") {
+      if (targetExe) {
+        child = spawn("cmd.exe", ["/c", "start", "", "/b", targetExe], {
+          detached: true,
+          stdio: "ignore",
+          cwd: CONFIG.projectDir,
+          windowsHide: true
+        });
+      } else {
+        child = spawn("cmd.exe", ["/c", "start", "", "/b", process.execPath, "run", fallbackScript!], {
+          detached: true,
+          stdio: "ignore",
+          cwd: CONFIG.projectDir,
+          windowsHide: true
+        });
+      }
+    } else {
+      if (targetExe) {
+        child = spawn(targetExe, [], {
+          detached: true,
+          stdio: "ignore",
+          cwd: CONFIG.projectDir
+        });
+      } else {
+        child = spawn(process.execPath, ["run", fallbackScript!], {
+          detached: true,
+          stdio: "ignore",
+          cwd: CONFIG.projectDir
+        });
+      }
+    }
+
+    child.unref();
+    return { success: true, pid: child.pid };
+  } catch (err: any) {
+    return { success: false, error: err.message || String(err) };
+  }
+}
+
+
 let isRunning = true;
+
 
 const shutdownStatus = (signal: string) => {
   if (!isRunning) return;
@@ -30,20 +95,48 @@ Usage:
 
 Commands:
   status                  Query and display running crawler daemon status
+  start                   Launch crawler daemon in background
   stop                    Send graceful shutdown signal to running daemon
   recrawl                 Trigger Poisson freshness re-crawl sweep on daemon
   project                 Trigger canonical projection synthesis pass on daemon
   sync                    Trigger Cloudflare edge sync on daemon
+  export                  Trigger catalog database export on daemon
 
 Options:
   --once                  Render a single metrics snapshot and exit
   --help, -h              Show this help message
 
 Interactive Hotkeys (in live dashboard):
-  [r] Force Re-crawl  |  [p] Project Rebuild  |  [s] Edge Sync  |  [q] Shutdown
+  [u/d] Start Daemon  |  [q] Stop Daemon  |  [r] Re-crawl  |  [p] Projections
+  [s] Edge Sync       |  [e] Export DB    |  [^C] Exit Monitor
 `);
   process.exit(0);
 }
+
+if (cliArgs.includes("start")) {
+  const status = await CrawlerIpcServer.getStatus();
+  if (status.running) {
+    console.log(`[CLI] Crawler daemon is already active (Port ${status.data.port}, uptime ${status.data.uptimeSeconds}s).`);
+    process.exit(0);
+  }
+  console.log("[CLI] Launching crawler daemon in background...");
+  const res = launchDaemonProcess();
+  if (res.success) {
+    console.log(`[CLI] Crawler daemon spawned successfully (PID: ${res.pid}).`);
+    await new Promise((r) => setTimeout(r, 1500));
+    const verify = await CrawlerIpcServer.getStatus();
+    if (verify.running) {
+      console.log(`[CLI] Daemon IPC verified online at port ${verify.data.port}.`);
+    } else {
+      console.log(`[CLI] Daemon started in background. Use 'monitor status' to track initialization.`);
+    }
+    process.exit(0);
+  } else {
+    console.error(`[CLI] Failed to launch daemon: ${res.error}`);
+    process.exit(1);
+  }
+}
+
 
 if (cliArgs.includes("stop")) {
   const res = await CrawlerIpcServer.sendCommand("stop");
@@ -178,11 +271,39 @@ if (process.stdin.isTTY && !process.argv.includes("--once")) {
 
     process.stdin.on("data", async (keyStr: string) => {
       const key = keyStr.toLowerCase();
-      if (key === "\u0003" || key === "q") {
-        // [q] or Ctrl+C: Signal daemon shutdown and exit monitor
-        console.log("\n\x1b[33m[MONITOR] Dispatching graceful shutdown to daemon...\x1b[0m");
-        await CrawlerIpcServer.sendCommand("stop");
-        shutdownStatus("KEYPRESS_Q");
+      if (key === "\u0003") {
+        // [Ctrl+C]: True monitor shutdown
+        shutdownStatus("SIGINT");
+      } else if (key === "q") {
+        // [q]: Shutdown daemon only, keep monitor running
+        setNotification("⏳ Dispatching graceful shutdown to crawler daemon...");
+        const res = await CrawlerIpcServer.sendCommand("stop");
+        if (res.success) {
+          setNotification("✓ Graceful shutdown signal sent to daemon (Daemon stopping)");
+        } else {
+          setNotification(`✗ Daemon shutdown failed (Already offline?): ${res.error}`);
+        }
+      } else if (key === "u" || key === "d") {
+        // [u] or [d]: Start daemon through monitor
+        const status = await CrawlerIpcServer.getStatus();
+        if (status.running) {
+          setNotification(`⚠️ Daemon is already active (Port ${status.data.port})`);
+        } else {
+          setNotification("⏳ Launching crawler daemon in background...");
+          const res = launchDaemonProcess();
+          if (res.success) {
+            setTimeout(async () => {
+              const verify = await CrawlerIpcServer.getStatus();
+              if (verify.running) {
+                setNotification(`✓ Crawler daemon online (PID: ${res.pid}, Port: ${verify.data.port})`);
+              } else {
+                setNotification(`✓ Crawler daemon spawned (PID: ${res.pid}), initializing...`);
+              }
+            }, 1500);
+          } else {
+            setNotification(`✗ Failed to launch daemon: ${res.error}`);
+          }
+        }
       } else if (key === "r") {
         // [r]: Force re-crawl
         const res = await CrawlerIpcServer.sendCommand("recrawl");
@@ -204,6 +325,7 @@ if (process.stdin.isTTY && !process.argv.includes("--once")) {
         setNotification(ipcRes.success ? "✓ Export dispatched to running daemon" : `✗ Export failed: ${ipcRes.error}`);
       }
     });
+
   } catch (_) {}
 }
 
@@ -295,7 +417,9 @@ async function runLiveMonitor() {
       break;
     }
 
-    console.log(" \x1b[1mControls:\x1b[0m \x1b[32m[r]\x1b[0m Re-crawl  |  \x1b[34m[p]\x1b[0m Projections  |  \x1b[35m[s]\x1b[0m Edge Sync  |  \x1b[36m[e]\x1b[0m Export DB  |  \x1b[31m[q]\x1b[0m Shutdown");
+    console.log(" \x1b[1mDaemon Controls:\x1b[0m \x1b[32m[u/d]\x1b[0m Start Daemon  |  \x1b[31m[q]\x1b[0m Stop Daemon  |  \x1b[90m[^C]\x1b[0m Exit Monitor");
+    console.log(" \x1b[1mQuick Actions:\x1b[0m   \x1b[32m[r]\x1b[0m Re-crawl      |  \x1b[34m[p]\x1b[0m Projections  |  \x1b[35m[s]\x1b[0m Edge Sync  |  \x1b[36m[e]\x1b[0m Export DB");
+
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }

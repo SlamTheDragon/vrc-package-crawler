@@ -817,10 +817,11 @@ const insertCanonical = db.prepare(`
     description, primary_platform, platforms_json, url, vcc_url,
     github_url, booth_url, gumroad_url, jinxxy_url, itch_url,
     price_currency, price_amount, is_vcc, tags_json, dependencies_json, source_ids_json,
-    media_id, origin_created_at, origin_updated_at, created_at_confidence, lifecycle,
+    media_id, media_urls_json, youtube_urls_json,
+    origin_created_at, origin_updated_at, created_at_confidence, lifecycle,
     lifecycle_updated_at, created_at, updated_at
   ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
   );
 `);
 
@@ -828,8 +829,8 @@ const insertFront = db.prepare(`
   INSERT OR REPLACE INTO package_fronts (
     id, canonical_id, platform, platform_item_id, url, title, author,
     price_currency, price_amount, origin_created_at, origin_updated_at,
-    raw_entity_id, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    raw_entity_id, media_urls_json, youtube_urls_json, created_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 `);
 
 // Load existing lifecycle overrides, media_id, and created_at so takedowns, image caches, and original indexing dates persist across rebuilds
@@ -1017,6 +1018,37 @@ db.transaction(() => {
     const depsJson = JSON.stringify(c.dependencies || {});
     const sourceIdsJson = JSON.stringify(c.source_ids);
 
+    // Aggregate deduplicated media_urls and youtube_urls from all source entities
+    const aggMediaSet = new Set<string>();
+    const aggYoutubeSet = new Set<string>();
+    for (const sid of c.source_ids) {
+      const ent = entityMap.get(sid);
+      if (!ent?.raw_json) continue;
+      try {
+        const raw = JSON.parse(ent.raw_json);
+        // media_urls: prefer the explicit gallery array, fall back to thumbnail_url
+        if (Array.isArray(raw.media_urls)) {
+          for (const u of raw.media_urls) {
+            if (typeof u === "string" && u.startsWith("http") && aggMediaSet.size < 30) {
+              aggMediaSet.add(u);
+            }
+          }
+        } else if (raw.thumbnail_url && typeof raw.thumbnail_url === "string" && raw.thumbnail_url.startsWith("http")) {
+          aggMediaSet.add(raw.thumbnail_url);
+        }
+        // youtube_urls
+        if (Array.isArray(raw.youtube_urls)) {
+          for (const y of raw.youtube_urls) {
+            if (typeof y === "string" && y.startsWith("http") && aggYoutubeSet.size < 15) {
+              aggYoutubeSet.add(y);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    const canonicalMediaUrlsJson = JSON.stringify(Array.from(aggMediaSet));
+    const canonicalYoutubeUrlsJson = JSON.stringify(Array.from(aggYoutubeSet));
+
     // Sanitize outbound links to maintain canonical creator traffic invariants
     let cleanUrl = sanitizeOutboundUrl(c.url);
     if (override?.url_override) {
@@ -1037,10 +1069,11 @@ db.transaction(() => {
       cleanGumroadUrl, cleanJinxxyUrl, cleanItchUrl,
       c.price_currency, c.price_amount, c.is_vcc,
       tagsJson, depsJson, sourceIdsJson,
-      assignedMediaId,
+      assignedMediaId, canonicalMediaUrlsJson, canonicalYoutubeUrlsJson,
       originCreatedAt, originUpdatedAt, createdAtConfidence,
       lifecycle, lifecycleUpdatedAt, localCreatedAt, localUpdatedAt
     );
+
 
     const storefronts = [
       { p: "booth", u: cleanBoothUrl },
@@ -1073,6 +1106,31 @@ db.transaction(() => {
         const frontCreatedAt = existingFrontMetadata.get(frontId)?.created_at || matchingEnt?.created_at || localCreatedAt;
         const frontUpdatedAt = timestampNow;
 
+        // Extract per-storefront media and youtube URLs from matching entity's raw_json
+        let frontMediaUrlsJson = "[]";
+        let frontYoutubeUrlsJson = "[]";
+        if (matchingEnt?.raw_json) {
+          try {
+            const raw = JSON.parse(matchingEnt.raw_json);
+            const fmSet = new Set<string>();
+            const fySet = new Set<string>();
+            if (Array.isArray(raw.media_urls)) {
+              for (const u of raw.media_urls) {
+                if (typeof u === "string" && u.startsWith("http")) fmSet.add(u);
+              }
+            } else if (raw.thumbnail_url && typeof raw.thumbnail_url === "string") {
+              fmSet.add(raw.thumbnail_url);
+            }
+            if (Array.isArray(raw.youtube_urls)) {
+              for (const y of raw.youtube_urls) {
+                if (typeof y === "string" && y.startsWith("http")) fySet.add(y);
+              }
+            }
+            frontMediaUrlsJson = JSON.stringify(Array.from(fmSet));
+            frontYoutubeUrlsJson = JSON.stringify(Array.from(fySet));
+          } catch (_) {}
+        }
+
         insertFront.run(
           frontId,
           c.canonical_id,
@@ -1086,9 +1144,12 @@ db.transaction(() => {
           frontOriginCreated,
           frontOriginUpdated,
           c.id,
+          frontMediaUrlsJson,
+          frontYoutubeUrlsJson,
           frontCreatedAt,
           frontUpdatedAt
         );
+
       }
     }
   }

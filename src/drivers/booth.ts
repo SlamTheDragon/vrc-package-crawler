@@ -168,6 +168,7 @@ export class BoothDriver {
       let priceAmount = 0;
       let priceCurrency = "JPY";
       let description = "";
+      let ldImage: string | null = null;
 
       if (jsonLdMatch) {
         try {
@@ -179,6 +180,10 @@ export class BoothDriver {
             priceCurrency = ld.offers.priceCurrency || "JPY";
             priceAmount = parseFloat(ld.offers.lowPrice || ld.offers.price || "0");
           }
+          // JSON-LD image (Schema.org Product image)
+          if (ld.image && typeof ld.image === "string" && ld.image.startsWith("http")) {
+            ldImage = ld.image;
+          }
         } catch (err) {
           logger.warn(`[BOOTH] JSON-LD parse failed for ${itemUrl}`);
         }
@@ -189,6 +194,49 @@ export class BoothDriver {
         const tm = html.match(/<h2[^>]*class="[^"]*item-name[^"]*"[^>]*>([^<]+)<\/h2>/);
         if (tm) title = tm[1].trim();
       }
+
+      // Extract OpenGraph and Twitter Card preview images
+      const ogImgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
+      const twImgMatch = html.match(/<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i);
+      const ogImage = ogImgMatch ? ogImgMatch[1] : null;
+      const twImage = twImgMatch ? twImgMatch[1] : null;
+
+      // Primary thumbnail: prefer JSON-LD image -> og:image -> twitter:image
+      const thumbnailUrl = ldImage || ogImage || twImage || null;
+
+      // Extract gallery images from pximg CDN (the booth image CDN)
+      // Only include images with quality-indicative size params (≥200) to filter out icons/thumbnails
+      const pximgRaw = html.match(/https:\/\/[a-z0-9.-]*pximg\.net\/[^\s"'<>]+/g) || [];
+      const mediaSet = new Set<string>();
+      for (const imgUrl of pximgRaw) {
+        // Skip tiny icon/thumbnail variants (e.g. /c/32x32/, /c/48x48/, /c/100x100/)
+        if (/\/c\/(\d+)x(\d+)\//.test(imgUrl)) {
+          const sizeMatch = imgUrl.match(/\/c\/(\d+)x(\d+)\//);
+          if (sizeMatch) {
+            const dim = Math.min(parseInt(sizeMatch[1], 10), parseInt(sizeMatch[2], 10));
+            if (dim < 200) continue; // skip icons and tiny previews
+          }
+        }
+        // Skip avatar images (contain /user-profile/ or /a/)
+        if (imgUrl.includes("/user-profile/") || imgUrl.includes("/a/")) continue;
+        // Normalize: strip query params
+        const cleanImg = imgUrl.split("?")[0];
+        mediaSet.add(cleanImg);
+      }
+      // Always include thumbnail as first media entry if not already present
+      if (thumbnailUrl) mediaSet.add(thumbnailUrl.split("?")[0]);
+      const mediaUrls = Array.from(mediaSet).slice(0, 20); // cap at 20 gallery items
+
+      // Extract YouTube video URLs (video embeds, watch links, youtu.be short links)
+      const ytRaw = html.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})[^\s"'<>]*/gi) || [];
+      const ytSet = new Set<string>();
+      for (const yt of ytRaw) {
+        const match = yt.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+        if (match) {
+          ytSet.add(`https://www.youtube.com/watch?v=${match[1]}`);
+        }
+      }
+      const youtubeUrls = Array.from(ytSet);
 
       // Extract External Links (GitHub, GitLab, etc.)
       const extLinks: string[] = [];
@@ -231,18 +279,25 @@ export class BoothDriver {
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
         origin_created_at: originCreatedAt,
-        raw_json: JSON.stringify({ itemId: finalItemId, title, author, priceAmount, tags, extLinks, originCreatedAt })
+        raw_json: JSON.stringify({
+          itemId: finalItemId, title, author, priceAmount, tags, extLinks, originCreatedAt,
+          thumbnail_url: thumbnailUrl,
+          media_urls: mediaUrls,
+          youtube_urls: youtubeUrls
+        })
       };
 
       const evalRes = RelevanceFilter.evaluate(record);
       if (evalRes.isRelevant) {
         db.saveEntity(record);
-        logger.info(`[BOOTH] Ingested: [${finalItemId}] ${title.slice(0, 50)} by ${author} (Score: ${evalRes.score})`);
+        logger.info(`[BOOTH] Ingested: [${finalItemId}] ${title.slice(0, 50)} by ${author} (Score: ${evalRes.score}, Media: ${mediaUrls.length} imgs, ${youtubeUrls.length} vids)`);
       } else {
-        db.quarantineEntity(record.id, record.platform, record.url, record.title, record.author, evalRes.reasons);
+        db.quarantineEntity(record.id, record.platform, record.url, record.title, record.author, evalRes.reasons, record);
         logger.info(`[BOOTH] Quarantined: [${finalItemId}] ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
       }
+
       return true;
+
     } catch (e) {
       logger.error(`[BOOTH] Error processing item ${itemUrl}`, e);
       return false;

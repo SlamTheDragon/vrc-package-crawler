@@ -118,7 +118,10 @@ export class GumroadDriver {
           external_links_json: JSON.stringify(sellerProfile ? [sellerProfile] : []),
           raw_json: JSON.stringify({
             ratings: p.ratings,
-            thumbnail_url: p.thumbnail_url,
+            thumbnail_url: p.thumbnail_url || null,
+            // Seed media_urls with the search thumbnail so indexPendingMedia can pick it up
+            media_urls: p.thumbnail_url ? [p.thumbnail_url] : [],
+            youtube_urls: [],
             filetypes: p.filetypes_data,
             query: query
           })
@@ -129,8 +132,9 @@ export class GumroadDriver {
           db.saveEntity(entity);
           saved++;
         } else {
-          db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+          db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
         }
+
       }
 
       logger.info(`[Gumroad:Discover] Ingested ${saved}/${products.length} vetted products, queued ${sellersFound.length} creator storefronts for '${query}' offset ${offset}`);
@@ -212,6 +216,7 @@ export class GumroadDriver {
       // Extract OpenGraph tags
       const ogTitleMatch = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]+)"/);
       const ogDescMatch = html.match(/<meta[^>]*property="og:description"[^>]*content="([^"]+)"/);
+      const ogImgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
       const urlMatch = productUrl.match(/gumroad\.com\/l\/([^/?#]+)/);
       const slug = urlMatch ? urlMatch[1] : productUrl;
 
@@ -240,9 +245,13 @@ export class GumroadDriver {
       // Autonomously extract any VPM / registry feeds from page description & links
       CuratedDriver.extractAndQueueRegistries(html);
 
-      // Extract Inertia data-page properties (published_at, updated_at)
+      // Extract Inertia data-page properties (published_at, updated_at, covers, thumbnail_url)
       let originCreatedAt: string | null = null;
       let originUpdatedAt: string | null = null;
+      let thumbnailUrl: string | null = ogImgMatch ? ogImgMatch[1] : null;
+      const mediaSet = new Set<string>();
+      const videoSet = new Set<string>();
+
       const inertiaMatch = html.match(/data-page="([^"]+)"/);
       if (inertiaMatch) {
         try {
@@ -256,9 +265,47 @@ export class GumroadDriver {
           if (p) {
             if (p.published_at) originCreatedAt = new Date(p.published_at).toISOString();
             if (p.updated_at) originUpdatedAt = new Date(p.updated_at).toISOString();
+            // thumbnail_url: the single preview image used in discovery search results
+            if (p.thumbnail_url && typeof p.thumbnail_url === "string") {
+              thumbnailUrl = thumbnailUrl || p.thumbnail_url;
+            }
+            // covers: the full gallery (images, GIFs, videos)
+            if (Array.isArray(p.covers)) {
+              for (const cover of p.covers) {
+                const coverUrl: string = cover?.url || cover?.original_url || "";
+                const type: string = cover?.type || "image";
+                if (!coverUrl || !coverUrl.startsWith("http")) continue;
+                const w: number = cover?.width || cover?.native_width || 0;
+                const h: number = cover?.height || cover?.native_height || 0;
+                // Quality filter: skip if reported dimensions are below 200px
+                if (w > 0 && h > 0 && Math.min(w, h) < 200) continue;
+                if (type === "video") {
+                  videoSet.add(coverUrl.split("?")[0]);
+                } else {
+                  // image or gif
+                  mediaSet.add(coverUrl.split("?")[0]);
+                }
+              }
+            }
           }
         } catch (_) {}
       }
+
+      // Fallback: og:image as thumbnail if no cover found
+      if (thumbnailUrl) mediaSet.add(thumbnailUrl.split("?")[0]);
+      const mediaUrls = Array.from(mediaSet).slice(0, 20);
+      const videoUrls = Array.from(videoSet).slice(0, 10);
+
+      // Extract YouTube video URLs from product page HTML
+      const ytRaw = html.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})[^\s"'<>]*/gi) || [];
+      const ytSet = new Set<string>();
+      for (const yt of ytRaw) {
+        const match = yt.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+        if (match) {
+          ytSet.add(`https://www.youtube.com/watch?v=${match[1]}`);
+        }
+      }
+      const youtubeUrls = Array.from(ytSet);
 
       const entity: EntityRecord = {
         id: `gumroad:${slug}`,
@@ -271,17 +318,24 @@ export class GumroadDriver {
         external_links_json: JSON.stringify(extLinks),
         origin_created_at: originCreatedAt,
         origin_updated_at: originUpdatedAt,
-        raw_json: JSON.stringify({ slug, title, author: creatorName, desc, extLinks, originCreatedAt, originUpdatedAt })
+        raw_json: JSON.stringify({
+          slug, title, author: creatorName, desc, extLinks, originCreatedAt, originUpdatedAt,
+          thumbnail_url: thumbnailUrl,
+          media_urls: mediaUrls,
+          video_urls: videoUrls,
+          youtube_urls: youtubeUrls
+        })
       };
 
       const evalRes = RelevanceFilter.evaluate(entity);
       if (evalRes.isRelevant) {
         db.saveEntity(entity);
-        logger.info(`[Gumroad] Ingested: ${title.slice(0, 50)} by ${creatorName} (Score: ${evalRes.score})`);
+        logger.info(`[Gumroad] Ingested: ${title.slice(0, 50)} by ${creatorName} (Score: ${evalRes.score}, Media: ${mediaUrls.length} imgs, ${videoUrls.length} vids, ${youtubeUrls.length} yt)`);
       } else {
-        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
         logger.info(`[Gumroad] Quarantined: ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
       }
+
       return true;
     } catch (e: any) {
       if (e?.message?.includes("ENOTFOUND") || e?.code === "ENOTFOUND") {
@@ -293,6 +347,7 @@ export class GumroadDriver {
       return false;
     }
   }
+
 
   // Crawls creator storefront and parses Inertia.js data-page payload
   static async crawlStorefront(storeUrl: string): Promise<boolean> {
@@ -417,8 +472,9 @@ export class GumroadDriver {
             db.queueUrl(cleanUrl, "gumroad");
             count++;
           } else {
-            db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+            db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
           }
+
         }
       }
 

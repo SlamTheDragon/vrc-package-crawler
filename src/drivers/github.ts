@@ -92,7 +92,12 @@ export class GitHubDriver {
               default_branch: r.default_branch,
               license: r.license?.spdx_id,
               originCreatedAt: originCreated,
-              originUpdatedAt: originUpdated
+              originUpdatedAt: originUpdated,
+              // Social preview image (GitHub OpenGraph card — public URL, no binary)
+              thumbnail_url: r.owner?.avatar_url || null,
+              // GitHub repo social preview card: https://opengraph.githubassets.com/1/{full_name}
+              media_urls: r.full_name ? [`https://opengraph.githubassets.com/1/${r.full_name}`] : [],
+              youtube_urls: []
             })
           };
 
@@ -129,8 +134,9 @@ export class GitHubDriver {
               db.queueUrl(`https://raw.githubusercontent.com/${r.full_name}/HEAD/index.json`, "vpm");
             }
           } else {
-            db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+            db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
           }
+
         }
 
         logger.info(`[GitHub] Page ${page}/${maxPages}: Ingested ${vetted}/${repos.length} vetted repos for "${query}"`);
@@ -358,6 +364,17 @@ export class GitHubDriver {
         } catch (_) {}
       }
 
+      // Extract YouTube video links from README (e.g. demo videos, tutorials)
+      const ytReadme = readmeText.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})[^\s\)\"<>]*/gi) || [];
+      const ytSet = new Set<string>();
+      for (const yt of ytReadme) {
+        const match = yt.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+        if (match) {
+          ytSet.add(`https://www.youtube.com/watch?v=${match[1]}`);
+        }
+      }
+      const youtubeUrls = Array.from(ytSet);
+
       const entity: EntityRecord = {
         id: `github:${owner}/${repo}`,
         platform: "github",
@@ -378,7 +395,11 @@ export class GitHubDriver {
           etag: rawEtag,
           lastModified: rawLastModified,
           originCreatedAt,
-          originUpdatedAt
+          originUpdatedAt,
+          // Social preview image (GitHub OpenGraph card — public URL, no binary download)
+          thumbnail_url: `https://opengraph.githubassets.com/1/${owner}/${repo}`,
+          media_urls: [`https://opengraph.githubassets.com/1/${owner}/${repo}`],
+          youtube_urls: youtubeUrls
         })
       };
 
@@ -387,9 +408,10 @@ export class GitHubDriver {
         db.saveEntity(entity);
         logger.info(`[GitHub] Ingested Repo: ${owner}/${repo} (Score: ${evalRes.score}, Confidence: ${evalRes.confidence.toFixed(2)})`);
       } else {
-        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
         logger.info(`[GitHub] Quarantined Repo: ${owner}/${repo} (${evalRes.reasons.join(", ")})`);
       }
+
 
       return true;
     } catch (e) {
@@ -520,8 +542,9 @@ export class GitHubDriver {
             creatorVetted++;
             totalHarvested++;
           } else {
-            db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+            db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
           }
+
 
           // Queue repo into frontier for deep README cross-link inspection
           db.queueUrl(repoUrl, "github");

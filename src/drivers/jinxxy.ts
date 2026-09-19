@@ -185,6 +185,58 @@ export class JinxxyDriver {
       const ogDesc = html.match(/<meta\s+property=["']og:description["']\s+content=["'](.*?)["']/i);
       const desc = ogDesc ? ogDesc[1].trim() : "";
 
+      // Extract og:image and twitter:image for primary thumbnail
+      const ogImgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
+      const twImgMatch = html.match(/<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i);
+      const ogImage = ogImgMatch ? ogImgMatch[1] : null;
+      const twImage = twImgMatch ? twImgMatch[1] : null;
+
+      let thumbnailUrl: string | null = ogImage || twImage || null;
+      const mediaSet = new Set<string>();
+
+      // Extract product image gallery from Next.js __NEXT_DATA__ hydration payload
+      const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/i);
+      if (nextDataMatch) {
+        try {
+          const nd = JSON.parse(nextDataMatch[1]);
+          const p = nd.props?.pageProps?.product || nd.props?.pageProps?.listing;
+          if (p) {
+            // Primary cover / thumbnail
+            const cover: string = p.cover || p.thumbnail || p.image || "";
+            if (cover && cover.startsWith("http")) {
+              thumbnailUrl = thumbnailUrl || cover;
+            }
+            // Full images array
+            const images: any[] = p.images || p.media || [];
+            for (const img of images) {
+              const imgUrl: string = typeof img === "string" ? img : (img?.url || img?.src || "");
+              if (!imgUrl || !imgUrl.startsWith("http")) continue;
+              // Quality filter: skip images from known icon/logo CDN patterns and those with tiny dimensions
+              const w: number = img?.width || 0;
+              const h: number = img?.height || 0;
+              if (w > 0 && h > 0 && Math.min(w, h) < 200) continue;
+              if (imgUrl.includes("/icon") || imgUrl.includes("/logo") || imgUrl.includes("/favicon")) continue;
+              mediaSet.add(imgUrl.split("?")[0]);
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Fallback: add thumbnail to media set if no gallery found
+      if (thumbnailUrl) mediaSet.add(thumbnailUrl.split("?")[0]);
+      const mediaUrls = Array.from(mediaSet).slice(0, 20);
+
+      // Extract YouTube video URLs
+      const ytRaw = html.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})[^\s"'<>]*/gi) || [];
+      const ytSet = new Set<string>();
+      for (const yt of ytRaw) {
+        const match = yt.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+        if (match) {
+          ytSet.add(`https://www.youtube.com/watch?v=${match[1]}`);
+        }
+      }
+      const youtubeUrls = Array.from(ytSet);
+
       // Extract tags
       const tagMatches = html.match(/href="\/market\/browse\?tags=([^"&]+)"/g) || [];
       const tags: string[] = ["jinxxy", "vrchat"];
@@ -247,24 +299,29 @@ export class JinxxyDriver {
           slug: productSlug,
           tags: tags,
           extLinks: extLinks,
-          originCreatedAt
+          originCreatedAt,
+          thumbnail_url: thumbnailUrl,
+          media_urls: mediaUrls,
+          youtube_urls: youtubeUrls
         })
       };
 
       const evalRes = RelevanceFilter.evaluate(entity);
       if (evalRes.isRelevant) {
         db.saveEntity(entity);
-        logger.info(`[Jinxxy:Product] Ingested: ${title.slice(0, 50)} by ${creatorName} (Score: ${evalRes.score})`);
+        logger.info(`[Jinxxy:Product] Ingested: ${title.slice(0, 50)} by ${creatorName} (Score: ${evalRes.score}, Media: ${mediaUrls.length} imgs, ${youtubeUrls.length} yt)`);
       } else {
-        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
         logger.info(`[Jinxxy:Product] Quarantined: ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
       }
+
       return true;
     } catch (e) {
       logger.error(`[Jinxxy:Product] Error inspecting ${productUrl}`, e);
       return false;
     }
   }
+
 
   // Scans Jinxxy sitemaps 59-65 for tool-related product URLs
   static async scanSitemapForTools(sitemapIdx: number): Promise<string[]> {

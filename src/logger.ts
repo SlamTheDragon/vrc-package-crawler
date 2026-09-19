@@ -22,7 +22,20 @@ export class Logger {
     return new Date().toISOString();
   }
 
+  debug(msg: string, meta?: any) {
+    if (process.env.DEBUG || process.env.LOG_LEVEL === "debug") {
+      if (!this.isClosed) {
+        try {
+          const line = `[${this.timestamp()}] [DEBUG] ${msg} ${meta ? JSON.stringify(meta) : ""}\n`;
+          this.crawlerLogStream.write(line);
+        } catch (_) {}
+      }
+      console.log(`\x1b[36m[DEBUG]\x1b[0m ${msg}`, meta ? meta : "");
+    }
+  }
+
   info(msg: string, meta?: any) {
+
     if (!this.isClosed) {
       try {
         const line = `[${this.timestamp()}] [INFO] ${msg} ${meta ? JSON.stringify(meta) : ""}\n`;

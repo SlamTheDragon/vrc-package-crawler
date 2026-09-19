@@ -286,6 +286,12 @@ export function startServer(config: ServerConfig = {}) {
             };
           }
 
+          // Deserialize media gallery and YouTube URL arrays
+          let mediaUrls: string[] = [];
+          let youtubeUrls: string[] = [];
+          try { mediaUrls = JSON.parse(pkg.media_urls_json || "[]"); } catch (_) {}
+          try { youtubeUrls = JSON.parse(pkg.youtube_urls_json || "[]"); } catch (_) {}
+
           return {
             action,
             canonicalId: pkg.canonical_id,
@@ -301,6 +307,8 @@ export function startServer(config: ServerConfig = {}) {
               isVcc: Boolean(pkg.is_vcc),
               tags,
               media: mediaObj,
+              mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+              youtubeUrls: youtubeUrls.length > 0 ? youtubeUrls : undefined,
               originCreatedAt: pkg.origin_created_at || null,
               originUpdatedAt: pkg.origin_updated_at || null,
               createdAtConfidence: pkg.created_at_confidence || "unknown",
@@ -308,6 +316,7 @@ export function startServer(config: ServerConfig = {}) {
               updatedAt: pkg.updated_at
             }
           };
+
         });
 
         const digest = crypto.createHash("sha256").update(JSON.stringify(deltas)).digest("hex");

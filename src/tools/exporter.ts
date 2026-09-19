@@ -78,6 +78,8 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
       dependencies_json TEXT DEFAULT '{}',
       source_ids_json TEXT NOT NULL,
       media_id TEXT,
+      media_urls_json TEXT DEFAULT '[]',
+      youtube_urls_json TEXT DEFAULT '[]',
       origin_created_at TEXT,
       origin_updated_at TEXT,
       created_at_confidence TEXT DEFAULT 'unknown',
@@ -102,10 +104,13 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
       origin_created_at TEXT,
       origin_updated_at TEXT,
       raw_entity_id TEXT NOT NULL,
+      media_urls_json TEXT DEFAULT '[]',
+      youtube_urls_json TEXT DEFAULT '[]',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `);
+
 
   catDb.run(`
     CREATE TABLE media_cache (
@@ -134,9 +139,10 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
       description, primary_platform, platforms_json, url, vcc_url, github_url,
       booth_url, gumroad_url, jinxxy_url, itch_url, price_currency, price_amount,
       is_vcc, tags_json, dependencies_json, source_ids_json, media_id,
+      media_urls_json, youtube_urls_json,
       origin_created_at, origin_updated_at, created_at_confidence, lifecycle, lifecycle_updated_at,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
   catDb.transaction(() => {
@@ -148,6 +154,7 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
         p.vcc_url, p.github_url, p.booth_url, p.gumroad_url, p.jinxxy_url, p.itch_url,
         p.price_currency, p.price_amount, p.is_vcc,
         p.tags_json, p.dependencies_json, p.source_ids_json, p.media_id,
+        p.media_urls_json || "[]", p.youtube_urls_json || "[]",
         p.origin_created_at, p.origin_updated_at, p.created_at_confidence || "unknown",
         p.lifecycle || "published", p.lifecycle_updated_at, p.created_at, p.updated_at
       );
@@ -162,8 +169,8 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
     INSERT INTO package_fronts (
       id, canonical_id, platform, platform_item_id, url, title, author,
       price_currency, price_amount, origin_created_at, origin_updated_at,
-      raw_entity_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      raw_entity_id, media_urls_json, youtube_urls_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
   catDb.transaction(() => {
@@ -171,10 +178,12 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
       insertFront.run(
         f.id, f.canonical_id, f.platform, f.platform_item_id, f.url, f.title, f.author,
         f.price_currency, f.price_amount, f.origin_created_at, f.origin_updated_at,
-        f.raw_entity_id, f.created_at, f.updated_at
+        f.raw_entity_id, f.media_urls_json || "[]", f.youtube_urls_json || "[]",
+        f.created_at, f.updated_at
       );
     }
   })();
+
 
   // Create SQLite FTS5 Full-Text Search Virtual Table
   logger.info("[Exporter] Constructing pre-indexed SQLite FTS5 search index...");

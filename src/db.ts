@@ -92,6 +92,10 @@ export interface CanonicalPackage {
   dependencies_json: string;
   source_ids_json: string;
   media_id?: string | null;
+  /** JSON array of deduplicated preview image/GIF URLs (quality-filtered, ≥200px, no icons/logos) */
+  media_urls_json?: string;
+  /** JSON array of deduplicated YouTube video URLs found on the storefront listing */
+  youtube_urls_json?: string;
   origin_created_at?: string | null;
   origin_updated_at?: string | null;
   created_at_confidence?: "confirmed" | "inferred" | "unknown" | null;
@@ -158,6 +162,10 @@ export interface PackageFront {
   origin_created_at?: string | null;
   origin_updated_at?: string | null;
   raw_entity_id: string;
+  /** JSON array of this storefront's preview image/GIF URLs (quality-filtered, no icons/logos) */
+  media_urls_json?: string;
+  /** JSON array of YouTube video URLs found on this storefront listing */
+  youtube_urls_json?: string;
   created_at: string;
   updated_at: string;
 }
@@ -379,6 +387,12 @@ export class CrawlerDB {
     try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN created_at_confidence TEXT DEFAULT 'unknown';"); } catch (_) {}
     try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN lifecycle TEXT DEFAULT 'published';"); } catch (_) {}
     try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN lifecycle_updated_at TEXT;"); } catch (_) {}
+    // Media gallery & video URL arrays (added for storefront image/GIF/YouTube ingestion)
+    try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN media_urls_json TEXT DEFAULT '[]';"); } catch (_) {}
+    try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN youtube_urls_json TEXT DEFAULT '[]';"); } catch (_) {}
+    try { this.db.run("ALTER TABLE package_fronts ADD COLUMN media_urls_json TEXT DEFAULT '[]';"); } catch (_) {}
+    try { this.db.run("ALTER TABLE package_fronts ADD COLUMN youtube_urls_json TEXT DEFAULT '[]';"); } catch (_) {}
+
 
     // 5. Package Fronts (Decoupled store fronts per package)
     this.db.run(`
@@ -505,6 +519,30 @@ export class CrawlerDB {
     try {
       const reset = this.db.run("UPDATE frontier SET status = 'pending' WHERE status = 'fetching';");
       return reset.changes;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Resets all frontier URLs to 'pending' with attempts = 0 and next_fetch_at = now
+   * for a full clean recrawl pass. Preserves 'discarded' entries.
+   */
+  public resetFrontierForRecrawl(): number {
+    if (this.isClosed) return 0;
+    try {
+      const now = new Date().toISOString();
+      const result = this.db.run(`
+        UPDATE frontier
+        SET status = 'pending',
+            attempts = 0,
+            etag = NULL,
+            last_modified = NULL,
+            next_fetch_at = ?,
+            updated_at = ?
+        WHERE status != 'discarded';
+      `, [now, now]);
+      return result.changes;
     } catch {
       return 0;
     }
@@ -791,7 +829,17 @@ export class CrawlerDB {
     url: string,
     title: string,
     author: string,
-    reasons: string[]
+    reasons: string[],
+    details?: {
+      description?: string | null;
+      tags_json?: string | null;
+      external_links_json?: string | null;
+      raw_json?: string | null;
+      price_currency?: string | null;
+      price_amount?: number | null;
+      origin_created_at?: string | null;
+      origin_updated_at?: string | null;
+    }
   ): boolean {
     if (this._isClosed) return false;
     const now = new Date().toISOString();
@@ -799,19 +847,45 @@ export class CrawlerDB {
       const reasonsJson = JSON.stringify(reasons);
       const stmt = this.db.prepare(`
         INSERT OR REPLACE INTO entities (
-          id, platform, url, title, author, is_quarantined, quarantine_reasons_json,
+          id, platform, url, title, author, price_currency, price_amount,
+          description, tags_json, external_links_json, raw_json,
+          is_quarantined, quarantine_reasons_json,
+          origin_created_at, origin_updated_at,
           observed_at, created_at, updated_at
         ) VALUES (
-          ?, ?, ?, ?, ?, 1, ?,
+          ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          1, ?,
+          ?, ?,
           ?, COALESCE((SELECT created_at FROM entities WHERE id = ?), ?), ?
         );
       `);
-      stmt.run(id, platform, url, title, author, reasonsJson, now, id, now, now);
+      stmt.run(
+        id,
+        platform,
+        url,
+        title,
+        author,
+        details?.price_currency || null,
+        details?.price_amount || null,
+        details?.description || "",
+        details?.tags_json || "[]",
+        details?.external_links_json || "[]",
+        details?.raw_json || "{}",
+        reasonsJson,
+        details?.origin_created_at || null,
+        details?.origin_updated_at || null,
+        now,
+        id,
+        now,
+        now
+      );
       return true;
     } catch {
       return false;
     }
   }
+
 
   public getMetrics(): SystemMetrics {
     const platformStats: Record<PlatformType, PlatformMetrics> = {

@@ -216,6 +216,43 @@ export class ItchDriver {
         } catch (_) {}
       }
 
+      // Extract og:image and twitter:image for primary thumbnail
+      const ogImgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
+      const twImgMatch = html.match(/<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i);
+      const thumbnailUrl: string | null = (ogImgMatch ? ogImgMatch[1] : null) || (twImgMatch ? twImgMatch[1] : null) || null;
+
+      // Extract itch.zone screenshot/cover images (quality-filtered)
+      // Itch.io CDN URLs like: https://img.itch.zone/aW1nLzE4Nzk5MjgxLnBuZw==/508x254%23mb/xxxx.png
+      const itchImgRaw = html.match(/https:\/\/img\.itch\.zone\/[^\s"'<>]+/g) || [];
+      const mediaSet = new Set<string>();
+      for (const imgUrl of itchImgRaw) {
+        // Parse size hints from URL path (e.g. /32x32%23/, /508x254%23mb/, /original/)
+        const sizeMatch = imgUrl.match(/\/(\d+)x(\d+)/);
+        if (sizeMatch) {
+          const w = parseInt(sizeMatch[1], 10);
+          const h = parseInt(sizeMatch[2], 10);
+          // Skip icon/favicon-sized images (under 200px in both dimensions)
+          if (Math.min(w, h) < 200) continue;
+        }
+        // Skip avatar/profile images (typically /a/ path or small icon slugs)
+        if (imgUrl.includes("/a/")) continue;
+        const cleanImg = imgUrl.split("?")[0];
+        mediaSet.add(cleanImg);
+      }
+      if (thumbnailUrl) mediaSet.add(thumbnailUrl.split("?")[0]);
+      const mediaUrls = Array.from(mediaSet).slice(0, 20);
+
+      // Extract YouTube video URLs
+      const ytRaw = html.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})[^\s"'<>]*/gi) || [];
+      const ytSet = new Set<string>();
+      for (const yt of ytRaw) {
+        const match = yt.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+        if (match) {
+          ytSet.add(`https://www.youtube.com/watch?v=${match[1]}`);
+        }
+      }
+      const youtubeUrls = Array.from(ytSet);
+
       const entity: EntityRecord = {
         id: `itch:${creator}/${productUrl.split("/").pop()}`,
         platform: "itch",
@@ -228,19 +265,26 @@ export class ItchDriver {
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
         origin_created_at: originCreatedAt,
-        raw_json: JSON.stringify({ creator, title, extLinks, tags, originCreatedAt })
+        raw_json: JSON.stringify({
+          creator, title, extLinks, tags, originCreatedAt,
+          thumbnail_url: thumbnailUrl,
+          media_urls: mediaUrls,
+          youtube_urls: youtubeUrls
+        })
       };
 
       const evalRes = RelevanceFilter.evaluate(entity);
       if (evalRes.isRelevant) {
         db.saveEntity(entity);
-        logger.info(`[Itch:Product] Ingested: ${title.slice(0, 50)} by ${creator} (Score: ${evalRes.score})`);
+        logger.info(`[Itch:Product] Ingested: ${title.slice(0, 50)} by ${creator} (Score: ${evalRes.score}, Media: ${mediaUrls.length} imgs, ${youtubeUrls.length} yt)`);
       } else {
-        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons);
+        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
         logger.info(`[Itch:Product] Quarantined: ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
       }
 
+
       return true;
+
     } catch (e) {
       logger.error(`[Itch:Product] Error inspecting ${productUrl}`, e);
       return false;

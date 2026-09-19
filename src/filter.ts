@@ -158,11 +158,15 @@ export class RelevanceFilter {
     "generator", "setup tool", "workflow", "shader", "shaders", "シェーダー", "osc",
     "skinedit", "ssrt", "virtuallens", "ragdoll", "polytool", "suiminsystem",
     "ovr", "steamvr", "openvr", "vrcx", "adjuster", "addon", "add-on", "tool", "tools",
+    "integration", "integrations", "bridge", "bridges", "overlay", "overlays",
+    "streamer", "streaming", "twitch", "widget", "widgets", "interactable", "controller",
+    "controllers", "utility", "utilities",
     "アドオン", "プラグイン", "エディタ", "ボーン", "ウェイト", "改変",
     "アニメーション", "表情", "ポーズ", "追従", "カメラ", "メニュー", "ライト", "パーティクル",
     "時計", "ペン", "ミラー", "フライト", "マーカー", "設定", "補助", "導入", "プレハブ",
     "コライダー", "コンストレイント", "オーディオ", "揺れもの", "ワールド"
   ];
+
 
   // 5. Secondary VRChat Ecosystem Signals (+1 to +2)
   private static SECONDARY_VRC_TERMS = [
@@ -420,8 +424,17 @@ export class RelevanceFilter {
         ? "generic_software"
         : "asset_pollution";
 
-    return { isRelevant, score, confidence, category, reasons };
+    const finalReasons = isRelevant
+      ? reasons
+      : reasons.length > 0 && !reasons.some((r) => r.toLowerCase().includes("commercial") || r.toLowerCase().includes("skeleton") || r.toLowerCase().includes("blacklisted") || r.toLowerCase().includes("generic") || r.toLowerCase().includes("asset"))
+      ? [`Score ${score}/3 below minimum relevance threshold (matched: ${reasons.join(", ")})`]
+      : reasons.length > 0
+      ? reasons
+      : [`Score ${score}/3 below minimum relevance threshold (no tool signals found)`];
+
+    return { isRelevant, score, confidence, category, reasons: finalReasons };
   }
+
 
   // Pre-screening candidate URLs before queuing into frontier
   static isUrlCandidateRelevant(url: string, platform: string): boolean {
