@@ -197,6 +197,212 @@ export function sanitizeOutboundUrl(rawUrl: string): string {
   }
 }
 
+/**
+ * Manages a persistent bun subprocess that handles all Sharp image processing.
+ *
+ * When the crawler runs as a compiled standalone binary, `import("sharp")` fails because
+ * Bun's bundler cannot resolve the native `.node` addon at runtime. This class solves the
+ * problem by spawning a separate `bun run sharp_worker.ts` child process that has full
+ * access to node_modules, then communicating with it via newline-delimited JSON on
+ * stdin/stdout.
+ *
+ * The worker process is started lazily on first use and kept alive for the duration of
+ * the parent process. It is restarted automatically if it crashes.
+ */
+class SharpSubprocess {
+  private static _instance: SharpSubprocess | null = null;
+  private proc: ReturnType<typeof Bun.spawn> | null = null;
+  private _stdin: import("bun").FileSink | null = null;
+  private ready = false;
+  private pendingCallbacks: Map<string, { resolve: (v: any) => void; reject: (e: any) => void }> = new Map();
+  private leftover = "";
+  private workerScriptPath: string;
+  private startFailures = 0;
+  private readonly MAX_FAILURES = 3;
+
+  private constructor() {
+    // The worker script is at src/utils/sharp_worker.ts relative to the project root.
+    // process.cwd() is the project root both in `bun run` and when the compiled binary
+    // is launched from the project directory (which is always the case for this daemon).
+    // import.meta.dir cannot be used here because in a compiled binary it resolves to the
+    // directory of the .exe, not the source tree.
+    this.workerScriptPath = `${process.cwd()}/src/utils/sharp_worker.ts`;
+  }
+
+  public static getInstance(): SharpSubprocess {
+    if (!SharpSubprocess._instance) {
+      SharpSubprocess._instance = new SharpSubprocess();
+    }
+    return SharpSubprocess._instance;
+  }
+
+  /** Ensure the subprocess is running and ready. Returns false if startup failed. */
+  private async ensureRunning(): Promise<boolean> {
+    if (this.proc && this.ready) return true;
+    if (this.startFailures >= this.MAX_FAILURES) return false;
+
+    try {
+      this.ready = false;
+      this.leftover = "";
+      this.pendingCallbacks.clear();
+
+      // Locate bun executable
+      const bunExe = process.execPath.endsWith("bun") || process.execPath.endsWith("bun.exe")
+        ? process.execPath
+        : "bun";
+
+      this.proc = Bun.spawn([bunExe, "run", this.workerScriptPath], {
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        cwd: process.cwd(),
+      });
+
+      const procStdout = this.proc.stdout as ReadableStream<Uint8Array>;
+      const procStderr = this.proc.stderr as ReadableStream<Uint8Array>;
+      const procStdin  = this.proc.stdin  as import("bun").FileSink;
+
+      // Drain stderr to prevent blocking
+      (async () => {
+        const reader = procStderr.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value?.length) {
+            logger.debug(`[SharpWorker:stderr] ${new TextDecoder().decode(value).trimEnd()}`);
+          }
+        }
+      })().catch(() => {});
+
+      // Wire up stdout line reader
+      (async () => {
+        const reader = procStdout.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          this.leftover += new TextDecoder().decode(value);
+          const lines = this.leftover.split("\n");
+          this.leftover = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const msg = JSON.parse(line);
+              if (msg.ready) {
+                this.ready = true;
+                continue;
+              }
+              const cb = this.pendingCallbacks.get(msg.id);
+              if (cb) {
+                this.pendingCallbacks.delete(msg.id);
+                cb.resolve(msg);
+              }
+            } catch { /* malformed line */ }
+          }
+        }
+        // Process exited — mark not ready
+        this.ready = false;
+        this.proc = null;
+        this._stdin = null;
+        // Reject all pending with a crash error
+        for (const [, cb] of this.pendingCallbacks) {
+          cb.reject(new Error("SharpWorker process exited unexpectedly"));
+        }
+        this.pendingCallbacks.clear();
+      })().catch(() => {});
+
+      // Store stdin handle for later writes
+      this._stdin = procStdin;
+
+      // Wait up to 5s for the "ready" signal
+      const started = await Promise.race([
+        new Promise<boolean>((res) => {
+          const poll = setInterval(() => {
+            if (this.ready) { clearInterval(poll); res(true); }
+          }, 50);
+        }),
+        new Promise<boolean>((res) => setTimeout(() => res(false), 5000)),
+      ]);
+
+      if (!started) {
+        this.startFailures++;
+        logger.warn(`[SharpWorker] Worker did not become ready within 5s (attempt ${this.startFailures}/${this.MAX_FAILURES})`);
+        this.proc?.kill();
+        this.proc = null;
+        return false;
+      }
+
+      this.startFailures = 0;
+      logger.debug("[SharpWorker] Subprocess ready");
+      return true;
+    } catch (err) {
+      this.startFailures++;
+      logger.warn(`[SharpWorker] Failed to start worker: ${String(err)}`);
+      this.proc = null;
+      return false;
+    }
+  }
+
+  /**
+   * Send an image buffer to the worker for processing.
+   * Returns the parsed response or null on failure.
+   */
+  public async process(imageBuffer: Buffer): Promise<{
+    ok: boolean;
+    rejected?: boolean;
+    webp_b64?: string;
+    rgb_b64?: string;
+    gray_b64?: string;
+    srcW?: number;
+    srcH?: number;
+    error?: string;
+  } | null> {
+    const running = await this.ensureRunning();
+    if (!running || !this._stdin) return null;
+
+    const id = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const payload = JSON.stringify({ id, buffer_b64: imageBuffer.toString("base64") }) + "\n";
+
+    return new Promise((resolve, reject) => {
+      try {
+        this._stdin!.write(new TextEncoder().encode(payload));
+        this._stdin!.flush();
+      } catch (err) {
+        reject(err);
+        return;
+      }
+
+      // Register callback after write succeeds
+      this.pendingCallbacks.set(id, { resolve, reject });
+
+      // 15-second per-request timeout
+      const timer = setTimeout(() => {
+        if (this.pendingCallbacks.has(id)) {
+          this.pendingCallbacks.delete(id);
+          reject(new Error(`SharpWorker timeout for request ${id}`));
+        }
+      }, 15000);
+
+      // Wrap resolve/reject to clear timer on resolution
+      const origEntry = this.pendingCallbacks.get(id)!;
+      this.pendingCallbacks.set(id, {
+        resolve: (v) => { clearTimeout(timer); origEntry.resolve(v); },
+        reject:  (e) => { clearTimeout(timer); origEntry.reject(e); }
+      });
+    });
+  }
+
+  /** Gracefully shut down the worker process. */
+  public shutdown(): void {
+    if (this.proc) {
+      try { this.proc.kill(); } catch {}
+      this.proc = null;
+      this._stdin = null;
+      this.ready = false;
+    }
+  }
+}
+
 export class ImageProxyService {
   private static readonly MAX_PAYLOAD_BYTES = 2 * 1024 * 1024; // 2 MB strict socket limit
 
@@ -290,36 +496,31 @@ export class ImageProxyService {
     let webpData: Buffer | null = null;
     let blurhash: string | null = null;
     let phash64: string | null = null;
-    let width = 480;
-    let height = 270;
+    const width = 480;
+    const height = 270;
 
     try {
-      // Dynamic import of sharp so standalone binaries without sharp native dlls don't crash
+      // Attempt 1: direct import (works in dev / bun run mode)
       let sharpModule: any = null;
       try {
         sharpModule = (await import("sharp")).default;
       } catch (_) {}
 
       if (sharpModule) {
-        // Quality gate: probe actual pixel dimensions before processing
+        // ── In-process path (bun run / dev) ──────────────────────────────────
         const meta = await sharpModule(fetched.buffer).metadata();
         const srcW = meta.width || 0;
         const srcH = meta.height || 0;
         if (srcW > 0 && srcH > 0 && Math.min(srcW, srcH) < 200) {
-          // Image is too small to be a meaningful preview — treat as icon/logo, skip
           logger.debug(`[ImageProxy] Rejecting icon-sized image (${srcW}x${srcH}): ${cleanUrl}`);
           return null;
         }
 
-        const img = sharpModule(fetched.buffer);
-        // Transcode to low-res Fair Use WebP thumbnail (480x270, quality 75)
-        webpData = await img
-          .clone()
+        webpData = await sharpModule(fetched.buffer)
           .resize(480, 270, { fit: "cover" })
           .webp({ quality: 75 })
           .toBuffer();
 
-        // 32x32 raw RGB for BlurHash
         const { data: rawRgb } = await sharpModule(fetched.buffer)
           .resize(32, 32, { fit: "fill" })
           .removeAlpha()
@@ -327,24 +528,50 @@ export class ImageProxyService {
           .toBuffer({ resolveWithObject: true });
         blurhash = computeBlurHash(rawRgb, 32, 32, 4, 3);
 
-        // 32x32 grayscale for 64-bit pHash
         const { data: rawGray } = await sharpModule(fetched.buffer)
           .resize(32, 32, { fit: "fill" })
           .grayscale()
           .raw()
           .toBuffer({ resolveWithObject: true });
         phash64 = computePHash64(rawGray);
+
       } else {
-        // Fallback when sharp native addon is absent: preserve raw buffer
-        webpData = fetched.buffer;
-        blurhash = "L6PZfSi_.AyE_3t7t7R**0o#DgR4";
-        phash64 = "0000000000000000";
+        // ── Subprocess path (compiled binary) ────────────────────────────────
+        // Sharp's native .node addon cannot be resolved inside a Bun standalone binary.
+        // Delegate to the SharpSubprocess worker which runs via `bun run` and has full
+        // access to node_modules.
+        logger.debug(`[ImageProxy] Sharp not available in-process, delegating to subprocess worker: ${cleanUrl}`);
+        const worker = SharpSubprocess.getInstance();
+        const result = await worker.process(fetched.buffer);
+
+        if (!result) {
+          logger.warn(`[ImageProxy] SharpWorker returned null for: ${cleanUrl}`);
+          return null;
+        }
+        if (result.rejected) {
+          logger.debug(`[ImageProxy] SharpWorker rejected icon-sized image: ${cleanUrl}`);
+          return null;
+        }
+        if (result.error) {
+          logger.warn(`[ImageProxy] SharpWorker error for ${cleanUrl}: ${result.error}`);
+          return null;
+        }
+        if (!result.ok || !result.webp_b64 || !result.rgb_b64 || !result.gray_b64) {
+          logger.warn(`[ImageProxy] SharpWorker returned incomplete result for: ${cleanUrl}`);
+          return null;
+        }
+
+        webpData  = Buffer.from(result.webp_b64,  "base64");
+        const rawRgb  = Buffer.from(result.rgb_b64,  "base64");
+        const rawGray = Buffer.from(result.gray_b64, "base64");
+        blurhash = computeBlurHash(rawRgb, 32, 32, 4, 3);
+        phash64  = computePHash64(rawGray);
       }
     } catch (err) {
       logger.warn(`[ImageProxy] Error during image transcoding: ${String(err)}`);
-      webpData = fetched.buffer;
+      // Do not store broken entries — return null so the URL remains uncached and can be retried
+      return null;
     }
-
 
     const id = `media_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const now = new Date().toISOString();

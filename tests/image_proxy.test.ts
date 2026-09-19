@@ -69,13 +69,27 @@ describe("Proxied Media Pipeline & Invariants", () => {
       );
     `, [testCanonicalId, testCanonicalId, JSON.stringify([testEntId])]);
 
-    // 3. Mock fetch for image download
+    // 3. Create a real, sharp-decodable 300x300 PNG test fixture
+    let testPngBytes: Uint8Array;
+    try {
+      const sharp = (await import("sharp")).default;
+      const buf = await sharp({
+        create: { width: 300, height: 300, channels: 3, background: { r: 100, g: 150, b: 200 } }
+      }).png().toBuffer();
+      testPngBytes = new Uint8Array(buf);
+    } catch {
+      // If sharp is unavailable in test env, skip with a no-op (should not normally happen)
+      console.warn("[test] sharp not available — skipping indexPendingMedia test");
+      testDb.close();
+      return;
+    }
+
+    // 4. Mock fetch for image download
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (input: any, init?: any) => {
       const url = typeof input === "string" ? input : input.url;
       if (url.includes("test-thumbnail.png")) {
-        // Return dummy image bytes
-        return new Response(new Uint8Array(100), {
+        return new Response(testPngBytes, {
           status: 200,
           headers: { "Content-Type": "image/png" }
         });
