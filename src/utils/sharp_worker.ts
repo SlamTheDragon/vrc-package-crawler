@@ -77,8 +77,8 @@ process.stdin.on("data", async (chunk: string) => {
         id,
         ok: true,
         webp_b64: webpBuf.toString("base64"),
-        rgb_b64:  Buffer.from(rgbResult.data.buffer).toString("base64"),
-        gray_b64: Buffer.from(grayResult.data.buffer).toString("base64"),
+        rgb_b64:  rgbResult.data.toString("base64"),
+        gray_b64: grayResult.data.toString("base64"),
         srcW,
         srcH
       }) + "\n");

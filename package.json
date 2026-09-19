@@ -13,6 +13,7 @@
     "steering": "bun run src/tools/steering.ts",
     "sanitize": "bun run src/tools/pipeline_sanitize.ts",
     "discover:vpm": "bun run src/tools/discover_vpm.ts",
+    "requeue:media": "bun run src/tools/requeue_media.ts",
     "build:crawler": "bun build --compile --outfile=dist/vrc-crawler.exe src/crawler/index.ts",
     "build:monitor": "bun build --compile --outfile=dist/vrc-monitor.exe src/monitor/index.ts",
     "build:sync": "bun build --compile --outfile=dist/vrc-sync.exe src/sync/index.ts",

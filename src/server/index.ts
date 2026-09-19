@@ -169,17 +169,22 @@ export function startServer(config: ServerConfig = {}) {
       // --- GET /v1/media/:id or /v1/thumbs/:id (Low-Resolution WebP Proxy) ---
       if (method === "GET" && (path.startsWith("/v1/media/") || path.startsWith("/v1/thumbs/"))) {
         const mediaId = path.split("/").pop()?.replace(/\.webp$/, "");
-        if (mediaId) {
-          const row = targetDb.rawDb.prepare("SELECT webp_data, content_type FROM media_cache WHERE id = ?;").get(mediaId) as any;
-          if (row && row.webp_data) {
-            return new Response(row.webp_data, {
-              status: 200,
-              headers: {
-                ...corsHeaders,
-                "Content-Type": row.content_type || "image/webp",
-                "Cache-Control": "public, max-age=31536000, immutable"
-              }
-            });
+        if (mediaId && mediaId !== "none") {
+          const row = targetDb.rawDb.prepare("SELECT webp_data, content_type, source_url FROM media_cache WHERE id = ?;").get(mediaId) as any;
+          if (row) {
+            if (row.webp_data) {
+              return new Response(row.webp_data, {
+                status: 200,
+                headers: {
+                  ...corsHeaders,
+                  "Content-Type": row.content_type || "image/webp",
+                  "Cache-Control": "public, max-age=31536000, immutable"
+                }
+              });
+            } else if (row.source_url) {
+              // Redirect to original source URL for source-only/oversized records
+              return Response.redirect(row.source_url, 302);
+            }
           }
         }
         return new Response(JSON.stringify({ error: "Media not found" }), { status: 404, headers: corsHeaders });
@@ -278,7 +283,7 @@ export function startServer(config: ServerConfig = {}) {
           } catch (_) {}
 
           let mediaObj: any = undefined;
-          if (pkg.media_id) {
+          if (pkg.media_id && pkg.media_id !== "none") {
             const mRow = targetDb.rawDb.prepare("SELECT blurhash FROM media_cache WHERE id = ?;").get(pkg.media_id) as any;
             mediaObj = {
               thumbnailUrl: `${url.origin}/v1/media/${pkg.media_id}.webp`,

@@ -115,4 +115,110 @@ describe("Proxied Media Pipeline & Invariants", () => {
       testDb.close();
     }
   });
+
+  it("indexes oversized images (>10MB) as source-only to satisfy requirement and avoid HOL blocking", async () => {
+    const { CrawlerDB } = await import("../src/db.ts");
+    const testDb = new CrawlerDB(":memory:");
+    const testCanonicalId = `can_oversized_${Date.now()}`;
+    const testEntId = `ent_oversized_${Date.now()}`;
+
+    testDb.rawDb.run(`
+      INSERT INTO entities (
+        id, platform, url, title, author, description, tags_json, external_links_json,
+        raw_json, is_quarantined, observed_at, created_at, updated_at
+      ) VALUES (
+        ?, 'gumroad', 'https://gumroad.com/l/giant-asset', 'Giant Asset', 'BigCreator', 'Desc', '[]', '[]',
+        ?, 0, datetime('now'), datetime('now'), datetime('now')
+      );
+    `, [testEntId, JSON.stringify({ thumbnail_url: "https://public-files.gumroad.com/giant-image.gif" })]);
+
+    testDb.rawDb.run(`
+      INSERT INTO canonical_packages (
+        id, canonical_id, name, author, authors_json, category, subcategory, type,
+        description, primary_platform, platforms_json, url, price_currency, price_amount,
+        is_vcc, tags_json, dependencies_json, source_ids_json, media_id, created_at, updated_at
+      ) VALUES (
+        ?, ?, 'Giant Asset', 'BigCreator', '[]', 'Tools', 'Utilities',
+        'QoL, Workflow & Toolchain', 'Desc', 'gumroad', '["gumroad"]', 'https://gumroad.com/l/giant-asset',
+        'USD', 0, 0, '[]', '{}', ?, NULL, datetime('now'), datetime('now')
+      );
+    `, [testCanonicalId, testCanonicalId, JSON.stringify([testEntId])]);
+
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("giant-image.gif")) {
+        return new Response(new Uint8Array(100), {
+          status: 200,
+          headers: {
+            "Content-Type": "image/gif",
+            "Content-Length": "15728640" // 15 MB > 10MB limit
+          }
+        });
+      }
+      return origFetch(input);
+    }) as any;
+
+    try {
+      const indexed = await ImageProxyService.indexPendingMedia(10, testDb);
+      expect(indexed).toBe(1);
+
+      const updatedPkg = testDb.rawDb.prepare("SELECT media_id FROM canonical_packages WHERE canonical_id = ?;").get(testCanonicalId) as any;
+      expect(updatedPkg.media_id).toBeTruthy();
+      expect(updatedPkg.media_id).not.toBe("none");
+
+      const mediaRecord = testDb.rawDb.prepare("SELECT * FROM media_cache WHERE id = ?;").get(updatedPkg.media_id) as any;
+      expect(mediaRecord).toBeDefined();
+      expect(mediaRecord.source_url).toBe("https://public-files.gumroad.com/giant-image.gif");
+      expect(mediaRecord.webp_data).toBeNull();
+      expect(mediaRecord.webp_size_bytes).toBe(0);
+    } finally {
+      globalThis.fetch = origFetch;
+      testDb.close();
+    }
+  });
+
+  it("marks packages with no media candidates as 'none' to permanently prevent HOL blocking", async () => {
+    const { CrawlerDB } = await import("../src/db.ts");
+    const testDb = new CrawlerDB(":memory:");
+    const testCanonicalId = `can_nomedia_${Date.now()}`;
+    const testEntId = `ent_nomedia_${Date.now()}`;
+
+    testDb.rawDb.run(`
+      INSERT INTO entities (
+        id, platform, url, title, author, description, tags_json, external_links_json,
+        raw_json, is_quarantined, observed_at, created_at, updated_at
+      ) VALUES (
+        ?, 'github', 'https://github.com/cli-tools/no-img', 'CLI Tool', 'Dev', 'Desc', '[]', '[]',
+        ?, 0, datetime('now'), datetime('now'), datetime('now')
+      );
+    `, [testEntId, JSON.stringify({ thumbnail_url: null, media_urls: [] })]);
+
+    testDb.rawDb.run(`
+      INSERT INTO canonical_packages (
+        id, canonical_id, name, author, authors_json, category, subcategory, type,
+        description, primary_platform, platforms_json, url, price_currency, price_amount,
+        is_vcc, tags_json, dependencies_json, source_ids_json, media_id, created_at, updated_at
+      ) VALUES (
+        ?, ?, 'CLI Tool', 'Dev', '[]', 'Tools', 'Utilities',
+        'QoL, Workflow & Toolchain', 'Desc', 'github', '["github"]', 'https://github.com/cli-tools/no-img',
+        'USD', 0, 0, '[]', '{}', ?, NULL, datetime('now'), datetime('now')
+      );
+    `, [testCanonicalId, testCanonicalId, JSON.stringify([testEntId])]);
+
+    try {
+      const indexed = await ImageProxyService.indexPendingMedia(10, testDb);
+      expect(indexed).toBe(0); // 0 media proxies created
+
+      const updatedPkg = testDb.rawDb.prepare("SELECT media_id FROM canonical_packages WHERE canonical_id = ?;").get(testCanonicalId) as any;
+      expect(updatedPkg.media_id).toBe("none");
+
+      // Verify second run does not see this package again
+      const secondRun = await ImageProxyService.indexPendingMedia(10, testDb);
+      expect(secondRun).toBe(0);
+    } finally {
+      testDb.close();
+    }
+  });
 });
+

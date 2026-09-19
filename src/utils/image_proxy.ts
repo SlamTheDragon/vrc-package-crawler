@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { db, type MediaCacheRecord, type CrawlerDB } from "../db.ts";
 import { logger } from "../logger.ts";
 import { CONFIG } from "../config.ts";
@@ -218,15 +220,26 @@ class SharpSubprocess {
   private leftover = "";
   private workerScriptPath: string;
   private startFailures = 0;
+  private lastFailureTime = 0;
   private readonly MAX_FAILURES = 3;
+  private readonly COOLDOWN_MS = 60000; // 60s cooldown before retrying worker startup
 
   private constructor() {
-    // The worker script is at src/utils/sharp_worker.ts relative to the project root.
-    // process.cwd() is the project root both in `bun run` and when the compiled binary
-    // is launched from the project directory (which is always the case for this daemon).
-    // import.meta.dir cannot be used here because in a compiled binary it resolves to the
-    // directory of the .exe, not the source tree.
-    this.workerScriptPath = `${process.cwd()}/src/utils/sharp_worker.ts`;
+    // Resolve sharp_worker.ts across project root, dist relative, and module dir
+    const candidatePaths = [
+      path.resolve(process.cwd(), "src/utils/sharp_worker.ts"),
+      path.resolve(path.dirname(process.execPath), "../src/utils/sharp_worker.ts"),
+      path.resolve(path.dirname(process.execPath), "src/utils/sharp_worker.ts"),
+      path.resolve(import.meta.dir, "sharp_worker.ts"),
+    ];
+    let resolved = candidatePaths[0];
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        resolved = p;
+        break;
+      }
+    }
+    this.workerScriptPath = resolved;
   }
 
   public static getInstance(): SharpSubprocess {
@@ -239,7 +252,16 @@ class SharpSubprocess {
   /** Ensure the subprocess is running and ready. Returns false if startup failed. */
   private async ensureRunning(): Promise<boolean> {
     if (this.proc && this.ready) return true;
-    if (this.startFailures >= this.MAX_FAILURES) return false;
+
+    // If max failures reached, check if cooldown period has elapsed to allow recovery
+    if (this.startFailures >= this.MAX_FAILURES) {
+      if (Date.now() - this.lastFailureTime > this.COOLDOWN_MS) {
+        logger.info("[SharpWorker] Failure cooldown expired. Resetting failure counter to retry worker startup.");
+        this.startFailures = 0;
+      } else {
+        return false;
+      }
+    }
 
     try {
       this.ready = false;
@@ -247,29 +269,36 @@ class SharpSubprocess {
       this.pendingCallbacks.clear();
 
       // Locate bun executable
-      const bunExe = process.execPath.endsWith("bun") || process.execPath.endsWith("bun.exe")
+      let bunExe = process.execPath.endsWith("bun") || process.execPath.endsWith("bun.exe")
         ? process.execPath
         : "bun";
+      if (process.platform === "win32" && bunExe === "bun") {
+        const standardBun = "F:\\dev_tools\\.bun\\bin\\bun.exe";
+        if (fs.existsSync(standardBun)) {
+          bunExe = standardBun;
+        }
+      }
 
       this.proc = Bun.spawn([bunExe, "run", this.workerScriptPath], {
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
-        cwd: process.cwd(),
+        cwd: path.dirname(path.dirname(this.workerScriptPath)),
       });
 
       const procStdout = this.proc.stdout as ReadableStream<Uint8Array>;
       const procStderr = this.proc.stderr as ReadableStream<Uint8Array>;
       const procStdin  = this.proc.stdin  as import("bun").FileSink;
 
-      // Drain stderr to prevent blocking
+      // Drain stderr to prevent blocking and log warnings
       (async () => {
         const reader = procStderr.getReader();
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           if (value?.length) {
-            logger.debug(`[SharpWorker:stderr] ${new TextDecoder().decode(value).trimEnd()}`);
+            const txt = new TextDecoder().decode(value).trimEnd();
+            logger.warn(`[SharpWorker:stderr] ${txt}`);
           }
         }
       })().catch(() => {});
@@ -314,29 +343,31 @@ class SharpSubprocess {
       // Store stdin handle for later writes
       this._stdin = procStdin;
 
-      // Wait up to 5s for the "ready" signal
+      // Wait up to 10s for the "ready" signal
       const started = await Promise.race([
         new Promise<boolean>((res) => {
           const poll = setInterval(() => {
             if (this.ready) { clearInterval(poll); res(true); }
           }, 50);
         }),
-        new Promise<boolean>((res) => setTimeout(() => res(false), 5000)),
+        new Promise<boolean>((res) => setTimeout(() => res(false), 10000)),
       ]);
 
       if (!started) {
         this.startFailures++;
-        logger.warn(`[SharpWorker] Worker did not become ready within 5s (attempt ${this.startFailures}/${this.MAX_FAILURES})`);
+        this.lastFailureTime = Date.now();
+        logger.warn(`[SharpWorker] Worker did not become ready within 10s (attempt ${this.startFailures}/${this.MAX_FAILURES})`);
         this.proc?.kill();
         this.proc = null;
         return false;
       }
 
       this.startFailures = 0;
-      logger.debug("[SharpWorker] Subprocess ready");
+      logger.info("[SharpWorker] Subprocess ready");
       return true;
     } catch (err) {
       this.startFailures++;
+      this.lastFailureTime = Date.now();
       logger.warn(`[SharpWorker] Failed to start worker: ${String(err)}`);
       this.proc = null;
       return false;
@@ -404,16 +435,21 @@ class SharpSubprocess {
 }
 
 export class ImageProxyService {
-  private static readonly MAX_PAYLOAD_BYTES = 2 * 1024 * 1024; // 2 MB strict socket limit
+  public static readonly MAX_PAYLOAD_BYTES = 10 * 1024 * 1024; // 10 MB limit (accommodates animated GIFs and high-res store previews)
 
   /**
    * Fetches an image with zero-binary socket guardrail:
-   * Rejects immediately if Content-Type is not image/* or size > 2MB.
+   * Rejects immediately if Content-Type is not image/* or size > 10MB.
    */
-  public static async fetchImageBufferGuarded(imageUrl: string): Promise<{ buffer: Buffer; contentType: string } | null> {
+  public static async fetchImageBufferGuarded(imageUrl: string): Promise<{
+    buffer: Buffer;
+    contentType: string;
+    oversized?: boolean;
+    reportedLength?: number;
+  } | null> {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       const resp = await fetch(imageUrl, {
         signal: controller.signal,
@@ -440,10 +476,10 @@ export class ImageProxyService {
       if (contentLengthStr) {
         const length = parseInt(contentLengthStr, 10);
         if (length > this.MAX_PAYLOAD_BYTES) {
-          logger.warn(`[ImageProxy] Aborted download: Payload size ${length} exceeds 2MB limit: ${imageUrl}`);
+          logger.warn(`[ImageProxy] Aborted download: Payload size ${length} exceeds 10MB limit: ${imageUrl} (indexing source)`);
           controller.abort();
           clearTimeout(timeoutId);
-          return null;
+          return { buffer: Buffer.alloc(0), contentType, oversized: true, reportedLength: length };
         }
       }
 
@@ -462,10 +498,10 @@ export class ImageProxyService {
         if (value) {
           totalBytes += value.byteLength;
           if (totalBytes > this.MAX_PAYLOAD_BYTES) {
-            logger.warn(`[ImageProxy] Stream exceeded 2MB socket guardrail. Aborting: ${imageUrl}`);
+            logger.warn(`[ImageProxy] Stream exceeded 10MB socket guardrail. Aborting: ${imageUrl} (indexing source)`);
             await reader.cancel();
             clearTimeout(timeoutId);
-            return null;
+            return { buffer: Buffer.alloc(0), contentType, oversized: true, reportedLength: totalBytes };
           }
           chunks.push(value);
         }
@@ -481,6 +517,8 @@ export class ImageProxyService {
 
   /**
    * Processes an image into WebP (480x270, quality 75), BlurHash, and 64-bit pHash.
+   * If the image exceeds payload thresholds or contains unsupported formats, the
+   * source URL is still indexed with null webp_data to avoid HOL blocking.
    */
   public static async processAndCacheImage(imageUrl: string, customDb?: CrawlerDB): Promise<MediaCacheRecord | null> {
     const targetDb = customDb || db;
@@ -492,6 +530,38 @@ export class ImageProxyService {
 
     const fetched = await this.fetchImageBufferGuarded(cleanUrl);
     if (!fetched) return null;
+
+    const id = `media_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const now = new Date().toISOString();
+
+    // If payload was oversized (>10MB), record source URL directly without binary payload
+    if (fetched.oversized) {
+      const record: MediaCacheRecord = {
+        id,
+        source_url: cleanUrl,
+        webp_data: null,
+        webp_size_bytes: 0,
+        blurhash: null,
+        phash_64: null,
+        width: 0,
+        height: 0,
+        content_type: fetched.contentType || "image/*",
+        last_processed_at: now
+      };
+      try {
+        targetDb.run(`
+          INSERT OR REPLACE INTO media_cache (
+            id, source_url, webp_data, webp_size_bytes, blurhash, phash_64,
+            width, height, content_type, etag, last_processed_at
+          ) VALUES (?, ?, NULL, 0, NULL, NULL, 0, 0, ?, NULL, ?);
+        `, [record.id, record.source_url, record.content_type, record.last_processed_at]);
+        logger.info(`[ImageProxy] Indexed oversized image as source-only: ${cleanUrl} (${fetched.reportedLength || 0} bytes)`);
+        return record;
+      } catch (err) {
+        logger.error(`[ImageProxy] Failed to store oversized media cache for ${cleanUrl}`, err);
+        return record;
+      }
+    }
 
     let webpData: Buffer | null = null;
     let blurhash: string | null = null;
@@ -554,7 +624,26 @@ export class ImageProxyService {
         }
         if (result.error) {
           logger.warn(`[ImageProxy] SharpWorker error for ${cleanUrl}: ${result.error}`);
-          return null;
+          // Format/decode error from worker — index source-only so we don't spin indefinitely
+          const record: MediaCacheRecord = {
+            id,
+            source_url: cleanUrl,
+            webp_data: null,
+            webp_size_bytes: 0,
+            blurhash: null,
+            phash_64: null,
+            width: 0,
+            height: 0,
+            content_type: fetched.contentType || "image/*",
+            last_processed_at: now
+          };
+          targetDb.run(`
+            INSERT OR REPLACE INTO media_cache (
+              id, source_url, webp_data, webp_size_bytes, blurhash, phash_64,
+              width, height, content_type, etag, last_processed_at
+            ) VALUES (?, ?, NULL, 0, NULL, NULL, 0, 0, ?, NULL, ?);
+          `, [record.id, record.source_url, record.content_type, record.last_processed_at]);
+          return record;
         }
         if (!result.ok || !result.webp_b64 || !result.rgb_b64 || !result.gray_b64) {
           logger.warn(`[ImageProxy] SharpWorker returned incomplete result for: ${cleanUrl}`);
@@ -569,12 +658,31 @@ export class ImageProxyService {
       }
     } catch (err) {
       logger.warn(`[ImageProxy] Error during image transcoding: ${String(err)}`);
-      // Do not store broken entries — return null so the URL remains uncached and can be retried
-      return null;
+      // Index source URL so unprocessable formats do not stall the pipeline in an infinite loop
+      const record: MediaCacheRecord = {
+        id,
+        source_url: cleanUrl,
+        webp_data: null,
+        webp_size_bytes: 0,
+        blurhash: null,
+        phash_64: null,
+        width: 0,
+        height: 0,
+        content_type: fetched.contentType || "image/*",
+        last_processed_at: now
+      };
+      try {
+        targetDb.run(`
+          INSERT OR REPLACE INTO media_cache (
+            id, source_url, webp_data, webp_size_bytes, blurhash, phash_64,
+            width, height, content_type, etag, last_processed_at
+          ) VALUES (?, ?, NULL, 0, NULL, NULL, 0, 0, ?, NULL, ?);
+        `, [record.id, record.source_url, record.content_type, record.last_processed_at]);
+        return record;
+      } catch (_) {
+        return null;
+      }
     }
-
-    const id = `media_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const now = new Date().toISOString();
 
     const record: MediaCacheRecord = {
       id,
@@ -610,36 +718,23 @@ export class ImageProxyService {
   /**
    * Indexes pending images for canonical packages that currently lack a media_id.
    *
-   * Uses an entity-first approach to avoid head-of-line blocking: queries entities with
-   * a candidate image URL not yet cached, processes them, then links the cached media
-   * record back to the canonical package.
-   *
-   * Quality guardrails applied:
-   *  - URL pattern filter: skip known icon/logo/favicon/avatar URL patterns
-   *  - Dimension filter: reject images smaller than 200×200 after decode (via Sharp metadata)
-   *  - Content-Type guardrail: only image/* payloads accepted (inherited from fetchImageBufferGuarded)
-   *  - Socket guardrail: max 2MB payload (inherited from fetchImageBufferGuarded)
-   *  - Zero video downloads: youtube_urls and video_urls are stored as plain strings only
+   * Systematically queries packages where media_id IS NULL, inspects package media_urls_json
+   * and constituent entities for valid image candidates, processes and caches the image,
+   * and updates canonical_packages. If a package has no candidate images, media_id is
+   * set to 'none' to permanently prevent head-of-line blocking.
    */
   public static async indexPendingMedia(limit: number = 25, customDb?: CrawlerDB): Promise<number> {
     const targetDb = customDb || db;
     try {
-      // Entity-first query: find entities with a thumbnail_url or media_urls NOT yet in media_cache.
-      // This avoids HOL blocking on packages whose entities have no media at all.
-      const candidateEntities = targetDb.rawDb.prepare(`
-        SELECT e.id AS entity_id, e.platform, e.raw_json
-        FROM entities e
-        WHERE e.is_quarantined = 0
-          AND e.raw_json IS NOT NULL
-          AND e.raw_json != '{}'
-          AND (
-            e.raw_json LIKE '%"thumbnail_url"%'
-            OR e.raw_json LIKE '%"media_urls"%'
-          )
+      const pendingPackages = targetDb.rawDb.prepare(`
+        SELECT canonical_id, source_ids_json, media_urls_json
+        FROM canonical_packages
+        WHERE media_id IS NULL
+        ORDER BY rowid ASC
         LIMIT ?;
-      `).all(limit * 4) as any[]; // oversample to account for already-cached URLs
+      `).all(limit * 2) as any[];
 
-      if (candidateEntities.length === 0) return 0;
+      if (pendingPackages.length === 0) return 0;
 
       // Known icon/logo/favicon URL patterns to skip (quality filter at URL level)
       const skipPatterns = [
@@ -651,63 +746,97 @@ export class ImageProxyService {
 
       let indexedCount = 0;
 
-      for (const ent of candidateEntities) {
+      for (const pkg of pendingPackages) {
         if (indexedCount >= limit) break;
-        let raw: any = {};
-        try { raw = JSON.parse(ent.raw_json || "{}"); } catch (_) { continue; }
 
-        // Collect candidate URLs: prefer thumbnail_url, then first entry of media_urls
+        // 1. Check if package already has candidate URLs in media_urls_json
         const candidates: string[] = [];
-        if (raw.thumbnail_url && typeof raw.thumbnail_url === "string" && raw.thumbnail_url.startsWith("http")) {
-          candidates.push(raw.thumbnail_url);
-        }
-        if (Array.isArray(raw.media_urls)) {
-          for (const mu of raw.media_urls) {
-            if (typeof mu === "string" && mu.startsWith("http") && !candidates.includes(mu)) {
-              candidates.push(mu);
+        if (pkg.media_urls_json) {
+          try {
+            const arr = JSON.parse(pkg.media_urls_json);
+            if (Array.isArray(arr)) {
+              for (const u of arr) {
+                if (typeof u === "string" && u.startsWith("http") && !candidates.includes(u)) {
+                  candidates.push(u);
+                }
+              }
             }
+          } catch (_) {}
+        }
+
+        // 2. If no candidates from package, inspect constituent entities
+        let sourceIds: string[] = [];
+        try { sourceIds = JSON.parse(pkg.source_ids_json || "[]"); } catch (_) {}
+
+        if (candidates.length === 0 && sourceIds.length > 0) {
+          const placeholders = sourceIds.map(() => "?").join(",");
+          const entitiesWithRaw = targetDb.rawDb.prepare(`
+            SELECT raw_json FROM entities WHERE id IN (${placeholders})
+          `).all(...sourceIds) as any[];
+
+          for (const ent of entitiesWithRaw) {
+            try {
+              const raw = JSON.parse(ent.raw_json || "{}");
+              if (raw.thumbnail_url && typeof raw.thumbnail_url === "string" && raw.thumbnail_url.startsWith("http")) {
+                if (!candidates.includes(raw.thumbnail_url)) candidates.push(raw.thumbnail_url);
+              }
+              if (Array.isArray(raw.media_urls)) {
+                for (const mu of raw.media_urls) {
+                  if (typeof mu === "string" && mu.startsWith("http") && !candidates.includes(mu)) {
+                    candidates.push(mu);
+                  }
+                }
+              }
+            } catch (_) {}
           }
         }
-        if (candidates.length === 0) continue;
 
-        // Pick first un-cached candidate URL
-        let selectedUrl: string | null = null;
-        for (const candidate of candidates) {
-          const cleanUrl = sanitizeOutboundUrl(candidate);
-          // URL-level quality filter
-          if (skipPatterns.some((p) => p.test(cleanUrl))) continue;
-          // Check if already cached
-          const alreadyCached = targetDb.query("SELECT id FROM media_cache WHERE source_url = ? LIMIT 1;").get(cleanUrl) as any;
-          if (!alreadyCached) {
-            selectedUrl = cleanUrl;
+        // 3. Filter candidate URLs
+        const validUrls = candidates
+          .map((c) => sanitizeOutboundUrl(c))
+          .filter((u) => !skipPatterns.some((p) => p.test(u)));
+
+        if (validUrls.length === 0) {
+          // No media candidate exists for this package — mark as 'none' to prevent HOL blocking
+          targetDb.run(`
+            UPDATE canonical_packages
+            SET media_id = 'none'
+            WHERE canonical_id = ?;
+          `, [pkg.canonical_id]);
+          continue;
+        }
+
+        // 4. Try to link to existing cached media or process new candidate
+        let assignedMediaId: string | null = null;
+        for (const candidateUrl of validUrls) {
+          const existing = targetDb.query("SELECT id FROM media_cache WHERE source_url = ? LIMIT 1;").get(candidateUrl) as any;
+          if (existing?.id) {
+            assignedMediaId = existing.id;
             break;
           }
         }
-        if (!selectedUrl) continue;
 
-        const mediaRecord = await this.processAndCacheImage(selectedUrl, targetDb);
-        if (!mediaRecord) continue;
+        if (!assignedMediaId) {
+          // Process first valid candidate URL
+          const selectedUrl = validUrls[0];
+          const mediaRecord = await this.processAndCacheImage(selectedUrl, targetDb);
+          if (mediaRecord) {
+            assignedMediaId = mediaRecord.id;
+          }
+        }
 
-        // Find all canonical packages that include this entity and have no media_id yet
-        const pkgs = targetDb.rawDb.prepare(`
-          SELECT canonical_id FROM canonical_packages
-          WHERE media_id IS NULL
-            AND source_ids_json LIKE ?
-        `).all(`%"${ent.entity_id}"%`) as any[];
-
-        for (const pkg of pkgs) {
+        if (assignedMediaId) {
           targetDb.run(`
             UPDATE canonical_packages
             SET media_id = ?
             WHERE canonical_id = ?;
-          `, [mediaRecord.id, pkg.canonical_id]);
+          `, [assignedMediaId, pkg.canonical_id]);
+          indexedCount++;
         }
-
-        indexedCount++;
       }
 
       if (indexedCount > 0) {
-        logger.info(`[ImageProxy] Indexed ${indexedCount} low-resolution proxy images for canonical packages.`);
+        logger.info(`[ImageProxy] Indexed ${indexedCount} proxy images for canonical packages.`);
       }
       return indexedCount;
     } catch (err) {
@@ -715,5 +844,4 @@ export class ImageProxyService {
       return 0;
     }
   }
-
 }
