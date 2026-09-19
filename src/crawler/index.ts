@@ -338,7 +338,7 @@ async function runGithubWorker() {
             const query = qm ? decodeURIComponent(qm[1]) : "vrchat";
             const repoUrls = await GitHubDriver.searchRepos(query, 5);
             for (const ru of repoUrls) {
-              db.queueUrl(ru, "github");
+              db.queueUrl(ru, "github", 10);
             }
             rateLimiter.recordSuccess("api.github.com", Date.now() - t0);
             db.markStatus(item.url, "done");

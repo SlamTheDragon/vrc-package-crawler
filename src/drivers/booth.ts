@@ -158,6 +158,10 @@ export class BoothDriver {
 
       rateLimiter.handleSuccess("booth", CONFIG.boothDelayMs);
 
+      if (resp.url && resp.url !== currentUrl) {
+        currentUrl = resp.url;
+      }
+
       const html = await resp.text();
       const finalItemId = itemId || currentUrl;
 

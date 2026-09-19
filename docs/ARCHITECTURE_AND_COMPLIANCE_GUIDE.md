@@ -177,6 +177,20 @@ Software tools often exist on multiple storefronts simultaneously. The indexer r
 2. **Secondary Anchor**: Canonical Git repository URL (`github.com/author/repo`).
 3. **Tertiary Anchor**: 64-bit SimHash document fingerprints and Jaro-Winkler title similarity.
 
+### Two-Stage Hydration and Head-of-Line Blocking Prevention
+Discovery search APIs return shallow summaries with limited metadata and single thumbnails.
+To capture full galleries and YouTube links, the crawler schedules deep product page fetches.
+Because platforms like Gumroad enforce 3.0-second request serialization, pending search URLs can cause head-of-line blocking.
+The crawler applies priority escalation (`priority = 10`) to detail product URLs.
+This mechanism schedules detail hydration ahead of generic pagination, keeping the catalog fresh.
+
+### Canonical Slug and Redirect Reconciliation
+Marketplaces permit creators to configure custom vanity slugs that redirect from invariant product identifiers.
+Crawlers deriving entity IDs strictly from requested URLs risk database fragmentation and duplicate records.
+The engine reconciles URLs by extracting invariant platform keys (such as `p.permalink` in Gumroad Inertia payloads or numeric IDs in BOOTH).
+The crawler stores the invariant identifier as the primary entity ID (`gumroad:{permalink}`).
+The engine preserves the creator vanity URL for user-facing presentation and search indexing.
+
 ***
 
 ## References

@@ -107,7 +107,90 @@ Derived Projection (canonical_packages table)
 
 ---
 
-## 5. Closed-Loop Steering & Search Patterns
+## 5. Two-Stage Discovery Lifecycle: Shallow Ingestion vs Deep Hydration
+
+The crawler operates a two-stage lifecycle to balance fast catalog coverage with deep asset metadata:
+
+```
+[Search API / Storefront Browse]
+              |
+              |  Stage 1: Provisional Ingestion (Immediate)
+              v
+[Entities Lake (Shallow Entity)] -----> [Frontier Queue (Priority = 10)]
+              |                                        |
+              |                                        |  Stage 2: Deep Hydration (Polite)
+              |                                        v
+              +<------------------------------ [Product Detail & Gallery Crawl]
+              |
+              v
+[Canonical Aggregation & Deduplication]
+```
+
+### 5.1 Stage 1: Shallow Search and Listing Ingestion
+Search queries and creator storefront lists return basic product cards. These cards contain titles, prices, and one thumbnail URL.
+1. The driver immediately creates an `EntityRecord` in the `entities` table.
+2. The entity captures the product name, author, price, and primary thumbnail.
+3. This provisional record protects against data loss if subsequent network requests fail.
+4. The driver queues the clean product URL into the `frontier` table with elevated `priority = 10`.
+
+### 5.2 Stage 2: Deep Product Page and README Hydration
+The crawler pulls high-priority items from the frontier. It visits the individual product listing or repository page.
+1. The driver fetches the full HTML payload with respectful domain pacing.
+2. The parser extracts the full image gallery, animated GIFs, and video clips.
+3. The driver resolves creator vanity slugs and normalizes invariant IDs.
+4. The parser scans for embedded YouTube showcases and tutorial links.
+5. `db.saveEntity` updates the existing shallow entity in the database.
+6. Pipeline sanitization projects the rich media into canonical packages.
+
+### 5.3 Priority Escalation Invariant
+The frontier table orders pending fetches by `priority DESC, next_fetch_at ASC`.
+Generic pagination and deep category crawls operate at default `priority = 0`.
+Shallow entity hydration operates at elevated `priority = 10`.
+This rule prevents thousands of pagination pages from starving product detail hydration.
+
+---
+
+## 6. Cross-Platform Slug Normalization and Canonical Alias Reconciliation
+
+Platforms often assign multiple URLs to the same underlying item. The discovery engine reconciles aliases to one authoritative entity ID:
+
+| Platform | URL Pattern Variants | Authoritative Entity ID | Canonical URL Resolution |
+| :--- | :--- | :--- | :--- |
+| **Gumroad** | `/l/{permalink}` vs `/l/{vanity_slug}` | `gumroad:{permalink}` | Stores vanity URL in `url`. Adds permalink to `external_links`. |
+| **BOOTH** | `booth.pm/ja/items/{id}` vs `{shop}.booth.pm/items/{id}` | `booth:{id}` | Normalizes to `https://booth.pm/ja/items/{id}`. |
+| **Jinxxy** | `/p/{short_code}` vs `/{creator}/{product_slug}` | `jinxxy:{creator}/{product_slug}` | Follows HTTP redirects to extract clean path segments. |
+| **itch.io** | `{creator}.itch.io/{slug}` vs custom domains | `itch:{creator}/{slug}` | Follows HTTP redirects to resolve canonical storefront host. |
+| **GitHub** | `github.com/{old_owner}/{repo}` (Transfers/Renames) | `github:{owner}/{repo}` | Follows HTTP 301 redirects to target canonical repository. |
+
+### 6.1 Gumroad Permalink Reconciliation
+Gumroad assigns an immutable alphanumeric permalink (such as `lgamfn`) to every product. Creators may also configure a custom vanity slug (such as `haggitavali`).
+1. Requests to the permalink issue an HTTP 302 redirect to the custom vanity URL.
+2. The driver extracts `p.permalink` from the Inertia `data-page` payload.
+3. The driver sets `id = gumroad:{permalink}`. This prevents duplicate entities.
+4. The driver stores the vanity URL in `url` for user presentation.
+5. The driver preserves both URLs in `external_links_json` for link integrity.
+
+---
+
+## 7. Media Gallery and Rich Video Extraction Standards
+
+The discovery engine collects visual previews to help users inspect tools and assets. It enforces quality guardrails across all media formats.
+
+### 7.1 Multi-Format Media Collection Rules
+- **High-Resolution Images and GIFs:** Collect preview images up to 20 items per listing. Strip query parameters to get high-resolution originals.
+- **Direct MP4 Previews:** Store direct video links in `video_urls`. Extract poster preview images and add them to `media_urls`.
+- **OEmbed and Embedded YouTube Videos:** Extract YouTube video IDs from embed frames and iframe tags. Store canonical watch links in `youtube_urls`. Add YouTube preview thumbnails to `media_urls`. Never store HTML embed URLs in image collections.
+- **GitHub README Media:** Extract markdown image links and HTML image sources from repository documentation. Exclude CI build badges, shield icons, and provider logos.
+
+### 7.2 Image Quality Guardrails
+The parser applies strict quality filters before adding candidate image URLs:
+1. **Dimension Floor:** Skip images with reported width or height below 200 pixels.
+2. **Icon and Avatar Filter:** Exclude URLs containing `/user-profile/`, `/avatar/`, `/icon`, `/favicon`, or `/logo`.
+3. **Badge Filter:** Exclude domain patterns matching `shields.io`, `badge`, `travis-ci`, or `codecov`.
+
+---
+
+## 8. Closed-Loop Steering & Search Patterns
 
 User reports submitted through Schema 4 dynamically adjust crawler discovery behavior:
 
@@ -117,7 +200,7 @@ User reports submitted through Schema 4 dynamically adjust crawler discovery beh
 
 ---
 
-## 6. Procedural Steps: Re-discovery and Re-audit
+## 9. Procedural Steps: Re-discovery and Re-audit
 
 Follow these steps to schedule or execute full re-discovery and re-audit passes:
 
@@ -129,7 +212,15 @@ Run this command to reset all frontier records to pending:
 bun -e "import { Database } from 'bun:sqlite'; const db = new Database('dist/crawler_state.db'); db.run(\"UPDATE frontier SET status = 'pending', attempts = 0, next_fetch_at = datetime('now');\"); console.log('Marked all frontier URLs for re-discovery.');"
 ```
 
-### Step 2: Trigger Live Freshness Sweep via IPC
+### Step 2: Trigger Mandated Requeue of Shallow Entities
+
+Run this command to promote shallow Gumroad products to Priority 10:
+
+```powershell
+bun run requeue:gumroad
+```
+
+### Step 3: Trigger Live Freshness Sweep via IPC
 
 If the background crawler daemon is running, trigger an immediate re-crawl:
 
@@ -137,7 +228,7 @@ If the background crawler daemon is running, trigger an immediate re-crawl:
 .\dist\vrc-monitor.exe recrawl
 ```
 
-### Step 3: Run the Pipeline Sanitization and Deduplication Tool
+### Step 4: Run the Pipeline Sanitization and Deduplication Tool
 
 Re-audit all active entities against updated relevance filters and rebuild canonical projections:
 
@@ -156,7 +247,7 @@ Clustering 19150 pristine entities across all platforms...
 
 ---
 
-## 7. Diagnostics and Quarantine Reasons
+## 10. Diagnostics and Quarantine Reasons
 
 | Quarantine Reason Code | Root Cause | Resolution Path |
 | :--- | :--- | :--- |
@@ -168,9 +259,9 @@ Clustering 19150 pristine entities across all platforms...
 
 ---
 
-## 8. Technical Specifications and Architecture (Reference)
+## 11. Technical Specifications and Architecture (Reference)
 
-### 8.1 Cho-Garcia-Molina Poisson Adaptive Interval
+### 11.1 Cho-Garcia-Molina Poisson Adaptive Interval
 
 The scheduler models page modification frequency $\lambda$ as a Poisson process. The update interval $I$ adjusts after each fetch:
 
@@ -182,15 +273,15 @@ $$I_{\text{new}} = \begin{cases} \max(I_{\min}, \lfloor I_{\text{current}} / 1.5
 
 ---
 
-## 9. Canonical Database Integrity (`dist/crawler_state.db`)
+## 12. Canonical Database Integrity (`dist/crawler_state.db`)
 
-### 9.1 Sole Canonical Database Location
+### 12.1 Sole Canonical Database Location
 The single authoritative operational SQLite database is located strictly at:
 `dist/crawler_state.db`
 
 No operational data is stored in the project root. Both development runtimes (`bun run ...`) and standalone compiled executables (`dist/vrc-*.exe`) resolve `CONFIG.dbPath` directly to `dist/crawler_state.db`.
 
-### 9.2 Invariant Guarantees
+### 12.2 Invariant Guarantees
 1. **Zero Database Ambiguity:** Any database file placed outside `dist/` is an invalid development artifact.
 2. **Crash Resilience:** WAL mode (`PRAGMA journal_mode = WAL;`) and synchronous normal (`PRAGMA synchronous = NORMAL;`) ensure zero corruption during unexpected power outages.
 3. **Audit Trail Immutability:** The observation lake (`entities`) preserves 100% of discovered entity payloads even when an entity is quarantined or delisted.
@@ -198,7 +289,7 @@ No operational data is stored in the project root. Both development runtimes (`b
 
 ---
 
-## 10. Toolset Source Separation and Binary Architecture
+## 13. Toolset Source Separation and Binary Architecture
 
 Each standalone binary distribution corresponds to a dedicated source directory:
 
@@ -210,10 +301,12 @@ Each standalone binary distribution corresponds to a dedicated source directory:
 | `dist/vrc-sync.exe` | `src/sync/index.ts` | Cloudflare D1/R2 high-watermark incremental sync daemon |
 | `dist/vrc-server.exe` | `src/server/index.ts` | Headless REST API server (Schemas 1, 2, 4 & WebP media proxy) |
 
-### 10.1 Maintenance Toolset (`src/tools/`)
+### 13.1 Maintenance Toolset (`src/tools/`)
 Offline and scheduled maintenance scripts remain isolated under `src/tools/`:
 - `src/tools/pipeline_sanitize.ts`: Deterministic SimHash-64 & Jaro-Winkler canonical clustering and deduplication pass (`bun run sanitize`).
 - `src/tools/exporter.ts`: Lightweight standalone catalog exporter with SQLite FTS5 index (`bun run export`).
 - `src/tools/steering.ts`: Autonomous Schema 4 feedback puller and curator override applicator (`bun run steering`).
 - `src/tools/discover_vpm.ts`: Autonomous discovery of decentralized VPM community index repositories (`bun run discover:vpm`).
+- `src/tools/requeue_gumroad.ts`: Mandated shallow entity requeue and priority promotion utility (`bun run requeue:gumroad`).
+- `src/tools/requeue_media.ts`: Image proxy backlog drain and WebP transcode recovery tool (`bun run requeue:media`).
 

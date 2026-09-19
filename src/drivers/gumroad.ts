@@ -103,7 +103,7 @@ export class GumroadDriver {
         }
 
         const cleanUrl = sellerProfile ? `${sellerProfile}/l/${permalink}` : `https://gumroad.com/l/${permalink}`;
-        db.queueUrl(cleanUrl, "gumroad");
+        db.queueUrl(cleanUrl, "gumroad", 10);
 
         const entity: EntityRecord = {
           id: `gumroad:${permalink}`,
@@ -212,6 +212,7 @@ export class GumroadDriver {
       rateLimiter.handleSuccess(key, CONFIG.gumroadDelayMs);
 
       const html = await resp.text();
+      const finalUrl = resp.url || currentUrl;
 
       // Extract OpenGraph tags
       const ogTitleMatch = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]+)"/);
@@ -219,9 +220,11 @@ export class GumroadDriver {
       const ogImgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
       const urlMatch = productUrl.match(/gumroad\.com\/l\/([^/?#]+)/);
       const slug = urlMatch ? urlMatch[1] : productUrl;
+      const finalUrlMatch = finalUrl.match(/gumroad\.com\/l\/([^/?#]+)/);
+      const finalSlug = finalUrlMatch ? finalUrlMatch[1] : slug;
 
       // Extract creator from subdomain (e.g. architechvr.gumroad.com)
-      const subMatch = productUrl.match(/https?:\/\/([^.]+)\.gumroad\.com/);
+      const subMatch = (finalUrl || productUrl).match(/https?:\/\/([^.]+)\.gumroad\.com/);
       const creatorName = subMatch ? subMatch[1] : "Gumroad Creator";
 
       // Queue the creator's root storefront to discover ALL their tools!
@@ -242,6 +245,14 @@ export class GumroadDriver {
         }
       }
 
+      // Preserve alternate/vanity URLs in external links
+      if (finalUrl !== productUrl && !extLinks.includes(productUrl)) {
+        extLinks.push(productUrl);
+      }
+      if (!extLinks.includes(finalUrl)) {
+        extLinks.push(finalUrl);
+      }
+
       // Autonomously extract any VPM / registry feeds from page description & links
       CuratedDriver.extractAndQueueRegistries(html);
 
@@ -251,6 +262,8 @@ export class GumroadDriver {
       let thumbnailUrl: string | null = ogImgMatch ? ogImgMatch[1] : null;
       const mediaSet = new Set<string>();
       const videoSet = new Set<string>();
+      const ytSet = new Set<string>();
+      let permalink = slug;
 
       const inertiaMatch = html.match(/data-page="([^"]+)"/);
       if (inertiaMatch) {
@@ -263,24 +276,45 @@ export class GumroadDriver {
           const pageData = JSON.parse(unescaped);
           const p = pageData.props?.product;
           if (p) {
+            if (p.permalink) permalink = p.permalink;
             if (p.published_at) originCreatedAt = new Date(p.published_at).toISOString();
             if (p.updated_at) originUpdatedAt = new Date(p.updated_at).toISOString();
             // thumbnail_url: the single preview image used in discovery search results
             if (p.thumbnail_url && typeof p.thumbnail_url === "string") {
               thumbnailUrl = thumbnailUrl || p.thumbnail_url;
             }
-            // covers: the full gallery (images, GIFs, videos)
+            // covers: the full gallery (images, GIFs, videos, oembeds)
             if (Array.isArray(p.covers)) {
               for (const cover of p.covers) {
-                const coverUrl: string = cover?.url || cover?.original_url || "";
+                const coverUrl: string = cover?.original_url || cover?.url || "";
                 const type: string = cover?.type || "image";
                 if (!coverUrl || !coverUrl.startsWith("http")) continue;
-                const w: number = cover?.width || cover?.native_width || 0;
-                const h: number = cover?.height || cover?.native_height || 0;
+
+                // 1. Check if cover is an oembed or YouTube embed
+                if (type === "oembed" || coverUrl.includes("youtube.com") || coverUrl.includes("youtu.be")) {
+                  const ytMatch = coverUrl.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+                  if (ytMatch) {
+                    ytSet.add(`https://www.youtube.com/watch?v=${ytMatch[1]}`);
+                  }
+                  const thumb: string = cover?.thumbnail || "";
+                  if (thumb && thumb.startsWith("http")) {
+                    mediaSet.add(thumb.split("?")[0]);
+                  }
+                  continue;
+                }
+
+                const w: number = cover?.native_width || cover?.width || 0;
+                const h: number = cover?.native_height || cover?.height || 0;
                 // Quality filter: skip if reported dimensions are below 200px
                 if (w > 0 && h > 0 && Math.min(w, h) < 200) continue;
+
                 if (type === "video") {
                   videoSet.add(coverUrl.split("?")[0]);
+                  // Direct videos often provide a poster thumbnail
+                  const thumb: string = cover?.thumbnail || "";
+                  if (thumb && thumb.startsWith("http")) {
+                    mediaSet.add(thumb.split("?")[0]);
+                  }
                 } else {
                   // image or gif
                   mediaSet.add(coverUrl.split("?")[0]);
@@ -296,9 +330,9 @@ export class GumroadDriver {
       const mediaUrls = Array.from(mediaSet).slice(0, 20);
       const videoUrls = Array.from(videoSet).slice(0, 10);
 
-      // Extract YouTube video URLs from product page HTML
-      const ytRaw = html.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})[^\s"'<>]*/gi) || [];
-      const ytSet = new Set<string>();
+      // Extract YouTube video URLs from product page HTML (unescape JSON-encoded slashes)
+      const unescapedHtml = html.replace(/\\\//g, "/");
+      const ytRaw = unescapedHtml.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})[^\s"'<>]*/gi) || [];
       for (const yt of ytRaw) {
         const match = yt.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
         if (match) {
@@ -307,10 +341,16 @@ export class GumroadDriver {
       }
       const youtubeUrls = Array.from(ytSet);
 
+      const entityId = `gumroad:${permalink}`;
+      if (permalink !== slug) {
+        const permalinkUrl = `https://gumroad.com/l/${permalink}`;
+        if (!extLinks.includes(permalinkUrl)) extLinks.push(permalinkUrl);
+      }
+
       const entity: EntityRecord = {
-        id: `gumroad:${slug}`,
+        id: entityId,
         platform: "gumroad",
-        url: productUrl,
+        url: finalUrl,
         title: title,
         author: creatorName,
         description: desc,
@@ -319,7 +359,14 @@ export class GumroadDriver {
         origin_created_at: originCreatedAt,
         origin_updated_at: originUpdatedAt,
         raw_json: JSON.stringify({
-          slug, title, author: creatorName, desc, extLinks, originCreatedAt, originUpdatedAt,
+          slug: permalink,
+          vanity_slug: finalSlug !== permalink ? finalSlug : undefined,
+          title,
+          author: creatorName,
+          desc,
+          extLinks,
+          originCreatedAt,
+          originUpdatedAt,
           thumbnail_url: thumbnailUrl,
           media_urls: mediaUrls,
           video_urls: videoUrls,
@@ -469,7 +516,7 @@ export class GumroadDriver {
           const evalRes = RelevanceFilter.evaluate(entity);
           if (evalRes.isRelevant) {
             db.saveEntity(entity);
-            db.queueUrl(cleanUrl, "gumroad");
+            db.queueUrl(cleanUrl, "gumroad", 10);
             count++;
           } else {
             db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);

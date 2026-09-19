@@ -12,7 +12,7 @@ export interface ExportOptions {
 
 /**
  * Generates an exportable SQLite database:
- * - 'catalog': Single-file defragmented database (~12-18MB) containing canonical packages,
+ * - 'catalog': Single-file defragmented database containing canonical packages,
  *             fronts, media metadata, and pre-indexed SQLite FTS5 for offline / Tauri search.
  * - 'lake': Full disaster-recovery snapshot of the entire raw observation lake via VACUUM INTO.
  */

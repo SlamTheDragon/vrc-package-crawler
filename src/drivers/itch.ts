@@ -145,6 +145,10 @@ export class ItchDriver {
 
       rateLimiter.handleSuccess(key, 1500);
 
+      if (resp.url && resp.url !== currentUrl) {
+        currentUrl = resp.url;
+      }
+
       const html = await resp.text();
 
       // Extract title from <title> or og:title
@@ -160,11 +164,11 @@ export class ItchDriver {
         }
       }
       if (!title) {
-        title = productUrl.split("/").pop() || "Itch Tool";
+        title = currentUrl.split("?")[0].split("/").pop() || "Itch Tool";
       }
 
       // Extract creator from subdomain or author link
-      const subMatch = productUrl.match(/https?:\/\/([^.]+)\.itch\.io/);
+      const subMatch = currentUrl.match(/https?:\/\/([^.]+)\.itch\.io/);
       const creator = subMatch ? subMatch[1] : "Itch Creator";
 
       // Extract description
@@ -253,10 +257,14 @@ export class ItchDriver {
       }
       const youtubeUrls = Array.from(ytSet);
 
+      if (currentUrl !== productUrl && !extLinks.includes(productUrl)) {
+        extLinks.push(productUrl);
+      }
+
       const entity: EntityRecord = {
-        id: `itch:${creator}/${productUrl.split("/").pop()}`,
+        id: `itch:${creator}/${currentUrl.split("?")[0].split("/").pop()}`,
         platform: "itch",
-        url: productUrl,
+        url: currentUrl,
         title: title,
         author: creator,
         price_currency: "USD",

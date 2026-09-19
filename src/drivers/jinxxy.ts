@@ -166,6 +166,10 @@ export class JinxxyDriver {
 
       rateLimiter.handleSuccess(key, CONFIG.jinxxyDelayMs);
 
+      if (resp.url && resp.url !== currentUrl) {
+        currentUrl = resp.url;
+      }
+
       const html = await resp.text();
 
       // Extract title
@@ -177,7 +181,7 @@ export class JinxxyDriver {
       }
 
       // Extract creator from URL path
-      const urlParts = productUrl.replace("https://jinxxy.com/", "").split("/");
+      const urlParts = currentUrl.replace("https://jinxxy.com/", "").split("/");
       const creatorName = urlParts[0] || "Jinxxy Creator";
       const productSlug = urlParts[1] || "";
 
@@ -282,10 +286,14 @@ export class JinxxyDriver {
         } catch (_) {}
       }
 
+      if (currentUrl !== productUrl && !extLinks.includes(productUrl)) {
+        extLinks.push(productUrl);
+      }
+
       const entity: EntityRecord = {
         id: `jinxxy:${creatorName}/${productSlug}`,
         platform: "jinxxy",
-        url: productUrl,
+        url: currentUrl,
         title: title,
         author: creatorName,
         price_currency: "USD",

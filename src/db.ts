@@ -602,10 +602,15 @@ export class CrawlerDB {
     const now = new Date().toISOString();
     try {
       const stmt = this.db.prepare(`
-        INSERT OR IGNORE INTO frontier (
+        INSERT INTO frontier (
           url, platform, status, attempts, change_rate_lambda, fetch_interval_sec,
           next_fetch_at, priority, discovered_at, updated_at
-        ) VALUES (?, ?, 'pending', 0, 0.05, 86400, ?, ?, ?, ?);
+        ) VALUES (?, ?, 'pending', 0, 0.05, 86400, ?, ?, ?, ?)
+        ON CONFLICT(url) DO UPDATE SET
+          priority = MAX(frontier.priority, excluded.priority),
+          status = CASE WHEN frontier.status = 'failed' AND excluded.priority > 0 THEN 'pending' ELSE frontier.status END,
+          updated_at = excluded.updated_at
+        WHERE excluded.priority > frontier.priority;
       `);
       const res = stmt.run(cleanUrl, platform, now, priority, now, now);
       return res.changes > 0;
@@ -618,11 +623,16 @@ export class CrawlerDB {
     if (this._isClosed) return 0;
     const now = new Date().toISOString();
     const insert = this.db.prepare(`
-      INSERT OR IGNORE INTO frontier (
+      INSERT INTO frontier (
         url, platform, status, attempts, etag, last_modified,
         change_rate_lambda, fetch_interval_sec, last_fetched_at, next_fetch_at,
         priority, discovered_at, updated_at
-      ) VALUES (?, ?, 'pending', 0, NULL, NULL, 0.05, 86400, NULL, ?, ?, ?, ?);
+      ) VALUES (?, ?, 'pending', 0, NULL, NULL, 0.05, 86400, NULL, ?, ?, ?, ?)
+      ON CONFLICT(url) DO UPDATE SET
+        priority = MAX(frontier.priority, excluded.priority),
+        status = CASE WHEN frontier.status = 'failed' AND excluded.priority > 0 THEN 'pending' ELSE frontier.status END,
+        updated_at = excluded.updated_at
+      WHERE excluded.priority > frontier.priority;
     `);
 
     let count = 0;
@@ -770,6 +780,56 @@ export class CrawlerDB {
     } catch {
       return 0;
     }
+  }
+
+  /**
+   * Identifies shallow Gumroad entities (where media_urls has <= 1 item)
+   * and escalates their frontier status to 'pending' with elevated priority (10)
+   * so they are scheduled for deep hydration ahead of generic pagination.
+   */
+  public requeueShallowGumroadEntities(): { inspected: number; promoted: number } {
+    if (this._isClosed) return { inspected: 0, promoted: 0 };
+    const now = new Date().toISOString();
+    const rows = this.db.query(`
+      SELECT id, url, raw_json
+      FROM entities
+      WHERE platform = 'gumroad' AND is_quarantined = 0;
+    `).all() as { id: string; url: string; raw_json: string }[];
+
+    let promoted = 0;
+    const updateStmt = this.db.prepare(`
+      INSERT INTO frontier (
+        url, platform, status, attempts, change_rate_lambda, fetch_interval_sec,
+        next_fetch_at, priority, discovered_at, updated_at
+      ) VALUES (?, 'gumroad', 'pending', 0, 0.05, 86400, ?, 10, ?, ?)
+      ON CONFLICT(url) DO UPDATE SET
+        priority = 10,
+        status = 'pending',
+        next_fetch_at = excluded.next_fetch_at,
+        updated_at = excluded.updated_at;
+    `);
+
+    this.db.transaction(() => {
+      for (const r of rows) {
+        let isShallow = true;
+        try {
+          const parsed = JSON.parse(r.raw_json || "{}");
+          if (Array.isArray(parsed.media_urls) && parsed.media_urls.length > 1) {
+            isShallow = false;
+          }
+        } catch (_) {}
+
+        if (isShallow && r.url) {
+          const cleanUrl = this.sanitizeUrl(r.url);
+          if (cleanUrl) {
+            updateStmt.run(cleanUrl, now, now, now);
+            promoted++;
+          }
+        }
+      }
+    })();
+
+    return { inspected: rows.length, promoted };
   }
 
   public saveEntity(record: EntityRecord): boolean {

@@ -375,6 +375,36 @@ export class GitHubDriver {
       }
       const youtubeUrls = Array.from(ytSet);
 
+      // Extract candidate screenshots/images from README (quality-filtered, excluding badges)
+      const mediaSet = new Set<string>();
+      mediaSet.add(`https://opengraph.githubassets.com/1/${owner}/${repo}`);
+      if (readmeText) {
+        const imgMatches = readmeText.match(/https?:\/\/[^\s\)\"]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s\)\"]*)?/gi) || [];
+        for (const img of imgMatches) {
+          const cleanImg = img.split(/[?#]/)[0];
+          const lower = cleanImg.toLowerCase();
+          if (
+            lower.includes("shields.io") ||
+            lower.includes("badge") ||
+            lower.includes("travis-ci") ||
+            lower.includes("github.com/workflows") ||
+            lower.includes("/actions/") ||
+            lower.includes("coveralls.io") ||
+            lower.includes("codecov.io") ||
+            lower.includes("discord.gg") ||
+            lower.includes("slack.com") ||
+            lower.includes("icon") ||
+            lower.includes("logo") ||
+            lower.includes("favicon")
+          ) {
+            continue;
+          }
+          mediaSet.add(cleanImg);
+          if (mediaSet.size >= 10) break;
+        }
+      }
+      const mediaUrls = Array.from(mediaSet);
+
       const entity: EntityRecord = {
         id: `github:${owner}/${repo}`,
         platform: "github",
@@ -398,7 +428,7 @@ export class GitHubDriver {
           originUpdatedAt,
           // Social preview image (GitHub OpenGraph card — public URL, no binary download)
           thumbnail_url: `https://opengraph.githubassets.com/1/${owner}/${repo}`,
-          media_urls: [`https://opengraph.githubassets.com/1/${owner}/${repo}`],
+          media_urls: mediaUrls,
           youtube_urls: youtubeUrls
         })
       };
@@ -547,7 +577,7 @@ export class GitHubDriver {
 
 
           // Queue repo into frontier for deep README cross-link inspection
-          db.queueUrl(repoUrl, "github");
+          db.queueUrl(repoUrl, "github", 10);
         }
 
         this.harvestedCreators.add(creator.toLowerCase());
