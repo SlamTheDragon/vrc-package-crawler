@@ -72,8 +72,10 @@ The engine requires **zero runtime dependencies** on host servers. All dependenc
 |---|---|---|---|
 | `dist/vrc-crawler.exe` | `src/crawler/index.ts` | Windows x64 | Autonomous crawling daemon with Mercator host schedulers |
 | `dist/vrc-server.exe` | `src/server/index.ts` | Windows x64 | Headless REST gateway for Schemas 1, 2, and 4 |
+| `dist/vrc-server-linux` | `src/server/index.ts` | Linux x64 | Headless REST gateway for Linux VPS deployment |
 | `dist/vrc-sync.exe` | `src/sync/index.ts` | Windows x64 | High-watermark Cloudflare D1/R2 incremental synchronizer |
 | `dist/vrc-monitor.exe` | `src/monitor/index.ts` | Windows x64 | Real-time CLI terminal dashboard and saturation metrics |
+| `dist/vrc-export.exe` | `src/tools/exporter.ts` | Windows x64 | Standalone defragmented FTS5 SQLite catalog generator |
 | `dist/vrc-crawler-linux` | `src/crawler/index.ts` | Linux x64 | Headless Linux service binary |
 
 Compilation Command:
@@ -448,10 +450,10 @@ bun test
 | `tests/poisson.test.ts` | 3 | Pass | Cho-Garcia-Molina adaptive change rates, 304 backoff, 200 refresh |
 | `tests/robots.test.ts` | 5 | Pass | Longest prefix matching, User-Agent precedence, wildcard evaluation |
 | `tests/server.test.ts` | 8 | Pass | Schema 1 delta stream, Schema 2 VPM manifest, Schema 4 ingestion, rate limiter, CORS |
-| `tests/steering.test.ts` | 6 | Pass | 5 discrete steering branches, side-effect propagation, R2 pull directory ingestion |
-| `tests/sync.test.ts` | 1 | Pass | Decoupled Cloudflare D1 high-watermark synchronization |
+| `tests/steering.test.ts` | 9 | Pass | 5 discrete steering branches, side-effect propagation, local conduit, corrupt isolation, collision resilience |
+| `tests/sync.test.ts` | 4 | Pass | Decoupled Cloudflare D1 high-watermark sync, local backup conduit, rebuild recovery, drainAll backlog |
 | `tests/unified_schema.test.ts` | 4 | Pass | 10 unified tables check, lifecycle columns, curator overrides persistence |
-| **Total** | **40** | **0 Fail** | **Full System Integration Confirmed** |
+| **Total** | **51** | **0 Fail** | **Full System Integration Confirmed** |
 
 ---
 
@@ -475,3 +477,232 @@ bun run build:all
 # 5. Run Cloudflare edge sync (Dry-run mode)
 bun run sync --dry-run
 ```
+
+---
+
+## 9. VPS Packaging & Cloudflare Deployment Delegation Blueprint
+
+This section provides the end-to-end, production-grade operational manual and delegation task breakdown for packaging `vrc-server.exe` (Windows VPS) or `vrc-server-linux` (Linux VPS) and integrating the headless gateway behind Cloudflare (Tunnel, DNS, Cache Rules, WAF, D1, and R2).
+
+### 9.1 Architecture Topology & Isolation
+
+```mermaid
+flowchart LR
+    subgraph "External Clients"
+        VCC["VCC / ALCOM Clients"]
+        VRCX["VRCX / Desktop Feed"]
+        USER["Community Curators"]
+    end
+
+    subgraph "Cloudflare Edge Network"
+        CF_DNS["Cloudflare DNS (Proxied)"]
+        CF_WAF["Cloudflare WAF / Rate Limiting"]
+        CF_CACHE["Cloudflare Edge Cache\n(Rules for Schemas 1, 2, Media)"]
+        CF_TUNNEL["Cloudflare Tunnel (cloudflared)"]
+        CF_D1[("Cloudflare D1 (Mirror)")]
+        CF_R2[("Cloudflare R2 (Media/Reports)")]
+    end
+
+    subgraph "Host VPS (Linux / Windows)"
+        DAEMON["vrc-server (Port 8080)\n(Zero-runtime standalone binary)"]
+        LOCAL_DB[("dist/crawler_state.db\n(SQLite WAL)")]
+        LOCAL_BACKUP[("dist/backups/deltas/\n(Disconnected fallback)")]
+        LOCAL_REPORTS[("dist/reports/pending/\n(Local conduit drop)")]
+        SYNC_TOOL["vrc-sync\n(Scheduled high-watermark daemon)"]
+    end
+
+    VCC --> CF_DNS
+    VRCX --> CF_DNS
+    USER --> CF_DNS
+
+    CF_DNS --> CF_WAF
+    CF_WAF --> CF_CACHE
+    CF_CACHE -->|Cache Miss / Outbound Tunnel| CF_TUNNEL
+    CF_TUNNEL -->|Encrypted localhost:8080| DAEMON
+
+    DAEMON --> LOCAL_DB
+    LOCAL_REPORTS --> DAEMON
+    SYNC_TOOL --> LOCAL_DB
+    SYNC_TOOL -->|If CF Tokens present| CF_D1
+    SYNC_TOOL -->|If CF Tokens present| CF_R2
+    SYNC_TOOL -->|If Disconnected| LOCAL_BACKUP
+```
+
+### 9.2 Binary Packaging & Target Selection
+
+The gateway server compiles into self-contained native binaries with zero external host dependencies:
+
+- **Target 1: Linux VPS (Ubuntu 22.04+ / Debian 12 / Alpine x64)**
+  ```bash
+  bun run build:server:linux
+  # Output: dist/vrc-server-linux (~90 MB standalone binary)
+  ```
+- **Target 2: Windows Server VPS (Windows Server 2019/2022 x64)**
+  ```bash
+  bun run build:server
+  # Output: dist/vrc-server.exe (~95 MB standalone executable)
+  ```
+
+### 9.3 VPS Host Deployment Setup
+
+#### Option A: Linux Host (systemd Service)
+1. Copy executable and canonical state to `/opt/vrc-catalog`:
+   ```bash
+   sudo mkdir -p /opt/vrc-catalog/dist/reports/pending /opt/vrc-catalog/dist/reports/processed /opt/vrc-catalog/dist/backups/deltas
+   sudo cp dist/vrc-server-linux /opt/vrc-catalog/dist/
+   sudo cp dist/crawler_state.db /opt/vrc-catalog/dist/
+   sudo chmod +x /opt/vrc-catalog/dist/vrc-server-linux
+   ```
+2. Create unprivileged service user:
+   ```bash
+   sudo useradd -r -s /bin/false vrc
+   sudo chown -R vrc:vrc /opt/vrc-catalog
+   ```
+3. Create systemd unit file at `/etc/systemd/system/vrc-server.service`:
+   ```ini
+   [Unit]
+   Description=VRChat Package Crawler Headless API Gateway
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=vrc
+   Group=vrc
+   WorkingDirectory=/opt/vrc-catalog/dist
+   ExecStart=/opt/vrc-catalog/dist/vrc-server-linux --port 8080 --host 127.0.0.1
+   Restart=always
+   RestartSec=5s
+   LimitNOFILE=65536
+   Environment=PORT=8080
+   Environment=HOST=127.0.0.1
+   Environment=CRAWLER_DB_PATH=/opt/vrc-catalog/dist/crawler_state.db
+
+   # Hardening
+   ProtectSystem=full
+   ProtectHome=true
+   NoNewPrivileges=true
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+4. Enable and start:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now vrc-server
+   sudo systemctl status vrc-server
+   ```
+
+#### Option B: Windows Host (NSSM Service)
+1. Place `vrc-server.exe` and `crawler_state.db` in `C:\vrc-catalog\dist\`.
+2. Install service via NSSM (Non-Sucking Service Manager):
+   ```cmd
+   nssm install VrcServer "C:\vrc-catalog\dist\vrc-server.exe" "--port 8080 --host 127.0.0.1"
+   nssm set VrcServer AppDirectory "C:\vrc-catalog\dist"
+   nssm set VrcServer AppRestartDelay 5000
+   nssm start VrcServer
+   ```
+
+### 9.4 Cloudflare Tunnel (`cloudflared`) Ingress Architecture
+
+No public inbound firewall ports (80/443/8080) need to be opened on the VPS. All traffic routes through an outbound encrypted tunnel managed by `cloudflared`.
+
+1. Install `cloudflared` on VPS:
+   ```bash
+   # Linux
+   curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+   sudo dpkg -i cloudflared.deb
+   ```
+2. Authenticate tunnel:
+   ```bash
+   cloudflared tunnel login
+   cloudflared tunnel create vrc-gateway-tunnel
+   ```
+3. Configure tunnel routing (`/etc/cloudflared/config.yml`):
+   ```yaml
+   tunnel: <TUNNEL_UUID>
+   credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
+
+   ingress:
+     - hostname: api.vrc-catalog.net
+       service: http://127.0.0.1:8080
+       originRequest:
+         connectTimeout: 10s
+         noTLSVerify: false
+     - service: http_status:404
+   ```
+4. Route DNS through the tunnel:
+   ```bash
+   cloudflared tunnel route dns vrc-gateway-tunnel api.vrc-catalog.net
+   ```
+5. Install and run as daemon:
+   ```bash
+   sudo cloudflared service install
+   sudo systemctl start cloudflared
+   ```
+
+### 9.5 Cloudflare Edge Cache Rules (Performance & Origin Shielding)
+
+Configure Cache Rules in Cloudflare Dashboard (`Caching -> Cache Rules`):
+
+| Rule Name | Expression / Pattern | Edge Cache TTL | Browser Cache TTL | Cache Key / Settings | Rationale |
+|---|---|---|---|---|---|
+| **Rule 1: Media WebP Proxy** | `http.request.uri.path starts_with "/v1/media/" or http.request.uri.path starts_with "/v1/thumbs/"` | 30 Days (2,592,000s) | 30 Days | Cache Everything, Ignore Query String | WebP images are immutable perceptual hashes; edge absorbs 99.9% of image bandwidth. |
+| **Rule 2: Schema 2 VPM Manifest** | `http.request.uri.path eq "/v1/vpm/index.json" or http.request.uri.path eq "/index.json"` | 10 Minutes (600s) | 5 Minutes (300s) | Cache Everything, Respect Origin, Serve Stale While Revalidate (60s) | Protects origin from VCC/ALCOM client poll spikes while maintaining fresh repository listings. |
+| **Rule 3: Schema 1 Catalog Delta** | `http.request.uri.path eq "/v1/catalog/delta"` | 1 Minute (60s) | 30 Seconds | Cache by Query String (include `cursor` & `limit`) | Deduplicates identical cursor-paginated delta requests from distributed desktop listeners. |
+| **Rule 4: Schema 4 Reports Bypass** | `http.request.uri.path eq "/v1/reports" and http.request.method eq "POST"` | Bypass Cache | Bypass Cache | Direct to origin, Enable WAF Rate Limiting | Ingestion mutations must never be cached at the edge. |
+| **Rule 5: Health & IPC Bypass** | `http.request.uri.path eq "/v1/health"` | Bypass Cache | Bypass Cache | No Cache | Real-time node liveness check. |
+
+### 9.6 Cloudflare WAF & Rate Limiting Rules
+
+Under `Security -> WAF -> Rate Limiting Rules`:
+- **Rule Name:** `Schema 4 Report Throttling`
+- **Criteria:** `http.request.uri.path eq "/v1/reports" and http.request.method eq "POST"`
+- **Rate Limit:** 10 requests per 1 minute per IP.
+- **Action:** Block (429 Too Many Requests).
+- **Client Identification:** `CF-Connecting-IP` (automatically forwarded to server as client fingerprint).
+
+### 9.7 Cloudflare D1 & R2 Synchronization Integration
+
+When scaling beyond a single origin or preparing an edge-cached D1 mirror:
+
+1. **Environment Configuration:**
+   Export credentials into the environment (or `.env` file):
+   ```env
+   CLOUDFLARE_ACCOUNT_ID="<your-cloudflare-account-id>"
+   CLOUDFLARE_API_TOKEN="<your-d1-r2-api-token>"
+   CLOUDFLARE_D1_DATABASE_ID="<your-d1-database-uuid>"
+   CLOUDFLARE_R2_BUCKET_NAME="vrc-catalog-media"
+   ```
+2. **Scheduled Sync Daemon:**
+   Run `vrc-sync` every 4 hours via cron or task scheduler:
+   ```bash
+   # Linux crontab
+   0 */4 * * * /opt/vrc-catalog/dist/vrc-sync --batch-size 100 >> /opt/vrc-catalog/dist/logs/sync.log 2>&1
+   ```
+3. **Safety Guarantee (No Fake Syncs):**
+   - If credentials are valid, `vrc-sync` pushes records to Cloudflare D1 and updates `sync_checkpoints` (`sync_target = 'cloudflare_d1'`).
+   - If credentials are missing or disconnected, `vrc-sync` reroutes incremental deltas to `<baseDir>/backups/deltas/delta_<timestamp>.json` and **never** advances the remote Cloudflare watermark.
+   - If `--dry-run` is passed, `vrc-sync` validates records and exits without touching `sync_checkpoints`.
+
+### 9.8 Step-by-Step Delegation Checklist for Infrastructure Delegates
+
+- [ ] **Step 1: Build Binaries**
+  - Run `bun run build:all` to compile `dist/vrc-server-linux` and `dist/vrc-server.exe`.
+- [ ] **Step 2: Transfer to Host VPS**
+  - Copy `vrc-server-linux` (or `.exe`) and initial `crawler_state.db` to the host directory.
+  - Verify directory structure: `reports/pending/`, `reports/processed/`, `backups/deltas/`.
+- [ ] **Step 3: Setup Service Supervisor**
+  - Create systemd service or NSSM Windows service. Verify auto-restart on exit code failure.
+  - Test health endpoint locally: `curl -I http://127.0.0.1:8080/v1/health`.
+- [ ] **Step 4: Configure Cloudflare Tunnel**
+  - Authenticate `cloudflared` and map public hostname (e.g. `api.vrc-catalog.net`) to `http://127.0.0.1:8080`.
+  - Verify zero open inbound ports in host firewall (`ufw status` / Windows Firewall).
+- [ ] **Step 5: Apply Cloudflare Edge Cache Rules**
+  - Create cache rules for WebP media (`/v1/media/*`), VPM manifest (`/v1/vpm/index.json`), and delta feed (`/v1/catalog/delta`).
+- [ ] **Step 6: Configure WAF Rate Limiting**
+  - Setup 10 req/min limit on `POST /v1/reports`.
+- [ ] **Step 7: Validate End-to-End Integration**
+  - Send test Schema 4 report via `curl -X POST https://api.vrc-catalog.net/v1/reports ...`.
+  - Query VPM manifest via `curl -s https://api.vrc-catalog.net/v1/vpm/index.json`.
+  - Verify `CF-Cache-Status: HIT` on subsequent requests to `/v1/vpm/index.json`.
+

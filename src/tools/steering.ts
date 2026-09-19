@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
 import { db, type CrawlerDB, type UserReport, type PlatformType } from "../db.ts";
 import { sanitizeOutboundUrl } from "../utils/image_proxy.ts";
@@ -301,6 +302,27 @@ export async function pullReportsFromCloudflareR2(customDb?: CrawlerDB): Promise
   }
 }
 
+function safeArchiveFile(sourcePath: string, targetDir: string, targetFileName: string): string {
+  let destPath = path.join(targetDir, targetFileName);
+  if (fs.existsSync(destPath)) {
+    const ext = path.extname(targetFileName);
+    const base = path.basename(targetFileName, ext);
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    destPath = path.join(targetDir, `${base}_${uniqueSuffix}${ext}`);
+  }
+  try {
+    fs.renameSync(sourcePath, destPath);
+  } catch (_) {
+    try {
+      fs.copyFileSync(sourcePath, destPath);
+      fs.unlinkSync(sourcePath);
+    } catch (copyErr) {
+      logger.error(`[Steering:LocalConduit] Failed to move ${sourcePath} to ${destPath}:`, copyErr);
+    }
+  }
+  return destPath;
+}
+
 /**
  * Pull reports from local directory or Cloudflare R2
  */
@@ -314,13 +336,13 @@ export async function pullReportsFromDirectory(dirPath?: string, customDb?: Craw
     totalPulled += r2Count;
   } catch (_) {}
 
-  // 2. Read local filesystem reports directory
-  const baseDir = dirPath || process.env.CRAWLER_REPORTS_DIR || path.resolve(process.cwd(), "reports");
+  // 2. Read explicit schema-governed local ingestion conduit
+  const baseDir = dirPath || process.env.CRAWLER_REPORTS_DIR || path.resolve(CONFIG.baseDir, "reports");
   const pendingDir = path.resolve(baseDir, "pending");
   const processedDir = path.resolve(baseDir, "processed");
 
   if (!fs.existsSync(pendingDir)) {
-    return totalPulled;
+    fs.mkdirSync(pendingDir, { recursive: true });
   }
 
   if (!fs.existsSync(processedDir)) {
@@ -331,11 +353,18 @@ export async function pullReportsFromDirectory(dirPath?: string, customDb?: Craw
 
   for (const file of files) {
     const filePath = path.join(pendingDir, file);
+    let json: any;
     try {
       const content = fs.readFileSync(filePath, "utf-8");
-      const json = JSON.parse(content);
-      const validation = validateSchema4Payload(json);
+      json = JSON.parse(content);
+    } catch (parseErr) {
+      logger.warn(`[Steering:LocalConduit] File ${file} contains malformed JSON, archiving as corrupt:`, parseErr);
+      safeArchiveFile(filePath, processedDir, `${file}.corrupt`);
+      continue;
+    }
 
+    try {
+      const validation = validateSchema4Payload(json);
       if (validation.valid) {
         targetDb.insertReport({
           reportId: json.reportId,
@@ -344,25 +373,24 @@ export async function pullReportsFromDirectory(dirPath?: string, customDb?: Craw
           branch: json.branch,
           branchPayload: json.branchPayload,
           reporterNotes: json.reporterNotes || null,
-          clientFingerprint: json.clientFingerprint || "r2-pull-sync",
+          clientFingerprint: json.clientFingerprint || "local-conduit",
           trustTier: json.trustTier || "anonymous",
           submittedAt: json.submittedAt
         });
         totalPulled++;
+        safeArchiveFile(filePath, processedDir, file);
       } else {
-        logger.warn(`[Steering:Pull] File ${file} failed Schema 4 validation:`, validation.errors);
+        logger.warn(`[Steering:LocalConduit] File ${file} failed Schema 4 validation:`, validation.errors);
+        safeArchiveFile(filePath, processedDir, `${file}.invalid`);
       }
-
-      // Move to processed archive
-      const destPath = path.join(processedDir, file);
-      fs.renameSync(filePath, destPath);
     } catch (err) {
-      logger.error(`[Steering:Pull] Error processing report file ${file}:`, err);
+      logger.error(`[Steering:LocalConduit] Error processing report file ${file}:`, err);
+      safeArchiveFile(filePath, processedDir, `${file}.error`);
     }
   }
 
   if (totalPulled > 0) {
-    logger.info(`[Steering:Pull] Successfully ingested ${totalPulled} reports into database.`);
+    logger.info(`[Steering:LocalConduit] Successfully ingested ${totalPulled} reports into database via local conduit.`);
   }
   return totalPulled;
 }

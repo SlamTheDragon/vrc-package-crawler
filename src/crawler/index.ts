@@ -739,13 +739,11 @@ async function runMonitor() {
   let lastSteeringTime = Date.now();
   let lastSyncTime = Date.now();
   let lastMediaIndexTime = Date.now();
-  let lastExportTime = Date.now();
 
   const PROJECTION_INTERVAL_MS = 15 * 60 * 1000;   // 15 minutes
   const STEERING_INTERVAL_MS = 30 * 60 * 1000;     // 30 minutes
   const SYNC_INTERVAL_MS = 4 * 60 * 60 * 1000;      // 4 hours
   const MEDIA_INDEX_INTERVAL_MS = 5 * 60 * 1000;   // 5 minutes
-  const EXPORT_INTERVAL_MS = 6 * 60 * 60 * 1000;    // 6 hours
 
   while (isRunning) {
     await sleepOrInterrupt(15000);
@@ -803,7 +801,7 @@ async function runMonitor() {
       logger.info("[MONITOR] Initiating scheduled 4-hour Cloudflare edge sync upload...");
       try {
         const { runEdgeSync } = await import("../sync/index.ts");
-        await runEdgeSync();
+        await runEdgeSync({ drainAll: true });
       } catch (err) {
         logger.error("[MONITOR] Error during periodic edge sync", err);
       }
@@ -817,18 +815,6 @@ async function runMonitor() {
         await ImageProxyService.indexPendingMedia(25);
       } catch (err) {
         logger.error("[MONITOR] Error during periodic media indexing", err);
-      }
-    }
-
-    // 6. Periodic 6-hour offline FTS5 catalog export
-    if (Date.now() - lastExportTime >= EXPORT_INTERVAL_MS) {
-      lastExportTime = Date.now();
-      logger.info("[MONITOR] Initiating scheduled 6-hour offline FTS5 catalog export...");
-      try {
-        const { runDatabaseExport } = await import("../tools/exporter.ts");
-        await runDatabaseExport("catalog");
-      } catch (err) {
-        logger.error("[MONITOR] Error during periodic catalog export", err);
       }
     }
   }
@@ -896,6 +882,7 @@ Options:
 For monitoring, run: dist/vrc-monitor.exe
 For edge sync, run:  dist/vrc-sync.exe
 For HTTP API, run:   dist/vrc-server.exe
+For offline export, run: dist/vrc-export.exe
 `);
     process.exit(0);
   }
@@ -978,10 +965,6 @@ For HTTP API, run:   dist/vrc-server.exe
       const { pullReportsFromDirectory, processPendingReports } = await import("../tools/steering.ts");
       await pullReportsFromDirectory();
       await processPendingReports();
-    },
-    onExport: async () => {
-      const { runDatabaseExport } = await import("../tools/exporter.ts");
-      await runDatabaseExport("catalog");
     }
   });
 

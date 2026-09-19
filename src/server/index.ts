@@ -199,9 +199,9 @@ export function startServer(config: ServerConfig = {}) {
         }
 
         // Rate limiting by IP / Fingerprint
-        const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        const clientIp = req.headers.get("cf-connecting-ip") ||
+                         req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
                          req.headers.get("x-real-ip") ||
-                         req.headers.get("cf-connecting-ip") ||
                          server.requestIP(req)?.address ||
                          "unknown-client";
         const clientFingerprint = req.headers.get("x-client-fingerprint") || clientIp;

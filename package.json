@@ -17,8 +17,10 @@
     "build:monitor": "bun build --compile --outfile=dist/vrc-monitor.exe src/monitor/index.ts",
     "build:sync": "bun build --compile --outfile=dist/vrc-sync.exe src/sync/index.ts",
     "build:server": "bun build --compile --outfile=dist/vrc-server.exe src/server/index.ts",
+    "build:server:linux": "bun build --compile --target=bun-linux-x64 --outfile=dist/vrc-server-linux src/server/index.ts",
+    "build:export": "bun build --compile --outfile=dist/vrc-export.exe src/tools/exporter.ts",
     "build:linux": "bun build --compile --target=bun-linux-x64 --outfile=dist/vrc-crawler-linux src/crawler/index.ts",
-    "build:all": "bun run build:crawler && bun run build:monitor && bun run build:sync && bun run build:server && bun run build:linux",
+    "build:all": "bun run build:crawler && bun run build:monitor && bun run build:sync && bun run build:server && bun run build:server:linux && bun run build:linux && bun run build:export",
     "test": "bun test"
   },
   "devDependencies": {

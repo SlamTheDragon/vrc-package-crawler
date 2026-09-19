@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import fs from "fs";
 import path from "path";
+import { CONFIG } from "../src/config.ts";
 import { db } from "../src/db.ts";
 import { processPendingReports, pullReportsFromDirectory } from "../src/tools/steering.ts";
 
@@ -224,9 +225,110 @@ describe("Autonomous Steering Engine (5 Discrete Branches & Pull-Based Ingestion
     // Verify report in DB
     const reportInDb = db.rawDb.prepare("SELECT * FROM user_reports WHERE report_id = ?;").get(reportContent.reportId) as any;
     expect(reportInDb).toBeDefined();
-    expect(reportInDb.client_fingerprint).toBe("r2-pull-sync");
+    expect(reportInDb.client_fingerprint).toBe("local-conduit");
 
     // Clean up temp dir
     fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("formalizes schema-governed local conduit in CONFIG.baseDir/reports/pending", async () => {
+    const canonicalPending = path.resolve(CONFIG.baseDir, "reports/pending");
+    const canonicalProcessed = path.resolve(CONFIG.baseDir, "reports/processed");
+    fs.mkdirSync(canonicalPending, { recursive: true });
+
+    const repId = `rep_conduit_${Date.now()}`;
+    const filename = `report_${Date.now()}.json`;
+    const targetFile = path.join(canonicalPending, filename);
+
+    fs.writeFileSync(targetFile, JSON.stringify({
+      reportId: repId,
+      targetPackageId: testCanonicalId,
+      targetPackageName: "Original Tool Name",
+      branch: "listing",
+      submittedAt: new Date().toISOString(),
+      branchPayload: {
+        nameOverride: "Conduit Renamed Tool"
+      }
+    }), "utf-8");
+
+    // Call pullReportsFromDirectory() with no custom dirPath (defaults to CONFIG.baseDir/reports)
+    const pulled = await pullReportsFromDirectory();
+    expect(pulled).toBeGreaterThanOrEqual(1);
+
+    // Verify moved to canonical processed
+    expect(fs.existsSync(targetFile)).toBe(false);
+    expect(fs.existsSync(path.join(canonicalProcessed, filename))).toBe(true);
+
+    // Verify ingested report in database
+    const dbRecord = db.rawDb.prepare("SELECT * FROM user_reports WHERE report_id = ?;").get(repId) as any;
+    expect(dbRecord).toBeDefined();
+    expect(dbRecord.client_fingerprint).toBe("local-conduit");
+
+    // Clean up processed file
+    try { fs.unlinkSync(path.join(canonicalProcessed, filename)); } catch (_) {}
+  });
+
+  it("isolates corrupt/malformed JSON files with .corrupt extension to prevent loop stalling", async () => {
+    const canonicalPending = path.resolve(CONFIG.baseDir, "reports/pending");
+    const canonicalProcessed = path.resolve(CONFIG.baseDir, "reports/processed");
+    fs.mkdirSync(canonicalPending, { recursive: true });
+
+    const corruptFilename = `corrupt_${Date.now()}.json`;
+    const corruptFile = path.join(canonicalPending, corruptFilename);
+    fs.writeFileSync(corruptFile, "{ this is definitely not valid JSON content !!! }", "utf-8");
+
+    const pulled = await pullReportsFromDirectory();
+    // Corrupt file was not valid report, so total pulled is 0
+    expect(pulled).toBe(0);
+
+    // Corrupt file must be removed from pending
+    expect(fs.existsSync(corruptFile)).toBe(false);
+
+    // Corrupt file must be safely moved to processed with .corrupt extension
+    const processedCorrupt = path.join(canonicalProcessed, `${corruptFilename}.corrupt`);
+    expect(fs.existsSync(processedCorrupt)).toBe(true);
+
+    try { fs.unlinkSync(processedCorrupt); } catch (_) {}
+  });
+
+  it("handles destination file collisions in processed archive on Windows without throwing", async () => {
+    const canonicalPending = path.resolve(CONFIG.baseDir, "reports/pending");
+    const canonicalProcessed = path.resolve(CONFIG.baseDir, "reports/processed");
+    fs.mkdirSync(canonicalPending, { recursive: true });
+    fs.mkdirSync(canonicalProcessed, { recursive: true });
+
+    const dupFilename = `collision_test_${Date.now()}.json`;
+    const existingInProcessed = path.join(canonicalProcessed, dupFilename);
+    fs.writeFileSync(existingInProcessed, JSON.stringify({ existing: true }), "utf-8");
+
+    const repId = `rep_collision_${Date.now()}`;
+    const pendingFile = path.join(canonicalPending, dupFilename);
+    fs.writeFileSync(pendingFile, JSON.stringify({
+      reportId: repId,
+      targetPackageId: testCanonicalId,
+      targetPackageName: "Collision Target",
+      branch: "listing",
+      submittedAt: new Date().toISOString(),
+      branchPayload: {
+        nameOverride: "Collision Renamed Tool"
+      }
+    }), "utf-8");
+
+    // Must not throw EPERM/EEXIST when moving dupFilename
+    const pulled = await pullReportsFromDirectory();
+    expect(pulled).toBeGreaterThanOrEqual(1);
+
+    // Original pending file should be moved
+    expect(fs.existsSync(pendingFile)).toBe(false);
+
+    // Original processed file should still exist
+    expect(fs.existsSync(existingInProcessed)).toBe(true);
+
+    // Clean up
+    try { fs.unlinkSync(existingInProcessed); } catch (_) {}
+    const leftoverFiles = fs.readdirSync(canonicalProcessed).filter(f => f.startsWith(`collision_test_`));
+    for (const f of leftoverFiles) {
+      try { fs.unlinkSync(path.join(canonicalProcessed, f)); } catch (_) {}
+    }
   });
 });
