@@ -51,11 +51,17 @@ Study locality-sensitive hashing and 64-bit SimHash algorithms[^10]. Learn rando
 ### 7. Storage Engine Architecture
 Study SQLite Write-Ahead Logging (WAL mode) and synchronous disk flush modes[^13],[^14]. Study Command Query Responsibility Segregation (CQRS) and event sourcing[^15]. Learn to separate immutable observation lakes from derived catalog projections.
 
-### 8. Statutory Case Law and Jurisprudence
-- *Feist Publications, Inc. v. Rural Telephone Service Co.*: Non-copyrightability of factual directories and metadata specifications[^16].
-- *hiQ Labs, Inc. v. LinkedIn Corp.* and *Van Buren v. United States*: Computer Fraud and Abuse Act (CFAA) boundaries on public web data[^17],[^18].
-- *Meta Platforms, Inc. v. Bright Data Ltd.*: Enforceability of terms of service against logged-off data collection[^19].
-- *Kelly v. Arriba Soft Corp.* and Japanese Copyright Act Article 47-5: Fair use, thumbnails, and economic prejudice provisos[^20],[^21].
+### 8. Systematic Research & Literature Review Methodologies
+Study systematic literature review frameworks adapted for computer systems and digital law (PRISMA-ScR: Preferred Reporting Items for Systematic Reviews and Meta-Analyses Extension for Scoping Reviews)[^16]. Learn backward and forward citation snowballing, inclusion/exclusion eligibility matrices, and evidence confidence scoring (0.0 to 1.0) to ground technical invariants in empirical science.
+
+### 9. Statutory Case Law and Jurisprudence
+- *Feist Publications, Inc. v. Rural Telephone Service Co.*: Non-copyrightability of factual directories and metadata specifications[^17].
+- *Perfect 10, Inc. v. Amazon.com, Inc.* and *Kelly v. Arriba Soft Corp.*: The Ninth Circuit Server Test and transformative thumbnail fair use[^18],[^19].
+- *Authors Guild v. Google, Inc.*: Search snippet display as non-substitutive transformative fair use[^20].
+- *hiQ Labs, Inc. v. LinkedIn Corp.* and *Van Buren v. United States*: Computer Fraud and Abuse Act (CFAA) boundaries on public web data[^21],[^22].
+- *Meta Platforms, Inc. v. Bright Data Ltd.*: Enforceability of terms of service against logged-off data collection[^23].
+- Japanese Copyright Act Articles 30-4 and 47-5: Machine data analysis and information-location search exceptions with economic prejudice provisos[^24].
+- Philippine Intellectual Property Code (RA 8293, Sec 173.2 and 175) and Data Privacy Act (RA 10173, Sec 12(f) and 16): Database compilation protection, unprotected data, and legitimate interest processing[^25],[^26].
 
 ---
 
@@ -101,9 +107,9 @@ Engineers will monitor these six operational telemetry signals:
 
 ---
 
-## 5. The Eight Core Philosophies of Search Crawling
+## 5. The Ten Core Philosophies of Search Crawling
 
-Every component in this search engine will obey eight foundational philosophies:
+Every component in this search engine will obey ten foundational philosophies:
 
 ```mermaid
 flowchart TD
@@ -114,6 +120,8 @@ flowchart TD
     P5 --> P6["6. Politeness as Primary Principle"]
     P6 --> P7["7. Administrative Security & Human Buffer"]
     P7 --> P8["8. Stateless Metadata Air-Gap"]
+    P8 --> P9["9. Sovereign Creator Delisting"]
+    P9 --> P10["10. Downstream Notice & Assent"]
 ```
 
 1. **The Zero-Binary Invariant**:
@@ -125,13 +133,17 @@ flowchart TD
 4. **The API-First and Zero-Bypass Principle**:
    Use official APIs when available. If edge security blocks access, treat it as a refusal of service. Never deploy CAPTCHA bypass farms or proxy rotators.
 5. **The CQRS Immutable Observation Lake**:
-   Store raw network data immutably. Program code is disposable and recomputable, network requests and origin server trust are limited resources.
+   Store raw network data immutably. Program code is disposable and recomputable; network requests and origin server trust are limited resources.
 6. **Politeness as a Primary Principle**:
    Rate limits and backoff jitter are not optional settings. They form the core architecture of the engine.
 7. **Administrative Security and Human Review Gating**:
    All administrative reports will require authentication via `API_SECRET_TOKEN`. The system will quarantine destructive actions into a human-review buffer (`needs_review`) and will never apply automated delisting without human oversight.
 8. **Stateless Metadata Catalog Air-Gap**:
    The crawler engine and public catalog will remain an unauthenticated, stateless, read-only index. User accounts, authentication, bookmarks, and personalization engines will remain strictly air-gapped in external consumer applications.
+9. **Sovereign Creator Delisting and Verification**:
+   Rights holders have sovereign control over their presence in the index. The system will honor delisting requests within 24 to 48 hours through non-scraping verification (DNS TXT, signed Git commits, or direct email).
+10. **Downstream Notice and Assent Enforcement**:
+    Downstream programmatic consumers receive explicit technical notice of usage terms (`X-Catalog-Terms-Of-Use`, RFC 9110) on every API request and catalog release, ensuring contractual enforceability.
 
 ***
 
@@ -167,14 +179,24 @@ flowchart TD
 
 [^15]: M. Fowler, "CQRS (Command Query Responsibility Segregation)," martinfowler.com, 2011. [Online]. Available: https://martinfowler.com/bliki/CQRS.html
 
-[^16]: U.S. Supreme Court, *Feist Publications, Inc. v. Rural Telephone Service Co.*, 499 U.S. 340, 1991.
+[^16]: A. C. Tricco et al., "PRISMA Extension for Scoping Reviews (PRISMA-ScR): Checklist and Explanation," *Annals of Internal Medicine*, vol. 169, no. 7, pp. 467-473, Oct. 2018.
 
-[^17]: U.S. Court of Appeals for the Ninth Circuit, *hiQ Labs, Inc. v. LinkedIn Corp.*, 31 F.4th 1180, 2022.
+[^17]: U.S. Supreme Court, *Feist Publications, Inc. v. Rural Telephone Service Co.*, 499 U.S. 340, 1991.
 
-[^18]: U.S. Supreme Court, *Van Buren v. United States*, 141 S. Ct. 1638, 2021.
+[^18]: U.S. Court of Appeals for the Ninth Circuit, *Perfect 10, Inc. v. Amazon.com, Inc.*, 508 F.3d 1146, 2007.
 
-[^19]: U.S. District Court for the Northern District of California, *Meta Platforms, Inc. v. Bright Data Ltd.*, Case No. 3:23-cv-00077-EMC, Jan. 23, 2024.
+[^19]: U.S. Court of Appeals for the Ninth Circuit, *Kelly v. Arriba Soft Corp.*, 336 F.3d 811, 2003.
 
-[^20]: U.S. Court of Appeals for the Ninth Circuit, *Kelly v. Arriba Soft Corp.*, 336 F.3d 811, 2003.
+[^20]: U.S. Court of Appeals for the Second Circuit, *Authors Guild v. Google, Inc.*, 804 F.3d 202, 2015.
 
-[^21]: Agency for Cultural Affairs of Japan, "Copyright Act of Japan," Article 47-5, amended 2018.
+[^21]: U.S. Court of Appeals for the Ninth Circuit, *hiQ Labs, Inc. v. LinkedIn Corp.*, 31 F.4th 1180, 2022.
+
+[^22]: U.S. Supreme Court, *Van Buren v. United States*, 141 S. Ct. 1638, 2021.
+
+[^23]: U.S. District Court for the Northern District of California, *Meta Platforms, Inc. v. Bright Data Ltd.*, Case No. 3:23-cv-00077-EMC, Jan. 23, 2024.
+
+[^24]: Agency for Cultural Affairs of Japan, "Copyright Act of Japan," Articles 30-4 and 47-5, amended 2018.
+
+[^25]: Republic of the Philippines, "Intellectual Property Code of the Philippines," Republic Act No. 8293, Sections 173.2 and 175, 1997.
+
+[^26]: Republic of the Philippines, "Data Privacy Act of 2012," Republic Act No. 10173, Sections 12(f) and 16, 2012.

@@ -422,6 +422,53 @@ Autonomous coding agents must obey the 13 verified engineering reality constrain
 - All CLI commands must be dispatched through `vrc-monitor.exe` (or `bun run src/monitor/index.ts <action>`).
 - **Agent Rule:** Route all administrative commands through `vrc-monitor.exe`.
 
+### CR-14: Downstream Terms Header Notice
+- `src/server/index.ts` returns responses without the `X-Catalog-Terms-Of-Use` header.
+- Programmatic callers receive zero in-band contractual notice of Downstream Covenants.
+- **Agent Rule:** Always inject `X-Catalog-Terms-Of-Use` headers on API responses and embed license terms in `GET /` root metadata.
+
+### CR-15: Cloudflare Turnstile Challenge Detection on HTTP 200
+- `src/drivers/gumroad.ts` and `src/drivers/jinxxy.ts` do not inspect HTTP 200 payloads for challenge markers.
+- Turnstile scripts are parsed as product content, accelerating Poisson re-crawl into IP bans.
+- **Agent Rule:** Inspect payloads for `challenges.cloudflare.com/turnstile` and `cf-mitigated: challenge` before DOM parsing.
+
+### CR-16: Automated Opt-Out API Routing
+- `db.registerOptOut()` exists in `src/db.ts` lines 551 to 578 but has zero API routes.
+- **Agent Rule:** Expose `POST /v1/opt-out` to accept and verify DNS TXT records (`vrc-opt-out=<vendor-id>`) or signed Git commits.
+
+### CR-17: CJK Bracket Stripping & SimHash Normalization
+- `src/tools/pipeline_sanitize.ts` does not normalize full-width CJK brackets (`【...】`) or generate character 2-grams.
+- Japanese and Western mirrors fail to converge under SimHash-64 ($k \le 3$).
+- **Agent Rule:** Apply NFKC normalization, strip full-width brackets, and use character 2-grams for CJK strings.
+
+### CR-18: Decentralized Canonical Network Provenance Tracking
+- SQLite tables lack `contributor_node_id`, `crawl_signature`, and `batch_id` columns.
+- Contributed metadata cannot be verified or isolated on Cloudflare D1/R2.
+- **Agent Rule:** Add provenance tracking columns to `entities` and `canonical_packages` before enabling decentralized node federation.
+
+### CR-19: Server Test Compliance & Image Proxy Local Storage
+- `src/utils/image_proxy.ts` inserts raw WebP buffers directly as BLOBs into SQLite `media_cache.webp_data` (`dist/crawler_state.db`), creating a 357 MB database. `src/server/index.ts` serves binary images via `/v1/media/:id`, and `src/tools/exporter.ts` exports `webp_data BLOB`.
+- Persistent local storage of creative assets creates copyright reproduction exposure under the Ninth Circuit Server Test (*Perfect 10 v. Amazon*) and Second Circuit display rulings (*Goldman v. Breitbart*).
+- **Agent Rule:** Return direct Source CDN URLs in API responses. Keep local image processing strictly ephemeral in-memory for 64-bit pHash and BlurHash extraction, and ground visual search in *Kelly v. Arriba Soft* transformative fair use.
+
+### CR-20: Automated ETag Conditional Request Loop
+- `src/drivers/github.ts` extracts raw ETags but never transmits `If-None-Match`.
+- Drivers send no `If-Modified-Since` headers, rendering HTTP 304 inoperative.
+- **Agent Rule:** Transmit conditional HTTP headers on all re-crawl requests. Refresh timestamps on HTTP 304 without parsing payloads.
+
+### CR-21: SQLite Media Cache BLOB Elimination
+- Production code stores image binaries inside SQLite `media_cache.webp_data` instead of transient descriptors.
+- **Agent Rule:** Drop `webp_data BLOB` from SQLite schemas. Retain only `phash_64`, `blurhash`, and origin `source_url`.
+
+### CR-22: Exported SQLite Catalog Terms Metadata Table
+- `src/tools/exporter.ts` creates tables for packages, fronts, and FTS, but completely omits a `catalog_metadata` table.
+- Downloaded SQLite databases contain zero contractual terms or license text.
+- **Agent Rule:** Add `CREATE TABLE catalog_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);` in `src/tools/exporter.ts`. Record terms URL, terms SHA-256 digest, AGPLv3 license reference, and export timestamp.
+
+### CR-23: Headless API Server Root Discovery Route
+- `src/server/index.ts` returns `404 Not Found` for `GET /`. No discovery payload exists to communicate terms of use or endpoint schemas.
+- **Agent Rule:** Add root route `GET /` in `src/server/index.ts` returning API metadata, version, schema endpoints, terms of use URL, and license covenants.
+
 ---
 
 ## 7. SQLite Test Concurrency & Locking Invariants

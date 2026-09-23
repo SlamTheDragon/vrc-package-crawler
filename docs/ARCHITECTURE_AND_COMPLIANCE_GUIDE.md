@@ -37,7 +37,7 @@ Every commercial storefront will enforce distinct acceptable use policies and se
 | Platform | Contractual Crawling Policy | API Access Model | Perimeter Defense | Policy on Machine Learning Datasets |
 | :--- | :--- | :--- | :--- | :--- |
 | **Jinxxy** | Prohibited without written consent | Official REST API required | Automated IP throttling and rate caps | Expressly prohibited in all tiers |
-| **Gumroad** | Prohibited in Terms of Service | REST API v2 for sellers | Edge rate limits and bot challenges | Restricted by creator licenses |
+| **Gumroad** | Prohibited in general; Section 14(e) permits public search engines creating searchable indices (no caches/archives) | REST API v2 for sellers | Edge rate limits and bot challenges | Restricted by creator licenses |
 | **BOOTH.pm** | Article 14 bars unapproved use | Closed: no public read API | Cloudflare Managed Challenges | Prohibited across pixiv services |
 | **GitHub** | Scraping web UI banned | High-throughput REST and GraphQL APIs | Strict token rate quotas | User code protected by Terms |
 | **itch.io** | Service disruption terms apply | REST API available | CDN challenge gates and throttling | Governed by creator licenses |
@@ -50,9 +50,10 @@ Jinxxy will require developers to query its official REST API. Developers will r
 Section 8.3 of the Jinxxy Purchase Agreement will explicitly ban the use of platform assets for artificial intelligence or machine learning training[^4]. Crawling Jinxxy to assemble model training data will constitute a direct contractual breach.
 
 ### Gumroad
-Gumroad serves creators who sell digital 3D models and Unity tools. The Gumroad Terms of Service will prohibit accessing services via automated scrapers or spiders[^5].
+Gumroad serves creators who sell digital 3D models and Unity tools. The Gumroad Terms of Service will prohibit automated scrapers in general, but Section 14(e) provides an explicit exception for public search engines:
+> *"operators of public search engines may use spiders to copy materials from the Site for the sole purpose of, and solely to the extent necessary for, creating publicly available searchable indices of the materials, but not caches or archives of such materials."*[^5]
 
-Gumroad supplies a REST API v2. This API supports creator inventory management and order verification. Third-party crawlers that scrape public seller profiles will encounter edge firewalls and IP blocks. Indexers will pace requests and will use official seller tokens where available. Direct image hotlinking will be blocked by signed HMAC tokens and CDN origin checks.
+The crawler operates under this express search engine exception. It creates a public searchable index and avoids caching or archiving proprietary product files. Gumroad supplies a REST API v2 for creator inventory management. Third-party crawlers that scrape public seller profiles must pace requests. Direct image hotlinking will be blocked by signed HMAC tokens and CDN origin checks.
 
 ### BOOTH.pm (pixiv Inc.)
 BOOTH.pm hosts the largest collection of 3D anime avatars and accessories. Pixiv administers BOOTH under its Master Terms of Use. Article 14 classifies unauthorized reproduction of site content as prohibited conduct[^6]. Pixiv guidelines will ban automated spiders and crawlers.
