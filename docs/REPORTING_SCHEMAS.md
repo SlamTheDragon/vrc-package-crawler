@@ -1,6 +1,6 @@
 # Standardized Client and Ingestion Reporting Schemas
 
-This document defines standardized JSON schemas for downstream clients, package managers, diagnostic audits, and user steering feedback.
+This document defines standardized JSON schemas for downstream clients, package managers, diagnostic audits, user steering feedback, and search telemetry.
 
 ---
 
@@ -12,12 +12,13 @@ This document defines standardized JSON schemas for downstream clients, package 
 | **Schema 2: VCC Community Manifest** | VCC, ALCOM | Standard `index.json` | Daily Snapshot | Install packages in Unity projects |
 | **Schema 3: Project Dependency Audit** | Unity Editor, CI/CD | JSON Report | On-Demand | Detect missing dependencies and vulnerabilities |
 | **Schema 4: Branched Steering Report** | Web Catalog, Desktop UI | Branched JSON Payload | User-Driven | Submit closed-loop query steering, negative tokens, and overrides |
+| **Schema 5: Interaction & Search Telemetry** | Downstream Clients, Portals | Aggregated JSON Payload | Periodic / Batch | Ingest anonymous click rates, queries, and bookmarks to seed discovery |
 
 ---
 
 ## 2. Schema 1: Downstream Feed Delta Ingestion Report
 
-Downstream tools such as VRCX and Obsidian sync tool changes incrementally. This schema gives cursor-based delta synchronization.
+Downstream tools sync tool changes incrementally. This schema gives cursor-based delta synchronization.
 
 ### Specification
 ```json
@@ -88,44 +89,11 @@ Downstream tools such as VRCX and Obsidian sync tool changes incrementally. This
 }
 ```
 
-### Example Payload
-```json
-{
-  "cursor": "2026-09-18T00:00:00.000Z_15000",
-  "nextCursor": "2026-09-18T12:00:00.000Z_15531",
-  "generatedAt": "2026-09-18T12:00:01.000Z",
-  "deltaCount": 1,
-  "sha256Digest": "8f4a1c2e3907b5ad8f4a1c2e3907b5ad8f4a1c2e3907b5ad8f4a1c2e3907b5ad",
-  "deltas": [
-    {
-      "action": "ADDED",
-      "canonicalId": "bdunderscore-modular-avatar",
-      "timestamp": "2026-09-18T11:45:00.000Z",
-      "package": {
-        "name": "Modular Avatar",
-        "author": "bd_",
-        "category": "Tools & Utilities",
-        "subcategory": "Avatars / Setup & Optimization",
-        "type": "QoL, Workflow & Toolchain",
-        "primaryPlatform": "github",
-        "url": "https://github.com/bdunderscore/modular-avatar",
-        "isVcc": true,
-        "tags": ["vpm-package", "avatar", "non-destructive"],
-        "media": {
-          "thumbnailUrl": "https://cdn.vrc-catalog.net/thumbs/modular-avatar.webp",
-          "blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
-        }
-      }
-    }
-  ]
-}
-```
-
 ---
 
 ## 3. Schema 2: Native VCC and ALCOM Ingestion Manifest
 
-This schema follows the official VPM repository manifest specification (`index.json`). It allows users to add the catalog directly into the VRChat Creator Companion and ALCOM.
+This schema follows the official VPM repository manifest specification (`index.json`). Users can add the catalog directly into the VRChat Creator Companion and ALCOM.
 
 ### Specification
 ```json
@@ -174,7 +142,7 @@ This schema follows the official VPM repository manifest specification (`index.j
 
 ## 4. Schema 3: End-User Project Dependency Audit Report
 
-Diagnostic scanners use this schema when inspecting local Unity project manifests (`Packages/vpm-manifest.json` and `Packages/manifest.json`).
+Diagnostic scanners use this schema when inspecting local Unity project manifests.
 
 ### Specification
 ```json
@@ -234,27 +202,27 @@ Diagnostic scanners use this schema when inspecting local Unity project manifest
 
 ## 5. Schema 4: Upstream User Steering Report (Branched Decision Model)
 
-Traditional reporting systems force users to fill out long, monolithic forms. This causes fatigue and form abandonment.
+Schema 4 uses a branched decision model. The user picks a single symptom branch. The interface presents only the relevant micro-action.
 
-Schema 4 uses a **fast branched decision model** inspired by the community catalog UI. The user picks a single symptom branch. The interface presents only the relevant micro-action.
+### Authentication & Gating Invariant
+Administrative submissions to `POST /v1/reports` will require the `API_SECRET_TOKEN` bearer token. Delisting reports will be quarantined into `needs_review` to prevent unauthenticated delisting sabotage.
 
 ### The 5 Discrete Steering Branches
-
 1. **`BRANCH_CATEGORIZATION`**:
    - Symptom: Tool is placed in the wrong class or subcategory.
    - User Action: Selects 1 of 4 main classes and specifies a subcategory.
 2. **`BRANCH_IRRELEVANCE`**:
    - Symptom: Item is cosmetic only, non-VR software, spam, or duplicate.
-   - User Action: Selects irrelevance reason. Optionally enters replacement package ID and negative exclusion tokens.
+   - User Action: Selects irrelevance reason. Enters negative exclusion tokens.
 3. **`BRANCH_LISTING`**:
    - Symptom: Title, store URL, or description is corrupted or uninformative.
-   - User Action: Supplies name override (`nameOverride` / `correctedTitle`), canonical URL, or corrected description.
+   - User Action: Supplies name override, canonical URL, or corrected description.
 4. **`BRANCH_TAGS`**:
    - Symptom: Missing community ecosystem tags or incorrect tags.
-   - User Action: Types positive tags (`addTags`) or negative tags (`removeTags`) with quick chip badges and Enter key support.
+   - User Action: Submits positive tags (`addTags`) or negative tags (`removeTags`).
 5. **`BRANCH_DISCOVERY_QUERY`**:
    - Symptom: Search queries produce irrelevant tools or fail to locate desired utilities.
-   - User Action: Submits closed-loop feedback containing search query (`searchQuery`), relevance direction (`relevanceVote`: boost or suppress), negative tokens (`negativeTokens`), and suggested crawler seeds (`suggestedSeeds`).
+   - User Action: Submits search query, relevance direction, negative tokens, and suggested seeds.
 
 ### Specification
 ```json
@@ -352,95 +320,64 @@ Schema 4 uses a **fast branched decision model** inspired by the community catal
 }
 ```
 
-### Example Branched Payloads
+---
 
-#### Example A: Categorization Micro-Report
+## 6. Schema 5: Downstream Interaction & Search Telemetry
+
+Downstream applications will use Schema 5 to send aggregate engagement data. This data will seed discovery queues and tune ranking models without harvesting personal data.
+
+### Privacy Invariant
+Schema 5 payloads will contain zero personally identifiable information (PII). User accounts, session identifiers, and IP addresses will be stripped before submission.
+
+### Specification
 ```json
 {
-  "reportId": "rep_cat_982341",
-  "targetPackageId": "booth:5129841",
-  "targetPackageName": "Face Tracking OSC Bridge",
-  "branch": "categorization",
-  "submittedAt": "2026-09-18T12:30:00.000Z",
-  "branchPayload": {
-    "suggestedClass": "Tools & Utilities",
-    "suggestedSubcategory": "Hardware / OSC & Tracking"
-  }
-}
-```
-
-#### Example B: Irrelevance Micro-Report (Cosmetics Flagging with Negative Tokens)
-```json
-{
-  "reportId": "rep_irr_441209",
-  "targetPackageId": "booth:8831920",
-  "targetPackageName": "Gothic Lolita Dress for Selestia",
-  "branch": "irrelevance",
-  "submittedAt": "2026-09-18T12:35:00.000Z",
-  "reporterNotes": "Clothing asset without tool components or scripts.",
-  "branchPayload": {
-    "irrelevanceReason": "cosmetics_only",
-    "negativeTokens": ["dress", "clothing", "selestia", "outfit"]
-  }
-}
-```
-
-#### Example C: Tag Enrichment Micro-Report
-```json
-{
-  "reportId": "rep_tag_110943",
-  "targetPackageId": "github:anatawa12/vrc-get",
-  "targetPackageName": "vrc-get",
-  "branch": "tags",
-  "submittedAt": "2026-09-18T12:40:00.000Z",
-  "branchPayload": {
-    "addTags": ["cli", "package-manager", "rust", "alcom-backend"],
-    "removeTags": ["unsupported"]
-  }
-}
-```
-
-#### Example D: Discovery Query Steering Micro-Report (Closed-Loop Feedback)
-```json
-{
-  "reportId": "rep_qry_771923",
-  "targetPackageId": "booth:4891024",
-  "targetPackageName": "Avatar Dynamics Bone Setup Helper",
-  "branch": "discovery_query",
-  "submittedAt": "2026-09-18T12:45:00.000Z",
-  "reporterNotes": "Tool appears under general physics searches but should exclude cloth simulation assets.",
-  "branchPayload": {
-    "searchQuery": "avatar physbone tool",
-    "queryIntent": "rigging optimization",
-    "relevanceVote": "boost",
-    "negativeTokens": ["cloth-mesh", "hair-texture", "clothing-prefab"],
-    "suggestedSeeds": [
-      "https://booth.pm/ja/items?query=PhysBone+setup",
-      "https://github.com/topics/vrchat-physbones"
-    ]
-  }
-}
-```
-
-#### Example E: Name Override Micro-Report (Direct Correction)
-```json
-{
-  "reportId": "rep_lst_330194",
-  "targetPackageId": "gumroad:polytool",
-  "targetPackageName": "Polytool - Avatar Optimizer",
-  "branch": "listing",
-  "submittedAt": "2026-09-18T12:50:00.000Z",
-  "branchPayload": {
-    "nameOverride": "Polytool",
-    "correctedTitle": "Polytool (Avatar Mesh & Material Optimizer)",
-    "correctedUrl": "https://markcreator.gumroad.com/l/Polytool"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InteractionSearchTelemetryReport",
+  "type": "object",
+  "required": ["batchId", "collectedAt", "metrics"],
+  "properties": {
+    "batchId": { "type": "string" },
+    "collectedAt": { "type": "string", "format": "date-time" },
+    "clientVersion": { "type": "string" },
+    "metrics": {
+      "type": "object",
+      "required": ["searchQueries", "packageInteractions"],
+      "properties": {
+        "searchQueries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["query", "count", "zeroResults"],
+            "properties": {
+              "query": { "type": "string" },
+              "count": { "type": "integer", "minimum": 1 },
+              "zeroResults": { "type": "boolean" },
+              "suggestedCategory": { "type": "string" }
+            }
+          }
+        },
+        "packageInteractions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["canonicalId", "clickCount", "bookmarkCount"],
+            "properties": {
+              "canonicalId": { "type": "string" },
+              "clickCount": { "type": "integer", "minimum": 0 },
+              "bookmarkCount": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
   }
 }
 ```
 
 ---
 
-## 6. Technical Specifications and Architecture (Reference)
+## 7. Technical Specifications and Architecture (Reference)
 
 ### Validation Implementation
 Run validation against the schemas in TypeScript using standard validation libraries:

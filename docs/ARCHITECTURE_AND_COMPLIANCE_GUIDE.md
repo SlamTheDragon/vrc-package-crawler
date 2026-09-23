@@ -1,19 +1,19 @@
 # Architecture and Legal Compliance Guide for VRChat Asset Discovery Indexers
-This guide defines the systems architecture, legal boundaries, and community norms for indexing VRChat assets across digital storefronts.
+This guide will define the systems architecture, legal boundaries, and community norms for indexing VRChat assets across digital storefronts.
 
 ***
 
 ## 1. Executive Summary and Foundational Invariants
 
-Virtual reality (VR) content discovery requires careful balance. Creators produce 3D avatars, clothing items, shaders, and development tools. These assets reside across fragmented marketplaces: BOOTH.pm, Gumroad, Jinxxy, itch.io, and GitHub.
+Virtual reality (VR) content discovery will require careful balance. Creators will produce 3D avatars, clothing items, shaders, and development tools. These assets will reside across fragmented marketplaces: BOOTH.pm, Gumroad, Jinxxy, itch.io, and GitHub.
 
-A compliant discovery engine indexes metadata to help users find tools and assets. The engine does not harvest or mirror proprietary creative files.
+A compliant discovery engine will index metadata to help users find tools and assets. The engine will not harvest or mirror proprietary creative files.
 
-To operate within legal bounds and maintain community trust, indexers must obey three foundational invariants:
+To operate within legal bounds and maintain community trust, indexers will obey three foundational invariants:
 
-1. **The Zero-Binary Invariant**: The indexer never downloads, caches, or redistributes compiled 3D meshes, textures, `.unitypackage` bundles, `.fbx` models, or executable scripts.
-2. **The Metadata-Only Boundary**: The engine collects only public factual attributes: titles, tags, prices, platform compatibility flags, and store URLs.
-3. **The Canonical Traffic Invariant**: All outbound clicks must route users directly to the original creator storefront for transactions.
+1. **The Zero-Binary Invariant**: The indexer will never download, cache, or redistribute compiled 3D meshes, textures, `.unitypackage` bundles, `.fbx` models, or executable scripts.
+2. **The Metadata-Only Boundary**: The engine will collect only public factual attributes: titles, tags, prices, platform compatibility flags, and store URLs.
+3. **The Canonical Traffic Invariant**: All outbound clicks will route users directly to the original creator storefront for transactions.
 
 ```mermaid
 flowchart TD
@@ -26,48 +26,48 @@ flowchart TD
     G --> H["Direct Outbound Link to Creator Store"]
 ```
 
-The system preserves creator economic rights and directs commercial intent to artists[^1].
+The system will preserve creator economic rights and will direct commercial intent to artists[^1].
 
 ---
 
 ## 2. Cross-Platform Contractual and Technical Terms
 
-Every commercial storefront enforces distinct acceptable use policies and security defenses[^2].
+Every commercial storefront will enforce distinct acceptable use policies and security defenses[^2].
 
 | Platform | Contractual Crawling Policy | API Access Model | Perimeter Defense | Policy on Machine Learning Datasets |
 | :--- | :--- | :--- | :--- | :--- |
 | **Jinxxy** | Prohibited without written consent | Official REST API required | Automated IP throttling and rate caps | Expressly prohibited in all tiers |
 | **Gumroad** | Prohibited in Terms of Service | REST API v2 for sellers | Edge rate limits and bot challenges | Restricted by creator licenses |
-| **BOOTH.pm** | Article 14 bars unapproved use | Closed; no public read API | Cloudflare Managed Challenges | Prohibited across pixiv services |
+| **BOOTH.pm** | Article 14 bars unapproved use | Closed: no public read API | Cloudflare Managed Challenges | Prohibited across pixiv services |
 | **GitHub** | Scraping web UI banned | High-throughput REST and GraphQL APIs | Strict token rate quotas | User code protected by Terms |
 | **itch.io** | Service disruption terms apply | REST API available | CDN challenge gates and throttling | Governed by creator licenses |
 
 ### Jinxxy
-Jinxxy operates a specialized marketplace for VRChat avatars and accessories. Section 6.7 of the Jinxxy Terms of Service prohibits automated data collection without written authorization[^3]. Scraping platform HTML pages triggers rate limits and IP bans.
+Jinxxy operates a specialized marketplace for VRChat avatars and accessories. Section 6.7 of the Jinxxy Terms of Service will prohibit automated data collection without written authorization[^3]. Scraping platform HTML pages will trigger rate limits and IP bans.
 
-Jinxxy requires developers to query its official REST API. Developers must register their application and obey rate limits.
+Jinxxy will require developers to query its official REST API. Developers will register their application and will obey rate limits.
 
-Section 8.3 of the Jinxxy Purchase Agreement explicitly bans the use of platform assets for artificial intelligence or machine learning training[^4]. Crawling Jinxxy to assemble model training data is a direct contractual breach.
+Section 8.3 of the Jinxxy Purchase Agreement will explicitly ban the use of platform assets for artificial intelligence or machine learning training[^4]. Crawling Jinxxy to assemble model training data will constitute a direct contractual breach.
 
 ### Gumroad
-Gumroad serves creators who sell digital 3D models and Unity tools. The Gumroad Terms of Service prohibit accessing services via automated scrapers or spiders[^5].
+Gumroad serves creators who sell digital 3D models and Unity tools. The Gumroad Terms of Service will prohibit accessing services via automated scrapers or spiders[^5].
 
-Gumroad supplies a REST API v2. This API supports creator inventory management and order verification. Third-party crawlers that scrape public seller profiles encounter edge firewalls and IP blocks. Indexers must pace requests and use official seller tokens where available.
+Gumroad supplies a REST API v2. This API supports creator inventory management and order verification. Third-party crawlers that scrape public seller profiles will encounter edge firewalls and IP blocks. Indexers will pace requests and will use official seller tokens where available. Direct image hotlinking will be blocked by signed HMAC tokens and CDN origin checks.
 
 ### BOOTH.pm (pixiv Inc.)
-BOOTH.pm hosts the largest collection of 3D anime avatars and accessories. Pixiv administers BOOTH under its Master Terms of Use. Article 14 classifies unauthorized reproduction of site content as prohibited conduct[^6]. Pixiv guidelines ban automated spiders and crawlers.
+BOOTH.pm hosts the largest collection of 3D anime avatars and accessories. Pixiv administers BOOTH under its Master Terms of Use. Article 14 classifies unauthorized reproduction of site content as prohibited conduct[^6]. Pixiv guidelines will ban automated spiders and crawlers.
 
-Pixiv protects BOOTH with Cloudflare Managed Challenges. Automated HTTP requests encounter browser integrity checks and cryptographic proofs of work. BOOTH does not offer an open read API for third parties.
+Pixiv protects BOOTH with Cloudflare Managed Challenges. Automated HTTP requests will encounter browser integrity checks and cryptographic proofs of work. BOOTH does not offer an open read API for third parties.
 
-Indexers that study public metadata must maintain strict serialization, rates below 1 request per second, and respectful User-Agent headers.
+Indexers that study public metadata will maintain strict serialization, rates below 1 request per 3 to 5 seconds, and respectful User-Agent headers.
 
 ### GitHub
-GitHub hosts open-source VRChat tools, shaders, and VRChat Package Manager (VPM) repositories. GitHub Terms of Service prohibit scraping the web interface for commercial purposes[^7].
+GitHub hosts open-source VRChat tools, shaders, and VRChat Package Manager (VPM) repositories. GitHub Terms of Service will prohibit scraping the web interface for commercial purposes[^7].
 
-GitHub supplies high-throughput REST and GraphQL APIs. Authenticated requests permit 5,000 requests per hour. Developers must pass personal access tokens, handle HTTP 304 cache validation with ETag headers, and download raw manifests (`package.json`) from `raw.githubusercontent.com`.
+GitHub supplies high-throughput REST and GraphQL APIs. Authenticated requests will permit 5,000 requests per hour with personal access tokens. Developers will pass personal access tokens, handle HTTP 304 cache validation with ETag headers, and download raw manifests (`package.json`) from `raw.githubusercontent.com`.
 
 ### itch.io
-Itch.io hosts indie tools, shaders, and procedural worlds. Itch.io permits open distribution but enforces server stability rules[^8]. Crawlers must respect `robots.txt` directives and avoid server strain. Aggressive automated requests trigger CDN rate limits.
+Itch.io hosts indie tools, shaders, and procedural worlds. Itch.io permits open distribution but will enforce server stability rules[^8]. Crawlers will respect `robots.txt` directives and will avoid server strain. Aggressive automated requests will trigger CDN rate limits.
 
 ---
 
@@ -86,29 +86,29 @@ graph LR
 ### The Non-Copyrightability of Factual Metadata
 Under United States copyright law, pure product specifications are non-copyrightable facts. In *Feist Publications, Inc. v. Rural Telephone Service Co.*, the Supreme Court ruled that facts lack original authorship[^9].
 
-Product titles, prices, release dates, and compatibility tags (such as "PhysBones", "Quest", or "Kikyo compatible") are objective facts. Indexing factual metadata does not violate copyright law.
+Product titles, prices, release dates, and compatibility tags (such as "PhysBones", "Quest", or "Kikyo compatible") are objective facts. Indexing factual metadata will not violate copyright law.
 
-Creative text descriptions, marketing copy, and lore remain protected by copyright. Discovery engines must not mirror full descriptions. Engines should extract structured tags and display short summaries that link to the source.
+Creative text descriptions, marketing copy, and lore remain protected by copyright. Discovery engines will not mirror full descriptions. Engines will extract structured tags and will display short summaries that link to the source. Downstream feeds will truncate descriptions to prevent tortious interference claims.
 
 ### The Computer Fraud and Abuse Act (CFAA)
 In *hiQ Labs, Inc. v. LinkedIn Corp.*, the Ninth Circuit confirmed that accessing public web data does not breach the CFAA[^10]. The court ruled that when a website is open to the public, automated access does not bypass an authorization gate. The Supreme Court reinforced this principle in *Van Buren v. United States*[^11].
 
 In *Meta Platforms, Inc. v. Bright Data Ltd.* (2024), the court granted summary judgment for Bright Data[^12]. The court ruled that platform terms prohibiting automated access do not bind users who collect public data without logging into user accounts.
 
-These rulings protect the collection of public metadata. But crawlers must never bypass authentication gates, exploit software bugs, or overwhelm origin servers.
+These rulings protect the collection of public metadata. But crawlers will never bypass authentication gates, exploit software bugs, or overwhelm origin servers.
 
 ### Thumbnail Caching Under US and Japanese Law
-Displaying preview imagery requires careful copyright compliance:
+Displaying preview imagery will require careful copyright compliance:
 - In the United States, *Kelly v. Arriba Soft Corp.* and *Perfect 10, Inc. v. Amazon.com, Inc.* established that low-resolution search thumbnails qualify as fair use[^13],[^14].
-- In Japan, Article 47-5 of the Copyright Act gives a statutory exception for search and indexing engines[^15]. Search engines can show small thumbnails and text excerpts incidental to information retrieval.
+- In Japan, Article 47-5 of the Copyright Act provides a statutory exception for search and indexing engines[^15]. Search engines can show small thumbnails and text excerpts incidental to information retrieval.
 
-Direct hotlinking to storefront CDNs wastes origin bandwidth. Compliant engines generate downscaled, low-resolution thumbnail proxies hosted on independent infrastructure.
+However, Article 47-5 contains a proviso barring actions that unreasonably prejudice the economic interests of the copyright holder. Pixiv Master Terms ban automated data extraction. US fair use doctrines will not apply within Japanese jurisdiction. Discovery engines will maintain conservative, human-paced request rates (3 to 5 second delays) on `booth.pm`. Direct hotlinking will fail due to referer verification and CDN HMAC tokens. The engine will deploy an ephemeral in-memory proxy that streams downscaled buffers without persistent R2 storage.
 
 ---
 
 ## 4. Creator Norms, Asset Ripping, and the Anti-AI Mandate
 
-Engineers must understand the community distinction between discovery indexing and asset ripping:
+Engineers will understand the community distinction between discovery indexing and asset ripping:
 
 ```mermaid
 flowchart TD
@@ -130,66 +130,79 @@ In software engineering, "scraping" means reading text via HTTP requests. In the
 - **Runtime Dumping**: Intercepting decrypted assets directly from VRChat client RAM.
 - **Discovery Indexing**: Cataloging public product listings to direct commercial buyers to the vendor.
 
-Legitimate discovery platforms host zero 3D geometry and zero binary archives.
+Legitimate discovery platforms will host zero 3D geometry and zero binary archives.
 
 ### The Absolute Anti-AI Mandate
 VRChat creators broadly reject generative machine learning ingestion[^16]. Storefront licenses contain explicit anti-AI clauses. Creators forbid using their geometry, textures, or renders in training sets.
 
-A discovery indexer must never feed harvested images or descriptions into artificial intelligence pipelines. Breaching this norm destroys community goodwill and triggers legal action.
+A discovery indexer will never feed harvested images or descriptions into artificial intelligence pipelines. Breaching this norm will destroy community goodwill and will trigger legal action.
 
 ### Frictionless Self-Service Opt-Out Systems
-Indexers must supply creators with immediate, self-service tools to remove listings:
-1. **Bio Token Verification**: The creator places a unique cryptographic code in their storefront bio.
-2. **Automated Check**: The indexer queries the public profile, verifies the code, and confirms store ownership.
-3. **Instant Purge**: The database purges all cached metadata, thumbnails, and links for that vendor.
+Indexers will supply creators with reliable tools to remove listings:
+1. **The Bio-Token Scraping Limitation**: Scraper-based bio verification is inoperative because creator storefront profiles sit behind Cloudflare bot perimeters.
+2. **Non-Scraping Ownership Verification**: The platform will support secondary non-scraping verification paths. Creators can verify ownership via DNS TXT records, signed Git commits, or manual ticket fallbacks.
+3. **Dedicated Ingestion Endpoint**: The backend will expose a dedicated `POST /v1/opt-out` endpoint to record removal requests into `creator_opt_outs`.
+4. **Instant Delisting**: The database will mark entities with `lifecycle = 'delisted'` and will drop public index projection rows.
 
-Notice-and-takedown requests must be resolved within 24 to 48 hours.
+Notice-and-takedown requests will be resolved within 24 to 48 hours.
 
 ---
 
 ## 5. Systems Architecture for Compliant Crawling
 
-Compliant discovery pipelines use polite request dispatchers, rate limits, and structured storage.
+Compliant discovery pipelines will use polite request dispatchers, rate limits, and structured storage.
+
+### Standalone Binary Roles and Process Management
+The crawler topography will split operational roles across specialized binaries:
+- `vrc-crawler.exe`: Autonomous harvesting daemon enforced by a single-instance `ProcessLock`. It will not accept administrative CLI subcommands.
+- `vrc-monitor.exe`: Administrative CLI tool and live dashboard. Administrators will dispatch all IPC commands (`status`, `recrawl`, `project`, `stop`, `sync`, `export`) through this interface.
+- `vrc-server.exe`: Read-only REST API gateway authenticated by canonical `API_SECRET_TOKEN`.
+- `vrc-sync.exe`: Cloudflare edge synchronization utility.
 
 ### The Mercator Two-Level Queue Architecture
-To prevent rate-limit bans, the engine implements two-level priority and politeness queues[^17].
+To prevent rate-limit bans, the engine will implement two-level priority and politeness queues[^17].
 1. **Priority Queues (F-Queues)**: Order discovery by graph depth and content relevance.
 2. **Politeness Queues (B-Queues)**: Group URLs strictly by target host (`booth.pm`, `gumroad.com`, `api.github.com`).
-3. **Host Min-Heap**: Workers pop requests from a host queue only when that host is ready.
+3. **Host Min-Heap**: Workers will pop requests from a host queue only when that host is ready.
 
 $$\Delta \tau_{\text{host}} = \max(\text{min\_delay}, \text{retry\_after}) + \text{jitter}$$
 
-For storefronts without explicit delay directives, the minimum delay is 1,000 milliseconds (1.0 Hz).
+For storefronts without explicit delay directives, the minimum delay will be 1,000 milliseconds (1.0 Hz). For BOOTH, the delay will be 3,000 to 5,000 milliseconds.
+
+### Adaptive Poisson Freshness and Conditional Headers
+The engine will maintain index freshness using a Poisson change model. The daemon will invoke `requeueStaleUrls()` on monitor loops. Upstream drivers will transmit `If-None-Match` and `If-Modified-Since` conditional headers. On response completion, workers will call `adjustAfterFetch(url, isModified, etag, lastModifiedHeader)` to adapt revisit intervals. The engine will inspect HTML responses to avoid treating Cloudflare challenge pages (`HTTP 200`) as content updates.
 
 ### RFC 9309 Robots Exclusion Protocol
-The crawler checks `/robots.txt` before fetching any URL path[^18]. The parser honors all `Disallow` rules. It skips user carts, checkout funnels, and private account pages.
+The crawler will check `/robots.txt` before fetching any URL path[^18]. The parser will honor all `Disallow` rules. It will skip user carts, checkout funnels, and private account pages.
 
 ### Transparent Identification
-The crawler must send a transparent `User-Agent` string:
+The crawler will send a transparent `User-Agent` string:
 ```http
 User-Agent: VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)
 ```
-This header identifies the project and gives site administrators a direct contact email.
+This header will identify the project and will provide administrators a direct contact email.
 
-### Multi-Platform Entity Resolution
-Software tools often exist on multiple storefronts simultaneously. The indexer resolves duplicates using a three-tier hierarchy[^19], [^20].
+### Multi-Platform Entity Resolution and Anti-Merge Rules
+Software tools often exist on multiple storefronts simultaneously. The indexer will resolve duplicates using a three-tier hierarchy[^19], [^20]:
 1. **Primary Anchor**: Invariant reverse-DNS package identifier (such as `com.vrchat.tool`).
 2. **Secondary Anchor**: Canonical Git repository URL (`github.com/author/repo`).
 3. **Tertiary Anchor**: 64-bit SimHash document fingerprints and Jaro-Winkler title similarity.
 
-### Two-Stage Hydration and Head-of-Line Blocking Prevention
-Discovery search APIs return shallow summaries with limited metadata and single thumbnails.
-To capture full galleries and YouTube links, the crawler schedules deep product page fetches.
-Because platforms like Gumroad enforce 3.0-second request serialization, pending search URLs can cause head-of-line blocking.
-The crawler applies priority escalation (`priority = 10`) to detail product URLs.
-This mechanism schedules detail hydration ahead of generic pagination, keeping the catalog fresh.
+Avatar cosmetics will be excluded from generic toolchain clustering. Cosmetics share identical boilerplate vocabulary and will cause SimHash false merges. Cosmetics will require an isolated taxonomy tier with base avatar associations.
 
-### Canonical Slug and Redirect Reconciliation
-Marketplaces permit creators to configure custom vanity slugs that redirect from invariant product identifiers.
-Crawlers deriving entity IDs strictly from requested URLs risk database fragmentation and duplicate records.
-The engine reconciles URLs by extracting invariant platform keys (such as `p.permalink` in Gumroad Inertia payloads or numeric IDs in BOOTH).
-The crawler stores the invariant identifier as the primary entity ID (`gumroad:{permalink}`).
-The engine preserves the creator vanity URL for user-facing presentation and search indexing.
+### Timestamp Confidence Rubric
+The engine will record creation dates using a strict three-state confidence rubric:
+- `'confirmed'`: Directly extracted from upstream platform timestamps.
+- `'inferred'`: Derived from earliest release tag or commit history.
+- `'unknown'`: Explicitly set to `NULL`. The engine will never substitute local crawl fetch times for missing origin publication dates.
+
+### Media Extraction and YouTube Filtering
+Storefront parsers will filter media links before forwarding to image processing pipelines. Embed URLs matching `youtube.com/embed/` or `youtu.be/` will route directly to `youtube_urls` metadata arrays. They will never pass to the Sharp worker or image proxy service.
+
+### Discovery Scope and Ecosystem Boundaries
+The engine will enforce strict discovery boundaries:
+- **VRCArena**: Automated HTML DOM scraping will remain prohibited. Only bilateral API federation or static dataset ingestion with toolchain filtering will be permitted.
+- **Open-Web Discovery**: Unindexed open-web spiders searching for arbitrary manifests will remain prohibited. The engine will expand discovery strictly through federated registry seeding and community manifests.
 
 ***
 

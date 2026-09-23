@@ -1,11 +1,11 @@
 # Curriculum Guide: Topics to Learn, Practice, Observe, and Core Philosophies
-This guide outlines the theoretical concepts, practical exercises, telemetry signals, and core philosophies for compliant search engine engineering.
+This guide will outline the theoretical concepts, practical exercises, telemetry signals, and core philosophies for compliant search engine engineering.
 
 ***
 
 ## 1. Overview of the Curriculum
 
-Building a high-throughput, compliant search indexer requires knowledge across computer science and law. Engineers must understand network protocols, graph theory, queue dynamics, and copyright jurisprudence.
+Building a high-throughput, compliant search indexer will require knowledge across computer science and law. Engineers must understand network protocols, graph theory, queue dynamics, and copyright jurisprudence.
 
 This curriculum organizes the necessary knowledge into four structured domains:
 1. **Topics to Learn**: Foundational theories, RFC standards, and legal precedents.
@@ -26,7 +26,7 @@ flowchart TD
 
 ## 2. Topics to Learn: Theory, Standards, and Jurisprudence
 
-Engineers must study eight theoretical foundations:
+Engineers will study eight theoretical foundations:
 
 ### 1. Frontier Queue Scheduling
 Study the Mercator two-level priority and politeness queue model[^1]. Learn how FIFO priority queues (F-queues) and per-host politeness queues (B-queues) prevent server overload. Learn min-heap structures for host ready-time scheduling.
@@ -55,30 +55,36 @@ Study SQLite Write-Ahead Logging (WAL mode) and synchronous disk flush modes[^13
 - *Feist Publications, Inc. v. Rural Telephone Service Co.*: Non-copyrightability of factual directories and metadata specifications[^16].
 - *hiQ Labs, Inc. v. LinkedIn Corp.* and *Van Buren v. United States*: Computer Fraud and Abuse Act (CFAA) boundaries on public web data[^17],[^18].
 - *Meta Platforms, Inc. v. Bright Data Ltd.*: Enforceability of terms of service against logged-off data collection[^19].
-- *Kelly v. Arriba Soft Corp.* and Japanese Copyright Act Article 47-5: Fair use and statutory exceptions for search thumbnail proxies[^20],[^21].
+- *Kelly v. Arriba Soft Corp.* and Japanese Copyright Act Article 47-5: Fair use, thumbnails, and economic prejudice provisos[^20],[^21].
 
 ---
 
 ## 3. Topics to Practice: Practical Engineering Exercises
 
-Engineers should build and test these five components:
+Engineers will build and test these six core components:
 
-1. **Build a Min-Heap Politeness Scheduler**:
-   Implement a domain scheduler that enforces a strict delay ceiling (such as 1.0 second per host). Add randomized jitter and make sure no two requests fire concurrently to the same host.
-2. **Build Socket Guardrails with Streaming Aborts**:
+1. **Verify the Authoritative Test Suite**:
+   Run the ground-truth test suite using Bun:
+   ```bash
+   bun test
+   ```
+   Verify that all 57 tests across 12 files pass with 0 failures (including `tests/schema_unification.test.ts` and `tests/gumroad_driver.test.ts`).
+2. **Build Test Isolation Fixtures**:
+   Decouple test execution from the production database `dist/crawler_state.db`. Ensure tests instantiate ephemeral in-memory databases (`:memory:`) to eliminate SQLite `busy_timeout` contention.
+3. **Build a Min-Heap Politeness Scheduler**:
+   Implement a domain scheduler that enforces a strict delay ceiling (such as 3.0 seconds on storefronts). Add randomized jitter and ensure no two requests fire concurrently to the same host.
+4. **Build Socket Guardrails with Streaming Aborts**:
    Write HTTP client middleware that inspects `Content-Type` headers before reading data streams. Abort TCP sockets immediately if the response contains binary types (`.unitypackage`, `.fbx`, `.blend`) or exceeds 5 MB.
-3. **Build a SimHash Pipeline with CJK Shingling**:
+5. **Build a SimHash Pipeline with CJK Shingling**:
    Build a text normalization pipeline. Strip decorative marketing brackets, normalize full-width Japanese characters to half-width ASCII, and generate 2-gram character shingles.
-4. **Implement Disjoint-Set Entity Clustering**:
+6. **Implement Disjoint-Set Entity Clustering**:
    Implement a Disjoint-Set Union (DSU) graph algorithm to merge cross-platform product listings by reverse-DNS identifiers and canonical repository URLs.
-5. **Simulate Disaster Recovery and Process Crashes**:
-   Kill the crawler process unexpectedly (`SIGKILL`) during heavy crawling. Verify that startup recovery queries reset in-flight tasks from `fetching` to `pending` without losing state.
 
 ---
 
 ## 4. Topics to Observe: Real-Time Operational Telemetry
 
-Engineers must monitor these five operational metrics:
+Engineers will monitor these six operational telemetry signals:
 
 1. **HTTP Status Code Histograms**:
    Track counts of `200 OK`, `304 Not Modified`, `403 Forbidden`, `404 Not Found`, `429 Rate Limited`, and `503 Unavailable` per domain.
@@ -88,28 +94,32 @@ Engineers must monitor these five operational metrics:
    Monitor the ratio $S = \text{Processed URLs} / \text{Discovered URLs}$. When saturation exceeds 95 percent ($S \ge 0.95$), halt frontier expansion.
 4. **Quarantine Discard Yield**:
    Track the percentage of crawled records moved to quarantine. A healthy filter identifies cosmetic assets and flags 55 to 65 percent of raw listings.
-5. **Perimeter Challenge Flags**:
+5. **Edge Sync High-Watermark Alignment**:
+   Monitor row alignment between local `canonical_packages` and Cloudflare D1 checkpoints. Ensure no rows are skipped following full-wipe projection rebuilds.
+6. **Perimeter Challenge Flags**:
    Inspect response headers for Cloudflare challenge indicators (`cf-mitigated: challenge`). When detected, halt raw fetching and switch to partner credentials.
 
 ---
 
-## 5. The Six Core Philosophies of Search Crawling
+## 5. The Eight Core Philosophies of Search Crawling
 
-Every component in this search engine obeys six foundational philosophies:
+Every component in this search engine will obey eight foundational philosophies:
 
 ```mermaid
-flowchart LR
+flowchart TD
     P1["1. Zero-Binary Invariant"] --> P2["2. Canonical Redirection"]
     P2 --> P3["3. Anti-AI Sanctity"]
     P3 --> P4["4. API-First & Zero-Bypass"]
     P4 --> P5["5. CQRS Observation Lake"]
     P5 --> P6["6. Politeness as Primary Principle"]
+    P6 --> P7["7. Administrative Security & Human Buffer"]
+    P7 --> P8["8. Stateless Metadata Air-Gap"]
 ```
 
 1. **The Zero-Binary Invariant**:
-   An indexer points users to information. It must never store, mirror, or redistribute creative 3D models, textures, or binary archives.
+   An indexer points users to information. It will never store, mirror, or redistribute creative 3D models, textures, or binary archives.
 2. **The Canonical Traffic Redirection Invariant**:
-   An indexer is a partner to creators. It must route all commercial intent directly to the artist's original store page for checkout.
+   An indexer is a partner to creators. It will route all commercial intent directly to the artist's original store page for checkout.
 3. **The Anti-AI Sanctity**:
    Respect creator ownership of their art. Maintain a strict barrier against machine learning dataset compilation.
 4. **The API-First and Zero-Bypass Principle**:
@@ -118,6 +128,10 @@ flowchart LR
    Store raw network data immutably. Program code is disposable and recomputable, network requests and origin server trust are limited resources.
 6. **Politeness as a Primary Principle**:
    Rate limits and backoff jitter are not optional settings. They form the core architecture of the engine.
+7. **Administrative Security and Human Review Gating**:
+   All administrative reports will require authentication via `API_SECRET_TOKEN`. The system will quarantine destructive actions into a human-review buffer (`needs_review`) and will never apply automated delisting without human oversight.
+8. **Stateless Metadata Catalog Air-Gap**:
+   The crawler engine and public catalog will remain an unauthenticated, stateless, read-only index. User accounts, authentication, bookmarks, and personalization engines will remain strictly air-gapped in external consumer applications.
 
 ***
 

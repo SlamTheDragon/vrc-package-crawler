@@ -1,18 +1,19 @@
 # Web Crawler Architectures: Frontier Design, Memory Hierarchy, and Incremental Processing
-This guide explains high-throughput crawler architectures, frontier queue management, and incremental processing pipelines.
+This guide will explain high-throughput crawler architectures, frontier queue management, and incremental processing pipelines.
 
 ***
 
 ## 1. Architectural Topologies: Centralized Versus Distributed
 
-Web crawlers collect documents across network endpoints. System designers choose between two core topologies: centralized architectures and distributed clusters.
+Web crawlers will collect documents across network endpoints. System designers will choose between two core topologies: centralized architectures and distributed clusters.
 
 ```mermaid
 flowchart TD
     subgraph Centralized Engine
-        C1["Single-Node Process"] --> C2["Async Event Loop"]
+        C1["Single-Node Daemon (vrc-crawler.exe)"] --> C2["Async Event Loop"]
         C2 --> C3["In-Memory Priority Heap"]
         C3 --> C4["Local Embedded DB (SQLite WAL)"]
+        C5["Admin CLI (vrc-monitor.exe)"] -.->|Loopback IPC| C1
     end
     subgraph Distributed Cluster
         D1["Frontier Coordinator"] --> D2["Message Broker (Kafka / Redis)"]
@@ -23,14 +24,21 @@ flowchart TD
 ```
 
 ### Centralized Single-Node Engines
-A centralized crawler runs on a single host. It uses an asynchronous event loop or lightweight worker threads.
+A centralized crawler will run on a single host. It will use an asynchronous event loop or lightweight worker threads.
 
-Centralized crawlers suit focused domain crawls, such as indexing 50,000 package manifests. They avoid network serialization overhead between cluster nodes. Modern single-node crawlers process hundreds of requests per second using embedded databases like SQLite in WAL mode.
+Centralized crawlers suit focused domain crawls, such as indexing 50,000 package manifests. They will avoid network serialization overhead between cluster nodes. Modern single-node crawlers will process hundreds of requests per second using embedded databases like SQLite in WAL mode.
+
+#### Standalone Daemon and CLI Separation
+In production single-node deployments, the system will separate execution roles into dedicated binaries:
+- `vrc-crawler.exe`: An autonomous harvesting daemon protected by an operating system process lock (`ProcessLock`). The daemon will not accept CLI subcommand arguments.
+- `vrc-monitor.exe`: A dedicated administrative CLI tool and live dashboard. Administrators will dispatch all management commands (`status`, `recrawl`, `project`, `stop`, `sync`, `export`) through this tool via loopback IPC.
+
+This separation prevents process lock collisions and ensures continuous daemon stability.
 
 ### Distributed Multi-Node Clusters
-Distributed crawlers partition the URL space across multiple worker nodes. A central coordinator assigns URL hashes to specific nodes.
+Distributed crawlers will partition the URL space across multiple worker nodes. A central coordinator will assign URL hashes to specific nodes.
 
-Distributed architectures suit large-scale crawls exceeding 100 million pages. But distributed crawlers require message brokers, coordination locks, and network storage. This infrastructure increases operational complexity.
+Distributed architectures suit large-scale crawls exceeding 100 million pages. But distributed crawlers will require message brokers, coordination locks, and network storage. This infrastructure will increase operational complexity.
 
 | Architecture Dimension | Centralized Engine (e.g., Colly / Node.js) | Distributed Cluster (e.g., Apache Nutch) |
 | :--- | :--- | :--- |
@@ -44,7 +52,7 @@ Distributed architectures suit large-scale crawls exceeding 100 million pages. B
 
 ## 2. The Mercator Frontier: Priority and Politeness Queues
 
-The URL frontier controls crawl order. The frontier must balance two competing goals:
+The URL frontier will control crawl order. The frontier will balance two competing goals:
 1. **Priority**: Crawling high-value, relevant documents first.
 2. **Politeness**: Avoiding request bursts to any single origin host.
 
@@ -63,15 +71,27 @@ flowchart LR
 Mercator splits frontier management into two tiers:
 
 1. **FIFO Priority Queues (F-Queues)**:
-   The crawler assigns newly discovered URLs to an F-Queue based on priority. High-priority feeds (such as root repository manifests) enter high-priority queues. Cosmetic product listings enter lower-priority queues.
+   The crawler will assign newly discovered URLs to an F-Queue based on priority. High-priority feeds (such as root repository manifests) will enter high-priority queues. Cosmetic product listings will enter lower-priority queues.
 
 2. **Per-Host Politeness Queues (B-Queues)**:
-   The crawler maps URLs to B-Queues based on domain name (`booth.pm`, `gumroad.com`, `api.github.com`). Each B-Queue holds URLs for exactly one host.
+   The crawler will map URLs to B-Queues based on domain name (`booth.pm`, `gumroad.com`, `api.github.com`). Each B-Queue will hold URLs for exactly one host.
 
 3. **The Ready Queue and Host Min-Heap**:
-   A min-heap stores each active host along with its `next_fetch_time`. When a worker thread requests a URL, it pops the top host from the heap. If `next_fetch_time` is in the future, the worker sleeps until the host is ready.
+   A min-heap will store each active host along with its `next_fetch_time`. When a worker thread requests a URL, it will pop the top host from the heap. If `next_fetch_time` is in the future, the worker will sleep until the host is ready.
 
-This mechanism gives a mathematical guarantee: the crawler never fires concurrent requests to the same host[^2].
+This mechanism gives a mathematical guarantee: the crawler will never fire concurrent requests to the same host[^2].
+
+### VPM Registry Seeding and Temporal Staleness
+To keep discovery queues populated, the engine will inject seed URLs from community package registries. 
+
+Seeding gates must avoid monotonic counter traps. Gating seed injection on fixed counters (such as `done < 50`) will permanently halt re-seeding once initial tasks complete. Production crawlers will evaluate temporal staleness:
+```typescript
+const isStale = (Date.now() - lastVpmSeedAt) > 7 * 86400 * 1000;
+if (pendingTasks < 10 && isStale) {
+  await injectVpmSeeds();
+}
+```
+This ensures long-running background daemons will discover newly published package feeds periodically.
 
 ---
 
@@ -79,11 +99,11 @@ This mechanism gives a mathematical guarantee: the crawler never fires concurren
 
 Frontier queues for millions of URLs cannot fit in main memory. Najork and Heydon designed a two-level memory hierarchy[^2].
 
-- **RAM Buffers**: Main memory holds the head and tail of each B-Queue.
-- **Disk Backing**: The body of each queue resides in sequential append-only disk files.
-- **Batch Transfer**: When a RAM buffer empties, the engine reads the next block of URLs from disk.
+- **RAM Buffers**: Main memory will hold the head and tail of each B-Queue.
+- **Disk Backing**: The body of each queue will reside in sequential append-only disk files.
+- **Batch Transfer**: When a RAM buffer empties, the engine will read the next block of URLs from disk.
 
-This design prevents random disk access. Disk I/O remains sequential, preserving disk performance.
+This design prevents random disk access. Disk I/O will remain sequential, preserving disk performance.
 
 ---
 
@@ -103,11 +123,18 @@ flowchart TD
 
 ### The Percolator Model
 Percolator replaced batch MapReduce with incremental notifications:
-- **Distributed Transactions**: Percolator adds two-phase commits and snapshot isolation on top of Bigtable.
-- **Observers**: Developers write observer functions that trigger when table columns change.
-- **Eventual Consistency**: When the crawler updates a package manifest, Percolator triggers an observer. The observer updates search indexes in seconds.
+- **Distributed Transactions**: Percolator will add two-phase commits and snapshot isolation on top of Bigtable.
+- **Observers**: Developers will write observer functions that trigger when table columns change.
+- **Eventual Consistency**: When the crawler updates a package manifest, Percolator will trigger an observer. The observer will update search indexes in seconds.
 
-Caffeine reduced average index document age by 50 percent[^3]. For VRChat package discovery, an incremental pipeline updates package versions immediately when a Git release publishes.
+Caffeine reduced average index document age by 50 percent[^3]. For VRChat package discovery, an incremental pipeline will update package versions immediately when a Git release publishes.
+
+### Incremental Upserts Versus Full-Wipe Rebuilds
+In production catalogs, running a periodic full-wipe projection (`DELETE FROM canonical_packages`) introduces two major failure modes:
+1. **Clustering Computational Complexity**: Recomputing SimHash clusters across all 49,000 raw entities on every cycle creates an $O(n^2)$ CPU bottleneck that exceeds scheduled intervals.
+2. **Auto-Increment RowID Resets**: Resetting local table rows to 1 breaks downstream replication checkpoints. Watermark-based sync workers will assume remote replicas are ahead and will skip rows.
+
+Compliant production engines will implement incremental upserts keyed on `canonical_id`. The engine will track modifications using a `dirty_since` timestamp. It will recluster only modified records while preserving existing row identifiers.
 
 ***
 

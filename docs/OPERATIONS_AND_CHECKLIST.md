@@ -1,55 +1,56 @@
 # Operations Checklist and Binary Execution Guide
 
-This document provides the authoritative operational checklists and parameter references for running the VRChat Package Crawler in production and development environments.
+This document gives operational checklists and parameter references for the VRChat Package Crawler.
 
 ---
 
 ## 1. System Architecture & Binary Mapping
 
-The toolset is separated into dedicated, decoupled source directories corresponding to each compiled executable in `dist/`:
+The toolset will separate into dedicated source directories. Each directory will compile into an executable in `dist/`:
 
-| Binary Executable | Source Entry Point | Description | Primary Ingestion / Distribution Role |
-| :--- | :--- | :--- | :--- |
-| `dist/vrc-crawler.exe` | `src/crawler/index.ts` | 24/7 Background Crawler Daemon | Autonomous multi-platform crawling, rate-limiting, and loopback IPC control |
-| `dist/vrc-crawler-linux` | `src/crawler/index.ts` | Headless Linux Daemon | Cross-compiled binary (`bun-linux-x64`) for Linux server deployments |
-| `dist/vrc-monitor.exe` | `src/monitor/index.ts` | Interactive Terminal Monitor | Real-time saturation metrics, platform queue telemetry, and IPC command console |
-| `dist/vrc-sync.exe` | `src/sync/index.ts` | Edge Synchronizer Daemon | High-watermark delta push to Cloudflare D1 and WebP thumbnail upload to R2 |
-| `dist/vrc-server.exe` | `src/server/index.ts` | Headless HTTP Gateway | High-throughput REST API serving Schemas 1, 2, and ingesting Schema 4 reports |
+| Binary Executable | Source Entry Point | Operational Role |
+| :--- | :--- | :--- |
+| `dist/vrc-crawler.exe` | `src/crawler/index.ts` | 24/7 background harvesting daemon. Acquires single-instance `ProcessLock`. Contains zero CLI subcommand parsing. |
+| `dist/vrc-crawler-linux` | `src/crawler/index.ts` | Headless Linux service binary. Cross-compiled for Linux server deployments. |
+| `dist/vrc-monitor.exe` | `src/monitor/index.ts` | Interactive terminal monitor and primary CLI control interface for the daemon. |
+| `dist/vrc-sync.exe` | `src/sync/index.ts` | High-watermark delta synchronizer for Cloudflare D1 and R2 media. |
+| `dist/vrc-server.exe` | `src/server/index.ts` | Headless REST API gateway serving Schemas 1, 2, and ingesting Schema 4 reports. |
 
 ### Auxiliary Maintenance Toolset (`src/tools/`)
-Offline batch tools executed on demand via Bun:
-- `bun run sanitize` (`src/tools/pipeline_sanitize.ts`): Re-evaluates relevance, computes SimHash/Jaro-Winkler multi-platform clustering, resolves origin timestamps, and projects `canonical_packages` and `package_fronts`.
+
+Run batch maintenance tools on demand with Bun:
+- `bun run sanitize` (`src/tools/pipeline_sanitize.ts`): Re-evaluates relevance, computes SimHash clusters, and projects `canonical_packages`.
 - `bun run export` (`src/tools/exporter.ts`): Builds a defragmented SQLite catalog with FTS5 search index (`vrc_catalog.db`).
-- `bun run steering` (`src/tools/steering.ts`): Processes queued Schema 4 reports, applies curator overrides, and tunes search patterns.
-- `bun run discover:vpm` (`src/tools/discover_vpm.ts`): Crawls public indexes for new community VPM repository URLs.
+- `bun run steering` (`src/tools/steering.ts`): Processes queued Schema 4 reports and tunes search patterns.
+- `bun run discover:vpm` (`src/tools/discover_vpm.ts`): Crawls public indexes for community VPM repository URLs.
 
 ---
 
 ## 2. Canonical Database Specification (`dist/crawler_state.db`)
 
-The single authoritative database is:
+The primary database will reside at:
 ```
 dist/crawler_state.db
 ```
 
 ### Invariants:
-1. **Zero Root Database Files:** The project root must never host `crawler_state.db`. Both compiled binaries and Bun development scripts (`bun run ...`) automatically resolve `CONFIG.dbPath` to `dist/crawler_state.db`.
-2. **Crash & Power Loss Resilience:** Configured with `PRAGMA journal_mode = WAL;` and `PRAGMA synchronous = NORMAL;`. Orphaned in-flight fetches are automatically rolled back from `fetching` to `pending` upon startup via `resetStaleFetching()`.
+1. **Zero Root Database Files:** The project root must never host `crawler_state.db`. Both compiled binaries and Bun scripts will resolve `CONFIG.dbPath` to `dist/crawler_state.db`.
+2. **Crash & Power Loss Resilience:** The database will run in WAL mode (`PRAGMA journal_mode = WAL;`) and normal synchronization (`PRAGMA synchronous = NORMAL;`). The startup routine will automatically restore orphaned in-flight fetches to `pending`.
 3. **Timestamp Decoupling:**
-   - `origin_created_at`: Upstream platform creation date (e.g. GitHub repo created date or BOOTH item published date).
+   - `origin_created_at`: Upstream platform creation date. Will remain `NULL` if absent upstream.
    - `origin_updated_at`: Upstream platform last modified date.
-   - `created_at_confidence`: `'confirmed'` (directly extracted from upstream API/DOM), `'inferred'` (inferred from earliest observation date), or `'unknown'`.
+   - `created_at_confidence`: `'confirmed'` (scraped from platform API), `'inferred'` (derived from verified commit), or `'unknown'` (`NULL` date).
    - `created_at`: Local crawler first observation timestamp. Never overwritten by upstream dates.
-   - `updated_at`: Local projection recalculation timestamp.
+   - `updated_at`: Local projection calculation timestamp.
 
 ---
 
 ## 3. Pre-Flight Production Checklist
 
-Before starting 24/7 background crawling in production, complete this operational verification:
+Before starting 24/7 background crawling in production, complete this operational check:
 
 - [ ] **Check 1: Single Canonical DB Verification**
-  Confirm that `dist/crawler_state.db` exists and no `crawler_state.db` files exist in the project root:
+  Confirm that `dist/crawler_state.db` exists and no database files exist in the project root:
   ```powershell
   Get-ChildItem -Path . -Filter "crawler_state.db*" # Must return empty
   Test-Path "dist/crawler_state.db"                # Must return True
@@ -63,16 +64,16 @@ Before starting 24/7 background crawling in production, complete this operationa
   ```
 
 - [ ] **Check 3: All Frontier Items Requeued for Discovery**
-  Verify that all frontier URLs are ready for re-crawling with fresh adaptive Poisson intervals:
+  Verify that all frontier URLs are ready for re-crawling with fresh adaptive intervals:
   ```powershell
   bun -e "import { Database } from 'bun:sqlite'; const db = new Database('dist/crawler_state.db'); console.log(db.query('SELECT status, count(1) as count FROM frontier GROUP BY status;').all());"
-  # All items should have status: "pending" and attempts: 0
   ```
 
 - [ ] **Check 4: Environment Credentials Verification**
-  Confirm that `dist/.env` (or environment variables) contains the recommended tokens:
+  Confirm that `dist/.env` contains the required secret tokens:
   ```env
-  GITHUB_TOKEN=ghp_your_personal_access_token # 5,000 req/hr rate limit
+  API_SECRET_TOKEN=secure_random_hex_token   # Protects administrative reports
+  GITHUB_TOKEN=ghp_personal_access_token     # Optional: switches API to 5,000 req/hr
   CLOUDFLARE_ACCOUNT_ID=...                  # Optional for vrc-sync
   CLOUDFLARE_API_TOKEN=...
   CLOUDFLARE_D1_DATABASE_ID=...
@@ -91,23 +92,17 @@ Before starting 24/7 background crawling in production, complete this operationa
 
 ### 4.1 `dist/vrc-crawler.exe` (Crawler Daemon)
 
-Runs the multi-threaded autonomous harvesting engine with Mercator host schedulers and RFC 9309 robots enforcement.
+The crawler daemon will run the harvesting engine with Mercator host pacing and RFC 9309 robots enforcement.
 
 **Syntax:**
 ```powershell
-.\dist\vrc-crawler.exe [command] [options]
+Start-Process "dist\vrc-crawler.exe"
 # Or via bun:
-bun run start [command] [options]
+bun run start
 ```
 
-**Commands (dispatched to running daemon via loopback IPC):**
-- `status`: Queries and prints active crawler daemon health and metrics.
-- `stop`: Dispatches graceful shutdown signal to running daemon.
-- `recrawl`: Triggers an immediate Poisson stale URL freshness sweep.
-- `project`: Triggers an immediate canonical projection synthesis pass.
-
-**Parameters & Flags:**
-- `--help`, `-h`: Displays command-line help and usage.
+> [!CAUTION]
+> The `vrc-crawler.exe` binary will not parse CLI subcommands. Do not execute arguments like `vrc-crawler.exe status` or `recrawl`. Doing so will attempt to start a second crawler and crash on `ProcessLock`. Dispatch all management commands through `vrc-monitor.exe`.
 
 **Environment Variables:**
 - `GITHUB_TOKEN` / `GH_TOKEN`: GitHub personal access token (switches API from 60 to 5,000 req/hr).
@@ -120,18 +115,18 @@ bun run start [command] [options]
 - `GET /recrawl`: Triggers an immediate Poisson stale URL freshness sweep.
 - `GET /project`: Triggers an immediate canonical projection synthesis pass.
 - `GET /sync`: Triggers an immediate Cloudflare edge synchronization pass.
-- `GET /steering`: Triggers an immediate community feedback ingestion pass.
+- `GET /steering`: Triggers an immediate feedback ingestion pass.
 - `GET /export`: Triggers an immediate catalog export.
 - `GET /stop`: Gracefully shuts down the background daemon.
 
 **Interactive Keystrokes (when attached to stdin):**
-- `q`: Gracefully flush database WAL, release single-instance lock, and terminate.
+- `q`: Gracefully terminate daemon and release single-instance process lock.
 
 ---
 
 ### 4.2 `dist/vrc-monitor.exe` (Terminal Telemetry & Control CLI)
 
-Live full-screen dashboard displaying queue telemetry, throughput, pre-indexed categories, and recent crawler events. Also serves as the primary CLI control interface for the daemon.
+The monitor will provide a terminal dashboard displaying queue telemetry, throughput, and categories. It will also serve as the primary CLI control interface for the daemon.
 
 **Syntax:**
 ```powershell
@@ -140,16 +135,18 @@ Live full-screen dashboard displaying queue telemetry, throughput, pre-indexed c
 bun run monitor [command] [options]
 ```
 
-**CLI Commands:**
-- `status`: Displays current daemon IPC status, active port, uptime, and exits.
-- `stop`: Dispatches a graceful shutdown signal to the running daemon and exits.
-- `recrawl`: Triggers an immediate freshness sweep on the running daemon and exits.
-- `project`: Triggers a canonical projection rebuild on the running daemon and exits.
-- `sync`: Triggers an edge sync pass on the running daemon and exits.
+**CLI Commands (dispatched to running daemon via loopback IPC):**
+- `status`: Queries and displays current daemon IPC status, port, uptime, and metrics.
+- `start`: Launches the crawler daemon as a detached background process.
+- `stop`: Dispatches a graceful shutdown signal to the running daemon.
+- `recrawl`: Triggers an immediate Poisson freshness sweep on the running daemon.
+- `project`: Triggers a canonical projection rebuild on the running daemon.
+- `sync`: Triggers an edge synchronization pass on the running daemon.
+- `export`: Triggers a catalog export on the running daemon.
 
 **Parameters & Flags:**
-- `--once`: Renders a single snapshot of system metrics and exits immediately (useful for scripts, cron, and health checks).
-- `--help`, `-h`: Displays monitor usage and interactive key commands.
+- `--once`: Renders a single metrics snapshot and exits immediately (useful for scripts and cron).
+- `--help`, `-h`: Displays monitor usage and interactive hotkeys.
 
 **Interactive Hotkeys (in live dashboard mode):**
 - `[r]`: Dispatches an immediate re-crawl request to the daemon via IPC.
@@ -162,7 +159,7 @@ bun run monitor [command] [options]
 
 ### 4.3 `dist/vrc-sync.exe` (Cloudflare Edge Synchronizer)
 
-Incremental delta synchronizer that pushes new/updated canonical packages to Cloudflare D1 relational databases and syncs media thumbnails to R2.
+The synchronizer will push incremental deltas to Cloudflare D1 and upload media thumbnails to R2.
 
 **Syntax:**
 ```powershell
@@ -172,25 +169,19 @@ bun run sync [options]
 ```
 
 **Parameters & Flags:**
-- `--dry-run`: Validates batch payload structures and displays diffs without executing network mutations to Cloudflare.
-- `--batch-size <N>`, `-b <N>`: Sets the transaction batch size (default: `50`).
-- `--full`, `--reset`: Resets high-watermark checkpoint to 0 and re-syncs the entire catalog from the beginning.
-- `--help`, `-h`: Displays sync CLI usage and required environment variables.
+- `--dry-run`: Validates batch payload structures without executing mutations to Cloudflare.
+- `--batch-size <N>`, `-b <N>`: Sets transaction batch size (default: `50`).
+- `--reset-watermark`: Resets high-watermark checkpoint to 0 and re-syncs the entire catalog.
+- `--help`, `-h`: Displays sync CLI usage and required variables.
 
-**Automatic Rebuild Detection:**
-If `canonical_packages` is rebuilt or truncated, the synchronizer automatically detects when `watermarkRowId > maxRowIdInDb` and resets the watermark to 0 to prevent silent desynchronization.
-
-**Required Environment Variables (for live sync):**
-- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account ID.
-- `CLOUDFLARE_API_TOKEN`: API Token with D1 and R2 edit permissions.
-- `CLOUDFLARE_D1_DATABASE_ID`: Destination D1 UUID.
-- `CLOUDFLARE_R2_BUCKET_NAME`: Destination R2 media bucket name.
+**Watermark Recovery:**
+Full projection rebuilds execute `DELETE FROM canonical_packages`, which restarts SQLite rowids at 1. If the previous watermark exceeds the rebuilt row count, run `--reset-watermark` to prevent silent omission of rows.
 
 ---
 
 ### 4.4 `dist/vrc-server.exe` (Headless REST Gateway)
 
-High-performance Bun HTTP server providing client discovery endpoints for community tools.
+The HTTP server will provide discovery endpoints for community tools and client applications.
 
 **Syntax:**
 ```powershell
@@ -200,17 +191,17 @@ bun run server [options]
 ```
 
 **Parameters & Flags:**
-- `--port <N>`, `-p <N>`: Port to bind HTTP server (default: `8080`, or `PORT` / `API_PORT` environment variable).
-- `--host <ip>`, `-H <ip>`: Host interface to bind to (default: `0.0.0.0`, or `HOST` / `API_HOST` environment variable).
+- `--port <N>`, `-p <N>`: Port to bind HTTP server (default: `8080`, or `PORT` environment variable).
+- `--host <ip>`, `-H <ip>`: Host interface to bind (default: `0.0.0.0`, or `HOST` environment variable).
 - `--token <secret>`: Secret API bearer token for privileged administrative routes.
 - `--help`, `-h`: Displays server usage and endpoint reference.
 
 **API Endpoints:**
 - `GET /v1/health`: Server uptime, memory metrics, and catalog counts.
-- `GET /v1/packages`: Schema 1 cursor-paginated delta stream with SHA-256 validation digest.
-- `GET /v1/vpm/index.json` / `GET /v1/index.json`: Schema 2 VCC/ALCOM community repository manifest.
+- `GET /v1/catalog/delta`: Schema 1 cursor-paginated delta stream with SHA-256 validation digest.
+- `GET /v1/vpm/index.json`: Schema 2 VCC/ALCOM community repository manifest.
 - `GET /v1/media/:id`: Serves cached low-resolution WebP images.
-- `POST /v1/reports`: Ingests Schema 4 community steering reports (categorization, irrelevance, listing, tags, discovery queries). Enforces sliding-window rate limit (10 reports/min per IP/fingerprint).
+- `POST /v1/reports`: Ingests Schema 4 community steering reports. Requires `API_SECRET_TOKEN` authentication. Enforces rate limits (10 reports/min per IP).
 
 ---
 
@@ -220,7 +211,7 @@ bun run server [options]
 ```powershell
 bun run sanitize
 ```
-Re-evaluates every active entity against `RelevanceFilter`, computes SimHash and Jaro-Winkler similarity clusters, deduplicates cross-platform links into `package_fronts`, resolves origin dates, and updates `canonical_packages`.
+Re-evaluates every active entity, computes SimHash clusters, maps `package_fronts`, and updates `canonical_packages`.
 
 ### Reset Frontier for Complete Ecosystem Re-discovery
 ```powershell
@@ -229,6 +220,6 @@ bun -e "import { Database } from 'bun:sqlite'; const db = new Database('dist/cra
 
 ### Export Lightweight Standalone Catalog
 ```powershell
-bun run export
+bun run export -- --catalog
 ```
 Produces `dist/vrc_catalog.db` containing pre-indexed FTS5 search virtual tables for zero-latency local querying.

@@ -1,6 +1,6 @@
 # Cloudflare Edge Synchronization and Scaling Guide
 
-This guide explains how to configure Cloudflare edge synchronization and scale crawler workers. Follow these procedures to push local discoveries to Cloudflare D1 and R2.
+This guide describes how the system will configure Cloudflare edge synchronization and scale crawler workers. Follow these procedures to push local discoveries to Cloudflare D1 and R2.
 
 ---
 
@@ -8,17 +8,17 @@ This guide explains how to configure Cloudflare edge synchronization and scale c
 
 | Operation Route | Data Target | Frequency | Recommended Tool | Network Overhead |
 | :--- | :--- | :--- | :--- | :--- |
-| Incremental Relational Sync | Cloudflare D1 | Every 15 min | `bin/vrc-sync.exe` | Low (< 50 KB / batch) |
-| WebP Thumbnail Upload | Cloudflare R2 | Hourly | `bin/vrc-sync.exe` | Medium (10-25 KB / image) |
-| Offline Catalog Export | SQLite Client DB | Daily | `bin/vrc-crawler.exe export` | Zero (Local file generation) |
-| Disaster Recovery Lake Dump | Snapshot Archive | Weekly | `bin/vrc-crawler.exe export --lake` | Zero (Local file generation) |
+| Incremental Relational Sync | Cloudflare D1 | Every 15 min | `dist/vrc-sync.exe` | Low (< 50 KB / batch) |
+| WebP Thumbnail Upload | Cloudflare R2 | Hourly | `dist/vrc-sync.exe` | Medium (10-25 KB / image) |
+| Offline Catalog Export | SQLite Client DB | Daily | `dist/vrc-monitor.exe export` | Zero (Local file generation) |
+| Lake Snapshot Dump | Snapshot Archive | Weekly | `bun run export -- --lake` | Zero (Local file generation) |
 
 ---
 
 ## 2. Core Procedural Steps
 
 ### Step 1: Configure Cloudflare Credentials
-Set your Cloudflare credentials in your environment file. Open `.env` and add these parameters:
+Set your Cloudflare credentials in `dist/.env`:
 
 ```env
 CLOUDFLARE_ACCOUNT_ID=your_account_id_here
@@ -28,10 +28,10 @@ CLOUDFLARE_R2_BUCKET_NAME=vrc-catalog-thumbnails
 ```
 
 ### Step 2: Test Synchronization in Dry-Run Mode
-Validate your configuration without writing remote data. Run this command:
+Validate your configuration without writing remote data:
 
 ```powershell
-.\bin\vrc-sync.exe --dry-run
+.\dist\vrc-sync.exe --dry-run
 ```
 
 Expected terminal output:
@@ -44,19 +44,19 @@ Expected terminal output:
 ```
 
 ### Step 3: Run Live Synchronization
-Execute live edge synchronization. Run this command:
+Execute live edge synchronization:
 
 ```powershell
-.\bin\vrc-sync.exe
+.\dist\vrc-sync.exe
 ```
 
-The tool pushes new canonical packages to Cloudflare D1. It also advances the local watermark checkpoint.
+The tool will push new canonical packages to Cloudflare D1. It will also advance the local watermark checkpoint.
 
 ### Step 4: Schedule Periodic Execution on Windows
 Create a scheduled task to run `vrc-sync.exe` every 15 minutes. Run PowerShell as Administrator:
 
 ```powershell
-$action = New-ScheduledTaskAction -Execute "F:\.repo\.main\vrc-package-crawler\bin\vrc-sync.exe"
+$action = New-ScheduledTaskAction -Execute "F:\.repo\.main\vrc-package-crawler\dist\vrc-sync.exe"
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 15)
 Register-ScheduledTask -TaskName "VRCEdgeSync" -Action $action -Trigger $trigger -Description "Periodic Cloudflare Edge Sync"
 ```
@@ -71,33 +71,33 @@ crontab -e
 Add this line:
 
 ```cron
-*/15 * * * * /opt/vrc-crawler/bin/vrc-sync >> /var/log/vrc-sync.log 2>&1
+*/15 * * * * /opt/vrc-catalog/dist/vrc-sync >> /opt/vrc-catalog/dist/logs/sync.log 2>&1
 ```
 
 ---
 
 ## 3. Worker Operations and Process Control
 
-Control the running crawler daemon using local commands:
+Control the running crawler daemon using `vrc-monitor.exe`:
 
 1. **Check Daemon Health:**
    ```powershell
-   .\bin\vrc-crawler.exe status
+   .\dist\vrc-monitor.exe status
    ```
 
 2. **Trigger Freshness Re-crawl:**
    ```powershell
-   .\bin\vrc-crawler.exe recrawl
+   .\dist\vrc-monitor.exe recrawl
    ```
 
 3. **Force Immediate Catalog Projection:**
    ```powershell
-   .\bin\vrc-crawler.exe project
+   .\dist\vrc-monitor.exe project
    ```
 
 4. **Stop Background Daemon Cleanly:**
    ```powershell
-   .\bin\vrc-crawler.exe stop
+   .\dist\vrc-monitor.exe stop
    ```
 
 ---
@@ -108,16 +108,17 @@ Control the running crawler daemon using local commands:
 | :--- | :--- | :--- |
 | `Cloudflare D1 HTTP 401: Unauthorized` | Invalid API token | Generate a Cloudflare API token with D1 Edit permissions. |
 | `Cloudflare D1 HTTP 404: Database not found` | Incorrect `CLOUDFLARE_D1_DATABASE_ID` | Check database UUID in the Cloudflare dashboard. |
-| `Could not connect to crawler daemon on 127.0.0.1:8765` | Background crawler is not running | Start `bin/vrc-crawler.exe` before sending IPC signals. |
-| `EBUSY: resource busy or locked` | Multiple concurrent writers on database | Verify `ProcessLock` is active. Only run one writer instance. |
+| `Could not connect to crawler daemon on 127.0.0.1:8765` | Background crawler is not running | Start `dist/vrc-crawler.exe` before sending IPC signals. |
+| `EBUSY: resource busy or locked` | Multiple concurrent writers on database | Make sure `ProcessLock` is active. Only run one writer instance. |
 | `Stream exceeded 2MB socket guardrail` | Source URL points to binary zip or mesh | Expected safeguard. The socket aborts automatically. |
+| Edge sync skips newly rebuilt packages | Full-wipe projection reset SQLite rowids | Run `.\dist\vrc-sync.exe --reset-watermark` to reset high-watermark to 0. |
 
 ---
 
 ## 5. Technical Specifications and Architecture (Reference)
 
 ### Multi-Node Scaling Path
-The crawler runs as a single-worker daemon per node. Scale horizontally by partitioning discovery domains across dedicated worker hosts:
+The crawler will run as a single-worker daemon per node. Scale horizontally by partitioning discovery domains across dedicated worker hosts:
 
 1. **Node A (Host SlamROG16):** Crawls BOOTH and Gumroad storefronts.
 2. **Node B (Cloud VPS):** Crawls GitHub repositories and VPM manifests.
@@ -147,6 +148,19 @@ flowchart TD
     S2 -->|Upload WebP| R2
     D1 --> Worker
     R2 --> Worker
+```
+
+### High-Watermark Verification Query
+Verify watermark alignment between local SQLite and remote Cloudflare D1:
+
+```sql
+-- Check local maximum rowid in SQLite:
+SELECT MAX(rowid) AS local_max_rowid FROM canonical_packages;
+
+-- Check recorded checkpoint for Cloudflare D1:
+SELECT checkpoint_value, updated_at 
+FROM sync_checkpoints 
+WHERE checkpoint_key = 'cloudflare_d1_canonical_packages';
 ```
 
 ### Cloudflare D1 Table Schema DDL
