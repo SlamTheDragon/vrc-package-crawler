@@ -622,3 +622,11 @@ Based on the 2026-09-23 comprehensive audit, the following five remediation task
 
 5. **Edge Sync Watermark Recovery & Data Loss Prevention**:
    - In `src/sync/index.ts` line 130, fix the watermark recovery condition to detect full-wipe projections even when the rebuilt table has more rows than the previous watermark (e.g., track projection generation epoch or use deterministic UUIDs rather than mutable SQLite auto-increment rowids).
+
+6. **API Assent & Downstream Terms Architecture (Legal & Technical Consultation)**:
+   - **Context**: In `LEGAL.md` Section 10, downstream consumers of Project REST APIs, SQLite databases (`vrc_catalog.db`), and Cloudflare D1 catalogs agree to Downstream Covenants (mandatory Source Storefront URL deep-linking, no commercial paywalls, anti-AI dataset usage restrictions, 256-char description limits) as a contractual condition of access.
+   - **Architectural Gap**: Unauthenticated HTTP GET requests (e.g., `curl https://api.example.com/search?q=...`) receive data without technical presentation of or assent to `LEGAL.md`. Under contract law, enforcing terms against anonymous downstreams requires demonstrable notice or assent.
+   - **Future Decisions & Consultation Roadmap**:
+     - *Phase 1 (Notice Injection)*: Update `vrc-server.exe` (`src/server/index.ts`) to return an `X-Catalog-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md` header on all API responses and include licensing metadata in the API root payload (`GET /`).
+     - *Phase 2 (Developer Portal / API Key Tiers)*: For bulk consumers, search engine aggregators, and commercial tools, evaluate introducing registered API keys gated behind an explicit terms agreement screen.
+     - *Phase 3 (Jurisdictional Legal Review)*: Consult legal counsel on cross-border enforcement of dataset licenses and anti-AI covenants against anonymous scrapers in key jurisdictions (US, EU, Philippines).
