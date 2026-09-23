@@ -285,6 +285,11 @@ The crawler will follow strict legal boundaries and community norms:
 - It will route all store links directly to original creators.
 - It will identify itself via `User-Agent: VRCDiscoveryBot/1.0`.
 - It will obey `robots.txt` with 24-hour caching per RFC 9309.
-- It will honor creator opt-outs and takedown requests within 24 to 48 hours.
+See [LEGAL.md](LEGAL.md) and [docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md) for full compliance specifications.
 
-See [docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md) for full compliance specifications.
+---
+
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0) — see the [LICENSE.md](LICENSE.md) file for details.
+

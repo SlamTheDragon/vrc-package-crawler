@@ -2,6 +2,7 @@
   "name": "vrc-package-crawler",
   "version": "1.0.0",
   "description": "High-saturation uncataloged VRChat tools & VPM crawler",
+  "license": "AGPL-3.0-or-later",
   "module": "src/crawler/index.ts",
   "type": "module",
   "scripts": {

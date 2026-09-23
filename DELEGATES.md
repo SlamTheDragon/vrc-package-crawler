@@ -14,7 +14,7 @@ The deployment architecture will run the headless crawler engine on dedicated ho
 flowchart LR
     subgraph "External Clients"
         VCC["VCC / ALCOM Clients"]
-        VRCX["VRCX / Desktop Feed"]
+        DESKTOP["Desktop Discovery Clients"]
         USER["Community Curators"]
     end
 
@@ -37,7 +37,7 @@ flowchart LR
     end
 
     VCC --> CF_DNS
-    VRCX --> CF_DNS
+    DESKTOP --> CF_DNS
     USER --> CF_DNS
 
     CF_DNS --> CF_WAF

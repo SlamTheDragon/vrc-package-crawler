@@ -51,11 +51,11 @@ flowchart TD
     end
 
     subgraph "Layer 5: External Interfacing Consumers"
-        VRCX["VRCX / Desktop Client\n(Schema 1 Feed Delta / SSE)"]
+        DESKTOP["Desktop Package Client\n(Schema 1 Feed Delta / SSE)"]
         VCC["VCC / ALCOM / Unity\n(Schema 2 Community index.json)"]
         WEB["Web Discovery Portal\n(Schema 4 Steering Ingestion)"]
         D1["Cloudflare D1 & R2\n(Edge Relational Mirror & WebP CDN)"]
-        HTTP -->|Schema 1 Delta| VRCX
+        HTTP -->|Schema 1 Delta| DESKTOP
         HTTP -->|Schema 2 Manifest| VCC
         WEB -->|Schema 4 POST /v1/reports| HTTP
         SYNC -->|High-Watermark Batch| D1
@@ -208,7 +208,7 @@ External applications will communicate with the crawler through four standardize
 
 #### Endpoint 1: Schema 1 (Feed Delta Stream)
 - **Route:** `GET /v1/catalog/delta?cursor=<rowid>&limit=<count>`
-- **Consumer:** VRCX, Obsidian synchronization plugins, RSS readers
+- **Consumer:** Downstream package managers, desktop search clients, and feed readers.
 - **Format:** JSON stream with SHA-256 tamper verification digest.
 - **Payload Structure:**
 ```json

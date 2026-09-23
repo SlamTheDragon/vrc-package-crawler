@@ -8,7 +8,7 @@ This document defines standardized JSON schemas for downstream clients, package 
 
 | Schema Name | Target Consumer | Primary Format | Update Frequency | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| **Schema 1: Feed Delta Report** | VRCX, Obsidian, RSS | JSON Stream / SSE | Continuous | Ingest new, modified, and delisted tools |
+| **Schema 1: Feed Delta Report** | Desktop Clients, RSS | JSON Stream / SSE | Continuous | Ingest new, modified, and delisted tools |
 | **Schema 2: VCC Community Manifest** | VCC, ALCOM | Standard `index.json` | Daily Snapshot | Install packages in Unity projects |
 | **Schema 3: Project Dependency Audit** | Unity Editor, CI/CD | JSON Report | On-Demand | Detect missing dependencies and vulnerabilities |
 | **Schema 4: Branched Steering Report** | Web Catalog, Desktop UI | Branched JSON Payload | User-Driven | Submit closed-loop query steering, negative tokens, and overrides |
