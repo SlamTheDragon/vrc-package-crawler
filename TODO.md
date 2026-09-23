@@ -630,3 +630,11 @@ Based on the 2026-09-23 comprehensive audit, the following five remediation task
      - *Phase 1 (Notice Injection)*: Update `vrc-server.exe` (`src/server/index.ts`) to return an `X-Catalog-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md` header on all API responses and include licensing metadata in the API root payload (`GET /`).
      - *Phase 2 (Developer Portal / API Key Tiers)*: For bulk consumers, search engine aggregators, and commercial tools, evaluate introducing registered API keys gated behind an explicit terms agreement screen.
      - *Phase 3 (Jurisdictional Legal Review)*: Consult legal counsel on cross-border enforcement of dataset licenses and anti-AI covenants against anonymous scrapers in key jurisdictions (US, EU, Philippines).
+
+7. **Canonical Network Governance & Decentralized Trust Model (Legal & Technical Architecture)**:
+   - **Context**: `LEGAL.md` Section 1.3 defines a decentralized canonical network where independent node operators run crawler binaries and push discovered metadata to a canonical edge distribution layer (Cloudflare D1/R2).
+   - **Architectural & Governance Gaps to Resolve**:
+     - *Node Authentication & Cryptographic Identity*: Determine whether nodes authenticate via mTLS, signed tokens, or pre-registered operator keys before pushing records to edge conduits.
+     - *Data Provenance & Audit Trail*: Implement database provenance tracking columns (`contributor_node_id`, `crawl_origin_signature`, `ingestion_batch_id`) to identify the source of corrupted, malicious, or non-compliant metadata.
+     - *Delisting Propagation Protocol*: Establish an automated protocol ensuring that when a listing is delisted on the canonical edge, delist directives propagate across all participating decentralized nodes to prevent recrawl resurrection.
+     - *Contributed Data Licensing Agreement*: Draft formal contributor terms clarifying indemnity, warranties, and licensing of contributed metadata before launching public node federation.
