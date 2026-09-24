@@ -141,32 +141,27 @@ Control the running crawler daemon using `vrc-monitor.exe`:
 
 ## 6. Technical Specifications and Architecture (Reference)
 
-### Multi-Node Scaling Path
-The crawler will run as a single-worker daemon per node. Scale horizontally by partitioning discovery domains across dedicated worker hosts:
+### Deployment Topology & Single-Node v1.0 Perimeter (LEGAL.md §1.4 Alignment)
+In accordance with **`LEGAL.md` §1.4** and **`TODO.md` CANON-6**, the version 1.0 Canonical Network operates strictly as a **single-node, maintainer-operated deployment**. Direct edge synchronization requires administrative Cloudflare credentials (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`), which cannot be safely distributed to untrusted third-party contributor nodes without credential leakage and edge tampering risks.
 
-1. **Node A (Host SlamROG16):** Crawls BOOTH and Gumroad storefronts.
-2. **Node B (Cloud VPS):** Crawls GitHub repositories and VPM manifests.
-3. **Synchronization Layer:** Both nodes execute `vrc-sync` independently. Cloudflare D1 handles deduplication via `INSERT OR REPLACE` on `canonical_id`.
+- **Version 1.0 Topology**: A single supervised daemon (`dist/vrc-crawler.exe`) performs localized ingestion and projection, and executes `dist/vrc-sync.exe` to push incremental deltas to Cloudflare D1.
+- **Post-v1.0 Decentralized Scaling Path (Task 5.4)**: External contributor nodes will not sync directly to D1 via API tokens. Instead, a cryptographic Cloudflare Worker Ingestion Gateway will validate signed community contributions and quarantine unverified submissions prior to edge persistence.
 
 ```mermaid
 flowchart TD
-    subgraph "Host A: Windows (Marketplaces)"
-        W1["vrc-crawler.exe"] --> DB1["crawler_state.db (WAL)"]
-        S1["vrc-sync.exe"] -->|Read Deltas| DB1
-    end
-
-    subgraph "Host B: Linux (Code & Manifests)"
-        W2["vrc-crawler-linux"] --> DB2["crawler_state.db (WAL)"]
-        S2["vrc-sync"] -->|Read Deltas| DB2
+    subgraph "Single-Node Maintainer Perimeter (v1.0 Ground Truth)"
+        W1["vrc-crawler.exe (Ingestion & Projection)"] --> DB1["crawler_state.db (WAL)"]
+        S1["vrc-sync.exe"] -->|Read Incremental Deltas| DB1
     end
 
     subgraph "Cloudflare Edge Global Tier"
-        D1[("Cloudflare D1 Database")]
+        D1[("Cloudflare D1 Database (canonical_packages + package_fronts)")]
+        Meta[("catalog_metadata (In-Band Notice)")]
         Worker["Cloudflare Workers API (Pure Media Pointers)"]
     end
 
     S1 -->|Batch Push Relational Deltas| D1
-    S2 -->|Batch Push Relational Deltas| D1
+    S1 -->|Ensure Legal Notice| Meta
     D1 --> Worker
 ```
 
@@ -188,6 +183,7 @@ ORDER BY id DESC LIMIT 1;
 Run this SQL script in the Cloudflare D1 console to initialize the remote catalog schema:
 
 ```sql
+-- 1. Canonical Packages (Core Deduplicated Catalog)
 CREATE TABLE IF NOT EXISTS canonical_packages (
   id TEXT PRIMARY KEY,
   canonical_id TEXT NOT NULL UNIQUE,
@@ -223,4 +219,33 @@ CREATE TABLE IF NOT EXISTS canonical_packages (
 CREATE INDEX IF NOT EXISTS idx_remote_category ON canonical_packages(category);
 CREATE INDEX IF NOT EXISTS idx_remote_type ON canonical_packages(type);
 CREATE INDEX IF NOT EXISTS idx_remote_vcc ON canonical_packages(is_vcc);
+
+-- 2. Decoupled Storefront Listings (Multi-Platform Mapping)
+CREATE TABLE IF NOT EXISTS package_fronts (
+  id TEXT PRIMARY KEY,
+  canonical_id TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  platform_item_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  author TEXT NOT NULL,
+  price_currency TEXT,
+  price_amount REAL,
+  origin_created_at TEXT,
+  origin_updated_at TEXT,
+  raw_entity_id TEXT NOT NULL,
+  media_urls_json TEXT DEFAULT '[]',
+  youtube_urls_json TEXT DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_remote_front_canonical ON package_fronts(canonical_id);
+CREATE INDEX IF NOT EXISTS idx_remote_front_platform ON package_fronts(platform);
+
+-- 3. In-Band Legal & Terms Metadata (LEGAL.md §10.7)
+CREATE TABLE IF NOT EXISTS catalog_metadata (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 ```

@@ -8,17 +8,35 @@
 
 ---
 
-## Executive Summary
+## Executive Summary & Authoritative Verification Chain
 
 A comprehensive architectural and code-reality audit across all specifications (`LEGAL.md`, `TODO.md`, `AGENT.md`, `DELEGATES.md`, `README.md`, `docs/`), codebase implementations (`src/server/`, `src/crawler/`, `src/drivers/`, `src/sync/`, `src/db.ts`), and test suites reveals critical technical contradictions, non-standardized identifiers, fragile edge behaviors, and factual discrepancies where differing documents or subsystem boundaries claim conflicting truths.
 
+### The Authoritative Verification Chain
+To eliminate mock-reality drift, false-positive compliances, and premature production assertions, the repository establishes a strict **Verification Chain**:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                            THE VERIFICATION CHAIN OF TRUTH                                       │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ LEGAL.md ──► TODO.md ──► Implementation ──► Deterministic Tests ──► DISAGREEMENTS.md ──► Resolve/Defer ──► Prod │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+> [!IMPORTANT]
+> **Clarification of "Phase 3 Complete"**:  
+> In light of this audit, **"Phase 3 Complete" MUST NOT be interpreted as: "The repository is now technically compliant with the legal architecture."**  
+> Instead, it signifies: **"Phase 3 implementation was completed and a comprehensive adversarial audit was executed, which successfully uncovered concrete implementation failures, architectural contradictions, and critical edge cases that prevent treating the legal/technical model as verified."**  
+> `DISAGREEMENTS.md` is an active gating artifact in the verification chain. Blockers documented herein must be resolved or formally triaged before calling the system production-ready.
+
 This document formally records:
-1. **Critical Breaking Points & Edging Behaviors** (Vulnerabilities and silent failures).
+1. **Critical Breaking Points & Edging Behaviors** (Vulnerabilities, silent delisting omissions, and TOCTOU races).
 2. **Subsystem Disagreements & Document Contradictions** (Where one document or module directly conflicts with another).
 3. **Non-Standardized Architecture, Identifiers & Terminology Dislocation** (Mixed-up identifiers, column semantic misalignments).
-4. **Phased Roadmapping Categorization**:
-   - **Obvious Unvisited Items**: Slated for future phases (Phase 4, Phase 5, Post-v1.0).
-   - **Overlooked Critical Deficiencies**: Severe gaps currently absent from any future roadmap task.
+4. **Triaged Phased Roadmap**:
+   - **Tier 1**: Pre-v1.0 Security & Legal Blockers (Items 1–5: delisting tombstones, DNS rebinding, opt-out matching, export referential integrity, identifier resolution).
+   - **Tier 2**: Documentation & Route Invariant Blockers (Items 6–8: endpoint aliasing, single-node perimeter, terms header docs).
+   - **Tier 3**: Completeness & Pipeline Scalability (Items 9–10: conditional request coverage, D1 storefront sync).
 
 ---
 
@@ -170,40 +188,53 @@ This document formally records:
 
 ---
 
-### Category 2: Overlooked Critical Deficiencies (UNSCHEDULED & OVERLOOKED)
+### Category 2: Triaged Deficiencies & Blocker Classification
 
-These items were overlooked during prior planning and are **NOT** represented in any future task in `TODO.md`:
+The 10 overlooked deficiencies are triaged into three actionable priority tiers. **Tier 1 blockers must NOT be deferred behind generic Phase 4 backlog tasks; they represent active legal, security, and integrity failures.**
 
-1. **[OVERLOOKED-1] Delta Feed Delisting Amnesia Across Projection Wipes**:
-   - *Problem*: Full projection rebuild deletes all canonical packages and skips opted-out creators with `continue`, completely preventing `GET /v1/catalog/delta` from emitting `action: "DELISTED"`.
-   - *Required Fix*: Retain tombstones for delisted packages during projection rebuilds so delta streams announce removals.
-2. **[OVERLOOKED-2] DNS Rebinding / TOCTOU SSRF Vulnerability**:
-   - *Problem*: Independent DNS resolution between `dns.lookup` and `fetch()` leaves `POST /v1/opt-out` and `GET /v1/media/stream` vulnerable to DNS rebinding against `127.0.0.1` and `169.254.169.254`.
-   - *Required Fix*: Pin socket connection to the resolved validated IP address.
-3. **[OVERLOOKED-3] BOOTH & Jinxxy URL / Author Mismatch in `delistCreatorPackages`**:
-   - *Problem*: `jinxxy.com` is omitted from SQL queries; `booth.pm/ja/items/12345` does not match `*.booth.pm`; Japanese shop display names do not match ASCII vendor IDs.
-   - *Required Fix*: Query `package_fronts` and match storefront URLs by platform item ID and platform URL prefixes.
-4. **[OVERLOOKED-4] Empty `media_cache` in Exported `vrc_catalog.db`**:
-   - *Problem*: `src/sync/exporter.ts` creates `media_cache` table but executes zero row insertions, creating dangling `media_id` foreign keys.
-   - *Required Fix*: Copy active media metadata records into `vrc_catalog.db` during export.
-5. **[OVERLOOKED-5] Complete Omission of `package_fronts` in Cloudflare Edge Sync**:
-   - *Problem*: `vrc-sync.exe` pushes only `canonical_packages`, leaving D1 with zero storefront records.
-   - *Required Fix*: Synchronize `package_fronts` deltas alongside `canonical_packages` to D1.
+#### Tier 1: Pre-v1.0 Security & Legal Blockers (Must Resolve Before Production Exposure)
+
+1. **[OVERLOOKED-1] [LEGAL CONTROL: IMPLEMENTATION FAILURE] Delta Feed Delisting Amnesia Across Projection Wipes**:
+   - *Classification*: Direct Legal Breach (`LEGAL.md` §9.5 Takedown Guarantee).
+   - *Problem*: Full projection rebuild deletes all canonical packages and skips opted-out creators with `continue`, completely preventing `GET /v1/catalog/delta` from emitting `action: "DELISTED"`. Downstream desktop client caches retain delisted packages indefinitely.
+   - *Remediation*: Implement permanent delisting tombstones in projection synthesis so delta streams reliably emit `action: "DELISTED"`.
+2. **[OVERLOOKED-2] [SECURITY BLOCKER: TOCTOU DNS REBINDING] SSRF Bypass on Opt-Out & Media Proxy**:
+   - *Classification*: Critical Security Vulnerability before Production Exposure.
+   - *Problem*: Independent DNS resolution between `dns.lookup` and `fetch()` creates a Time-of-Check to Time-of-Use race, allowing 0-second TTL DNS rebinding against `127.0.0.1` and `169.254.169.254`.
+   - *Remediation*: Pin HTTP socket connections directly to the resolved and verified IP address, or use an agent dispatcher with IP-level enforcement.
+3. **[OVERLOOKED-3] [COMPLIANCE BLOCKER: FALSE DELISTING CONFIRMATION] Silent Delisting Failure**:
+   - *Classification*: False Compliance Signal.
+   - *Problem*: `POST /v1/opt-out` returns `200 OK` (successful verification) while delisting exactly 0 packages because `jinxxy.com` is omitted from SQL queries, standard BOOTH URLs (`booth.pm/ja/items/12345`) do not match `*.booth.pm`, and vendor IDs do not match UTF-8 shop display names.
+   - *Remediation*: Query `package_fronts` and match storefront URLs by platform item ID and platform URL prefixes.
+4. **[OVERLOOKED-4] [EXPORT INTEGRITY: DANGLING MEDIA REFERENCES] Empty `media_cache` in Exported Database**:
+   - *Classification*: Referential Integrity & Clean Architecture.
+   - *Problem*: `src/sync/exporter.ts` creates table `media_cache` in `vrc_catalog.db` but inserts zero rows, creating dangling `canonical_packages.media_id` references for offline clients.
+   - *Remediation*: Complete the pure media pointer migration cleanly: remove the vestigial `media_cache` table from exports and rely exclusively on `media_urls_json` arrays, or populate metadata records without BLOBs.
+5. **[OVERLOOKED-5] [MODERATION BLOCKER: IDENTIFIER MISMATCH] Reporting Identifier Dislocation**:
+   - *Classification*: Moderation & Curation Control Failure.
+   - *Problem*: `canonical_packages.id` (raw entity string e.g. `github:owner/repo`) differs from `canonical_packages.canonical_id` (slug `owner-repo`). Schema 4 reports provide `target_package_id`, but `src/crawler/steering.ts` queries `WHERE canonical_id = ?`, causing reports using primary IDs to silently match 0 rows.
+   - *Remediation*: Update steering queries to match against `WHERE canonical_id = ? OR id = ?`.
+
+#### Tier 2: Documentation & Route Invariant Blockers (Contractual Alignment)
+
 6. **[OVERLOOKED-6] Missing Route `/v1/packages/stream` vs `/v1/catalog/delta`**:
    - *Problem*: `GET /` and `LEGAL.md` advertise `/v1/packages/stream`, but the server only implements `/v1/catalog/delta`.
-   - *Required Fix*: Provide route aliasing in `src/server/index.ts` so `/v1/packages/stream` routes cleanly to `/v1/catalog/delta`.
-7. **[OVERLOOKED-7] Missing `POST /v1/telemetry` Endpoint**:
-   - *Problem*: Advertised in `GET /` and `TODO.md` Task 1.1, but non-existent in `src/server/index.ts`.
-   - *Required Fix*: Implement `POST /v1/telemetry` endpoint handler for Schema 5 batch payloads.
-8. **[OVERLOOKED-8] Document Conflict in `EDGE_SYNC_AND_SCALE_GUIDE.md` §6**:
-   - *Problem*: Scale guide mandates multi-node D1 pushing, directly violating `LEGAL.md` §1.4 single-node maintainer perimeter.
-   - *Required Fix*: Align `EDGE_SYNC_AND_SCALE_GUIDE.md` Section 6 with `LEGAL.md` §1.4.
+   - *Remediation*: Provide route aliasing in `src/server/index.ts` so `/v1/packages/stream` routes cleanly to `/v1/catalog/delta`.
+7. **[OVERLOOKED-7] Multi-Node Scale Guide vs Single-Node Perimeter**:
+   - *Problem*: Scale guide previously instructed multi-node D1 pushing, conflicting with `LEGAL.md` §1.4.
+   - *Status*: Aligned in documentation; D1 DDL updated to include `package_fronts` and `catalog_metadata`.
+8. **[OVERLOOKED-8] Terms Header Invariants & `catalog_metadata` Documentation**:
+   - *Problem*: Promised header invariants across Schemas 1, 2, 5 were missing from `REPORTING_SCHEMAS.md`.
+   - *Status*: Aligned in documentation (`REPORTING_SCHEMAS.md` Section 1 updated).
+
+#### Tier 3: Completeness & Pipeline Scalability (Phase 4 Engineering)
+
 9. **[OVERLOOKED-9] Gumroad, Jinxxy, Itch Drivers Missing Conditional Request Headers**:
    - *Problem*: Task 3.3 wired only BOOTH and GitHub; remaining storefronts waste bandwidth on full redownloads.
-   - *Required Fix*: Wire ETag and `If-Modified-Since` into `GumroadDriver`, `JinxxyDriver`, and `ItchDriver`.
-10. **[OVERLOOKED-10] `catalog_metadata` Missing from Cloudflare D1 Schema**:
-    - *Problem*: Edge sync does not synchronize or create `catalog_metadata` on D1, leaving edge consumers without machine-readable terms.
-    - *Required Fix*: Push `catalog_metadata` key-values to Cloudflare D1 during initial sync.
+   - *Remediation*: Wire ETag and `If-Modified-Since` into `GumroadDriver`, `JinxxyDriver`, and `ItchDriver`.
+10. **[OVERLOOKED-10] Complete Omission of `package_fronts` in Cloudflare Edge Sync**:
+    - *Problem*: `vrc-sync.exe` pushes only `canonical_packages`, leaving D1 with zero storefront records.
+    - *Remediation*: Synchronize `package_fronts` deltas alongside `canonical_packages` to Cloudflare D1.
 
 ---
 
@@ -211,5 +242,5 @@ These items were overlooked during prior planning and are **NOT** represented in
 
 - **Verification Status**: Complete.
 - **Artifact Generated**: `DISAGREEMENTS.md` (Root Workspace).
-- **Phase 3 Milestone**: Verified & Marked Complete.
-- **Phase 4 Readiness**: All Phase 4 prerequisites and overlooked items documented for subsequent execution.
+- **Phase 3 Milestone**: Verified & Marked Complete (Phase 3 implementation completed; adversarial audit executed).
+- **Phase 4 Integration**: Tier 1 blockers (Items 1–5) formally prioritized as critical prerequisites in Phase 4 of `TODO.md`. Ready for Phase 4 execution.

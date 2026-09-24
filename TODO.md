@@ -17,6 +17,14 @@ In all architectural decisions, bug remediations, and roadmap specifications, th
 2. **[TODO.md](TODO.md) (This Document)**: Semi-behind `LEGAL.md`. Compacts all actionable engineering tasks, defect remediations, and feature roadmap items aligned strictly to `LEGAL.md` guardrails.
 3. **Operational Documentation (`docs/`, `AGENT.md`, `DELEGATES.md`, `README.md`)**: Subservient to `TODO.md` and `LEGAL.md`. Must cascade updates whenever tasks change systems invariants.
 4. **Codebase Implementation (`src/`, `tests/`)**: Physical realization. Must be brought into full alignment with the higher layers.
+5. **[DISAGREEMENTS.md](DISAGREEMENTS.md) (Audit & Defect Registry)**: Active verification gating artifact. Documents code-reality gap analyses, implementation failures, security blockers, and factual discrepancies.
+
+### The Authoritative Verification Chain
+The project enforces a strict, unbroken verification chain to prevent mock-reality drift and false compliance claims:
+```
+LEGAL.md ──► TODO.md ──► Implementation ──► Deterministic Tests ──► DISAGREEMENTS.md ──► Resolve/Defer ──► Production Readiness
+```
+No phase is considered production-ready merely because planned code was committed; it must be audited against `DISAGREEMENTS.md` and have all documented Tier 1 blockers resolved.
 
 ### 1.2 Canonical Foundation Items (Commit `09e9dc8`) Traceability
 The 6 canonical tasks introduced in commit `09e9dc8` define the core ecosystem questions. Each has been evaluated against `LEGAL.md` and synthesized into the roadmap:
@@ -485,62 +493,116 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 ---
 
-### Phase 4: Schema Normalization & Pipeline Scalability (High)
+### Phase 4: Schema Normalization, Security Hardening & Blocker Remediation (High)
 
-#### Task 4.1: Database Schema Deduplication, Ground Truth Architecture & Dist Stale DB Policy (Canonical Task 4)
-- **Priority**: Critical / High Priority Architectural Anchor (Ground Truth Schema) | **Complexity**: High (2.5 hours) | **Traceability**: CANON-4, CR-11, G-9, G-26, LEGAL §2.3, §10.7
-- **Files**: [`src/db.ts`](src/db.ts), [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/crawler/steering.ts`](src/crawler/steering.ts), [`src/sync/exporter.ts`](src/sync/exporter.ts), [`src/sync/index.ts`](src/sync/index.ts)
+> **Phase 4 Precedence Mandate**: Phase 4 prioritizes the resolution of all **Tier 1 Pre-v1.0 Security & Legal Blockers** identified in [`DISAGREEMENTS.md`](DISAGREEMENTS.md) before canonical ecosystem expansion in Phase 5.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                               PHASE 4 BLOCKER REMEDIATION MATRIX                         │
+├──────────────────────────────────────────────────────────────────────────────────────────┤
+│ Task 4.1: Schema Deduplication, Identifier Alignment & Clean Export (OVERLOOKED-4, 5)   │
+│ Task 4.2: Stateless Air-Gapped Authentication Invariants (CANON-6)                       │
+│ Task 4.3: Schema 5 Telemetry (`POST /v1/telemetry`) & Route Aliasing (OVERLOOKED-6, 7, 8) │
+│ Task 4.4: Delisting Tombstones & Delta Feed Preservation (OVERLOOKED-1: Legal Control)   │
+│ Task 4.5: IP Pinning against TOCTOU DNS Rebinding & Delist Matching (OVERLOOKED-2, 3)    │
+│ Task 4.6: Storefront Conditional Requests & D1 Front Sync (OVERLOOKED-9, 10)             │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Task 4.1: Database Schema Normalization, Identifier Standardization & Clean Export Architecture (Canonical Task 4)
+- **Priority**: Critical / High Priority Architectural Anchor | **Complexity**: High (2.5 hours) | **Traceability**: CANON-4, CR-11, G-9, G-26, OVERLOOKED-4, OVERLOOKED-5, LEGAL §2.3, §10.7
+- **Files**: [`src/db.ts`](src/db.ts), [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/crawler/steering.ts`](src/crawler/steering.ts), [`src/sync/exporter.ts`](src/sync/exporter.ts)
 - **Problem & Dist Stale Database Policy**:
-  - Overlapping URL storage existed: flat columns (`github_url`, `booth_url`, `gumroad_url`, `jinxxy_url`, `itch_url`) alongside `platforms_json` in `canonical_packages`, plus individual rows in `package_fronts`. In `curator_overrides`, dual override fields (`name_override` vs `title_override`) caused coalescence conflicts.
-  - **Official Stale DB Policy**: All existing database files in `dist/` (`dist/crawler_state.db` [357 MB], `dist/vrc_catalog.db`, etc.) are formally designated **STALE / LEGACY PROJECTIONS**.
-  - **Postponement of In-Place Migration**: Fragile in-place column-by-column migration scripts against the stale 357 MB database are **POSTPONED AND DROPPED**. The system will not perform high-risk in-place SQL alter operations on deprecated files.
-  - **Ground Canonical Clean-Slate Rebuild**: A clean, deduplicated ground-canonical schema is established in code (`src/db.ts`) as the single source of truth. Fresh canonical databases will be synthesized cleanly from raw `entities` event logs or fresh crawler seeding, eliminating legacy column cruft, redundant URL columns, and bloated WebP BLOBs from the ground up!
-  - **Early Workflow Integration (Phase 1 Baseline)**: The 2-URL-column reduction (`url` for primary platform and `vcc_url` for VCC manifest), elimination of `title_override` in favor of `name_override`, and complete deletion of legacy `src/tools/` scripts have been executed and integrated early directly into the Phase 1 active schema.
+  - Overlapping URL storage existed: flat columns alongside `platforms_json` in `canonical_packages`, plus individual rows in `package_fronts`. In `curator_overrides`, dual override fields (`name_override` vs `title_override`) caused coalescence conflicts.
+  - **Identifier Misalignment (OVERLOOKED-5)**: `canonical_packages.id` (raw entity string e.g. `github:owner/repo`) differs from `canonical_id` (slug `owner-repo`). Schema 4 reports provide `target_package_id`, but `steering.ts` queries `WHERE canonical_id = ?`, causing reports using primary IDs to silently match 0 rows.
+  - **Export Referential Integrity (OVERLOOKED-4)**: `src/sync/exporter.ts` creates table `media_cache` in `vrc_catalog.db` but inserts zero rows, leaving dangling `canonical_packages.media_id` references for offline clients.
+  - **Stale DB Policy**: All existing databases in `dist/` (`dist/crawler_state.db` [357 MB], etc.) are formally designated STALE / LEGACY PROJECTIONS; in-place column-by-column migration scripts are postponed and dropped.
 - **Remediation**:
   1. Standardize `canonical_packages` strictly to 2 URL columns (`url` and `vcc_url`), delegating all secondary storefront mirrors strictly to `package_fronts`.
   2. Normalize `curator_overrides` to use a single canonical field `name_override`, permanently removing `title_override`.
-  3. Define strict TypeScript DTOs in `src/db.ts` to enforce uniform schema access across all modules.
-  4. Ensure `src/db.ts` initialization creates clean normalized tables from scratch.
-  5. Permanently remove all obsolete scripts from `src/tools/`, dissolving functionality directly into `src/crawler/projection.ts`, `src/crawler/steering.ts`, and `src/sync/exporter.ts`.
-- **Cascading Documentation Changes (Targeted Sections)**:
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 ("Canonical Ground-Truth Database Schema & Dist Stale DB Policy") — document clean schema definitions and formalize stale status of `dist/crawler_state.db`.
-  - [`AGENT.md`](AGENT.md): Section "Database Schema Invariants, Ground Truth Architecture & Stale DB Policy" — define schema contracts and DTO types.
-  - [`DELEGATES.md`](DELEGATES.md): Section 3 ("Database Topography, State Management & Dist Maintenance Protocol") & Section 8 — document 2-URL rule and operational guidelines.
-- **Acceptance Criteria**: Schema definition executes cleanly without legacy redundant columns; TypeScript DTOs validate all database reads/writes; stale `dist/` databases are bypassed in favor of clean fresh synthesis.
+  3. Resolve identifier dislocation: update steering queries to match against `WHERE canonical_id = ? OR id = ?`.
+  4. Complete pure media pointer migration cleanly in `src/sync/exporter.ts`: remove vestigial empty `media_cache` table from exported `vrc_catalog.db`, relying exclusively on direct `media_urls_json` arrays.
+  5. Define strict TypeScript DTOs in `src/db.ts` to enforce uniform schema access across all modules.
+- **Cascading Documentation Changes**:
+  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 — document clean schema definitions and formalize stale status of `dist/crawler_state.db`.
+  - [`AGENT.md`](AGENT.md): Section "Database Schema Invariants, Ground Truth Architecture & Stale DB Policy".
+  - [`DELEGATES.md`](DELEGATES.md): Section 3 & 8 — document 2-URL rule and operational guidelines.
+- **Acceptance Criteria**: Schema definition executes cleanly without legacy redundant columns; TypeScript DTOs validate all reads/writes; exported catalog contains zero dangling foreign keys.
 
 #### Task 4.2: Enforce Air-Gapped Stateless Architecture Invariants (Canonical Task 6)
 - **Priority**: Security & Legal Boundary | **Complexity**: High (2 hours) | **Traceability**: CANON-6, G-21, LEGAL §8.5, §9.8, §10.5
 - **Files**: Entire repository architectural boundaries
 - **Problem**: Boundary regarding whether the crawler backend should ever manage user accounts, sessions, or private bookmarks.
 - **Remediation**: Formalize architectural contracts and code guards ensuring `vrc-server.exe` remains strictly an unauthenticated, stateless metadata catalog. User accounts, bookmarks, private lists, and recommendation scoring must be handled entirely by external downstream client applications (e.g. desktop managers, web frontends).
-- **Cascading Documentation Changes (Targeted Sections)**:
+- **Cascading Documentation Changes**:
   - [`README.md`](README.md): Section "System Architecture & Boundaries" — explicitly state that user authentication is air-gapped downstream.
-  - [`LEGAL.md`](LEGAL.md): Section 9.8 ("Air-Gapped Client Architecture") & Section 10.5 ("Non-Commercial Metadata Service") — re-affirm unauthenticated metadata catalog status.
-  - [`AGENT.md`](AGENT.md): Section 1 ("Architectural Boundary Invariants") — formalize boundary contract.
+  - [`LEGAL.md`](LEGAL.md): Section 9.8 ("Air-Gapped Client Architecture") & Section 10.5 ("Non-Commercial Metadata Service").
+  - [`AGENT.md`](AGENT.md): Section 1 ("Architectural Boundary Invariants").
 - **Acceptance Criteria**: Architectural audit confirms zero session cookies, password hashes, or user account models exist in `src/`.
 
-#### Task 4.3: Implement Schema 5 Interaction & Search Telemetry Route (Canonical Task 5)
-- **Priority**: Feedback Loop & Discovery | **Complexity**: High (2.5 hours) | **Traceability**: CANON-5, G-8, LEGAL §8.5, REPORTING_SCHEMAS §6
+#### Task 4.3: Implement Schema 5 Telemetry Ingestion Route & Gateway Route Aliasing (Canonical Task 5)
+- **Priority**: Feedback Loop & Discoverability | **Complexity**: High (2.5 hours) | **Traceability**: CANON-5, G-8, OVERLOOKED-6, OVERLOOKED-7, LEGAL §8.5, §10.1, REPORTING_SCHEMAS §1, §6
 - **Files**: [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts), [`src/crawler/steering.ts`](src/crawler/steering.ts)
-- **Problem**: `docs/REPORTING_SCHEMAS.md` defines Schema 5 for anonymous click rates, queries, and bookmarks to seed discovery, but `src/server/index.ts` has zero ingestion endpoints.
+- **Problem**:
+  - `docs/REPORTING_SCHEMAS.md` defines Schema 5 for anonymous click rates and queries, but `src/server/index.ts` has zero ingestion endpoints (`POST /v1/telemetry` returns 404).
+  - `GET /` and `LEGAL.md` advertise `/v1/packages/stream`, but the server implements `/v1/catalog/delta` (OVERLOOKED-6).
 - **Remediation**:
-  1. Add `POST /v1/telemetry` route in `src/server/index.ts` accepting Schema 5 payloads (`batchId`, `collectedAt`, `metrics: { searchQueries, packageInteractions }`).
-  2. Validate payload using JSON Schema validator. Enforce privacy invariant: strictly reject submissions containing personal data, user tokens, or IP session trackers.
-  3. Aggregate search queries into `search_patterns` to boost popular keywords and seed new frontier crawl targets.
-- **Cascading Documentation Changes (Targeted Sections)**:
-  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 6 ("Schema 5: Interaction & Query Telemetry Contract") — mark ingestion route as active.
-  - [`AGENT.md`](AGENT.md): Section "API Gateway Surface & Gateway Invariants" — document `POST /v1/telemetry` route contract.
-- **Acceptance Criteria**: `POST /v1/telemetry` accepts valid Schema 5 payload, increments aggregate interaction counters, rejects payloads with PII, and returns `200 OK`.
+  1. Add `POST /v1/telemetry` route in `src/server/index.ts` accepting Schema 5 payloads (`batchId`, `collectedAt`, `metrics: { searchQueries, packageInteractions }`). Validate payload; strictly reject PII or session trackers.
+  2. Implement route aliasing in `src/server/index.ts` so `GET /v1/packages/stream` routes cleanly to `GET /v1/catalog/delta`.
+  3. Aggregate search queries into `search_patterns` to boost popular keywords and seed new crawl targets.
+- **Cascading Documentation Changes**:
+  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 1 & Section 6 — mark ingestion route as active and formalize route aliasing.
+  - [`AGENT.md`](AGENT.md): Document `POST /v1/telemetry` and `/v1/packages/stream` alias contracts.
+- **Acceptance Criteria**: `POST /v1/telemetry` accepts valid Schema 5 payloads; `GET /v1/packages/stream` returns identical delta responses as `/v1/catalog/delta`.
 
-#### Task 4.4: Incremental Projection Sanitizer & Dirty-Tracking Clustering
-- **Priority**: Pipeline Scalability | **Complexity**: High (3 hours) | **Traceability**: CR-3, G-12
-- **Files**: [`src/crawler/projection.ts`](src/crawler/projection.ts)
-- **Problem**: `runProjection()` executes `DELETE FROM canonical_packages` every 15 minutes, running full in-memory SimHash clustering across all entities ($O(n^2)$), causing excessive memory usage and risking daemon loop overrun.
-- **Remediation**: Replace full-wipe rebuild with an incremental upsert strategy keyed on `canonical_id`. Track modified entities using a `dirty_since` timestamp, recomputing SimHash clusters only for newly added or modified entities, and preserving unchanged canonical package records.
-- **Cascading Documentation Changes (Targeted Sections)**:
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.2 ("Incremental Projection Architecture & DSU Clustering Mechanics") — document dirty-tracking upserts.
-  - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 4 ("Projection Runtime Benchmarks & Scaling Targets") — update runtime limits.
-- **Acceptance Criteria**: Projection sanitization completes in < 2.0s for incremental runs; unchanged rows retain stable IDs and timestamps.
+#### Task 4.4: Incremental Projection Sanitizer, Delisting Tombstones & Delta Preservation (OVERLOOKED-1)
+- **Priority**: Critical Legal Control / Data Loss Prevention | **Complexity**: High (3 hours) | **Traceability**: OVERLOOKED-1, CR-3, G-12, LEGAL §9.5
+- **Files**: [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts)
+- **Problem (LEGAL CONTROL: IMPLEMENTATION FAILURE)**:
+  - `runProjection()` executes `DELETE FROM canonical_packages` every 15 minutes and skips opted-out creators with `continue`.
+  - The row vanishes completely from `canonical_packages`. Consequently, `GET /v1/catalog/delta` **never emits `{ action: "DELISTED" }`**, causing downstream desktop client caches to retain delisted packages indefinitely!
+- **Remediation**:
+  1. Replace destructive table wipe with an incremental upsert strategy keyed on `canonical_id`.
+  2. Synthesize permanent delisting tombstones: when a creator opts out or an item is delisted, retain the package record with `lifecycle = 'delisted'` and updated timestamp.
+  3. Ensure `GET /v1/catalog/delta` emits `{ action: "DELISTED", canonicalId: ... }` for all delisted packages across synchronization windows.
+- **Cascading Documentation Changes**:
+  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.2 — document tombstone delta preservation.
+  - [`AGENT.md`](AGENT.md): Codify invariant guaranteeing delisting tombstone retention.
+- **Acceptance Criteria**: Re-running projection after a creator opt-out preserves tombstone row with `lifecycle = 'delisted'`; `GET /v1/catalog/delta` reliably emits `{ action: "DELISTED" }`.
+
+#### Task 4.5: Opt-Out Correctness & DNS Rebinding Security Hardening (OVERLOOKED-2, OVERLOOKED-3)
+- **Priority**: Critical Security Vulnerability & Compliance Blocker | **Complexity**: High (3 hours) | **Traceability**: OVERLOOKED-2, OVERLOOKED-3, LEGAL §9.4-9.5
+- **Files**: [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts)
+- **Problem**:
+  - **DNS Rebinding TOCTOU (OVERLOOKED-2)**: `dns.lookup` resolves the hostname once to check private IP ranges, but `fetch()` initiates an independent resolution without IP pinning, leaving endpoints vulnerable to 0-second TTL DNS rebinding against `127.0.0.1` and `169.254.169.254`.
+  - **False Compliance Signal (OVERLOOKED-3)**: `POST /v1/opt-out` returns `200 OK` while delisting 0 packages because `jinxxy.com` is omitted from SQL queries, standard BOOTH URLs (`booth.pm/ja/items/12345`) do not match `*.booth.pm`, and vendor IDs do not match UTF-8 shop display names.
+- **Remediation**:
+  1. **Cryptographic IP Pinning**: In `src/server/index.ts` (`POST /v1/opt-out` and `GET /v1/media/stream`), perform DNS lookup, validate IP, and connect directly to the pinned IP with the `Host` header set, eliminating TOCTOU DNS rebinding races.
+  2. **Comprehensive Delisting Matching**: In `db.delistCreatorPackages()`:
+     - Add `https://jinxxy.com/` storefront matching.
+     - Match standard BOOTH item URLs via `package_fronts.url` and platform item IDs.
+     - Resolve creator vendor IDs against `package_fronts.author` and `canonical_packages.authors_json`.
+- **Cascading Documentation Changes**:
+  - [`LEGAL.md`](LEGAL.md): Section 9.5 — document verified IP pinning and storefront front matching.
+  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 8 — update opt-out verification guarantees.
+- **Acceptance Criteria**: Automated test confirms DNS rebinding attempts are blocked via IP pinning; opting out a BOOTH or Jinxxy store correctly delists all matching canonical packages.
+
+#### Task 4.6: Storefront Conditional Requests & Cloudflare D1 Front Sync (OVERLOOKED-9, OVERLOOKED-10)
+- **Priority**: Bandwidth Efficiency & Edge Completeness | **Complexity**: Medium-High (2.5 hours) | **Traceability**: OVERLOOKED-9, OVERLOOKED-10, LEGAL §5.2, DISCOVERY_RULES §2
+- **Files**: [`src/drivers/gumroad.ts`](src/drivers/gumroad.ts), [`src/drivers/jinxxy.ts`](src/drivers/jinxxy.ts), [`src/drivers/itch.ts`](src/drivers/itch.ts), [`src/sync/index.ts`](src/sync/index.ts)
+- **Problem**:
+  - Gumroad, Jinxxy, and Itch drivers lack conditional request headers (`If-None-Match`, `If-Modified-Since`), wasting bandwidth despite `docs/DISCOVERY_RULES.md` asserting universal driver coverage (OVERLOOKED-9).
+  - `src/sync/index.ts` pushes only `canonical_packages` to Cloudflare D1, completely omitting `package_fronts` and `catalog_metadata` (OVERLOOKED-10).
+- **Remediation**:
+  1. Wire stored `etag` and `last_modified` headers into `GumroadDriver`, `JinxxyDriver`, and `ItchDriver`, connecting `HTTP 304` responses to `poissonScheduler.adjustAfterFetch()`.
+  2. Extend `src/sync/index.ts` to synchronize `package_fronts` and push `catalog_metadata` key-values to Cloudflare D1.
+- **Cascading Documentation Changes**:
+  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Re-verify universal conditional request mechanics across all drivers.
+  - [`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md): Document multi-table D1 synchronization.
+- **Acceptance Criteria**: Mock 304 responses on Gumroad/Jinxxy/Itch trigger Poisson interval backoff; edge sync pushes both `canonical_packages` and `package_fronts` to D1.
+
+---
 
 ---
 

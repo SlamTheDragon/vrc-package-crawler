@@ -8,17 +8,33 @@ This document defines standardized JSON schemas for downstream clients, package 
 
 | Schema Name | Target Consumer | Primary Format | Update Frequency | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| **Schema 1: Feed Delta Report** | Desktop Clients, RSS | JSON Stream / SSE | Continuous | Ingest new, modified, and delisted tools |
-| **Schema 2: VCC Community Manifest** | VCC, ALCOM | Standard `index.json` | Daily Snapshot | Install packages in Unity projects |
-| **Schema 3: Project Dependency Audit** | Unity Editor, CI/CD | JSON Report | On-Demand | Detect missing dependencies and vulnerabilities |
-| **Schema 4: Branched Steering Report** | Web Catalog, Desktop UI | Branched JSON Payload | User-Driven | Submit closed-loop query steering, negative tokens, and overrides |
-| **Schema 5: Interaction & Search Telemetry** | Downstream Clients, Portals | Aggregated JSON Payload | Periodic / Batch | Ingest anonymous click rates, queries, and bookmarks to seed discovery |
+| **Schema 1: Feed Delta Report** | Desktop Clients, RSS | JSON Stream / SSE | Continuous | Ingest new, modified, and delisted tools (`/v1/catalog/delta` / `/v1/packages/stream`) |
+| **Schema 2: VCC Community Manifest** | VCC, ALCOM | Standard `index.json` | Daily Snapshot | Install packages in Unity projects (`/v1/vpm/index.json`) |
+| **Schema 3: Project Dependency Audit** | Unity Editor, CI/CD | JSON Report | On-Demand | Detect missing dependencies and vulnerabilities (Internal Diagnostics) |
+| **Schema 4: Branched Steering Report** | Web Catalog, Desktop UI | Branched JSON Payload | User-Driven | Submit closed-loop query steering, negative tokens, and overrides (`/v1/reports`) |
+| **Schema 5: Interaction & Search Telemetry** | Downstream Clients, Portals | Aggregated JSON Payload | Periodic / Batch | Ingest anonymous click rates, queries, and bookmarks to seed discovery (`/v1/telemetry`) |
+
+### HTTP Header Invariants & Downstream Contract Notice (LEGAL.md §10.1, RFC 6648, RFC 8288)
+In adherence to **IETF RFC 6648** (deprecating `X-` custom prefixes) and **RFC 8288** (Web Linking), all API endpoints serving schemas (Schemas 1, 2, 4, 5, 6) inject conspicuous, machine-readable contractual notice headers on every HTTP response:
+
+```http
+VRC-Packages-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md
+VRC-Packages-Terms-Version: 1.1
+VRC-Packages-Repository: https://github.com/SlamTheDragon/vrc-package-crawler
+VRC-Packages-License: Layer-A: AGPL-3.0 / Layer-B: Database Compilation Terms / Layer-C: Third-Party Origin Rights
+Link: <https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md>; rel="terms-of-service"
+X-Robots-Tag: noai, noimageai
+```
+
+### Route Nomenclature & Canonical Stream Aliasing
+- **Primary Cursor Delta Route**: `GET /v1/catalog/delta` (Schema 1).
+- **Canonical Legal Feed Alias**: `GET /v1/packages/stream` (routes identically to `/v1/catalog/delta` to uphold interfaces advertised in `LEGAL.md` §2.2 and discovery documents).
 
 ---
 
 ## 2. Schema 1: Downstream Feed Delta Ingestion Report
 
-Downstream tools sync tool changes incrementally. This schema gives cursor-based delta synchronization.
+Downstream tools sync tool changes incrementally. This schema gives cursor-based delta synchronization via `GET /v1/catalog/delta` (aliased as `GET /v1/packages/stream`).
 
 ### Specification
 ```json
