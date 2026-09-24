@@ -188,6 +188,16 @@ if (cliArgs.includes("sync")) {
   process.exit(res.success ? 0 : 1);
 }
 
+if (cliArgs.includes("export")) {
+  const res = await CrawlerIpcServer.sendCommand("export");
+  if (res.success) {
+    console.log("[CLI] Catalog database export triggered successfully on active daemon.");
+  } else {
+    console.error(`[CLI] Catalog export failed: ${res.error}`);
+  }
+  process.exit(res.success ? 0 : 1);
+}
+
 function renderProgressBar(percentage: number, length: number = 25): string {
   const filled = Math.min(length, Math.max(0, Math.round((percentage / 100) * length)));
   const empty = length - filled;

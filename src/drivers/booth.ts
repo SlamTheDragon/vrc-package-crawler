@@ -4,6 +4,7 @@ import { db, type EntityRecord } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
 import { RelevanceFilter } from "../filter.ts";
 import { CuratedDriver } from "./curated.ts";
+import { cleanTitle, cleanAuthorName, cleanDescription } from "../utils/sanitizer.ts";
 
 export class BoothDriver {
   private static isAborted = false;
@@ -199,6 +200,22 @@ export class BoothDriver {
         if (tm) title = tm[1].trim();
       }
 
+      // Fallback description from DOM or OpenGraph if JSON-LD description was missing or brief
+      if (!description || description.length < 30) {
+        const descMatch = html.match(/<div[^>]*class=["'][^"']*(?:item-description|js-item-description|description-text)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+        if (descMatch) {
+          const domDesc = descMatch[1].replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ");
+          if (domDesc.trim().length > description.length) {
+            description = domDesc;
+          }
+        } else {
+          const ogDesc = html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i);
+          if (ogDesc && ogDesc[1].trim().length > description.length) {
+            description = ogDesc[1];
+          }
+        }
+      }
+
       // Extract OpenGraph and Twitter Card preview images
       const ogImgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
       const twImgMatch = html.match(/<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i);
@@ -275,11 +292,11 @@ export class BoothDriver {
         id: `booth:${finalItemId}`,
         platform: "booth",
         url: currentUrl,
-        title: title || `BOOTH Item ${finalItemId}`,
-        author: author,
+        title: cleanTitle(title || `BOOTH Item ${finalItemId}`),
+        author: cleanAuthorName(author),
         price_currency: priceCurrency,
         price_amount: priceAmount,
-        description: description,
+        description: cleanDescription(description),
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
         origin_created_at: originCreatedAt,

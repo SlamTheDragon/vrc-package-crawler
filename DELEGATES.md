@@ -317,7 +317,63 @@ If `checkpoint_value` exceeds `local_max_rowid`, reset the checkpoint to zero.
 
 ---
 
-## 8. Log Management & Archival
+## 8. Database Schema Topography, Column Normalization & Logistics Slimming
+
+Operators and infrastructure delegates must observe the following schema boundaries and data invariants:
+
+### 8.1 The 2-URL-Column Standard & Flat Column Purge
+To eliminate redundant columns and prevent mock-reality drift:
+- `canonical_packages` retains exactly **two** URL columns:
+  1. `url TEXT NOT NULL`: Primary storefront / repository URL corresponding to `primary_platform`.
+  2. `vcc_url TEXT`: VPM/VCC manifest deep link (`vcc://vpm/addRepo?url=...`).
+- Redundant flat columns (`github_url`, `booth_url`, `gumroad_url`, `jinxxy_url`, `itch_url`) are **permanently removed**.
+- Individual per-platform storefront details are decoupled into the normalized `package_fronts` table (`id`, `canonical_id`, `platform`, `platform_item_id`, `url`, `title`, `author`, `price_currency`, `price_amount`, `origin_created_at`, `origin_updated_at`, `raw_entity_id`, `media_urls_json`, `youtube_urls_json`).
+- `curator_overrides` removes the duplicate `title_override` column, standardizing exclusively on `name_override`.
+
+### 8.2 Operator Query Guide for Normalized Schema
+
+```sql
+-- Query package primary platform and URL:
+SELECT canonical_id, name, primary_platform, url, vcc_url 
+FROM canonical_packages 
+WHERE canonical_id = 'modular-avatar';
+
+-- Query all decoupled storefront links, pricing, and origin entity across platforms:
+SELECT platform, platform_item_id, url, price_currency, price_amount, raw_entity_id 
+FROM package_fronts 
+WHERE canonical_id = 'modular-avatar';
+
+-- Check high-watermark row count on normalized table:
+SELECT count(*), max(rowid) FROM canonical_packages;
+
+-- Inspect pure origin media metadata (zero BLOB storage):
+SELECT source_url, blurhash, phash_64, content_type 
+FROM media_cache 
+LIMIT 10;
+```
+
+### 8.3 Logistics Slimming: Elimination of Standalone Tool Scripts
+In v1.0, standalone manual scripts in `tools/` (`requeue_gumroad.ts`, `requeue_media.ts`, `pipeline_sanitize.ts`, `exporter.ts`, `steering.ts`, `discover_vpm.ts`) have been **completely deleted** rather than maintained as fragile shims. Their operations are dissolved natively into:
+- Early driver ingestion (`src/drivers/vpm_index.ts`, `src/drivers/gumroad.ts`)
+- Front-stage sanitization (`src/utils/sanitizer.ts`)
+- Native projection engine (`src/crawler/projection.ts` / `vrc-crawler`)
+- Edge export engine (`src/sync/exporter.ts` / `vrc-export`)
+- Continuous monitor loop (`src/crawler/steering.ts` / `vrc-monitor`)
+
+Operators must never attempt to invoke scripts in `tools/`. All operations run through supervised binaries (`dist/vrc-crawler.exe`, `dist/vrc-monitor.exe`, `dist/vrc-sync.exe`).
+
+### 8.4 Media Table Slimming & Pure Origin Pointer Architecture
+Per `LEGAL.md` §7.2(c), the pipeline deprecates SQLite WebP BLOB storage (`media_cache.webp_data`), eliminating over 350 MB of database bloat. Both primary SQLite (`dist/crawler_state.db`), exported catalogs (`dist/vrc_catalog.db`), and Cloudflare D1 edge sync records carry direct origin URL arrays (`media_urls_json`), BlurHash strings, and 64-bit pHash digests without binary BLOB storage. The server media proxy (`GET /v1/media/:id`) issues HTTP 302 redirects directly to origin CDNs (*Perfect 10 v. Amazon* Server Test compliance).
+
+### 8.5 Version 0 Ground-Truth Policy & Dead Migration Removal
+This system is version 0. Deprecation shims, backward-compatibility type aliases, and automatic runtime table rename loops (`_v2` -> clean name) are permanently dropped. Delegates and operators are instructed to:
+- Never execute in-place column-by-column migration scripts against legacy stale databases in `dist/`.
+- Rebuild fresh canonical state cleanly from raw `entities` event logs or fresh crawler seeding (`bun run project`).
+- Treat code DDL (`src/db.ts`) as Ground Truth.
+
+---
+
+## 9. Log Management & Archival
 
 Until native log rotation is integrated into `src/logger.ts`, operators will configure external log rotation.
 

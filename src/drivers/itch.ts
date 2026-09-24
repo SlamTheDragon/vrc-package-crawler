@@ -3,6 +3,7 @@ import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
 import { RelevanceFilter } from "../filter.ts";
+import { cleanTitle, cleanAuthorName, cleanDescription } from "../utils/sanitizer.ts";
 
 export class ItchDriver {
   private static isAborted = false;
@@ -173,7 +174,14 @@ export class ItchDriver {
 
       // Extract description
       const ogDesc = html.match(/<meta\s+property=["']og:description["']\s+content=["'](.*?)["']/i);
-      const desc = ogDesc ? ogDesc[1].trim() : "";
+      let desc = ogDesc ? ogDesc[1].trim() : "";
+      const descBlock = html.match(/<div[^>]*class=["'][^"']*\bformatted_description\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+      if (descBlock) {
+        const fullDesc = descBlock[1].replace(/<br\s*\/?>/gi, "\n").replace(/<p[^>]*>/gi, "\n\n").replace(/<[^>]+>/g, " ");
+        if (fullDesc.trim().length > desc.length) {
+          desc = fullDesc;
+        }
+      }
 
       // Extract tags
       const tags: string[] = ["itch", "vrchat"];
@@ -265,11 +273,11 @@ export class ItchDriver {
         id: `itch:${creator}/${currentUrl.split("?")[0].split("/").pop()}`,
         platform: "itch",
         url: currentUrl,
-        title: title,
-        author: creator,
+        title: cleanTitle(title),
+        author: cleanAuthorName(creator),
         price_currency: "USD",
         price_amount: 0,
-        description: desc || `${title} on Itch.io by ${creator}`,
+        description: cleanDescription(desc || `${title} on Itch.io by ${creator}`),
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
         origin_created_at: originCreatedAt,

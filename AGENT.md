@@ -24,14 +24,14 @@ flowchart TD
     subgraph "Layer 2: Local CQRS Observation Lake (SQLite WAL)"
         AIMD --> LAKE[("entities\n(Raw Immutable Payloads)")]
         AIMD --> FRONTIER[("frontier\n(Poisson Adaptive Re-crawl)")]
-        LAKE --> PIPELINE["Deterministic Pipeline Sanitization\n(SimHash-64, Jaro-Winkler, Fellegi-Sunter)"]
+        LAKE --> PIPELINE["src/crawler/projection.ts\n(SimHash-64, Jaro-Winkler, Fellegi-Sunter)"]
         PIPELINE --> CANONICAL[("canonical_packages\n(Deduplicated Unified Catalog)")]
         PIPELINE --> FRONTS[("package_fronts\n(Decoupled Multi-Storefronts)")]
     end
 
     subgraph "Layer 3: Closed-Loop Steering & Feedback"
         REPORTS[("user_reports\n(Schema 4 Branched Feedback)")]
-        STEER["src/tools/steering.ts\n(Autonomous Processing Loop)"]
+        STEER["src/crawler/steering.ts\n(Autonomous Processing Loop)"]
         OVERRIDES[("curator_overrides\n(Persistent Overrides)")]
         PATTERNS[("search_patterns\n(Dynamic Boost / Suppress)")]
         REPORTS --> STEER
@@ -44,7 +44,7 @@ flowchart TD
     subgraph "Layer 4: Headless Gateways & Edge Distribution"
         HTTP["src/server/index.ts\n(Headless Bun HTTP Gateway :8080)"]
         SYNC["src/sync/index.ts\n(Delta Sync Daemon)"]
-        EXPORT["src/tools/exporter.ts\n(FTS5 Offline Catalog Generator)"]
+        EXPORT["src/sync/exporter.ts\n(FTS5 Offline Catalog Generator)"]
         CANONICAL --> HTTP
         CANONICAL --> SYNC
         CANONICAL --> EXPORT
@@ -76,7 +76,7 @@ The engine will compile into standalone executables with zero external host runt
 | `dist/vrc-server.exe` | `src/server/index.ts` | Windows x64 | Headless REST API gateway (Schemas 1, 2, and 4) |
 | `dist/vrc-server-linux` | `src/server/index.ts` | Linux x64 | Linux headless REST API gateway |
 | `dist/vrc-sync.exe` | `src/sync/index.ts` | Windows x64 | High-watermark Cloudflare D1 and R2 synchronizer |
-| `dist/vrc-export.exe` | `src/tools/exporter.ts` | Windows x64 | Standalone defragmented FTS5 SQLite catalog exporter |
+| `dist/vrc-export.exe` | `src/sync/exporter.ts` | Windows x64 | Standalone defragmented FTS5 SQLite catalog exporter |
 
 Compilation command:
 ```bash
@@ -101,7 +101,7 @@ The database will run in SQLite WAL mode (`PRAGMA journal_mode = WAL;`) with nor
 | `user_reports` | Ingested Feedback Buffer | Schema 4 branched feedback submissions awaiting autonomous steering ingestion |
 | `search_patterns` | Closed-Loop Query Weights | Dynamic negative tokens, boost or suppress rules, and priority seed queues |
 | `creator_opt_outs` | Legal Exclusion Registry | Verified takedown patterns and creator bio-token exclusion rules |
-| `media_cache` | Thumbnail Proxy Cache | WebP thumbnails, BlurHash strings, and 64-bit perceptual hashes (pHash) |
+| `media_cache` | Pure Origin Metadata Cache | BlurHash strings, 64-bit perceptual hashes (pHash), origin CDN source URLs (zero local BLOB storage) |
 | `sync_checkpoints` | Edge Watermarks | High-watermark rowid tracking for incremental Cloudflare D1 and R2 sync |
 
 ### 3.2 Core Table DDLs
@@ -120,13 +120,8 @@ CREATE TABLE IF NOT EXISTS canonical_packages (
   description TEXT,                                         -- Factual description excerpt
   primary_platform TEXT NOT NULL,                           -- Origin host ('vpm', 'github', 'booth', etc.)
   platforms_json TEXT NOT NULL,                             -- Array of available storefront platforms
-  url TEXT NOT NULL,                                        -- Canonical checkout / repository URL
-  vcc_url TEXT,                                             -- VPM direct repository link
-  github_url TEXT,                                          -- GitHub repository link
-  booth_url TEXT,                                           -- BOOTH.pm storefront link
-  gumroad_url TEXT,                                         -- Gumroad storefront link
-  jinxxy_url TEXT,                                          -- Jinxxy marketplace link
-  itch_url TEXT,                                            -- itch.io store link
+  url TEXT NOT NULL,                                        -- Primary platform checkout / repository URL
+  vcc_url TEXT,                                             -- VPM direct repository link (NULL for non-VCC)
   price_currency TEXT DEFAULT 'USD',                        -- Pricing currency code (USD, JPY)
   price_amount REAL DEFAULT 0,                              -- Base pricing value
   is_vcc INTEGER NOT NULL DEFAULT 0,                        -- Boolean flag for VCC/ALCOM support
@@ -134,6 +129,8 @@ CREATE TABLE IF NOT EXISTS canonical_packages (
   dependencies_json TEXT DEFAULT '{}',                      -- VPM dependency map
   source_ids_json TEXT NOT NULL,                            -- Foreign keys into entities observation lake
   media_id TEXT,                                            -- FK into media_cache
+  media_urls_json TEXT DEFAULT '[]',                        -- Storefront image/preview gallery URLs
+  youtube_urls_json TEXT DEFAULT '[]',                      -- Embedded YouTube showcase links
   origin_created_at TEXT,                                   -- Earliest verified creation date
   origin_updated_at TEXT,                                   -- Latest observed update timestamp
   created_at_confidence TEXT DEFAULT 'unknown'              -- 'confirmed' | 'inferred' | 'unknown'
@@ -146,12 +143,44 @@ CREATE TABLE IF NOT EXISTS canonical_packages (
   updated_at TEXT NOT NULL                                  -- Record update timestamp
 );
 
--- 2. Persistent Curator Overrides (Survives pipeline wipes)
+-- 2. Decoupled Storefront Listings (Multi-Storefront Mirrors)
+CREATE TABLE IF NOT EXISTS package_fronts (
+  id TEXT PRIMARY KEY,                                      -- 'front_<canonical_id>_<platform>'
+  canonical_id TEXT NOT NULL,                               -- FK into canonical_packages(canonical_id)
+  platform TEXT NOT NULL,                                   -- 'booth' | 'github' | 'gumroad' | 'jinxxy' | 'itch' | 'vpm'
+  platform_item_id TEXT NOT NULL,                           -- Platform-native item/repository ID
+  url TEXT NOT NULL,                                        -- Storefront checkout/details URL
+  title TEXT NOT NULL,                                      -- Raw storefront title
+  author TEXT NOT NULL,                                     -- Storefront author / vendor
+  price_currency TEXT,                                      -- Pricing currency (USD, JPY)
+  price_amount REAL,                                        -- Listing price
+  origin_created_at TEXT,                                   -- Earliest verified creation timestamp
+  origin_updated_at TEXT,                                   -- Latest observed update timestamp
+  raw_entity_id TEXT NOT NULL,                              -- Origin entity ID in entities table
+  media_urls_json TEXT DEFAULT '[]',                        -- Storefront media URLs
+  youtube_urls_json TEXT DEFAULT '[]',                      -- Embedded YouTube showcase links
+  created_at TEXT NOT NULL,                                 -- First observation timestamp
+  updated_at TEXT NOT NULL                                  -- Record update timestamp
+);
+
+-- 3. Pure Origin Metadata Media Cache (Zero local BLOB storage)
+CREATE TABLE IF NOT EXISTS media_cache (
+  id TEXT PRIMARY KEY,                                      -- 'media_<timestamp>_<random>'
+  source_url TEXT NOT NULL UNIQUE,                          -- Remote origin CDN image URL
+  blurhash TEXT,                                            -- Client-side progressive placeholder
+  phash_64 TEXT,                                            -- 64-bit DCT perceptual hash for deduplication
+  width INTEGER,                                            -- Transcoded/measured image width
+  height INTEGER,                                           -- Transcoded/measured image height
+  content_type TEXT,                                        -- MIME type (image/webp, image/jpeg, etc.)
+  etag TEXT,                                                -- Upstream caching ETag header
+  last_processed_at TEXT NOT NULL                           -- Ingestion timestamp
+);
+
+-- 4. Persistent Curator Overrides (Survives pipeline wipes)
 CREATE TABLE IF NOT EXISTS curator_overrides (
   id TEXT PRIMARY KEY,                                      -- 'cov_<canonical_id>'
   canonical_id TEXT NOT NULL UNIQUE,                        -- Target package slug
   name_override TEXT,                                       -- Cleaned display title
-  title_override TEXT,                                      -- Alternative title
   url_override TEXT,                                        -- Canonical storefront override
   description_override TEXT,                                -- Curated STE description
   category_override TEXT,                                   -- Corrected class
@@ -382,8 +411,8 @@ Autonomous coding agents must obey the 13 verified engineering reality constrain
 
 ### CR-5: Timestamp Confidence Rubric
 - `docs/DISCOVERY_RULES.md` Sec 4.2 mandates `origin_created_at = null` and `createdAtConfidence = 'unknown'` when no upstream date exists.
-- `src/tools/pipeline_sanitize.ts` substituted local crawl fetch times as `'inferred'`.
-- **Agent Rule:** Never substitute local crawl times for missing upstream dates. Set `origin_created_at` to null.
+- Ingestion drivers and `src/crawler/projection.ts` must never substitute local crawl fetch times as `'inferred'`.
+- **Agent Rule:** Never substitute local crawl times for missing upstream dates. Set `origin_created_at` to null with confidence `'unknown'`.
 
 ### CR-6: YouTube Embed URL Ingestion
 - `src/drivers/jinxxy.ts` iterated Next.js media arrays without type filtering, passing YouTube embeds to the image proxy.
@@ -408,10 +437,11 @@ Autonomous coding agents must obey the 13 verified engineering reality constrain
 - `AGENT.md` and `DELEGATES.md` were duplicate files.
 - **Agent Rule:** Maintain strict role isolation. `AGENT.md` will guide coding agents. `DELEGATES.md` will guide VPS deployment engineers.
 
-### CR-11: Schema Column Duplication
-- Overlapping columns exist: flat columns (`github_url`, `booth_url`), `platforms_json`, and rows in `package_fronts`.
-- `curator_overrides` contains both `name_override` and `title_override`.
-- **Agent Rule:** Use strict DTO typing in `src/db.ts` to prevent naming drift.
+### CR-11: Schema Column Normalization & 2-URL-Column Rule
+- `canonical_packages` enforces strictly two URL columns: `url TEXT NOT NULL` (primary platform URL) and `vcc_url TEXT` (VCC manifest URL).
+- Redundant flat columns (`github_url`, `booth_url`, `gumroad_url`, `jinxxy_url`, `itch_url`) are permanently purged; multi-storefront mirrors are decoupled strictly into `package_fronts`.
+- `curator_overrides` standardizes exclusively on `name_override`, completely dropping the duplicate `title_override` column.
+- **Agent Rule:** Use strict DTO typing in `src/db.ts` to prevent naming drift and enforce uniform schema access across all modules.
 
 ### CR-12: Structured Logging & Archival
 - `src/logger.ts` uses flat append streams without session prefixes or daily gzip sweeps.
@@ -437,9 +467,9 @@ Autonomous coding agents must obey the 13 verified engineering reality constrain
 - **Agent Rule:** Expose `POST /v1/opt-out` to accept and verify DNS TXT records (`vrc-opt-out=<vendor-id>`) or signed Git commits.
 
 ### CR-17: CJK Bracket Stripping & SimHash Normalization
-- `src/tools/pipeline_sanitize.ts` does not normalize full-width CJK brackets (`【...】`) or generate character 2-grams.
-- Japanese and Western mirrors fail to converge under SimHash-64 ($k \le 3$).
-- **Agent Rule:** Apply NFKC normalization, strip full-width brackets, and use character 2-grams for CJK strings.
+- Text normalization requires stripping full-width CJK brackets (`【...】`) and generating character 2-grams.
+- Japanese and Western mirrors fail to converge under SimHash-64 ($k \le 3$) without bracket stripping.
+- **Agent Rule:** Apply NFKC normalization, strip full-width brackets, and use character 2-grams for CJK strings directly in `src/utils/sanitizer.ts` and crawler ingestion.
 
 ### CR-18: Decentralized Canonical Network Provenance Tracking
 - SQLite tables lack `contributor_node_id`, `crawl_signature`, and `batch_id` columns.
@@ -447,9 +477,8 @@ Autonomous coding agents must obey the 13 verified engineering reality constrain
 - **Agent Rule:** Add provenance tracking columns to `entities` and `canonical_packages` before enabling decentralized node federation.
 
 ### CR-19: Server Test Compliance & Image Proxy Local Storage
-- `src/utils/image_proxy.ts` inserts raw WebP buffers directly as BLOBs into SQLite `media_cache.webp_data` (`dist/crawler_state.db`), creating a 357 MB database. `src/server/index.ts` serves binary images via `/v1/media/:id`, and `src/tools/exporter.ts` exports `webp_data BLOB`.
-- Persistent local storage of creative assets creates copyright reproduction exposure under the Ninth Circuit Server Test (*Perfect 10 v. Amazon*) and Second Circuit display rulings (*Goldman v. Breitbart*).
-- **Agent Rule:** Return direct Source CDN URLs in API responses. Keep local image processing strictly ephemeral in-memory for 64-bit pHash and BlurHash extraction, and ground visual search in *Kelly v. Arriba Soft* transformative fair use.
+- `src/utils/image_proxy.ts` previously inserted raw WebP buffers directly as BLOBs into SQLite `media_cache.webp_data`, creating massive database bloat. Serving local image copies creates copyright reproduction exposure under the Ninth Circuit Server Test (*Perfect 10 v. Amazon*) and Second Circuit display rulings (*Goldman v. Breitbart*).
+- **Agent Rule:** Return direct Source CDN URLs in API responses. Keep local image processing strictly ephemeral in-memory for 64-bit pHash and BlurHash extraction, purge `webp_data` BLOBs, and ground visual search in *Kelly v. Arriba Soft* transformative fair use.
 
 ### CR-20: Automated ETag Conditional Request Loop
 - `src/drivers/github.ts` extracts raw ETags but never transmits `If-None-Match`.
@@ -457,13 +486,12 @@ Autonomous coding agents must obey the 13 verified engineering reality constrain
 - **Agent Rule:** Transmit conditional HTTP headers on all re-crawl requests. Refresh timestamps on HTTP 304 without parsing payloads.
 
 ### CR-21: SQLite Media Cache BLOB Elimination
-- Production code stores image binaries inside SQLite `media_cache.webp_data` instead of transient descriptors.
-- **Agent Rule:** Drop `webp_data BLOB` from SQLite schemas. Retain only `phash_64`, `blurhash`, and origin `source_url`.
+- Production code previously stored image binaries inside SQLite `media_cache.webp_data` instead of transient descriptors.
+- **Agent Rule:** Permanently drop `webp_data BLOB` and `webp_size_bytes` from SQLite schemas and exports (`src/sync/exporter.ts`, `src/db.ts`). Retain only `phash_64`, `blurhash`, and origin `source_url`.
 
 ### CR-22: Exported SQLite Catalog Terms Metadata Table
-- `src/tools/exporter.ts` creates tables for packages, fronts, and FTS, but completely omits a `catalog_metadata` table.
-- Downloaded SQLite databases contain zero contractual terms or license text.
-- **Agent Rule:** Add `CREATE TABLE catalog_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);` in `src/tools/exporter.ts`. Record terms URL, terms SHA-256 digest, AGPLv3 license reference, and export timestamp.
+- Offline catalog exporter must supply in-band contractual terms and license notices.
+- **Agent Rule:** Add `CREATE TABLE catalog_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);` in `src/sync/exporter.ts`. Record terms URL, terms SHA-256 digest, AGPLv3 license reference, and export timestamp.
 
 ### CR-23: Headless API Server Root Discovery Route
 - `src/server/index.ts` returns `404 Not Found` for `GET /`. No discovery payload exists to communicate terms of use or endpoint schemas.

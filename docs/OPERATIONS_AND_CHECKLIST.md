@@ -16,13 +16,13 @@ The toolset will separate into dedicated source directories. Each directory will
 | `dist/vrc-sync.exe` | `src/sync/index.ts` | High-watermark delta synchronizer for Cloudflare D1 and R2 media. |
 | `dist/vrc-server.exe` | `src/server/index.ts` | Headless REST API gateway serving Schemas 1, 2, and ingesting Schema 4 reports. |
 
-### Auxiliary Maintenance Toolset (`src/tools/`)
+### Auxiliary Operational Commands
 
-Run batch maintenance tools on demand with Bun:
-- `bun run sanitize` (`src/tools/pipeline_sanitize.ts`): Re-evaluates relevance, computes SimHash clusters, and projects `canonical_packages`.
-- `bun run export` (`src/tools/exporter.ts`): Builds a defragmented SQLite catalog with FTS5 search index (`vrc_catalog.db`).
-- `bun run steering` (`src/tools/steering.ts`): Processes queued Schema 4 reports and tunes search patterns.
-- `bun run discover:vpm` (`src/tools/discover_vpm.ts`): Crawls public indexes for community VPM repository URLs.
+Run operations directly with Bun:
+- `bun run sanitize` or `bun run project` (`src/crawler/projection.ts`): Re-evaluates relevance, computes SimHash clusters, and projects `canonical_packages` with 2 URL columns (`url`, `vcc_url`).
+- `bun run export` (`src/sync/exporter.ts`): Builds a defragmented SQLite catalog with FTS5 search index (`vrc_catalog.db`), terms metadata, and pure origin media pointers.
+- `bun run steering` (`src/crawler/steering.ts`): Processes queued Schema 4 reports and tunes search patterns.
+- `bun run discover:vpm` (`src/drivers/vpm_index.ts`): Ingests community VPM repository URLs.
 
 ---
 

@@ -6,14 +6,7 @@ import { db, type CrawlerDB, type UserReport, type PlatformType } from "../db.ts
 import { sanitizeOutboundUrl } from "../utils/image_proxy.ts";
 import { validateSchema4Payload } from "../server/index.ts";
 
-export interface SteeringOptions {
-  reportsDir?: string;
-  pollIntervalMs?: number;
-  db?: CrawlerDB;
-}
 
-let steeringTimer: Timer | null = null;
-let isProcessing = false;
 
 /**
  * Detect platform type from seed URL
@@ -135,8 +128,7 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
 
           targetDb.upsertCuratorOverride({
             canonicalId: report.target_package_id,
-            nameOverride: payload.nameOverride || null,
-            titleOverride: payload.correctedTitle || null,
+            nameOverride: payload.nameOverride || payload.correctedTitle || null,
             urlOverride: url,
             descriptionOverride: desc || null,
             reason: report.reporter_notes || null,
@@ -395,42 +387,3 @@ export async function pullReportsFromDirectory(dirPath?: string, customDb?: Craw
   return totalPulled;
 }
 
-/**
- * Continuous steering daemon runner
- */
-export function startSteeringLoop(options: SteeringOptions = {}) {
-  const intervalMs = options.pollIntervalMs ||
-    (parseInt(process.env.CRAWLER_REPORTS_POLL_INTERVAL_MINUTES || "5", 10) * 60 * 1000);
-  const targetDb = options.db || db;
-
-  logger.info(`[Steering] Initializing autonomous steering loop (Interval: ${intervalMs / 1000}s)...`);
-
-  const runTick = async () => {
-    if (isProcessing) return;
-    isProcessing = true;
-    try {
-      await pullReportsFromDirectory(options.reportsDir, targetDb);
-      await processPendingReports(targetDb);
-    } catch (err) {
-      logger.error("[Steering] Error in steering loop cycle:", err);
-    } finally {
-      isProcessing = false;
-    }
-  };
-
-  // Run immediately, then schedule
-  runTick();
-  steeringTimer = setInterval(runTick, intervalMs);
-}
-
-export function stopSteeringLoop() {
-  if (steeringTimer) {
-    clearInterval(steeringTimer);
-    steeringTimer = null;
-    logger.info("[Steering] Steering loop stopped.");
-  }
-}
-
-if (import.meta.main) {
-  startSteeringLoop();
-}

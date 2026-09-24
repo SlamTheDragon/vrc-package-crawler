@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { CONFIG } from "./config.ts";
 import { logger } from "./logger.ts";
+import { cleanTitle, cleanAuthorName, cleanDescription } from "./utils/sanitizer.ts";
 
 export type PlatformType = "booth" | "github" | "vpm" | "gumroad" | "jinxxy" | "itch";
 
@@ -80,11 +81,6 @@ export interface CanonicalPackage {
   platforms_json: string;
   url: string;
   vcc_url?: string | null;
-  github_url?: string | null;
-  booth_url?: string | null;
-  gumroad_url?: string | null;
-  jinxxy_url?: string | null;
-  itch_url?: string | null;
   price_currency: string;
   price_amount: number;
   is_vcc: number;
@@ -109,7 +105,6 @@ export interface CuratorOverride {
   id: string;
   canonical_id: string;
   name_override?: string | null;
-  title_override?: string | null;
   url_override?: string | null;
   description_override?: string | null;
   category_override?: string | null;
@@ -183,8 +178,6 @@ export interface CreatorOptOut {
 export interface MediaCacheRecord {
   id: string;
   source_url: string;
-  webp_data?: Buffer | Uint8Array | null;
-  webp_size_bytes?: number;
   blurhash?: string | null;
   phash_64?: string | null;
   width?: number;
@@ -193,16 +186,6 @@ export interface MediaCacheRecord {
   etag?: string | null;
   last_processed_at: string;
 }
-
-// Backwards compatibility aliases
-export type FrontierV2Item = FrontierItem;
-export type EntityV2Record = EntityRecord;
-export type CanonicalPackageV2 = CanonicalPackage;
-export type CuratorOverrideV2 = CuratorOverride;
-export type UserReportV2 = UserReport;
-export type SearchPatternV2 = SearchPattern;
-export type PackageFrontV2 = PackageFront;
-export type CreatorOptOutV2 = CreatorOptOut;
 
 export class CrawlerDB {
   private db: Database;
@@ -246,34 +229,6 @@ export class CrawlerDB {
     this.db.run("PRAGMA journal_mode = WAL;");
     this.db.run("PRAGMA synchronous = NORMAL;");
     this.db.run("PRAGMA busy_timeout = 10000;");
-
-    // Seamless automatic table rename from legacy _v2 tables to unified clean names
-    const tableRenames: [string, string][] = [
-      ["frontier_v2", "frontier"],
-      ["entities_v2", "entities"],
-      ["creator_opt_outs_v2", "creator_opt_outs"],
-      ["canonical_packages_v2", "canonical_packages"],
-      ["package_fronts_v2", "package_fronts"],
-      ["media_cache_v2", "media_cache"],
-      ["curator_overrides_v2", "curator_overrides"],
-      ["user_reports_v2", "user_reports"],
-      ["search_patterns_v2", "search_patterns"],
-    ];
-
-    for (const [oldName, newName] of tableRenames) {
-      try {
-        const hasOld = this.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name=?;").get(oldName);
-        const hasNew = this.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name=?;").get(newName);
-        if (hasOld && !hasNew) {
-          logger.info(`[DB] Upgrading legacy table '${oldName}' -> '${newName}'...`);
-          this.db.run(`ALTER TABLE ${oldName} RENAME TO ${newName};`);
-        } else if (hasOld && hasNew) {
-          this.db.run(`DROP TABLE IF EXISTS ${oldName};`);
-        }
-      } catch (err) {
-        logger.warn(`[DB] Notice during table rename ${oldName} -> ${newName}:`, err);
-      }
-    }
 
     // 1. Frontier with Poisson adaptive change rate & ETag/Last-Modified headers
     this.db.run(`
@@ -353,11 +308,6 @@ export class CrawlerDB {
         platforms_json TEXT NOT NULL,
         url TEXT NOT NULL,
         vcc_url TEXT,
-        github_url TEXT,
-        booth_url TEXT,
-        gumroad_url TEXT,
-        jinxxy_url TEXT,
-        itch_url TEXT,
         price_currency TEXT DEFAULT 'USD',
         price_amount REAL DEFAULT 0,
         is_vcc INTEGER NOT NULL DEFAULT 0,
@@ -365,6 +315,8 @@ export class CrawlerDB {
         dependencies_json TEXT DEFAULT '{}',
         source_ids_json TEXT NOT NULL,
         media_id TEXT,
+        media_urls_json TEXT DEFAULT '[]',
+        youtube_urls_json TEXT DEFAULT '[]',
         origin_created_at TEXT,
         origin_updated_at TEXT,
         created_at_confidence TEXT DEFAULT 'unknown'
@@ -387,13 +339,6 @@ export class CrawlerDB {
     try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN created_at_confidence TEXT DEFAULT 'unknown';"); } catch (_) {}
     try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN lifecycle TEXT DEFAULT 'published';"); } catch (_) {}
     try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN lifecycle_updated_at TEXT;"); } catch (_) {}
-    // Media gallery & video URL arrays (added for storefront image/GIF/YouTube ingestion)
-    try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN media_urls_json TEXT DEFAULT '[]';"); } catch (_) {}
-    try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN youtube_urls_json TEXT DEFAULT '[]';"); } catch (_) {}
-    try { this.db.run("ALTER TABLE package_fronts ADD COLUMN media_urls_json TEXT DEFAULT '[]';"); } catch (_) {}
-    try { this.db.run("ALTER TABLE package_fronts ADD COLUMN youtube_urls_json TEXT DEFAULT '[]';"); } catch (_) {}
-
-
     // 5. Package Fronts (Decoupled store fronts per package)
     this.db.run(`
       CREATE TABLE IF NOT EXISTS package_fronts (
@@ -409,6 +354,8 @@ export class CrawlerDB {
         origin_created_at TEXT,
         origin_updated_at TEXT,
         raw_entity_id TEXT NOT NULL,
+        media_urls_json TEXT DEFAULT '[]',
+        youtube_urls_json TEXT DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -416,13 +363,11 @@ export class CrawlerDB {
     this.db.run("CREATE INDEX IF NOT EXISTS idx_fronts_canonical_id ON package_fronts(canonical_id);");
     this.db.run("CREATE INDEX IF NOT EXISTS idx_fronts_platform ON package_fronts(platform);");
 
-    // 6. Media Cache (Independent table for WebP thumbnails, BlurHash, and 64-bit pHash)
+    // 6. Media Cache (Pure origin metadata: BlurHash, 64-bit pHash, zero local BLOB storage)
     this.db.run(`
       CREATE TABLE IF NOT EXISTS media_cache (
         id TEXT PRIMARY KEY,
         source_url TEXT NOT NULL UNIQUE,
-        webp_data BLOB,
-        webp_size_bytes INTEGER,
         blurhash TEXT,
         phash_64 TEXT,
         width INTEGER,
@@ -454,7 +399,6 @@ export class CrawlerDB {
         id TEXT PRIMARY KEY,
         canonical_id TEXT NOT NULL UNIQUE,
         name_override TEXT,
-        title_override TEXT,
         url_override TEXT,
         description_override TEXT,
         category_override TEXT,
@@ -845,6 +789,10 @@ export class CrawlerDB {
       } catch (_) {}
     }
 
+    const cleanT = cleanTitle(record.title);
+    const cleanA = cleanAuthorName(record.author);
+    const cleanD = cleanDescription(record.description || "");
+
     try {
       const stmt = this.db.prepare(`
         INSERT OR REPLACE INTO entities (
@@ -861,11 +809,11 @@ export class CrawlerDB {
         record.id,
         record.platform,
         record.url,
-        record.title,
-        record.author,
+        cleanT,
+        cleanA,
         record.price_currency || null,
         record.price_amount || null,
-        record.description || "",
+        cleanD,
         record.tags_json || "[]",
         record.external_links_json || "[]",
         record.raw_json || "{}",
@@ -903,6 +851,10 @@ export class CrawlerDB {
   ): boolean {
     if (this._isClosed) return false;
     const now = new Date().toISOString();
+    const cleanT = cleanTitle(title);
+    const cleanA = cleanAuthorName(author);
+    const cleanD = cleanDescription(details?.description || "");
+
     try {
       const reasonsJson = JSON.stringify(reasons);
       const stmt = this.db.prepare(`
@@ -924,11 +876,11 @@ export class CrawlerDB {
         id,
         platform,
         url,
-        title,
-        author,
+        cleanT,
+        cleanA,
         details?.price_currency || null,
         details?.price_amount || null,
-        details?.description || "",
+        cleanD,
         details?.tags_json || "[]",
         details?.external_links_json || "[]",
         details?.raw_json || "{}",
@@ -1100,7 +1052,6 @@ export class CrawlerDB {
   public upsertCuratorOverride(override: {
     canonicalId: string;
     nameOverride?: string | null;
-    titleOverride?: string | null;
     urlOverride?: string | null;
     descriptionOverride?: string | null;
     categoryOverride?: string | null;
@@ -1118,13 +1069,12 @@ export class CrawlerDB {
     try {
       this.db.run(`
         INSERT INTO curator_overrides (
-          id, canonical_id, name_override, title_override, url_override,
+          id, canonical_id, name_override, url_override,
           description_override, category_override, subcategory_override,
           added_tags_json, removed_tags_json, reason, reporter_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(canonical_id) DO UPDATE SET
           name_override = COALESCE(excluded.name_override, curator_overrides.name_override),
-          title_override = COALESCE(excluded.title_override, curator_overrides.title_override),
           url_override = COALESCE(excluded.url_override, curator_overrides.url_override),
           description_override = COALESCE(excluded.description_override, curator_overrides.description_override),
           category_override = COALESCE(excluded.category_override, curator_overrides.category_override),
@@ -1135,7 +1085,7 @@ export class CrawlerDB {
           reporter_id = COALESCE(excluded.reporter_id, curator_overrides.reporter_id),
           updated_at = excluded.updated_at;
       `, [
-        id, override.canonicalId, override.nameOverride || null, override.titleOverride || null,
+        id, override.canonicalId, override.nameOverride || null,
         override.urlOverride || null, override.descriptionOverride || null,
         override.categoryOverride || null, override.subcategoryOverride || null,
         addedTagsJson, removedTagsJson, override.reason || null, override.reporterId || null,
@@ -1295,6 +1245,4 @@ export class CrawlerDB {
 }
 
 export const db = new CrawlerDB();
-export const dbV2 = db;
-export const CrawlerDBV2 = CrawlerDB;
 export default db;

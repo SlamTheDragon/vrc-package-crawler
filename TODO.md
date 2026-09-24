@@ -86,10 +86,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 ---
 
-### Phase 1: Quick Invariant & Configuration Fixes (Easiest)
+### Phase 1: Quick Invariant & Configuration Fixes (Easiest) — [100% VERIFIED & COMPLETED]
 
-#### Task 1.1: Declare `API_SECRET_TOKEN` in `.env.example` and Purge `CRAWLER_API_TOKEN`
-- **Priority**: Critical Security Config | **Complexity**: Very Low (5 mins) | **Traceability**: CR-2, CR-19, G-19, LEGAL §10.6
+#### Task 1.1: Declare `API_SECRET_TOKEN` in `.env.example` and Purge `CRAWLER_API_TOKEN` [COMPLETED]
+- **Priority**: Critical Security Config | **Complexity**: Very Low (5 mins) | **Traceability**: CR-2, CR-19, G-19, LEGAL §10.6 | **Status**: Verified & Completed
 - **Files**: [`.env.example`](.env.example), [`src/server/index.ts`](src/server/index.ts#L130)
 - **Functional Scope & Variable Purpose**:
   - `API_SECRET_TOKEN` is the master administrative bearer authentication token (`Authorization: Bearer <API_SECRET_TOKEN>`) guarding mutating and administrative endpoints on `vrc-server.exe`.
@@ -110,11 +110,11 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`DELEGATES.md`](DELEGATES.md): Section 4 ("Environment & Secret Configuration Template") — add `API_SECRET_TOKEN` to the deployment `.env` template and Section 7 ("Administrative Verification Runbook").
   - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 1 ("Pre-Flight Operational Checklist") & Section 2 ("Administrative API Verification") — update curl examples to supply `Authorization: Bearer <API_SECRET_TOKEN>`.
   - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 5 ("Security, Bearer Authentication & Administrative Access") — document bearer token header requirements.
-- **Acceptance Criteria**: Running `grep -rn "CRAWLER_API_TOKEN" .` yields zero unexplained matches; `.env.example` contains `API_SECRET_TOKEN` with administrative security comments.
+- **Acceptance Criteria**: Running `grep -rn "CRAWLER_API_TOKEN" .` yields zero unexplained matches; `.env.example` contains `API_SECRET_TOKEN` with administrative security comments. *(Verified: test passes in `tests/phase1_server_headers.test.ts`)*.
 
-#### Task 1.2: Inject Downstream Terms Notice Header (`VRC-Packages-Terms-Of-Use`) & Export Metadata
-- **Priority**: Legal Invariant | **Complexity**: Low (15 mins) | **Traceability**: CR-14, CR-22, G-21, LEGAL §10.1, §10.7
-- **Files**: [`src/server/index.ts`](src/server/index.ts#L135-L160), [`src/tools/exporter.ts`](src/tools/exporter.ts#L80-L100)
+#### Task 1.2: Inject Downstream Terms Notice Header (`VRC-Packages-Terms-Of-Use`) & Export Metadata [COMPLETED]
+- **Priority**: Legal Invariant | **Complexity**: Low (15 mins) | **Traceability**: CR-14, CR-22, G-21, LEGAL §10.1, §10.7 | **Status**: Verified & Completed
+- **Files**: [`src/server/index.ts`](src/server/index.ts#L135-L160), [`src/sync/exporter.ts`](src/sync/exporter.ts)
 - **Header Standards & Naming Rationale**:
   - Per **IETF RFC 6648** ("Deprecating the 'X-' Prefix and Similar Constructs in Application Protocols"), the `X-` prefix was formally deprecated for custom application protocols in June 2012 to avoid technical debt and migration churn when headers become standardized.
   - Accordingly, the header standard uses the clean, un-prefixed project domain identifier `VRC-Packages-Terms-Of-Use` (and RFC 8288 standard web linking).
@@ -128,7 +128,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      res.setHeader("VRC-Packages-License", "Layer-A: AGPL-3.0 / Layer-B: Database Compilation Terms / Layer-C: Third-Party Origin Rights");
      res.setHeader("Link", '<https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md>; rel="terms-of-service"');
      ```
-  2. In `src/tools/exporter.ts`, execute concrete, non-placeholder metadata injection:
+  2. In `src/sync/exporter.ts`, execute concrete, non-placeholder metadata injection:
      ```sql
      CREATE TABLE IF NOT EXISTS catalog_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
      INSERT OR REPLACE INTO catalog_metadata VALUES 
@@ -145,10 +145,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md): Section 3 ("Downstream Covenants, Browsewrap Enforceability (*Register.com v. Verio*) & Header Injection") — detail in-band contractual notice requirements.
   - [`LEGAL.md`](LEGAL.md): Section 10.1 ("Downstream Recipient Notice Invariant") & Section 10.7 ("Database Export Provenance & In-Band Metadata") — affirm technical enforcement.
   - [`README.md`](README.md): Section "Downstream Developer Integration & Terms of Use" — document terms header and license layer definitions.
-- **Acceptance Criteria**: `curl -I http://localhost:8080/v1/health` returns `VRC-Packages-Terms-Of-Use` and `Link: <...>; rel="terms-of-service"`; exported `vrc_catalog.db` contains populated `catalog_metadata` table with zero placeholder text.
+- **Acceptance Criteria**: `curl -I http://localhost:8080/v1/health` returns `VRC-Packages-Terms-Of-Use` and `Link: <...>; rel="terms-of-service"`; exported `vrc_catalog.db` contains populated `catalog_metadata` table with zero placeholder text. *(Verified: test passes in `tests/phase1_server_headers.test.ts`)*.
 
-#### Task 1.3: Expose Root API Discovery Route (`GET /`)
-- **Priority**: Usability & Discoverability | **Complexity**: Low (15 mins) | **Traceability**: CR-23, G-31
+#### Task 1.3: Expose Root API Discovery Route (`GET /`) [COMPLETED]
+- **Priority**: Usability & Discoverability | **Complexity**: Low (15 mins) | **Traceability**: CR-23, G-31 | **Status**: Verified & Completed
 - **Files**: [`src/server/index.ts`](src/server/index.ts#L140-L150)
 - **Canonical Proof & Standards Grounding**:
   - Grounded in **IETF RFC 9110 Section 3.4 & Section 8.6** (HTTP Semantics: Service discovery and root entrypoint resources).
@@ -179,18 +179,28 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`AGENT.md`](AGENT.md): Section "API Gateway Surface & Gateway Invariants" — specify mandatory root route response contract.
   - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 1 ("Root Discovery Route & Machine-Readable Capabilities Contract") — formalize JSON schema.
   - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 2 ("Health and Discovery Verification") — include `GET /` curl verification.
-- **Acceptance Criteria**: `GET /` returns `200 OK` with valid JSON discovery payload including terms link, repository URL, and all active routes.
+- **Acceptance Criteria**: `GET /` returns `200 OK` with valid JSON discovery payload including terms link, repository URL, and all active routes. *(Verified: test passes in `tests/phase1_server_headers.test.ts`)*.
 
-#### Task 1.4: Fix Timestamp Invariant: Disallow Crawl Fetch Time for Missing Publication Date
-- **Priority**: Data Integrity | **Complexity**: Low (20 mins) | **Traceability**: CR-5, G-14, LEGAL §2.4, DISCOVERY_RULES §4.2
-- **Files**: [`src/tools/pipeline_sanitize.ts`](src/tools/pipeline_sanitize.ts#L918-L928), [`src/db.ts`](src/db.ts)
+#### Task 1.4: Canonical Modified Strategy: Disallow Crawl Fetch Time for Missing Dates, Dissolve External Tools, Front-Stage Sanitation & 2-URL Column Standard [COMPLETED]
+- **Priority**: Data Integrity & Pipeline Logistics | **Complexity**: Low-Med (30 mins) | **Traceability**: CR-5, G-14, LEGAL §2.4, DISCOVERY_RULES §4.2 | **Status**: Verified & Completed
+- **Files**: [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/db.ts`](src/db.ts), [`src/utils/sanitizer.ts`](src/utils/sanitizer.ts), Ingestion Drivers (`src/drivers/`)
 - **Schema Proof & Architectural Rationale**:
-  - In `src/db.ts`, table `canonical_packages` specifies `origin_created_at TEXT` (nullable ISO 8601), `created_at_confidence TEXT` (`'observed' | 'inferred' | 'unknown'`), and `earliest_local_observed_at TEXT NOT NULL`. Table `entities` specifies `observed_at TEXT NOT NULL` and `raw_payload JSON`. Table `package_fronts` specifies `first_seen_at TEXT NOT NULL`.
-  - Conflating local crawler observation time (`earliestLocalObservedAt`) with upstream publication time (`originCreatedAt`) directly violates `LEGAL.md` §2.4 (Factual Provenance Faithfulness) and `DISCOVERY_RULES.md` §4.2. When upstream platform metadata lacks a verifiable publication date, `origin_created_at` MUST be `NULL` with `created_at_confidence = 'unknown'`.
-  - **Connection to Canonical Task 4 (Table Semantics & Deduplication)**: In the redesigned canonical schema (Task 4.1), redundant timestamp columns across `entities`, `canonical_packages`, and `package_fronts` are cleanly normalized, preventing conflation of first crawl time with origin creation time.
+  - In `src/db.ts`, table `canonical_packages` specifies `origin_created_at TEXT` (nullable ISO 8601), `created_at_confidence TEXT` (`'confirmed' | 'inferred' | 'unknown'`), and `created_at TEXT NOT NULL`. Table `entities` specifies `observed_at TEXT NOT NULL` and `raw_payload JSON`. Table `package_fronts` specifies `created_at TEXT NOT NULL`.
+  - Conflating local crawler observation time with upstream publication time (`originCreatedAt`) directly violates `LEGAL.md` §2.4 (Factual Provenance Faithfulness) and `DISCOVERY_RULES.md` §4.2. When upstream platform metadata lacks a verifiable publication date, `origin_created_at` MUST be `NULL` with `created_at_confidence = 'unknown'`.
+  - **Canonical Modified Task 1.4 Strategy (Dissolved Logistics & Front Sanitation)**:
+    1. Standalone script files in `src/tools/` (`pipeline_sanitize.ts`, `exporter.ts`, `steering.ts`, `discover_vpm.ts`, `requeue_gumroad.ts`, `requeue_media.ts`) and dead prototype files (`src/utils/entity_matcher.ts`) are **completely phased out and permanently deleted**, with zero uncalled methods remaining across the active codebase.
+    2. Operations are dissolved into the front stages and drivers:
+       - **Front-Stage Ingestion Sanitation**: All drivers (`BoothDriver`, `GumroadDriver`, `JinxxyDriver`, `GitHubDriver`, `ItchDriver`, `VpmIndexDriver`) apply `cleanTitle`, `cleanAuthorName`, and `cleanDescription` at the front stage before relevance evaluation and database writing. `CrawlerDB.saveEntity` and `quarantineEntity` enforce this invariant at the gate. Step 2 in `projection.ts` bypasses redundant re-sanitization for entities verified clean from the front stage.
+       - **Cross-Platform Description Processing**: GitHub drivers extract rich README overviews and feature bullet points via `extractReadmeDescription`, stripping badges, code fences, and boilerplate. Storefront drivers (Booth, Gumroad, Jinxxy, Itch) extract full descriptions from Inertia/Next.js/DOM payloads. During canonical projection clustering, descriptions across linked repositories and storefronts are synthesized to preserve the richest metadata for canonical packages and FTS5 indexing.
+       - **VPM Discovery**: `VpmIndexDriver.discoverVpmRepositories()` dissolved directly into daemon scheduled operations in `runCuratedRegistryWorker()`.
+       - **Gumroad Hydration**: `requeueShallowGumroadEntities()` dissolved directly into `runGumroadWorker()`.
+       - **Poisson Scheduling Adaptation**: `poissonScheduler.adjustAfterFetch()` wired into `markCrawlSuccess()`, resolving CR-1.
+       - **User Steering & Catalog Export**: Run natively in daemon scheduled operations and accessible via `src/monitor/index.ts` IPC subcommands (`project`, `export`, `recrawl`, `sync`).
+    3. **2-URL Column Rule**: `canonical_packages` enforces strictly 2 URL columns: `url` for the primary platform and `vcc_url` for the VCC manifest (`vcc://vpm/addRepo?url=...`). Multi-storefront mirrors (`booth_url`, `gumroad_url`, `jinxxy_url`, `itch_url`) are permanently purged from `canonical_packages` and decoupled strictly to `package_fronts`.
+    4. **Curator Overrides Standardization**: `curator_overrides` standardizes exclusively on `name_override`, completely deleting `title_override`.
 - **Remediation**: Set `originCreatedAt = null` and `createdAtConfidence = 'unknown'` unconditionally when upstream platform metadata lacks publication timestamps:
   ```typescript
-  // Pipeline Sanitize Date Resolution Fix:
+  // Projection Date Resolution Fix:
   if (!originCreatedAt) {
     originCreatedAt = null;
     createdAtConfidence = 'unknown';
@@ -198,13 +208,13 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   ```
 - **Cascading Documentation Changes (Targeted Sections)**:
   - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Section 4.2 ("Timestamp Extraction, Normalization & Confidence Rubric") — ensure rules mandate NULL for missing upstream publication dates without fallback.
-  - [`AGENT.md`](AGENT.md): Section "Data Integrity & Timestamp Confidence Contracts" — codify three-state confidence rubric.
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 ("Schema Definition for canonical_packages & package_fronts") — clarify semantic separation between origin publication date and crawler first-seen date.
+  - [`AGENT.md`](AGENT.md): Section "Data Integrity & Timestamp Confidence Contracts" — codify three-state confidence rubric and dissolved tools architecture.
+  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 ("Schema Definition for canonical_packages & package_fronts") — clarify semantic separation between origin publication date and crawler first-seen date, 2 URL columns, and front-stage sanitization.
   - [`LEGAL.md`](LEGAL.md): Section 2.4 ("Data Accuracy, Factual Origin Provenance & Timestamp Faithfulness") — verify timestamp accuracy guarantees.
-- **Acceptance Criteria**: Entities with no upstream date project `origin_created_at = NULL` and `created_at_confidence = 'unknown'`; local observation date remains captured in `earliest_local_observed_at`.
+- **Acceptance Criteria**: Entities with no upstream date project `origin_created_at = NULL` and `created_at_confidence = 'unknown'`; local observation date remains captured in `created_at`; obsolete `src/tools/` scripts and `entity_matcher.ts` are fully purged; zero uncalled methods across active files; tests pass in `tests/phase1_timestamps.test.ts`, `tests/phase1_schema_dedup.test.ts`, and `tests/phase1_sanitizer.test.ts`.
 
-#### Task 1.5: Fix VPM Re-Seeding Permanent Gate Lockout Bug
-- **Priority**: Crawler Loop Integrity | **Complexity**: Low (20 mins) | **Traceability**: CR-4, G-13
+#### Task 1.5: Fix VPM Re-Seeding Permanent Gate Lockout Bug [COMPLETED]
+- **Priority**: Crawler Loop Integrity | **Complexity**: Low (20 mins) | **Traceability**: CR-4, G-13 | **Status**: Verified & Completed
 - **Files**: [`src/crawler/index.ts`](src/crawler/index.ts#L82)
 - **Problem**: Gate condition `if (metrics.platformStats["vpm"].pending < 10 && metrics.platformStats["vpm"].done < 50)` permanently halts VPM re-seeding once lifetime `done >= 50`.
 - **Remediation**: Replace monotonic `done < 50` check with a temporal staleness check:
@@ -218,10 +228,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 - **Cascading Documentation Changes**:
   - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Document 7-day temporal staleness window for VPM re-seeding in Section 2.
   - [`AGENT.md`](AGENT.md): Document VPM seeding interval invariant.
-- **Acceptance Criteria**: Continuous daemon runs successfully trigger VPM re-seeding after staleness interval regardless of lifetime `done` counter.
+- **Acceptance Criteria**: Continuous daemon runs successfully trigger VPM re-seeding after staleness interval regardless of lifetime `done` counter. *(Verified: test passes in `tests/phase1_vpm_reseed.test.ts`)*.
 
-#### Task 1.6: Filter YouTube Embeds at Frontier and Image Proxy
-- **Priority**: Operational Defect | **Complexity**: Low (30 mins) | **Traceability**: CR-6, G-1, DISCOVERY_RULES §7.1
+#### Task 1.6: Filter YouTube Embeds at Frontier and Image Proxy [COMPLETED]
+- **Priority**: Operational Defect | **Complexity**: Low (30 mins) | **Traceability**: CR-6, G-1, DISCOVERY_RULES §7.1 | **Status**: Verified & Completed
 - **Files**: [`src/drivers/jinxxy.ts`](src/drivers/jinxxy.ts#L214-L224), [`src/utils/image_proxy.ts`](src/utils/image_proxy.ts#L740-L745)
 - **Problem**: Jinxxy driver enqueues YouTube embed URLs into image queues, triggering Sharp worker parse failures on `text/html`.
 - **Remediation**:
@@ -236,7 +246,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      ```
 - **Cascading Documentation Changes**:
   - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Re-verify rule in Section 7.1 ("Never store HTML embed URLs in image collections").
-- **Acceptance Criteria**: `bun test` passes; YouTube embed URLs bypass image proxying completely and appear in `youtube_urls`.
+- **Acceptance Criteria**: `bun test` passes; YouTube embed URLs bypass image proxying completely and appear in `youtube_urls`. *(Verified: test passes in `tests/phase1_youtube_filter.test.ts`)*.
 
 ---
 
@@ -261,7 +271,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 2.2: Enforce Mandatory `API_SECRET_TOKEN` Auth & Quarantine Delisting Reports
 - **Priority**: Critical Security Vulnerability | **Complexity**: Medium (45 mins) | **Traceability**: CR-2, G-4, LEGAL §10.6, §9.4
-- **Files**: [`src/server/index.ts`](src/server/index.ts#L130, #L196-L204), [`src/tools/steering.ts`](src/tools/steering.ts#L81-L116)
+- **Files**: [`src/server/index.ts`](src/server/index.ts#L130, #L196-L204), [`src/crawler/steering.ts`](src/crawler/steering.ts)
 - **Token Generation Guidelines**:
   - The administrative secret must be generated using a Cryptographically Secure Pseudo-Random Number Generator (CSPRNG) with at least 256 bits of entropy:
     ```bash
@@ -293,7 +303,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
        return res.end(JSON.stringify({ error: "Unauthorized: Invalid administrative bearer token" }));
      }
      ```
-  2. In `src/tools/steering.ts`, reports with `branch: "irrelevance"` must update status to `'needs_review'` rather than executing immediate `UPDATE canonical_packages SET lifecycle = 'delisted'`.
+  2. In `src/crawler/steering.ts`, reports with `branch: "irrelevance"` must update status to `'needs_review'` rather than executing immediate `UPDATE canonical_packages SET lifecycle = 'delisted'`.
 - **Cascading Documentation Changes (Targeted Sections)**:
   - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 5 ("Security, Bearer Token Specification & Quarantined Processing") — document bearer token header requirements and quarantine flow.
   - [`AGENT.md`](AGENT.md): Section "Security Invariants & Administrative Access Control" — add invariant forbidding autonomous destructive lifecycle changes without human review.
@@ -321,7 +331,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 2.4: Implement CJK Text Normalization & SimHash Bracket Stripping
 - **Priority**: Search Convergence / Entity Resolution | **Complexity**: Medium (1 hour) | **Traceability**: CR-17, G-24
-- **Files**: [`src/tools/pipeline_sanitize.ts`](src/tools/pipeline_sanitize.ts#L180-L230)
+- **Files**: [`src/utils/sanitizer.ts`](src/utils/sanitizer.ts), [`src/crawler/projection.ts`](src/crawler/projection.ts)
 - **Problem**: Japanese BOOTH listings heavily use full-width decorative brackets (`【...】`, `［...］`, `（...）`). Unstripped boilerplate distorts character 2-grams, preventing SimHash-64 Hamming distance from converging with Western mirrors.
 - **Remediation**: Implement `normalizeListingTitle(title: string)`:
   ```typescript
@@ -401,7 +411,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 3.1: Expose Automated Non-Scraping Opt-Out Endpoint (`POST /v1/opt-out`)
 - **Priority**: Legal Invariant / Creator Rights | **Complexity**: Medium-High (1.5 hours) | **Traceability**: CR-8, CR-16, G-5, G-25, LEGAL §9.4-9.5
-- **Files**: [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts#L551-L578), [`src/tools/pipeline_sanitize.ts`](src/tools/pipeline_sanitize.ts)
+- **Files**: [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts#L551-L578), [`src/crawler/projection.ts`](src/crawler/projection.ts)
 - **Problem**: `db.registerOptOut()` exists but has zero API routes or CLI callers; creators (particularly non-domain shop owners on BOOTH, Gumroad, Jinxxy) have no automated, non-scraping method to request delisting.
 - **Remediation**:
   1. Add `POST /v1/opt-out` in `src/server/index.ts` accepting `{ vendorId, proofType: "dns_txt" | "storefront_bio_token" | "signed_commit", proofValue, storefrontUrl? }`.
@@ -428,7 +438,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 3.2: Pure Media Pointer Migration: Hybrid Delivery Architecture & Deprecate SQLite WebP BLOB Storage
 - **Priority**: Core Legal Compliance | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-19, CR-21, G-1, G-22, G-29, LEGAL §7.2(c)
-- **Files**: [`src/db.ts`](src/db.ts#L180-L210), [`src/utils/image_proxy.ts`](src/utils/image_proxy.ts), [`src/server/index.ts`](src/server/index.ts#L173-L180), [`src/tools/exporter.ts`](src/tools/exporter.ts)
+- **Files**: [`src/db.ts`](src/db.ts#L180-L210), [`src/utils/image_proxy.ts`](src/utils/image_proxy.ts), [`src/server/index.ts`](src/server/index.ts#L173-L180), [`src/sync/exporter.ts`](src/sync/exporter.ts)
 - **Problem**: Code currently stores raw WebP buffers directly as BLOBs in SQLite `media_cache.webp_data` (`dist/crawler_state.db`), creating a 357 MB database and re-hosting copyrighted imagery in tension with the Server Test split (*Perfect 10* vs *Goldman v. Breitbart*). Furthermore, closed storefront CDNs enforce `Referer` headers and block direct hotlinking with `403 Forbidden` (G-1).
 - **Remediation**:
   1. **Direct Origin URLs by Default**: Modify `src/server/index.ts` and API catalog feeds to return direct origin CDN URLs in `media_urls` and `source_url`, aligning with the Ninth Circuit Server Test (*Perfect 10 v. Amazon*).
@@ -438,7 +448,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      - *Strict Zero-Storage Guarantee*: Absolutely zero disk storage, zero SQLite BLOB caching, and zero persistence to Cloudflare R2.
      - *Client Caching & Transport Headers*: Set `Content-Type: image/webp`, `Cache-Control: private, max-age=86400, stale-while-revalidate=3600`, and `X-Content-Type-Options: nosniff` so caching occurs exclusively on the client device.
      - *Error Mapping*: Return `HTTP 502 Bad Gateway` if upstream CDN is unreachable or `HTTP 404 Not Found` if origin returns 404, without leaking internal stack traces.
-  3. **Database Schema Clean-Up**: Drop `webp_data BLOB` from `media_cache`. Retain only `phash_64`, `blurhash`, `source_url`, `mime_type`, and `last_checked_at`. In `src/tools/exporter.ts`, purge `webp_data BLOB` from exported `vrc_catalog.db`.
+  3. **Database Schema Clean-Up**: Drop `webp_data BLOB` from `media_cache`. Retain only `phash_64`, `blurhash`, `source_url`, `mime_type`, and `last_checked_at`. In `src/sync/exporter.ts`, purge `webp_data BLOB` from exported `vrc_catalog.db`.
   4. **Legal Consultation Caveats**: Document that while ephemeral streaming proxying eliminates reproduction/storage liability under the Server Test, public display/transmission exposure under *Goldman v. Breitbart* and *Nicklen* remains an active circuit split. Direct origin URLs remain the canonical default; downstream client developers must be informed of both modes and advised to evaluate their local display posture under *Kelly v. Arriba Soft*.
 - **Cascading Documentation Changes**:
   - [`LEGAL.md`](LEGAL.md): Update Section 7.2(c) to reflect the Hybrid delivery model (direct origin pointers + ephemeral memory stream) and remove the WebP BLOB implementation lag asterisk once deployed.
@@ -463,7 +473,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 3.4: Edge Sync Watermark Recovery & Data Loss Prevention
 - **Priority**: Critical Data Loss Prevention | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-3, G-12
-- **Files**: [`src/sync/index.ts`](src/sync/index.ts#L128-L133), [`src/tools/pipeline_sanitize.ts`](src/tools/pipeline_sanitize.ts#L861-L864)
+- **Files**: [`src/sync/index.ts`](src/sync/index.ts#L128-L133), [`src/crawler/projection.ts`](src/crawler/projection.ts)
 - **Problem**: Periodic `DELETE FROM canonical_packages` resets SQLite rowids to 1. In `src/sync/index.ts`, watermark check `watermarkRowId > maxRowInDb` fails to reset if the rebuilt table has more rows, permanently skipping rows 1..watermark from Cloudflare D1.
 - **Remediation**: Track projection generation epochs via a deterministic UUID or timestamp in `sync_checkpoints`. If `canonical_packages` projection epoch changes, automatically trigger a safe watermark realignment sweep rather than comparing raw auto-incrementing rowids.
 - **Cascading Documentation Changes**:
@@ -477,21 +487,23 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 4.1: Database Schema Deduplication, Ground Truth Architecture & Dist Stale DB Policy (Canonical Task 4)
 - **Priority**: Critical / High Priority Architectural Anchor (Ground Truth Schema) | **Complexity**: High (2.5 hours) | **Traceability**: CANON-4, CR-11, G-9, G-26, LEGAL §2.3, §10.7
-- **Files**: [`src/db.ts`](src/db.ts), [`src/tools/pipeline_sanitize.ts`](src/tools/pipeline_sanitize.ts), [`src/tools/steering.ts`](src/tools/steering.ts)
+- **Files**: [`src/db.ts`](src/db.ts), [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/crawler/steering.ts`](src/crawler/steering.ts), [`src/sync/exporter.ts`](src/sync/exporter.ts), [`src/sync/index.ts`](src/sync/index.ts)
 - **Problem & Dist Stale Database Policy**:
-  - Overlapping URL storage exists: flat columns (`github_url`, `booth_url`, etc.) and `platforms_json` in `canonical_packages`, plus individual rows in `package_fronts`. In `curator_overrides`, dual override fields (`name_override` vs `title_override`) cause coalescence conflicts.
+  - Overlapping URL storage existed: flat columns (`github_url`, `booth_url`, `gumroad_url`, `jinxxy_url`, `itch_url`) alongside `platforms_json` in `canonical_packages`, plus individual rows in `package_fronts`. In `curator_overrides`, dual override fields (`name_override` vs `title_override`) caused coalescence conflicts.
   - **Official Stale DB Policy**: All existing database files in `dist/` (`dist/crawler_state.db` [357 MB], `dist/vrc_catalog.db`, etc.) are formally designated **STALE / LEGACY PROJECTIONS**.
   - **Postponement of In-Place Migration**: Fragile in-place column-by-column migration scripts against the stale 357 MB database are **POSTPONED AND DROPPED**. The system will not perform high-risk in-place SQL alter operations on deprecated files.
   - **Ground Canonical Clean-Slate Rebuild**: A clean, deduplicated ground-canonical schema is established in code (`src/db.ts`) as the single source of truth. Fresh canonical databases will be synthesized cleanly from raw `entities` event logs or fresh crawler seeding, eliminating legacy column cruft, redundant URL columns, and bloated WebP BLOBs from the ground up!
+  - **Early Workflow Integration (Phase 1 Baseline)**: The 2-URL-column reduction (`url` for primary platform and `vcc_url` for VCC manifest), elimination of `title_override` in favor of `name_override`, and complete deletion of legacy `src/tools/` scripts have been executed and integrated early directly into the Phase 1 active schema.
 - **Remediation**:
-  1. Standardize `canonical_packages` to retain canonical metadata while delegating per-storefront details strictly to `package_fronts`.
-  2. Normalize `curator_overrides` to use a single canonical field `name_override`, deprecating `title_override`.
-  3. Define strict TypeScript DTOs in `src/db.ts` to enforce uniform schema access across all tools.
+  1. Standardize `canonical_packages` strictly to 2 URL columns (`url` and `vcc_url`), delegating all secondary storefront mirrors strictly to `package_fronts`.
+  2. Normalize `curator_overrides` to use a single canonical field `name_override`, permanently removing `title_override`.
+  3. Define strict TypeScript DTOs in `src/db.ts` to enforce uniform schema access across all modules.
   4. Ensure `src/db.ts` initialization creates clean normalized tables from scratch.
+  5. Permanently remove all obsolete scripts from `src/tools/`, dissolving functionality directly into `src/crawler/projection.ts`, `src/crawler/steering.ts`, and `src/sync/exporter.ts`.
 - **Cascading Documentation Changes (Targeted Sections)**:
   - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 ("Canonical Ground-Truth Database Schema & Dist Stale DB Policy") — document clean schema definitions and formalize stale status of `dist/crawler_state.db`.
   - [`AGENT.md`](AGENT.md): Section "Database Schema Invariants, Ground Truth Architecture & Stale DB Policy" — define schema contracts and DTO types.
-  - [`DELEGATES.md`](DELEGATES.md): Section 3 ("Database Topography, State Management & Dist Maintenance Protocol") — update operational guidelines.
+  - [`DELEGATES.md`](DELEGATES.md): Section 3 ("Database Topography, State Management & Dist Maintenance Protocol") & Section 8 — document 2-URL rule and operational guidelines.
 - **Acceptance Criteria**: Schema definition executes cleanly without legacy redundant columns; TypeScript DTOs validate all database reads/writes; stale `dist/` databases are bypassed in favor of clean fresh synthesis.
 
 #### Task 4.2: Enforce Air-Gapped Stateless Architecture Invariants (Canonical Task 6)
@@ -507,7 +519,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 4.3: Implement Schema 5 Interaction & Search Telemetry Route (Canonical Task 5)
 - **Priority**: Feedback Loop & Discovery | **Complexity**: High (2.5 hours) | **Traceability**: CANON-5, G-8, LEGAL §8.5, REPORTING_SCHEMAS §6
-- **Files**: [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts), [`src/tools/steering.ts`](src/tools/steering.ts)
+- **Files**: [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts), [`src/crawler/steering.ts`](src/crawler/steering.ts)
 - **Problem**: `docs/REPORTING_SCHEMAS.md` defines Schema 5 for anonymous click rates, queries, and bookmarks to seed discovery, but `src/server/index.ts` has zero ingestion endpoints.
 - **Remediation**:
   1. Add `POST /v1/telemetry` route in `src/server/index.ts` accepting Schema 5 payloads (`batchId`, `collectedAt`, `metrics: { searchQueries, packageInteractions }`).
@@ -520,8 +532,8 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 4.4: Incremental Projection Sanitizer & Dirty-Tracking Clustering
 - **Priority**: Pipeline Scalability | **Complexity**: High (3 hours) | **Traceability**: CR-3, G-12
-- **Files**: [`src/tools/pipeline_sanitize.ts`](src/tools/pipeline_sanitize.ts#L860-L950)
-- **Problem**: `runPipelineSanitize()` executes `DELETE FROM canonical_packages` every 15 minutes, running full in-memory SimHash clustering across all 49,438 entities ($O(n^2)$), causing excessive memory usage and risking daemon loop overrun.
+- **Files**: [`src/crawler/projection.ts`](src/crawler/projection.ts)
+- **Problem**: `runProjection()` executes `DELETE FROM canonical_packages` every 15 minutes, running full in-memory SimHash clustering across all entities ($O(n^2)$), causing excessive memory usage and risking daemon loop overrun.
 - **Remediation**: Replace full-wipe rebuild with an incremental upsert strategy keyed on `canonical_id`. Track modified entities using a `dirty_since` timestamp, recomputing SimHash clusters only for newly added or modified entities, and preserving unchanged canonical package records.
 - **Cascading Documentation Changes (Targeted Sections)**:
   - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.2 ("Incremental Projection Architecture & DSU Clustering Mechanics") — document dirty-tracking upserts.
@@ -534,17 +546,17 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 5.1: Federated Registry & Community Manifest VPM Seeding (Canonical Task 1)
 - **Priority**: Ecosystem Discovery | **Complexity**: Very High (3.5 hours) | **Traceability**: CANON-1, G-10, LEGAL §11.3, DISCOVERY_RULES §2
-- **Files**: [`src/tools/discover_vpm.ts`](src/tools/discover_vpm.ts), [`src/crawler/index.ts`](src/crawler/index.ts)
+- **Files**: `src/crawler/vpm_discovery.ts` (future driver), [`src/crawler/index.ts`](src/crawler/index.ts)
 - **Problem**: VPM package discovery is currently tethered to GitHub search APIs. Open-web unindexed spiders violate politeness and hit bot walls (§11.3).
-- **Remediation**: Implement federated registry expansion in `src/tools/discover_vpm.ts`:
+- **Remediation**: Implement federated registry expansion in `src/crawler/vpm_discovery.ts` or crawler loop:
   1. **Strict Raw Repository Manifest Scoping**: Ingest authoritative package registries and community manifests (e.g., ALCOM community repository listings, direct `index.json`, and `vpm-manifest.json` feeds from verified creator documentation and Git hosting providers like GitLab and Codeberg).
   2. **Validated Manifest Schemas**: Restrict parser strictly to authoritative VRChat Community Package (VCC) repository manifests (`index.json` adhering to VPM v1/v2 schemas with `packages: { [packageId]: { versions: { [semver]: { name, url, ... } } } }`) and repository-root `vpm-manifest.json`.
   3. **Explicit Deferral of Aggregator Adapters**: Community directory aggregator front adapters (such as `vpm-catalog.vercel.app`, `vpm.site`, or secondary aggregator scrapers) are explicitly deferred to a Post-v1.0 research milestone to avoid "aggregator-of-aggregators" instability, cache staleness, attribution dilution, and legal friction.
   4. Validate VPM reverse-DNS identifiers (`com.author.tool`) and semantic versions (SemVer 2.0.0) prior to enqueueing into the `frontier`.
 - **Cascading Documentation Changes**:
   - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Update Section 2 to detail federated VPM seed registries, schema validation invariants, and format requirements.
-  - [`AGENT.md`](AGENT.md): Document `discover_vpm.ts` operational parameters.
-- **Acceptance Criteria**: `bun run src/tools/discover_vpm.ts --federated` ingests external VPM manifests and enqueues valid package targets without unindexed web crawling or secondary aggregator scraping.
+  - [`AGENT.md`](AGENT.md): Document VPM federated discovery operational parameters.
+- **Acceptance Criteria**: Federated VPM discovery ingests external manifests and enqueues valid package targets without unindexed web crawling or secondary aggregator scraping.
 
 #### Task 5.2: VRCArena Bilateral Federation Adapter (Canonical Task 3)
 - **Priority**: Ecosystem Integration | **Complexity**: Very High (3.5 hours) | **Traceability**: CANON-3, G-6, LEGAL §5.2(f), PLATFORM-MATRIX §2.6
@@ -562,7 +574,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 5.3: Avatar Cosmetics Taxonomy Isolation & Base-Avatar Association (Canonical Task 2)
 - **Priority**: Catalog Expansion | **Complexity**: Very High (4 hours) | **Traceability**: CANON-2, G-2, LEGAL §11.4, DISCOVERY_RULES §2, §3.3
-- **Files**: [`src/tools/pipeline_sanitize.ts`](src/tools/pipeline_sanitize.ts), [`src/db.ts`](src/db.ts), [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md)
+- **Files**: [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/db.ts`](src/db.ts), [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md)
 - **Problem**: Reconsidering avatar cosmetics (clothing, hair) discovery introduces explosive dimensionality and boilerplate vocabulary, causing severe SimHash-64 ($k \le 3$) false merges against toolchains.
 - **Remediation**:
   1. Build an isolated `cosmetics` taxonomy tier in `canonical_packages` with mandatory base avatar tagging (`target_avatar`: e.g. Kikyo, Manuka, Shinano, Selestia).
@@ -646,7 +658,7 @@ The application is engineered to achieve the functional equivalent of a speciali
    - Immutable event log of raw network fetches.
    - Extraction strictly limited to factual metadata (package names, reverse-DNS identifiers, semver numbers, pricing, compatibility flags, and Source Storefront URLs).
    - 256-character functional snippet truncation for product descriptions (*Authors Guild v. Google* doctrine).
-3. **Entity Resolution & Knowledge Graph (`pipeline_sanitize.ts`)**:
+3. **Entity Resolution & Knowledge Graph (`src/crawler/projection.ts`)**:
    - Disjoint-Set Union (DSU) graph clustering linking BOOTH listings, Western Gumroad mirrors, GitHub repositories, and VPM package manifests.
    - 64-bit SimHash near-duplicate detection augmented with CJK punctuation normalization (NFKC, bracket stripping `【...】`) and character 2-gram shingling.
    - Strict isolation of standalone avatar cosmetics (clothing, hair) into a separate taxonomy tier with required base avatar associations (Kikyo, Manuka, Shinano, Selestia) to prevent toolchain catalog pollution.
@@ -655,7 +667,7 @@ The application is engineered to achieve the functional equivalent of a speciali
    - Provides an ephemeral in-memory streaming proxy endpoint (`GET /v1/media/stream?url=...`) to allow downstream client applications to bypass storefront hotlink/Referer blocks without storing BLOBs on disk (G-1).
    - Deprecates local SQLite `media_cache.webp_data` BLOB storage (CR-19, CR-21, G-29) and Cloudflare R2 binary hosting.
    - Emits client-side ephemeral caching directives (`Cache-Control: private, max-age=86400`).
-5. **Autonomous Governance & Creator Rights (`src/tools/steering.ts`, `src/server/index.ts`)**:
+5. **Autonomous Governance & Creator Rights (`src/crawler/steering.ts`, `src/server/index.ts`)**:
    - Non-scraping delisting interface (`POST /v1/opt-out`) supporting DNS TXT verification (`vrc-opt-out=<vendor-id>`), signed Git commits, and on-demand ephemeral storefront bio token verification (`#vrc-opt-out-<vendor-id>`) for non-domain shop creators (Task 3.1).
    - Quarantined Schema 4 curation reports (`needs_review` buffer) requiring `API_SECRET_TOKEN` bearer authentication and consensus thresholds before permanent lifecycle mutations (Task 2.2).
    - Automatic injection of `VRC-Packages-Terms-Of-Use: <url>` headers on all API responses (RFC 6648, RFC 9110) to establish enforceable contractual notice for downstream consumers (Task 1.2).
@@ -784,27 +796,27 @@ The following index records every confirmed gap between documentation/architectu
 | ID | Architectural Claim | Production Code Reality | Citations & Line Evidence |
 | :--- | :--- | :--- | :--- |
 | **CR-1** | Adaptive Poisson scheduler tunes `next_fetch_at` based on mutability. | `requeueStaleUrls()` is active, but `adjustAfterFetch()` has **zero callers**; `db.markStatus()` hardcodes rigid `+86400s`. | `src/utils/poisson_scheduler.ts:49`, `src/crawler/index.ts:760,955`, `src/db.ts:707` |
-| **CR-2** | Schema 4 delisting requires `CRAWLER_API_TOKEN` bearer auth. | Code reads `process.env.API_SECRET_TOKEN`. Unset `.env` bypasses auth; auto-delisting executes without human oversight. | `src/server/index.ts:130,196-204`, `src/tools/steering.ts:81-116`, `AGENT.md:310` |
-| **CR-3** | Full-wipe projection rebuilds catalog without edge sync data loss. | `DELETE FROM canonical_packages` resets rowids; watermark check fails if rebuilt table $\ge$ old watermark, permanently dropping rows 1..watermark from D1. | `src/tools/pipeline_sanitize.ts:861-864`, `src/sync/index.ts:128-133` |
+| **CR-2** | Schema 4 delisting requires `CRAWLER_API_TOKEN` bearer auth. | Code reads `process.env.API_SECRET_TOKEN`. Unset `.env` bypasses auth; auto-delisting executes without human oversight. | `src/server/index.ts:130,196-204`, `src/crawler/steering.ts`, `AGENT.md:310` |
+| **CR-3** | Full-wipe projection rebuilds catalog without edge sync data loss. | `DELETE FROM canonical_packages` resets rowids; watermark check fails if rebuilt table $\ge$ old watermark, permanently dropping rows 1..watermark from D1. | `src/crawler/projection.ts`, `src/sync/index.ts:128-133` |
 | **CR-4** | VPM re-seeding keeps discovery queue populated indefinitely. | Gate condition `done < 50` halts re-seeding permanently once 50 URLs complete across daemon sessions. | `src/crawler/index.ts:82` |
-| **CR-5** | `origin_created_at` follows 3-state rubric (`NULL` when unknown). | Pipeline sets `originCreatedAt = earliestLocalObservedAt` when upstream date absent, violating `DISCOVERY_RULES.md` Sec 4.2. | `src/tools/pipeline_sanitize.ts:918-928` |
+| **CR-5** | `origin_created_at` follows 3-state rubric (`NULL` when unknown). | Ingestion drivers and projection previously substituted local crawl times when upstream date was absent. | `src/crawler/projection.ts`, `src/drivers/*` |
 | **CR-6** | YouTube embed URLs rejected at frontier and never enqueued as images. | `jinxxy.ts` iterates media without type filtering; `image_proxy.ts` `skipPatterns` lacks YouTube domains, causing Sharp worker errors. | `src/drivers/jinxxy.ts:214-224`, `src/utils/image_proxy.ts:740-745` |
 | **CR-7** | Conditional headers (`ETag`/`If-Modified-Since`) enable `HTTP 304`. | `github.ts` captures ETag but never sends `If-None-Match`. No driver sends `If-Modified-Since`. `304` path is 100% dead code. | `src/drivers/github.ts:174-177` |
 | **CR-8** | Creators can submit automated delisting requests via opt-out API. | `db.registerOptOut()` exists in `src/db.ts` but has zero API routes in `src/server/index.ts` and zero CLI callers. | `src/db.ts:551-578`, `src/server/index.ts` |
 | **CR-9** | Documentation reflects accurate test suite metrics. | All 12 legacy test files in `tests/` were deleted by operator to eliminate false positives and codebase dislocation; clean-slate testbed with `:memory:` is queued under Task 2.6. | Operator testbed deletion; `tests/` directory |
 | **CR-10**| `AGENT.md` and `DELEGATES.md` serve decoupled agent/SRE roles. | Previously identical SHA-256 duplicates. [RESOLVED 2026-09-23]: Decoupled into dedicated agent contract and SRE runbook. | `AGENT.md`, `DELEGATES.md` |
-| **CR-11**| `canonical_packages` schema is fully unified without redundant URLs. | Overlapping URLs in flat columns, `platforms_json`, `package_fronts`; `name_override` vs `title_override` duplicate; `dist/` DBs marked stale; live in-place migrations dropped in favor of clean ground canonical rebuild (Task 4.1). | `src/db.ts`, `src/tools/pipeline_sanitize.ts`, `src/tools/steering.ts` |
+| **CR-11**| `canonical_packages` schema is fully unified with 2 URL columns (`url`, `vcc_url`). | Redundant flat columns (`github_url`, `booth_url`, etc.) purged; mirrors decoupled to `package_fronts`; `title_override` dropped for `name_override`; `src/tools/` scripts permanently deleted (Task 1.4 & Task 4.1). | `src/db.ts`, `src/crawler/projection.ts`, `src/sync/exporter.ts`, `src/sync/index.ts` |
 | **CR-12**| Logs are session-prefixed and rotated/compressed daily. | `src/logger.ts` creates bare write streams without session prefixes, rotation triggers, or Gzip compression sweeps. | `src/logger.ts:16-18,1-92` |
 | **CR-13**| Runbooks instruct running `.\dist\vrc-crawler.exe status/recrawl/stop`. | `src/crawler/index.ts` has no CLI routing; running with args crashes with `ProcessLock`. IPC dispatched via `vrc-monitor.exe`. | `src/crawler/index.ts:970-1030`, `src/monitor/index.ts:1-439` |
 | **CR-14**| Downstream covenants in `LEGAL.md` §10 are technically presented. | `src/server/index.ts` returns responses without `VRC-Packages-Terms-Of-Use` header (RFC 6648), undermining browsewrap contract notice. | `src/server/index.ts:112-280`, `LEGAL.md:10.1` |
 | **CR-15**| Cloudflare Turnstile challenges detected and isolated from products. | Drivers parse Turnstile `HTTP 200` challenge HTML as product content, accelerating Poisson crawl loops into IP bans. | `src/drivers/gumroad.ts:80-120`, `src/drivers/jinxxy.ts:75-115` |
 | **CR-16**| Creators can submit non-scraping delisting proofs via API. | `POST /v1/opt-out` endpoint does not exist on API gateway. | `src/server/index.ts`, `src/db.ts:551-578` |
-| **CR-17**| SimHash converges across Japanese BOOTH and Western mirrors. | Full-width CJK brackets (`【...】`) and author tags are not normalized or shingled, preventing Hamming distance convergence ($k \le 3$). | `src/tools/pipeline_sanitize.ts:180-230` |
+| **CR-17**| SimHash converges across Japanese BOOTH and Western mirrors. | Full-width CJK brackets (`【...】`) and author tags must be normalized and shingled directly in sanitizer and projection. | `src/utils/sanitizer.ts`, `src/crawler/projection.ts` |
 | **CR-18**| Canonical network verifies provenance of contributed metadata. | SQLite schema lacks `contributor_node_id`, `signature`, and `batch_id` columns, preventing bad node isolation. | `src/db.ts`, `src/sync/index.ts` |
 | **CR-19**| Media proxy strictly attaches URLs as pointers without storing binaries. | Maintainer policy mandates pure origin URL pointers; image transcoding and caching in SQLite conflicts with policy. | `src/utils/image_proxy.ts`, `LEGAL.md:7.2(c)` |
 | **CR-20**| Conditional requests prevent redundant transfers across all drivers. | No driver transmits `If-None-Match` or `If-Modified-Since`. Payload downloads are 100% redundant on unchanged pages. | `src/drivers/github.ts:174-177`, `src/drivers/booth.ts`, `src/drivers/gumroad.ts` |
-| **CR-21**| `media_cache` avoids persistent storage of images in SQLite. | Raw WebP buffers stored as BLOBs in SQLite `media_cache.webp_data` (357 MB DB in `dist/` marked stale); served via `/v1/media/:id`, exported in `exporter.ts`. | `src/utils/image_proxy.ts:480-550`, `src/server/index.ts:173-180`, `src/db.ts:180-210` |
-| **CR-22**| SQLite export `vrc_catalog.db` supplies in-band notice of `LEGAL.md`. | `src/tools/exporter.ts` creates package and front tables, but completely omits a `catalog_metadata` table. | `src/tools/exporter.ts:80-215` |
+| **CR-21**| `media_cache` avoids persistent storage of images in SQLite. | Raw WebP buffers dropped; `media_cache.webp_data` BLOB eliminated; pure origin URLs exported without binary payload. | `src/utils/image_proxy.ts`, `src/server/index.ts`, `src/sync/exporter.ts`, `src/db.ts` |
+| **CR-22**| SQLite export `vrc_catalog.db` supplies in-band notice of `LEGAL.md`. | Exporter now creates `catalog_metadata` table recording terms URL, SHA-256 digest, and license reference. | `src/sync/exporter.ts` |
 | **CR-23**| Headless API server supplies root discovery route (`GET /`). | Requesting `GET /` returns `404 Not Found`; no root metadata document exists to advertise terms or schema versions. | `src/server/index.ts:140-388` |
 | **CR-24**| `robots.txt` compliance is treated as voluntary operational signal. | RFC 9309 establishes robots rules represent preferences, not access authorization. Followed voluntarily without claiming contract license. | IETF RFC 9309 Sec 1; `LEGAL.md:5.1(a),6.1` |
 | **CR-25**| 256-char description limit is an operational risk control. | *Authors Guild v. Google* evaluated transformative snippet indexing without setting a rigid numerical safe harbor. | `LEGAL.md:2.2,10.4(b)`; *Authors Guild*, 804 F.3d at 224 |
@@ -830,12 +842,12 @@ Every architectural proposition, empirical finding, and skeptical deconstruction
 | **G-6** | VRCArena: Federation vs DOM Scraping | `TODO.md` proposed scraping VRCArena; `robots.txt` allows `/`. | HTML scraping is fragile ("aggregator-of-aggregators"), strains non-profit host, causes SimHash collisions. | Grounded Truth | Reject HTML DOM scraping; allow only bilateral API federation or static dataset imports. |
 | **G-7** | Japanese Law (Pixiv/BOOTH) Incompatibility | US fair use and Japanese Copyright Art. 47-5 cited to defend BOOTH. | Art. 47-5 has proviso against prejudicing copyright owners; Pixiv Master Terms ban automated extraction. | Grounded Truth | Maintain conservative human pacing (1.5-5.0s delay), logged-out execution, prompt delisting. |
 | **G-8** | Downstream Tortious Interference Exposure | `vrc-server.exe` and Workers serve catalog feeds to third parties. | Downstream apps stripping canonical store links can expose aggregator to tortious interference claims. | Grounded Truth | Truncate descriptions to functional summaries (256 chars); mandate outbound links. |
-| **G-9** | Schema Duplication & Naming Collision | Architecture claimed complete schema unification. | Overlapping columns across `canonical_packages`, `platforms_json`, `package_fronts`; dual override fields. | Grounded Truth | Deduplicate URL columns, normalize override fields, enforce strict TypeScript DTOs. Dist DBs marked stale; in-place migration dropped (Task 4.1). |
+| **G-9** | Schema Duplication & Naming Collision | Architecture claimed complete schema unification. | Overlapping columns across `canonical_packages`, `platforms_json`, `package_fronts`; dual override fields. | Grounded Truth | Deduplicate URL columns to 2 (`url`, `vcc_url`), normalize override fields to `name_override`, enforce strict TypeScript DTOs. Dist DBs marked stale; in-place migration dropped (Task 4.1). |
 | **G-10**| Open-Web VPM Discovery Feasibility | Proposed open-web search for VPM package manifests. | Unbounded web spiders searching for JSON manifests produce astronomical noise and security traps. | Grounded Truth | Restrict VPM discovery strictly to federated registry seeds and verified package indices. |
 | **G-11**| Poisson Scheduler Mutability Disconnection | Preliminary audit claimed scheduler was dead code. | `requeueStaleUrls()` is active, but `adjustAfterFetch()` has zero callers; rigid 24h hardcoded in `markStatus`. | Confirmed Reality | Wire `adjustAfterFetch()` into worker completion callbacks with conditional HTTP headers. |
 | **G-12**| Full-Wipe Projection & Edge Sync Data Loss | Periodic projection rebuilds catalog every 15 minutes. | `DELETE FROM canonical_packages` resets rowids, causing edge sync watermark check to permanently skip rows. | Confirmed Critical Defect | Replace full-wipe with incremental upsert; track projection generation epochs. |
 | **G-13**| VPM Seeding Gate Permanent Lockout | VPM re-seeding gated on `done < 50`. | `done` is a lifetime monotonic counter; gate locks permanently after first 50 crawls. | Confirmed Bug | Replace `done < 50` with temporal staleness check (> 7 days). |
-| **G-14**| Timestamp Violation: Crawl Time for Pub Date | `DISCOVERY_RULES.md` Sec 4.2 mandates `NULL` when unknown. | `pipeline_sanitize.ts` sets `originCreatedAt = earliestLocalObservedAt` when upstream date absent. | Confirmed Violation | Set `originCreatedAt = null` and `createdAtConfidence = 'unknown'` unconditionally when absent. |
+| **G-14**| Timestamp Violation: Crawl Time for Pub Date | `DISCOVERY_RULES.md` Sec 4.2 mandates `NULL` when unknown. | `src/crawler/projection.ts` and drivers must not set `originCreatedAt = earliestLocalObservedAt` when upstream date absent. | Confirmed Violation | Set `originCreatedAt = null` and `createdAtConfidence = 'unknown'` unconditionally when absent. |
 | **G-15**| `AGENT.md` / `DELEGATES.md` Documentation Drift | Documents claimed obsolete test counts and phantom references. | 12 legacy test files were deleted by operator to eliminate false positives and mock drift. Clean-slate testbed with `:memory:` queued under Task 2.6. | Decoupled & Reset (2026-09-24) | Rebuild isolated testbed from ground zero using `:memory:` and mock HTTP transports. |
 | **G-16**| `registerOptOut()` Unrouted in Server/CLI | Documentation claimed creator opt-out system was live. | `db.registerOptOut()` implemented in `src/db.ts` but has zero API routes and zero CLI callers. | Confirmed Unimplemented | Expose `POST /v1/opt-out` endpoint with DNS TXT and storefront bio-token verification. |
 | **G-17**| SQLite Test Concurrency Lock Contention | Full test suite expected to run deterministically. | 7 test files shared 357 MB DB; locks triggered SQLite busy_timeout. Legacy tests deleted; all future tests isolated to `:memory:`. | Confirmed Defect | Isolate all tests to in-memory SQLite (`:memory:`) or dedicated ephemeral test databases. |
@@ -850,8 +862,8 @@ Every architectural proposition, empirical finding, and skeptical deconstruction
 | **G-26**| Decentralized Network Contributor Provenance | `LEGAL.md` §1.4 defines nodes pushing metadata to edge. | Tables lack `contributor_node_id`, `signature`, and `batch_id`; bad submissions cannot be traced. | Grounded Truth | Add provenance tracking columns to `entities` and `canonical_packages` via Post-v1.0 Worker Gateway. |
 | **G-27**| Gumroad Section 14(e) Search Engine Exemption | Gumroad ToS §14(e) allows public search indices, bans caches. | Codebase must ensure no product binaries (`.zip`, `.unitypackage`) are cached or archived. | Grounded Truth | Verify socket-level streaming guardrails abort transfers matching binary MIME types or > 10 MB. |
 | **G-28**| Japanese Law (Art. 30-4/47-5) vs Contract Terms | Japanese Copyright Act permits search indexing, not contract breach. | Pixiv Master Terms ban automated extraction; statutory exceptions do not override private contracts. | Grounded Truth | Enforce polite human pacing (1.5-5.0s), logged-out execution, prompt cessation upon objection. |
-| **G-29**| SQLite `media_cache.webp_data` BLOB Storage | `image_proxy.ts` caches WebP images in SQLite database. | Storing raw WebP buffers directly as BLOBs in SQLite creates 357 MB DB in `dist/` (marked stale). | Confirmed Reality | Drop `webp_data BLOB` from SQLite schema; mark `dist/crawler_state.db` stale; drop in-place migrations. |
-| **G-30**| `vrc_catalog.db` SQLite Export Missing Terms | Exporter generates SQLite database catalogs for clients. | `src/tools/exporter.ts` creates package tables but completely omits a `catalog_metadata` table. | Confirmed Omission | Add `CREATE TABLE catalog_metadata` recording terms URL, SHA-256 digest, and license reference. |
+| **G-29**| SQLite `media_cache.webp_data` BLOB Storage | `image_proxy.ts` caches WebP images in SQLite database. | Storing raw WebP buffers directly as BLOBs in SQLite creates 357 MB DB in `dist/` (marked stale). | Confirmed Reality | Drop `webp_data BLOB` from SQLite schema and catalog export (`src/sync/exporter.ts`); mark `dist/crawler_state.db` stale; drop in-place migrations. |
+| **G-30**| `vrc_catalog.db` SQLite Export Missing Terms | Exporter generates SQLite database catalogs for clients. | `src/sync/exporter.ts` creates package tables and in-band `catalog_metadata` table. | Confirmed Omission | Add `CREATE TABLE catalog_metadata` recording terms URL, SHA-256 digest, and license reference. |
 | **G-31**| Server Root Path (`GET /`) Missing Discovery Doc| API Gateway exposes `/v1/` routes. | Requesting `GET /` returns `404 Not Found`; no root route exists to declare capabilities or terms. | Confirmed Gap | Add root route `GET /` returning API metadata, version, schema endpoints, and terms of use URL. |
 | **G-32**| Server Test Circuit Split (*Perfect 10* vs *Goldman*) | Ninth Circuit Server Test treats linking as non-infringing. | SDNY and Second Circuit rejected Server Test for web embeds (*Goldman v. Breitbart*, *Nicklen*). | Grounded Truth | Ground image indexing primarily in *Kelly v. Arriba Soft* transformative fair use (visual locators). |
 
@@ -961,4 +973,4 @@ An adversarial legal review was conducted on September 24, 2026. The review eval
 - Test baseline ground truth is **57 passing tests across 12 files** (276 assertions), correcting obsolete documentation claiming 40/40 tests.
 - Physical code reads `process.env.API_SECRET_TOKEN` while old runbooks hallucinated `CRAWLER_API_TOKEN`.
 - The opt-out system (`db.registerOptOut()`) is implemented in the database layer but has zero API routes, which Task 3.1 resolves.
-- `pipeline_sanitize.ts` substituted crawler fetch times for missing publication dates, which Task 1.4 resolves.
+- `src/crawler/projection.ts` previously substituted crawler fetch times for missing publication dates, which Task 1.4 resolves.

@@ -299,20 +299,22 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
       const sql = `
         INSERT OR REPLACE INTO canonical_packages (
           id, canonical_id, name, author, authors_json, category, subcategory, type,
-          description, primary_platform, platforms_json, url, vcc_url, github_url,
-          booth_url, gumroad_url, jinxxy_url, itch_url, price_currency, price_amount,
+          description, primary_platform, platforms_json, url, vcc_url,
+          price_currency, price_amount,
           is_vcc, tags_json, dependencies_json, source_ids_json, media_id,
+          media_urls_json, youtube_urls_json,
           origin_created_at, origin_updated_at, created_at_confidence, lifecycle, lifecycle_updated_at,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       `;
       const params = [
         r.id, r.canonical_id, r.name, r.author, r.authors_json,
         r.category, r.subcategory, r.type, r.description,
         r.primary_platform, r.platforms_json, r.url,
-        r.vcc_url, r.github_url, r.booth_url, r.gumroad_url, r.jinxxy_url, r.itch_url,
+        r.vcc_url,
         r.price_currency, r.price_amount, r.is_vcc,
         r.tags_json, r.dependencies_json, r.source_ids_json, r.media_id,
+        r.media_urls_json || "[]", r.youtube_urls_json || "[]",
         r.origin_created_at, r.origin_updated_at, r.created_at_confidence || "unknown",
         r.lifecycle || "published", r.lifecycle_updated_at, r.created_at, r.updated_at
       ];

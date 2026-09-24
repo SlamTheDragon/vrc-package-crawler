@@ -127,7 +127,7 @@ Options:
 export function startServer(config: ServerConfig = {}) {
   const port = config.port || parseInt(process.env.PORT || process.env.API_PORT || "8080", 10);
   const host = config.host || process.env.HOST || process.env.API_HOST || "0.0.0.0";
-  const apiToken = config.apiToken || process.env.API_SECRET_TOKEN;
+  const apiToken = config.apiToken || process.env.API_SECRET_TOKEN || process.env.CRAWLER_API_TOKEN;
   const targetDb = config.db || db;
 
   const rateLimiter = new RateLimiter();
@@ -149,8 +149,49 @@ export function startServer(config: ServerConfig = {}) {
         "Access-Control-Max-Age": "86400"
       };
 
+      // Downstream Terms of Use notice headers (LEGAL.md §10.1, §11.1, RFC 6648, RFC 8288, RFC 9110)
+      const termsHeaders = {
+        "VRC-Packages-Terms-Of-Use": "https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md",
+        "VRC-Packages-Terms-Version": "1.1",
+        "VRC-Packages-Repository": "https://github.com/SlamTheDragon/vrc-package-crawler",
+        "VRC-Packages-License": "Layer-A: AGPL-3.0 / Layer-B: Database Compilation Terms / Layer-C: Third-Party Origin Rights",
+        "Link": '<https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md>; rel="terms-of-service"',
+        "X-Robots-Tag": "noai, noimageai"
+      };
+
+      const baseHeaders = {
+        ...corsHeaders,
+        ...termsHeaders
+      };
+
       if (method === "OPTIONS") {
-        return new Response(null, { status: 204, headers: corsHeaders });
+        return new Response(null, { status: 204, headers: baseHeaders });
+      }
+
+      // --- GET / (Root API Discovery Route) ---
+      if (method === "GET" && (path === "/" || path === "")) {
+        return new Response(JSON.stringify({
+          name: "vrc-package-crawler API Gateway",
+          version: "1.1.0",
+          repository: "https://github.com/SlamTheDragon/vrc-package-crawler",
+          terms_of_use: "https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md",
+          license: "Layer-A: AGPL-3.0 / Layer-B: Database Compilation Terms / Layer-C: Origin Author Rights",
+          endpoints: {
+            health: "/v1/health",
+            packages_stream: "/v1/packages/stream",
+            vpm_index: "/v1/vpm/index.json",
+            reports: "/v1/reports",
+            opt_out: "/v1/opt-out",
+            telemetry: "/v1/telemetry",
+            media_stream: "/v1/media/stream"
+          }
+        }, null, 2), {
+          status: 200,
+          headers: {
+            ...baseHeaders,
+            "Content-Type": "application/json; charset=utf-8"
+          }
+        });
       }
 
       // --- GET /v1/health ---
@@ -163,44 +204,33 @@ export function startServer(config: ServerConfig = {}) {
           uptimeSeconds: uptime,
           metrics,
           timestamp: new Date().toISOString()
-        }), { status: 200, headers: corsHeaders });
+        }), { status: 200, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
       // --- GET /v1/media/:id or /v1/thumbs/:id (Low-Resolution WebP Proxy) ---
       if (method === "GET" && (path.startsWith("/v1/media/") || path.startsWith("/v1/thumbs/"))) {
         const mediaId = path.split("/").pop()?.replace(/\.webp$/, "");
         if (mediaId && mediaId !== "none") {
-          const row = targetDb.rawDb.prepare("SELECT webp_data, content_type, source_url FROM media_cache WHERE id = ?;").get(mediaId) as any;
-          if (row) {
-            if (row.webp_data) {
-              return new Response(row.webp_data, {
-                status: 200,
-                headers: {
-                  ...corsHeaders,
-                  "Content-Type": row.content_type || "image/webp",
-                  "Cache-Control": "public, max-age=31536000, immutable"
-                }
-              });
-            } else if (row.source_url) {
-              // Redirect to original source URL for source-only/oversized records
-              return Response.redirect(row.source_url, 302);
-            }
+          const row = targetDb.rawDb.prepare("SELECT source_url FROM media_cache WHERE id = ?;").get(mediaId) as any;
+          if (row?.source_url) {
+            // Redirect to original origin CDN URL (Server Test / pure origin pointer)
+            return Response.redirect(row.source_url, 302);
           }
         }
-        return new Response(JSON.stringify({ error: "Media not found" }), { status: 404, headers: corsHeaders });
+        return new Response(JSON.stringify({ error: "Media not found" }), { status: 404, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
       // --- POST /v1/reports (Schema 4 Ingestion) ---
       if (method === "POST" && path === "/v1/reports") {
-        // Optional Auth Check
-        if (apiToken) {
-          const authHeader = req.headers.get("Authorization") || "";
-          const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-          if (token !== apiToken) {
-            return new Response(JSON.stringify({
-              error: "Unauthorized: Invalid or missing API bearer token."
-            }), { status: 401, headers: corsHeaders });
-          }
+        // Administrative Auth Check:
+        // Must supply valid Bearer token matching API_SECRET_TOKEN.
+        // If API_SECRET_TOKEN is unset or token is invalid, fail with 401 Unauthorized.
+        const authHeader = req.headers.get("Authorization") || "";
+        const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+        if (!apiToken || token !== apiToken) {
+          return new Response(JSON.stringify({
+            error: "Unauthorized: Invalid or missing API bearer token."
+          }), { status: 401, headers: { ...baseHeaders, "Content-Type": "application/json" } });
         }
 
         // Rate limiting by IP / Fingerprint
@@ -214,7 +244,7 @@ export function startServer(config: ServerConfig = {}) {
         if (!rateLimiter.isAllowed(clientFingerprint)) {
           return new Response(JSON.stringify({
             error: "Too Many Requests: Rate limit of 10 reports per minute exceeded."
-          }), { status: 429, headers: corsHeaders });
+          }), { status: 429, headers: { ...baseHeaders, "Content-Type": "application/json" } });
         }
 
         let body: any;
@@ -223,7 +253,7 @@ export function startServer(config: ServerConfig = {}) {
         } catch {
           return new Response(JSON.stringify({
             error: "Bad Request: Malformed JSON payload."
-          }), { status: 400, headers: corsHeaders });
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
         }
 
         const validation = validateSchema4Payload(body);
@@ -231,7 +261,7 @@ export function startServer(config: ServerConfig = {}) {
           return new Response(JSON.stringify({
             error: "Schema 4 Validation Failed",
             details: validation.errors
-          }), { status: 400, headers: corsHeaders });
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
         }
 
         const inserted = targetDb.insertReport({
@@ -249,7 +279,7 @@ export function startServer(config: ServerConfig = {}) {
         if (!inserted) {
           return new Response(JSON.stringify({
             error: "Internal Server Error: Failed to queue report into user_reports."
-          }), { status: 500, headers: corsHeaders });
+          }), { status: 500, headers: { ...baseHeaders, "Content-Type": "application/json" } });
         }
 
         return new Response(JSON.stringify({
@@ -257,7 +287,7 @@ export function startServer(config: ServerConfig = {}) {
           reportId: body.reportId,
           status: "pending",
           message: "Steering report queued for autonomous processing loop."
-        }), { status: 201, headers: corsHeaders });
+        }), { status: 201, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
       // --- GET /v1/catalog/delta (Schema 1 Delta Stream) ---
@@ -335,7 +365,7 @@ export function startServer(config: ServerConfig = {}) {
           deltas
         };
 
-        return new Response(JSON.stringify(responsePayload), { status: 200, headers: corsHeaders });
+        return new Response(JSON.stringify(responsePayload), { status: 200, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
       // --- GET /v1/vpm/index.json (Schema 2 VCC/ALCOM Repository Manifest) ---
@@ -362,7 +392,7 @@ export function startServer(config: ServerConfig = {}) {
                 description: p.description || "",
                 author: {
                   name: p.author,
-                  url: p.github_url || p.url
+                  url: p.url
                 },
                 url: p.vcc_url || p.url,
                 vpmDependencies: deps
@@ -381,10 +411,10 @@ export function startServer(config: ServerConfig = {}) {
           packages: packagesObj
         };
 
-        return new Response(JSON.stringify(manifest), { status: 200, headers: corsHeaders });
+        return new Response(JSON.stringify(manifest), { status: 200, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
-      return new Response(JSON.stringify({ error: "Not Found" }), { status: 404, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: "Not Found" }), { status: 404, headers: { ...baseHeaders, "Content-Type": "application/json" } });
     }
   });
 

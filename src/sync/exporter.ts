@@ -16,9 +16,9 @@ export interface ExportOptions {
  *             fronts, media metadata, and pre-indexed SQLite FTS5 for offline / Tauri search.
  * - 'lake': Full disaster-recovery snapshot of the entire raw observation lake via VACUUM INTO.
  */
-export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", customOut?: string): Promise<string> {
+export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", customOut?: string, sourceDb?: Database): Promise<string> {
   const targetFile = customOut || (mode === "catalog" ? "vrc_catalog.db" : "vrc_lake_snapshot.db");
-  const fullTargetPath = path.resolve(CONFIG.baseDir, targetFile);
+  const fullTargetPath = path.isAbsolute(targetFile) ? targetFile : path.resolve(CONFIG.baseDir, targetFile);
 
   logger.info(`[Exporter] Starting export in mode '${mode}' to: ${fullTargetPath}`);
 
@@ -35,7 +35,7 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
     // Atomic SQLite VACUUM INTO snapshot of crawler_state.db
     const escaped = fullTargetPath.replace(/'/g, "''");
     logger.info("[Exporter] Executing native SQLite VACUUM INTO for lake snapshot...");
-    db.run(`VACUUM INTO '${escaped}';`);
+    (sourceDb || db.rawDb).run(`VACUUM INTO '${escaped}';`);
     const stats = fs.statSync(fullTargetPath);
     const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
     logger.info(`[Exporter] Lake snapshot complete! File: ${fullTargetPath} (${sizeMb} MB)`);
@@ -48,9 +48,9 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
 
   catDb.run("PRAGMA busy_timeout = 10000;");
   catDb.run("PRAGMA journal_mode = DELETE;");
-  catDb.run("PRAGMA page_size = 4096;");
+  catDb.run("PRAGMA synchronous = OFF;");
 
-  // Create unified clean tables in exported catalog
+  // Create clean schema in export database
   catDb.run(`
     CREATE TABLE canonical_packages (
       id TEXT PRIMARY KEY,
@@ -66,11 +66,6 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
       platforms_json TEXT NOT NULL,
       url TEXT NOT NULL,
       vcc_url TEXT,
-      github_url TEXT,
-      booth_url TEXT,
-      gumroad_url TEXT,
-      jinxxy_url TEXT,
-      itch_url TEXT,
       price_currency TEXT DEFAULT 'USD',
       price_amount REAL DEFAULT 0,
       is_vcc INTEGER NOT NULL DEFAULT 0,
@@ -111,13 +106,10 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
     );
   `);
 
-
   catDb.run(`
     CREATE TABLE media_cache (
       id TEXT PRIMARY KEY,
       source_url TEXT NOT NULL UNIQUE,
-      webp_data BLOB,
-      webp_size_bytes INTEGER,
       blurhash TEXT,
       phash_64 TEXT,
       width INTEGER,
@@ -128,42 +120,58 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
     );
   `);
 
+  // Downstream terms notice and catalog metadata (LEGAL.md §10.1, §10.7)
+  catDb.run(`
+    CREATE TABLE IF NOT EXISTS catalog_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    INSERT OR REPLACE INTO catalog_metadata VALUES 
+      ('terms_of_use_url', 'https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md'),
+      ('terms_version', '1.1'),
+      ('repository_url', 'https://github.com/SlamTheDragon/vrc-package-crawler'),
+      ('catalog_name', 'vrc-package-crawler Catalog Index'),
+      ('license_framework', 'Layer-A: AGPL-3.0 / Layer-B: Database Compilation Terms / Layer-C: Origin Author Rights'),
+      ('export_epoch', strftime('%s', 'now'));
+  `);
+
   // Stream canonical_packages in chunks
-  const srcDb = db.rawDb;
+  const srcDb = sourceDb || db.rawDb;
   const packages = srcDb.query("SELECT * FROM canonical_packages;").all() as any[];
   logger.info(`[Exporter] Copying ${packages.length} canonical packages...`);
 
   const insertPkg = catDb.prepare(`
     INSERT INTO canonical_packages (
       id, canonical_id, name, author, authors_json, category, subcategory, type,
-      description, primary_platform, platforms_json, url, vcc_url, github_url,
-      booth_url, gumroad_url, jinxxy_url, itch_url, price_currency, price_amount,
+      description, primary_platform, platforms_json, url, vcc_url,
+      price_currency, price_amount,
       is_vcc, tags_json, dependencies_json, source_ids_json, media_id,
-      media_urls_json, youtube_urls_json,
-      origin_created_at, origin_updated_at, created_at_confidence, lifecycle, lifecycle_updated_at,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      media_urls_json, youtube_urls_json, origin_created_at, origin_updated_at,
+      created_at_confidence, lifecycle, lifecycle_updated_at, created_at, updated_at
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?,
+      ?, ?, ?, ?, ?
+    );
   `);
 
   catDb.transaction(() => {
     for (const p of packages) {
       insertPkg.run(
-        p.id, p.canonical_id, p.name, p.author, p.authors_json,
-        p.category, p.subcategory, p.type, p.description,
-        p.primary_platform, p.platforms_json, p.url,
-        p.vcc_url, p.github_url, p.booth_url, p.gumroad_url, p.jinxxy_url, p.itch_url,
-        p.price_currency, p.price_amount, p.is_vcc,
-        p.tags_json, p.dependencies_json, p.source_ids_json, p.media_id,
-        p.media_urls_json || "[]", p.youtube_urls_json || "[]",
-        p.origin_created_at, p.origin_updated_at, p.created_at_confidence || "unknown",
-        p.lifecycle || "published", p.lifecycle_updated_at, p.created_at, p.updated_at
+        p.id, p.canonical_id, p.name, p.author, p.authors_json, p.category, p.subcategory, p.type,
+        p.description, p.primary_platform, p.platforms_json, p.url, p.vcc_url,
+        p.price_currency || "USD", p.price_amount || 0,
+        p.is_vcc || 0, p.tags_json || "[]", p.dependencies_json || "{}", p.source_ids_json, p.media_id,
+        p.media_urls_json || "[]", p.youtube_urls_json || "[]", p.origin_created_at, p.origin_updated_at,
+        p.created_at_confidence || "unknown", p.lifecycle || "published", p.lifecycle_updated_at,
+        p.created_at, p.updated_at
       );
     }
   })();
 
-  // Copy fronts
+  // Stream package_fronts
   const fronts = srcDb.query("SELECT * FROM package_fronts;").all() as any[];
-  logger.info(`[Exporter] Copying ${fronts.length} package storefronts...`);
+  logger.info(`[Exporter] Copying ${fronts.length} storefront records...`);
 
   const insertFront = catDb.prepare(`
     INSERT INTO package_fronts (
@@ -183,7 +191,6 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
       );
     }
   })();
-
 
   // Create SQLite FTS5 Full-Text Search Virtual Table
   logger.info("[Exporter] Constructing pre-indexed SQLite FTS5 search index...");

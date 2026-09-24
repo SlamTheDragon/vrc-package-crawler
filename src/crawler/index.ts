@@ -10,12 +10,20 @@ import { ItchDriver } from "../drivers/itch.ts";
 import { CuratedDriver } from "../drivers/curated.ts";
 import { rateLimiter } from "../ratelimit.ts";
 import { ProcessLock } from "../utils/lock.ts";
-import { runPipelineSanitize, abortPipelineSanitize } from "../tools/pipeline_sanitize.ts";
+import { runPipelineSanitize, abortPipelineSanitize } from "./projection.ts";
 import { CrawlerIpcServer } from "../utils/ipc.ts";
 import { poissonScheduler } from "../utils/poisson_scheduler.ts";
 import { robotsEnforcer } from "../utils/robots.ts";
+import { ImageProxyService } from "../utils/image_proxy.ts";
+import type { FrontierItem } from "../db.ts";
 
 let isRunning = true;
+let lastVpmSeedAt = 0;
+const VPM_RESEED_INTERVAL_MS = 7 * 86400 * 1000; // 7-day temporal staleness window (Task 1.5)
+
+function markCrawlSuccess(item: FrontierItem, etag?: string | null, lastModified?: string | null) {
+  poissonScheduler.adjustAfterFetch(item.url, true, etag || item.etag, lastModified || item.last_modified);
+}
 
 /**
  * Interruptible sleep that checks isRunning every stepMs to allow immediate graceful shutdown.
@@ -78,8 +86,9 @@ export async function seedAllDomains() {
   const metrics = db.getMetrics();
   logger.info("Checking domain seed status and initializing fast frontier queues...");
 
-  // 1. Ingest decentralized VPM repositories
-  if (metrics.platformStats["vpm"].pending < 10 && metrics.platformStats["vpm"].done < 50) {
+  // 1. Ingest decentralized VPM repositories (with 7-day temporal staleness window per Task 1.5)
+  if (metrics.platformStats["vpm"].pending < 10 && (!lastVpmSeedAt || Date.now() - lastVpmSeedAt > VPM_RESEED_INTERVAL_MS)) {
+    lastVpmSeedAt = Date.now();
     const coreFeeds = [
       "https://vpm.anatawa12.com/vpm.json",
       "https://vpm.nadena.dev/vpm.json",
@@ -273,7 +282,7 @@ async function runBoothWorker() {
               db.queueUrl(u, "booth");
             }
             rateLimiter.recordSuccess("booth.pm", Date.now() - t0);
-            db.markStatus(item.url, "done");
+            markCrawlSuccess(item);
           } else {
             const ok = await BoothDriver.crawlItemDetail(item.url);
             if (!isRunning) {
@@ -281,10 +290,11 @@ async function runBoothWorker() {
             } else {
               if (ok) {
                 rateLimiter.recordSuccess("booth.pm", Date.now() - t0);
+                markCrawlSuccess(item);
               } else {
                 rateLimiter.recordFailure("booth.pm", false);
+                db.markStatus(item.url, "failed");
               }
-              db.markStatus(item.url, ok ? "done" : "failed");
             }
           }
         } catch (err) {
@@ -341,7 +351,7 @@ async function runGithubWorker() {
               db.queueUrl(ru, "github", 10);
             }
             rateLimiter.recordSuccess("api.github.com", Date.now() - t0);
-            db.markStatus(item.url, "done");
+            markCrawlSuccess(item);
           } else {
             const ok = await GitHubDriver.crawlRepoDetail(item.url);
             if (!isRunning) {
@@ -349,10 +359,11 @@ async function runGithubWorker() {
             } else {
               if (ok) {
                 rateLimiter.recordSuccess("api.github.com", Date.now() - t0);
+                markCrawlSuccess(item);
               } else {
                 rateLimiter.recordFailure("api.github.com", false);
+                db.markStatus(item.url, "failed");
               }
-              db.markStatus(item.url, ok ? "done" : "failed");
             }
           }
         } catch (err) {
@@ -407,10 +418,11 @@ async function runVpmWorker() {
           } else {
             if (ok) {
               rateLimiter.recordSuccess("vpm", Date.now() - t0);
+              markCrawlSuccess(item);
             } else {
               rateLimiter.recordFailure("vpm", false);
+              db.markStatus(item.url, "failed");
             }
-            db.markStatus(item.url, ok ? "done" : "failed");
           }
         } catch (err) {
           if (!isRunning) {
@@ -437,9 +449,19 @@ async function runGumroadWorker() {
   const DISCOVER_COOLDOWN_MS = 60000; // 60s cooldown between discover query bursts
 
   while (isRunning) {
-    const items = db.getNextPendingForPlatform("gumroad", 1);
-    const item = items[0];
-    // If pending queue is low, run internal Gumroad Discover queries ONLY if not in backoff, cooldown elapsed, AND below saturation target
+    let items = db.getNextPendingForPlatform("gumroad", 1);
+    let item = items[0];
+    // If pending queue is low, first check for shallow entities needing deep hydration
+    if (!item) {
+      const promoted = db.requeueShallowGumroadEntities();
+      if (promoted.promoted > 0) {
+        logger.info(`[Worker:Gumroad] Autonomously promoted ${promoted.promoted} shallow Gumroad entities to frontier.`);
+        items = db.getNextPendingForPlatform("gumroad", 1);
+        item = items[0];
+      }
+    }
+
+    // If still empty, run internal Gumroad Discover queries ONLY if not in backoff, cooldown elapsed, AND below saturation target
     if (!item) {
       const isBackingOff = rateLimiter.isBackingOff("gumroad.com");
       const cooldownElapsed = Date.now() - lastDiscoverTime > DISCOVER_COOLDOWN_MS;
@@ -501,10 +523,11 @@ async function runGumroadWorker() {
         } else {
           if (ok) {
             rateLimiter.recordSuccess("gumroad.com", Date.now() - t0);
+            markCrawlSuccess(item);
           } else {
             rateLimiter.recordFailure("gumroad.com", false);
+            db.markStatus(item.url, "failed");
           }
-          db.markStatus(item.url, ok ? "done" : "failed");
         }
       } else {
         const ok = await GumroadDriver.crawlStorefront(item.url);
@@ -513,10 +536,11 @@ async function runGumroadWorker() {
         } else {
           if (ok) {
             rateLimiter.recordSuccess("gumroad.com", Date.now() - t0);
+            markCrawlSuccess(item);
           } else {
             rateLimiter.recordFailure("gumroad.com", false);
+            db.markStatus(item.url, "failed");
           }
-          db.markStatus(item.url, ok ? "done" : "failed");
         }
       }
     } catch (err) {
@@ -577,7 +601,7 @@ async function runJinxxyWorker() {
               db.queueUrl(pu, "jinxxy");
             }
             rateLimiter.recordSuccess("jinxxy.com", Date.now() - t0);
-            db.markStatus(item.url, "done");
+            markCrawlSuccess(item);
           } else {
             const ok = await JinxxyDriver.crawlProduct(item.url);
             if (!isRunning) {
@@ -585,10 +609,11 @@ async function runJinxxyWorker() {
             } else {
               if (ok) {
                 rateLimiter.recordSuccess("jinxxy.com", Date.now() - t0);
+                markCrawlSuccess(item);
               } else {
                 rateLimiter.recordFailure("jinxxy.com", false);
+                db.markStatus(item.url, "failed");
               }
-              db.markStatus(item.url, ok ? "done" : "failed");
             }
           }
         } catch (err) {
@@ -656,7 +681,7 @@ async function runItchWorker() {
               db.queueUrl(pu, "itch");
             }
             rateLimiter.recordSuccess("itch.io", Date.now() - t0);
-            db.markStatus(item.url, "done");
+            markCrawlSuccess(item);
           } else {
             const ok = await ItchDriver.crawlProduct(item.url);
             if (!isRunning) {
@@ -664,10 +689,11 @@ async function runItchWorker() {
             } else {
               if (ok) {
                 rateLimiter.recordSuccess("itch.io", Date.now() - t0);
+                markCrawlSuccess(item);
               } else {
                 rateLimiter.recordFailure("itch.io", false);
+                db.markStatus(item.url, "failed");
               }
-              db.markStatus(item.url, ok ? "done" : "failed");
             }
           }
         } catch (err) {
@@ -699,6 +725,7 @@ async function runCuratedRegistryWorker() {
       try {
         logger.info("[Worker:CuratedRegistry] Running decentralized registry discovery & multi-maintainer ingestion...");
         await CuratedDriver.ingestAllCuratedSources();
+        await VpmIndexDriver.discoverVpmRepositories();
         lastRun = Date.now();
       } catch (err) {
         logger.error("[Worker:CuratedRegistry] Error during curated registry ingestion", err);
@@ -785,7 +812,7 @@ async function runMonitor() {
     if (Date.now() - lastSteeringTime >= STEERING_INTERVAL_MS) {
       lastSteeringTime = Date.now();
       try {
-        const { pullReportsFromDirectory, processPendingReports } = await import("../tools/steering.ts");
+        const { pullReportsFromDirectory, processPendingReports } = await import("./steering.ts");
         const pulled = await pullReportsFromDirectory();
         if (pulled > 0) {
           await processPendingReports();
@@ -962,9 +989,13 @@ For offline export, run: dist/vrc-export.exe
       await runEdgeSync();
     },
     onSteering: async () => {
-      const { pullReportsFromDirectory, processPendingReports } = await import("../tools/steering.ts");
+      const { pullReportsFromDirectory, processPendingReports } = await import("./steering.ts");
       await pullReportsFromDirectory();
       await processPendingReports();
+    },
+    onExport: async () => {
+      const { runDatabaseExport } = await import("../sync/exporter.ts");
+      await runDatabaseExport("catalog");
     }
   });
 
@@ -1029,7 +1060,7 @@ For offline export, run: dist/vrc-export.exe
       console.log("==================================================================");
       try {
         await runPipelineSanitize();
-        const { runDatabaseExport } = await import("../tools/exporter.ts");
+        const { runDatabaseExport } = await import("../sync/exporter.ts");
         await runDatabaseExport("catalog");
         console.log("[PIPELINE] Post-crawl sanitization & catalog generation completed successfully.");
       } catch (err) {
@@ -1040,6 +1071,9 @@ For offline export, run: dist/vrc-export.exe
     logger.info("Orderly engine shutdown: resetting in-flight tasks, flushing database, and releasing lock...");
     try {
       ipcServer.stop();
+    } catch (_) {}
+    try {
+      ImageProxyService.shutdown();
     } catch (_) {}
     try {
       db.resetStaleFetching();

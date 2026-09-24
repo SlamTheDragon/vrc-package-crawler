@@ -2,6 +2,7 @@ import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
 import { RelevanceFilter } from "../filter.ts";
+import { cleanTitle, cleanAuthorName } from "../utils/sanitizer.ts";
 
 export class VpmIndexDriver {
   private static isAborted = false;
@@ -120,8 +121,8 @@ export class VpmIndexDriver {
               id: `vpm:${pkgId}`,
               platform: "vpm",
               url: originRepoUrl || testUrl,
-              title,
-              author: author || "Community",
+              title: cleanTitle(title),
+              author: cleanAuthorName(author || "Community"),
               description: desc,
               tags_json: JSON.stringify([...(data.keywords || []), "vpm-package", ...vpmDeps]),
               external_links_json: JSON.stringify(extLinks),
@@ -296,8 +297,8 @@ export class VpmIndexDriver {
             id: `vpm:${pkgId}`,
             platform: "vpm",
             url: canonicalItemUrl,
-            title: title,
-            author: authorsList.length > 1 ? authorsList.join(", ") : author,
+            title: cleanTitle(title),
+            author: cleanAuthorName(authorsList.length > 1 ? authorsList.join(", ") : author),
             description: desc,
             tags_json: JSON.stringify([...(latest.keywords || []), ...vpmDeps]),
             external_links_json: JSON.stringify(extLinks),
@@ -422,5 +423,97 @@ export class VpmIndexDriver {
     logger.warn(`[VPM] All alternative paths failed for manifest ${manifestUrl}`);
     return false;
   }
+
+  /**
+   * Executes high-signal VPM discovery across multi-maintainer registries, GitHub searches, and probed endpoints
+   */
+  public static async discoverVpmRepositories(): Promise<{ discoveredFeeds: number; totalVpm: number }> {
+    const { CuratedDriver } = await import("./curated.ts");
+    const { GitHubDriver } = await import("./github.ts");
+
+    logger.info("[VPM Driver] Ingesting multi-maintainer community registries & live catalogs...");
+    await CuratedDriver.ingestAllCuratedSources();
+
+    if (this.isAborted) return { discoveredFeeds: 0, totalVpm: 0 };
+
+    const VPM_DISCOVERY_QUERIES = [
+      "vpm vrchat sort:updated",
+      "vpm package listing vrchat sort:updated",
+      "vpm-listing vrchat sort:updated",
+      "VCC listing vrchat sort:updated",
+      "ALCOM vrchat sort:updated",
+      "\"index.json\" \"packages\" vrchat",
+      "\"vpm\" \"index.json\" vrchat"
+    ];
+
+    const candidateUrls = new Set<string>();
+
+    logger.info("[VPM Driver] Executing high-signal GitHub API searches for VPM repositories...");
+    for (const q of VPM_DISCOVERY_QUERIES) {
+      if (this.isAborted) break;
+      try {
+        const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&per_page=30&sort=updated&order=desc`;
+        const resp = await fetch(searchUrl, {
+          headers: {
+            "User-Agent": CONFIG.userAgent,
+            ...(CONFIG.githubToken ? { Authorization: `token ${CONFIG.githubToken}` } : {})
+          }
+        });
+
+        if (!resp.ok) continue;
+
+        const data = await resp.json() as any;
+        const items = data.items || [];
+
+        for (const repo of items) {
+          if (this.isAborted) break;
+          const defaultBranch = repo.default_branch || "main";
+          const rawBase = `https://raw.githubusercontent.com/${repo.full_name}/${defaultBranch}`;
+          const ghPagesBase = `https://${repo.owner.login.toLowerCase()}.github.io/${repo.name}`;
+
+          const probeUrls = [
+            `${rawBase}/index.json`,
+            `${rawBase}/vpm.json`,
+            `${rawBase}/packages.json`,
+            `${ghPagesBase}/index.json`,
+            `${ghPagesBase}/vpm.json`
+          ];
+
+          for (const u of probeUrls) {
+            candidateUrls.add(u);
+          }
+        }
+
+        await this.sleep(1200);
+      } catch (err) {
+        logger.warn(`[VPM Driver] Error searching query "${q}":`, err);
+      }
+    }
+
+    if (this.isAborted) return { discoveredFeeds: 0, totalVpm: 0 };
+
+    let successfulFeeds = 0;
+    logger.info(`[VPM Driver] Probing and crawling ${candidateUrls.size} candidate endpoints...`);
+    for (const url of candidateUrls) {
+      if (this.isAborted) break;
+      try {
+        const ok = await this.crawlManifest(url);
+        if (ok) {
+          successfulFeeds++;
+          db.markStatus(url, "done");
+        }
+      } catch (_) {}
+    }
+
+    if (!this.isAborted) {
+      logger.info("[VPM Driver] Ingesting creator portfolios dynamically derived from live truth sources...");
+      await GitHubDriver.harvestDiscoveredCreators();
+    }
+
+    const totalVpm = (db.query("SELECT count(*) as c FROM entities WHERE platform = 'vpm' AND is_quarantined = 0").get() as any)?.c || 0;
+    logger.info(`[VPM Driver] Discovery pass complete. Total active VPM packages in DB: ${totalVpm}`);
+    return { discoveredFeeds: successfulFeeds, totalVpm };
+  }
 }
+
 

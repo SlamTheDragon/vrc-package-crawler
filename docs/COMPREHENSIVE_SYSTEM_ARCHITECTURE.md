@@ -46,11 +46,11 @@ The database layer will run on a unified schema. All 10 tables will operate unde
 | :--- | :--- | :--- |
 | `frontier` | Crawl Queue & Scheduler | Cho-Garcia-Molina Poisson adaptive interval, ETag and Last-Modified tracking |
 | `entities` | CQRS Observation Lake | Immutable raw payload capture. Items are never deleted. Quarantine flags isolate invalid entries |
-| `canonical_packages` | Derived Catalog Projection | Deduplicated unified package records with lifecycle, timestamps, and multi-storefront routing |
+| `canonical_packages` | Derived Catalog Projection | Deduplicated unified package records with 2 URL columns (url, vcc_url), lifecycle, timestamps, and multi-storefront routing |
 | `package_fronts` | Decoupled Storefront Listings | Individual storefront instances (BOOTH, GitHub, Gumroad, Jinxxy, Itch) linked to canonical ID |
 | `creator_opt_outs` | Legal Exclusion Registry | Verified takedown patterns and creator bio-token exclusion rules with regex matching |
-| `media_cache` | Thumbnail Proxy Cache | Fair-use low-res WebP thumbnails (480x270), BlurHash strings, and 64-bit DCT pHash |
-| `curator_overrides` | Persistent User Steering | Community corrections (titles, descriptions, categories, tags) surviving pipeline rebuilds |
+| `media_cache` | Pure Origin Metadata Cache | BlurHash strings, 64-bit perceptual hashes (pHash), origin CDN source URLs (zero local BLOB storage) |
+| `curator_overrides` | Persistent User Steering | Community corrections (name_override, descriptions, categories, tags) surviving pipeline rebuilds |
 | `user_reports` | Ingested Feedback Buffer | Schema 4 branched feedback submissions awaiting autonomous steering ingestion |
 | `search_patterns` | Closed-Loop Query Weights | Dynamic negative tokens, boost or suppress rules, and priority seed queues |
 | `sync_checkpoints` | Edge Synchronization State | High-watermark tracking for incremental synchronization to Cloudflare D1 and R2 |
@@ -126,7 +126,7 @@ flowchart LR
     end
 
     subgraph Ingress ["Ingress Conduit (Every 30 Minutes)"]
-        CF_R2["Cloudflare R2 (reports/)"] --> Pull["steering.ts (pullReports)"]
+        CF_R2["Cloudflare R2 (reports/)"] --> Pull["src/crawler/steering.ts (pullReports)"]
         Local["Local /reports/pending"] --> Pull
         Pull --> Buffer["user_reports"]
         Buffer --> Engine["Autonomous Steering Engine"]

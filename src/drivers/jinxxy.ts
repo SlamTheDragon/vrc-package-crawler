@@ -3,6 +3,7 @@ import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
 import { RelevanceFilter } from "../filter.ts";
+import { cleanTitle, cleanAuthorName, cleanDescription } from "../utils/sanitizer.ts";
 
 export class JinxxyDriver {
   private static isAborted = false;
@@ -187,7 +188,7 @@ export class JinxxyDriver {
 
       // Extract description
       const ogDesc = html.match(/<meta\s+property=["']og:description["']\s+content=["'](.*?)["']/i);
-      const desc = ogDesc ? ogDesc[1].trim() : "";
+      let desc = ogDesc ? ogDesc[1].trim() : "";
 
       // Extract og:image and twitter:image for primary thumbnail
       const ogImgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
@@ -197,6 +198,7 @@ export class JinxxyDriver {
 
       let thumbnailUrl: string | null = ogImage || twImage || null;
       const mediaSet = new Set<string>();
+      const ytSet = new Set<string>();
 
       // Extract product image gallery from Next.js __NEXT_DATA__ hydration payload
       const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/i);
@@ -205,6 +207,11 @@ export class JinxxyDriver {
           const nd = JSON.parse(nextDataMatch[1]);
           const p = nd.props?.pageProps?.product || nd.props?.pageProps?.listing;
           if (p) {
+            if (p.description || p.details || p.content) {
+              const rawPDesc: string = p.description || p.details || p.content;
+              const rich = rawPDesc.replace(/<br\s*\/?>/gi, "\n").replace(/<p[^>]*>/gi, "\n\n").replace(/<[^>]+>/g, " ").trim();
+              if (rich.length > desc.length) desc = rich;
+            }
             // Primary cover / thumbnail
             const cover: string = p.cover || p.thumbnail || p.image || "";
             if (cover && cover.startsWith("http")) {
@@ -215,6 +222,17 @@ export class JinxxyDriver {
             for (const img of images) {
               const imgUrl: string = typeof img === "string" ? img : (img?.url || img?.src || "");
               if (!imgUrl || !imgUrl.startsWith("http")) continue;
+
+              // Filter YouTube / Vimeo / video embeds directly into youtubeUrls rather than image queues
+              const ytMatch = imgUrl.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+              if (ytMatch) {
+                ytSet.add(`https://www.youtube.com/watch?v=${ytMatch[1]}`);
+                continue;
+              }
+              if (imgUrl.includes("vimeo.com") || img?.type === "video" || img?.type === "oembed") {
+                continue;
+              }
+
               // Quality filter: skip images from known icon/logo CDN patterns and those with tiny dimensions
               const w: number = img?.width || 0;
               const h: number = img?.height || 0;
@@ -226,13 +244,23 @@ export class JinxxyDriver {
         } catch (_) {}
       }
 
+      // Filter thumbnail if it happens to be a video embed
+      if (thumbnailUrl) {
+        const ytMatch = thumbnailUrl.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+        if (ytMatch) {
+          ytSet.add(`https://www.youtube.com/watch?v=${ytMatch[1]}`);
+          thumbnailUrl = null;
+        } else if (thumbnailUrl.includes("vimeo.com")) {
+          thumbnailUrl = null;
+        }
+      }
+
       // Fallback: add thumbnail to media set if no gallery found
       if (thumbnailUrl) mediaSet.add(thumbnailUrl.split("?")[0]);
       const mediaUrls = Array.from(mediaSet).slice(0, 20);
 
       // Extract YouTube video URLs
       const ytRaw = html.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})[^\s"'<>]*/gi) || [];
-      const ytSet = new Set<string>();
       for (const yt of ytRaw) {
         const match = yt.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
         if (match) {
@@ -294,11 +322,11 @@ export class JinxxyDriver {
         id: `jinxxy:${creatorName}/${productSlug}`,
         platform: "jinxxy",
         url: currentUrl,
-        title: title,
-        author: creatorName,
+        title: cleanTitle(title),
+        author: cleanAuthorName(creatorName),
         price_currency: "USD",
         price_amount: 0,
-        description: desc,
+        description: cleanDescription(desc),
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
         origin_created_at: originCreatedAt,

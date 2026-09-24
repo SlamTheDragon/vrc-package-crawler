@@ -432,6 +432,13 @@ class SharpSubprocess {
       this.ready = false;
     }
   }
+
+  public static shutdown(): void {
+    if (SharpSubprocess._instance) {
+      SharpSubprocess._instance.shutdown();
+      SharpSubprocess._instance = null;
+    }
+  }
 }
 
 export class ImageProxyService {
@@ -539,8 +546,6 @@ export class ImageProxyService {
       const record: MediaCacheRecord = {
         id,
         source_url: cleanUrl,
-        webp_data: null,
-        webp_size_bytes: 0,
         blurhash: null,
         phash_64: null,
         width: 0,
@@ -551,9 +556,9 @@ export class ImageProxyService {
       try {
         targetDb.run(`
           INSERT OR REPLACE INTO media_cache (
-            id, source_url, webp_data, webp_size_bytes, blurhash, phash_64,
+            id, source_url, blurhash, phash_64,
             width, height, content_type, etag, last_processed_at
-          ) VALUES (?, ?, NULL, 0, NULL, NULL, 0, 0, ?, NULL, ?);
+          ) VALUES (?, ?, NULL, NULL, 0, 0, ?, NULL, ?);
         `, [record.id, record.source_url, record.content_type, record.last_processed_at]);
         logger.info(`[ImageProxy] Indexed oversized image as source-only: ${cleanUrl} (${fetched.reportedLength || 0} bytes)`);
         return record;
@@ -628,8 +633,6 @@ export class ImageProxyService {
           const record: MediaCacheRecord = {
             id,
             source_url: cleanUrl,
-            webp_data: null,
-            webp_size_bytes: 0,
             blurhash: null,
             phash_64: null,
             width: 0,
@@ -639,9 +642,9 @@ export class ImageProxyService {
           };
           targetDb.run(`
             INSERT OR REPLACE INTO media_cache (
-              id, source_url, webp_data, webp_size_bytes, blurhash, phash_64,
+              id, source_url, blurhash, phash_64,
               width, height, content_type, etag, last_processed_at
-            ) VALUES (?, ?, NULL, 0, NULL, NULL, 0, 0, ?, NULL, ?);
+            ) VALUES (?, ?, NULL, NULL, 0, 0, ?, NULL, ?);
           `, [record.id, record.source_url, record.content_type, record.last_processed_at]);
           return record;
         }
@@ -662,8 +665,6 @@ export class ImageProxyService {
       const record: MediaCacheRecord = {
         id,
         source_url: cleanUrl,
-        webp_data: null,
-        webp_size_bytes: 0,
         blurhash: null,
         phash_64: null,
         width: 0,
@@ -674,9 +675,9 @@ export class ImageProxyService {
       try {
         targetDb.run(`
           INSERT OR REPLACE INTO media_cache (
-            id, source_url, webp_data, webp_size_bytes, blurhash, phash_64,
+            id, source_url, blurhash, phash_64,
             width, height, content_type, etag, last_processed_at
-          ) VALUES (?, ?, NULL, 0, NULL, NULL, 0, 0, ?, NULL, ?);
+          ) VALUES (?, ?, NULL, NULL, 0, 0, ?, NULL, ?);
         `, [record.id, record.source_url, record.content_type, record.last_processed_at]);
         return record;
       } catch (_) {
@@ -687,8 +688,6 @@ export class ImageProxyService {
     const record: MediaCacheRecord = {
       id,
       source_url: cleanUrl,
-      webp_data: webpData,
-      webp_size_bytes: webpData?.length || 0,
       blurhash,
       phash_64: phash64,
       width,
@@ -700,11 +699,11 @@ export class ImageProxyService {
     try {
       targetDb.run(`
         INSERT OR REPLACE INTO media_cache (
-          id, source_url, webp_data, webp_size_bytes, blurhash, phash_64,
+          id, source_url, blurhash, phash_64,
           width, height, content_type, etag, last_processed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?);
       `, [
-        record.id, record.source_url, record.webp_data, record.webp_size_bytes,
+        record.id, record.source_url,
         record.blurhash, record.phash_64, record.width, record.height,
         record.content_type, record.last_processed_at
       ]);
@@ -736,12 +735,15 @@ export class ImageProxyService {
 
       if (pendingPackages.length === 0) return 0;
 
-      // Known icon/logo/favicon URL patterns to skip (quality filter at URL level)
+      // Known icon/logo/favicon and video embed URL patterns to skip (quality filter at URL level)
       const skipPatterns = [
         /\/favicon\./i, /\/icon[s]?\./i, /\/logo[s]?\./i,
         /\/user-profile\//i, /\/avatar\//i, /\/a\/[^/]+\.(png|jpg|gif|webp)$/i,
         /[?&]s=(\d+)(&|$)/, // GitHub avatar size param — raw avatars are square icons
         /opengraph\.githubassets\.com/, // exclude GitHub OG cards from WebP download
+        /youtube\.com\/embed\//i,
+        /youtu\.be\//i,
+        /vimeo\.com\//i
       ];
 
       let indexedCount = 0;
@@ -844,4 +846,9 @@ export class ImageProxyService {
       return 0;
     }
   }
+
+  public static shutdown(): void {
+    SharpSubprocess.shutdown();
+  }
 }
+

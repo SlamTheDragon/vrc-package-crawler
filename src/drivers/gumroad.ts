@@ -4,6 +4,7 @@ import { db, type EntityRecord } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
 import { RelevanceFilter } from "../filter.ts";
 import { CuratedDriver } from "./curated.ts";
+import { cleanTitle, cleanAuthorName, cleanDescription } from "../utils/sanitizer.ts";
 
 export class GumroadDriver {
   private static isAborted = false;
@@ -52,7 +53,7 @@ export class GumroadDriver {
         }
       });
 
-      if (resp.status === 429) {
+      if (resp.status === 429 || resp.status === 403) {
         rateLimiter.handleRateLimit(key, resp);
         return { productsCount: 0, sellersFound: [] };
       }
@@ -109,8 +110,8 @@ export class GumroadDriver {
           id: `gumroad:${permalink}`,
           platform: "gumroad",
           url: cleanUrl,
-          title: p.name || `Tool ${permalink}`,
-          author: sellerName,
+          title: cleanTitle(p.name || `Tool ${permalink}`),
+          author: cleanAuthorName(sellerName),
           price_currency: p.currency_code ? p.currency_code.toUpperCase() : "USD",
           price_amount: p.price_cents ? p.price_cents / 100 : 0,
           description: p.description || `${p.name} on Gumroad by ${sellerName}`,
@@ -165,7 +166,7 @@ export class GumroadDriver {
         }
       });
 
-      if (resp.status === 429) {
+      if (resp.status === 429 || resp.status === 403) {
         rateLimiter.handleRateLimit(key, resp);
         return false;
       }
@@ -233,7 +234,7 @@ export class GumroadDriver {
       }
 
       const title = ogTitleMatch ? ogTitleMatch[1].trim() : `Gumroad Product ${slug}`;
-      const desc = ogDescMatch ? ogDescMatch[1].trim() : "";
+      let desc = ogDescMatch ? ogDescMatch[1].trim() : "";
 
       // Extract external links (GitHub, BOOTH, Discord, VPM)
       const extLinks: string[] = [];
@@ -279,6 +280,14 @@ export class GumroadDriver {
             if (p.permalink) permalink = p.permalink;
             if (p.published_at) originCreatedAt = new Date(p.published_at).toISOString();
             if (p.updated_at) originUpdatedAt = new Date(p.updated_at).toISOString();
+            if (p.description_text || p.plain_description) {
+              const rich = (p.description_text || p.plain_description).trim();
+              if (rich.length > desc.length) desc = rich;
+            } else if (p.description_html || p.description) {
+              const rawHtmlDesc = p.description_html || p.description;
+              const rich = rawHtmlDesc.replace(/<br\s*\/?>/gi, "\n").replace(/<p[^>]*>/gi, "\n\n").replace(/<[^>]+>/g, " ").trim();
+              if (rich.length > desc.length) desc = rich;
+            }
             // thumbnail_url: the single preview image used in discovery search results
             if (p.thumbnail_url && typeof p.thumbnail_url === "string") {
               thumbnailUrl = thumbnailUrl || p.thumbnail_url;
@@ -351,9 +360,9 @@ export class GumroadDriver {
         id: entityId,
         platform: "gumroad",
         url: finalUrl,
-        title: title,
-        author: creatorName,
-        description: desc,
+        title: cleanTitle(title),
+        author: cleanAuthorName(creatorName),
+        description: cleanDescription(desc),
         tags_json: JSON.stringify(["gumroad", "vrchat"]),
         external_links_json: JSON.stringify(extLinks),
         origin_created_at: originCreatedAt,
@@ -416,7 +425,7 @@ export class GumroadDriver {
         }
       });
 
-      if (resp.status === 429) {
+      if (resp.status === 429 || resp.status === 403) {
         rateLimiter.handleRateLimit(key, resp);
         return false;
       }
@@ -495,11 +504,11 @@ export class GumroadDriver {
             id: `gumroad:${permalink}`,
             platform: "gumroad",
             url: cleanUrl,
-            title: p.name || `Tool ${permalink}`,
-            author: creatorName,
+            title: cleanTitle(p.name || `Tool ${permalink}`),
+            author: cleanAuthorName(creatorName),
             price_currency: p.currency_code ? p.currency_code.toUpperCase() : "USD",
             price_amount: p.price_cents ? p.price_cents / 100 : 0,
-            description: p.description || `${p.name} on Gumroad by ${creatorName}`,
+            description: cleanDescription(p.description || `${p.name} on Gumroad by ${creatorName}`),
             tags_json: JSON.stringify(["gumroad", "vrchat"]),
             external_links_json: JSON.stringify([storeUrl]),
             origin_created_at: pCreated,
@@ -565,3 +574,4 @@ export class GumroadDriver {
     return queued;
   }
 }
+

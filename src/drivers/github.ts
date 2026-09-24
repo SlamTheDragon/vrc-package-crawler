@@ -3,6 +3,7 @@ import { logger } from "../logger.ts";
 import { db, type EntityRecord } from "../db.ts";
 import { RelevanceFilter, CREATOR_ALIASES } from "../filter.ts";
 import { IanaRegistry } from "../utils/iana.ts";
+import { cleanTitle, cleanAuthorName, cleanDescription, extractReadmeDescription } from "../utils/sanitizer.ts";
 
 export class GitHubDriver {
   private static isAborted = false;
@@ -79,8 +80,8 @@ export class GitHubDriver {
             id: `github:${r.full_name}`,
             platform: "github",
             url: r.html_url,
-            title: r.name,
-            author: r.owner?.login || "Unknown",
+            title: cleanTitle(r.name),
+            author: cleanAuthorName(r.owner?.login || "Unknown"),
             description: r.description || "",
             tags_json: JSON.stringify(r.topics || []),
             external_links_json: JSON.stringify([r.homepage].filter(Boolean)),
@@ -205,16 +206,11 @@ export class GitHubDriver {
         if (readmeText) break;
       }
 
+      let readmeDesc = "";
       if (readmeText) {
-        if (!description) {
-          // First non-image, non-header paragraph of README as description
-          const firstPara = readmeText.split("\n\n").find((p) => {
-            const t = p.trim();
-            return t && !t.startsWith("#") && !t.startsWith("![") && !t.startsWith("<img") && !t.startsWith("[![");
-          });
-          if (firstPara) {
-            description = firstPara.trim().replace(/!\[.*?\]\(.*?\)/g, "").replace(/<[^>]+>/g, "").slice(0, 300);
-          }
+        readmeDesc = extractReadmeDescription(readmeText, description);
+        if (readmeDesc) {
+          description = readmeDesc;
         }
 
           // Harvest ecosystem keywords from README text if present
@@ -282,12 +278,14 @@ export class GitHubDriver {
           if (htmlResp.ok) {
             const html = await htmlResp.text();
             
-            // Try og:description meta tag first (most reliable description on GitHub)
-            if (!description) {
-              const ogMatch = html.match(/<meta\s+(?:property|name)=["'](?:og:description|description)["']\s+content=["'](.*?)["']/i);
-              if (ogMatch) {
-                const cleanOg = ogMatch[1].replace(/\s*-\s*[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "").trim();
-                if (cleanOg && !cleanOg.startsWith("GitHub -")) {
+            // Try og:description meta tag (reliable description on GitHub)
+            const ogMatch = html.match(/<meta\s+(?:property|name)=["'](?:og:description|description)["']\s+content=["'](.*?)["']/i);
+            if (ogMatch) {
+              const cleanOg = ogMatch[1].replace(/\s*-\s*[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "").trim();
+              if (cleanOg && !cleanOg.startsWith("GitHub -")) {
+                if (readmeText) {
+                  description = extractReadmeDescription(readmeText, cleanOg);
+                } else if (!description) {
                   description = cleanOg;
                 }
               }
@@ -354,7 +352,13 @@ export class GitHubDriver {
             const apiData = (await apiResp.json()) as any;
             if (apiData.created_at) originCreatedAt = apiData.created_at;
             if (apiData.pushed_at || apiData.updated_at) originUpdatedAt = apiData.pushed_at || apiData.updated_at;
-            if (!description && apiData.description) description = apiData.description;
+            if (apiData.description) {
+              if (readmeText) {
+                description = extractReadmeDescription(readmeText, apiData.description);
+              } else if (!description) {
+                description = apiData.description;
+              }
+            }
             if (apiData.topics && Array.isArray(apiData.topics)) {
               for (const tp of apiData.topics) {
                 if (!tags.includes(tp)) tags.push(tp);
@@ -409,9 +413,9 @@ export class GitHubDriver {
         id: `github:${owner}/${repo}`,
         platform: "github",
         url: `https://github.com/${owner}/${repo}`,
-        title: title,
-        author: author,
-        description: description,
+        title: cleanTitle(title),
+        author: cleanAuthorName(author),
+        description: cleanDescription(description),
         tags_json: JSON.stringify(tags),
         external_links_json: JSON.stringify(extLinks),
         origin_created_at: originCreatedAt,
@@ -420,6 +424,7 @@ export class GitHubDriver {
           owner,
           repo,
           readmeLength: readmeText.length,
+          readmeExcerpt: readmeDesc ? readmeDesc.slice(0, 500) : undefined,
           hasReleaseAssets,
           latestReleaseAsset,
           etag: rawEtag,
@@ -548,8 +553,8 @@ export class GitHubDriver {
             id: `github:${r.full_name}`,
             platform: "github",
             url: repoUrl,
-            title: r.name,
-            author: r.owner?.login || creator,
+            title: cleanTitle(r.name),
+            author: cleanAuthorName(r.owner?.login || creator),
             description: r.description || "",
             tags_json: JSON.stringify(r.topics || []),
             external_links_json: JSON.stringify([r.homepage].filter(Boolean)),

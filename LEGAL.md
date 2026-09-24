@@ -1,6 +1,6 @@
 # Legal Notices, Operational Covenants, and Terms of Service
 
-**Document Version: 1.1 (Calibrated Public Draft)**  
+**Document Version: 1.0 (Calibrated Public Draft)**  
 **Effective Date:** September 24, 2026  
 **Governing Law:** Substantive Laws of the Republic of the Philippines  
 **Judicial Forum:** Courts of the Republic of the Philippines  
@@ -244,9 +244,9 @@ API and catalog access terms are conditions of access and redistribution for Pro
 
 Architectural specifications call for Maintainer-controlled API endpoints and production deployments to configure technical notice through HTTP response headers:
 ```http
-X-Catalog-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md
-X-Catalog-Terms-Version: 1.1
-X-Catalog-Terms-Digest: <sha256-digest>
+VRC-Packages-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md
+VRC-Packages-Catalog-Terms-Version: 1.1
+VRC-Packages-Catalog-Terms-Digest: <sha256-digest>
 ```
 Where a downstream party redistributes Project-controlled catalog data, the applicable redistribution terms are intended to accompany that distribution. The enforceability of particular contractual restrictions depends on applicable law, notice, assent, and the circumstances of the transaction. Downstream consumers who do not assent to these terms are requested not to access, query, or redistribute Maintainer-controlled catalog outputs.
 
