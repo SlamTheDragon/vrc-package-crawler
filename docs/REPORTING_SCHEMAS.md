@@ -76,7 +76,8 @@ Downstream tools sync tool changes incrementally. This schema gives cursor-based
               "media": {
                 "type": "object",
                 "properties": {
-                  "thumbnailUrl": { "type": "string", "format": "uri" },
+                  "thumbnailUrl": { "type": "string", "format": "uri", "description": "Direct origin CDN URL or fallback proxy" },
+                  "sourceUrl": { "type": "string", "format": "uri", "description": "Authoritative origin CDN media URL" },
                   "blurhash": { "type": "string" }
                 }
               }
@@ -395,3 +396,80 @@ export function validateReport(schema: object, data: unknown): { valid: boolean;
   return { valid, errors: validate.errors };
 }
 ```
+
+---
+
+## 8. Schema 6: Rights-Holder Automated Opt-Out Request (`POST /v1/opt-out`)
+
+Unauthenticated automated endpoint allowing authors and rights holders to request exclusion of their packages from the catalog via machine-verifiable non-scraping technical proofs.
+
+### Rate Limiting & Abuse Prevention
+- Enforces strict sliding-window rate limit of 5 requests per minute per IP.
+- Enforces SSRF and DNS rebinding protections (rejection of loopback, private, link-local, and reserved IPv4/IPv6 ranges).
+- Storefront URL host whitelisting strictly limited to authorized domains (`booth.pm`, `gumroad.com`, `jinxxy.com`).
+
+### Request Schema
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OptOutRequest",
+  "type": "object",
+  "required": ["vendorId", "proofType", "proofValue"],
+  "properties": {
+    "vendorId": {
+      "type": "string",
+      "description": "Creator name, store handle, or vendor identifier matching catalog author"
+    },
+    "proofType": {
+      "type": "string",
+      "enum": ["dns_txt", "storefront_bio_token", "signed_commit"],
+      "description": "Verification mechanism used"
+    },
+    "proofValue": {
+      "type": "string",
+      "description": "For dns_txt: apex domain. For storefront_bio_token: expected token. For signed_commit: JSON payload with publicKey and signature."
+    },
+    "storefrontUrl": {
+      "type": "string",
+      "format": "uri",
+      "description": "Required when proofType is storefront_bio_token. Must be HTTPS URL on booth.pm, gumroad.com, or jinxxy.com."
+    }
+  }
+}
+```
+
+### Response Schema (200 OK)
+```json
+{
+  "success": true,
+  "vendorId": "AuthorName",
+  "proofType": "storefront_bio_token",
+  "status": "opted_out",
+  "packagesDelisted": 3,
+  "message": "Opt-out verified successfully. Matching packages delisted from canonical index."
+}
+```
+
+---
+
+## 9. Endpoint: Ephemeral In-Memory Streaming Proxy (`GET /v1/media/stream`)
+
+On-demand streaming conduit for downstream clients encountering origin CDN hotlink blocks or `Referer` restrictions without violating copyright reproduction rights under the Server Test.
+
+### Request Specification
+- **Method**: `GET`
+- **Path**: `/v1/media/stream?url=<encoded_origin_url>`
+- **Query Parameter `url`**: Fully qualified HTTPS URL pointing to whitelisted CDN host (`*.pximg.net`, `*.gumroad.com`, `*.jinxxy.com`, `raw.githubusercontent.com`, `*.itch.zone`).
+
+### Operational Guarantees & Headers
+- **Zero Disk/BLOB Persistence**: Streams and transcodes image payloads purely in volatile RAM; zero writes to local SQLite or cloud R2 storage.
+- **SSRF Prevention**: All origin hostnames resolve and validate against private/reserved IP blocks prior to HTTP request dispatch.
+- **Client Caching**: Sets `Cache-Control: private, max-age=86400, stale-while-revalidate=3600` so caching occurs exclusively on downstream client devices.
+- **Response Headers**:
+  ```http
+  Content-Type: image/webp
+  Cache-Control: private, max-age=86400, stale-while-revalidate=3600
+  X-Content-Type-Options: nosniff
+  VRC-Packages-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md
+  ```
+

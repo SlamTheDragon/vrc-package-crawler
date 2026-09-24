@@ -1,7 +1,7 @@
 # VRChat Package Crawler: Production Deployment Runbook & SRE Guide
 
 **Target Audience:** Site Reliability Engineers (SRE), Infrastructure Delegates, and Systems Operators  
-**Revision:** Phase 2 Complete (Production Deployment, Supervisor Management & Edge Distribution)  
+**Revision:** Phase 3 Complete (Production Deployment, Supervisor Management, Ephemeral Media Streaming & Edge Distribution)  
 **Binary Distribution:** Standalone Single-File Native Executables (`dist/`)  
 
 ---
@@ -106,7 +106,7 @@ GITHUB_TOKEN=ghp_your_github_personal_access_token_here
 CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
 CLOUDFLARE_API_TOKEN=your_cloudflare_api_token
 CLOUDFLARE_D1_DATABASE_ID=your_d1_database_uuid
-CLOUDFLARE_R2_BUCKET_NAME=vrc-catalog-media
+# (CLOUDFLARE_R2_BUCKET_NAME is deprecated; pure media pointer architecture streams via memory)
 
 # Path Overrides (Defaults resolve to dist/ if unset)
 CRAWLER_DB_PATH=dist/crawler_state.db
@@ -267,16 +267,23 @@ Operators will configure cache and security rules in the Cloudflare dashboard.
 | Rule Name | Expression | Edge Cache TTL | Browser TTL | Settings |
 |---|---|---|---|---|
 | Rule 1: Media Proxy | `http.request.uri.path starts_with "/v1/media/"` | 30 Days | 30 Days | Cache Everything, Ignore Query String |
-| Rule 2: VPM Manifest | `http.request.uri.path eq "/v1/vpm/index.json"` | 10 Minutes | 5 Minutes | Cache Everything, Respect Origin, SWR 60s |
-| Rule 3: Feed Delta | `http.request.uri.path eq "/v1/catalog/delta"` | 1 Minute | 30 Seconds | Cache by Query String (`cursor`, `limit`) |
-| Rule 4: Reports Bypass | `http.request.uri.path eq "/v1/reports"` | Bypass | Bypass | Bypass Cache, Direct to Origin |
-| Rule 5: Health Check | `http.request.uri.path eq "/v1/health"` | Bypass | Bypass | Bypass Cache |
+| Rule 2: Media Stream | `http.request.uri.path eq "/v1/media/stream"` | Bypass / Private | 1 Day | Pass-through (private client caching only) |
+| Rule 3: VPM Manifest | `http.request.uri.path eq "/v1/vpm/index.json"` | 10 Minutes | 5 Minutes | Cache Everything, Respect Origin, SWR 60s |
+| Rule 4: Feed Delta | `http.request.uri.path eq "/v1/catalog/delta"` | 1 Minute | 30 Seconds | Cache by Query String (`cursor`, `limit`) |
+| Rule 5: Reports Bypass | `http.request.uri.path eq "/v1/reports"` | Bypass | Bypass | Bypass Cache, Direct to Origin |
+| Rule 6: Opt-Out Bypass | `http.request.uri.path eq "/v1/opt-out"` | Bypass | Bypass | Bypass Cache, Direct to Origin |
+| Rule 7: Health Check | `http.request.uri.path eq "/v1/health"` | Bypass | Bypass | Bypass Cache |
 
 ### 6.2 WAF Rate Limiting (`Security -> WAF -> Rate Limiting`)
 
 - **Rule Name:** `Schema 4 Ingestion Throttling`
 - **Condition:** `http.request.uri.path eq "/v1/reports" and http.request.method eq "POST"`
 - **Rate Limit:** 10 requests per 1 minute per IP.
+- **Action:** Block with HTTP 429 response.
+
+- **Rule Name:** `Automated Opt-Out Throttling`
+- **Condition:** `http.request.uri.path eq "/v1/opt-out" and http.request.method eq "POST"`
+- **Rate Limit:** 5 requests per 1 minute per IP.
 - **Action:** Block with HTTP 429 response.
 
 ---
@@ -292,9 +299,9 @@ Run edge sync every 4 hours:
 ```
 
 ### Watermark Recovery After Table Rebuilds
-The canonical projection engine runs `DELETE FROM canonical_packages` during full rebuilds. This resets SQLite rowids to 1.
+The canonical projection engine runs `DELETE FROM canonical_packages` during full rebuilds, generating a fresh `projection_epoch` in `catalog_metadata`.
 
-If the rebuilt table contains more rows than the previous high-watermark, `vrc-sync` will skip rows 1 through the watermark. Operators must run a forced watermark reset:
+`vrc-sync` autonomously detects when `projection_epoch` in `sync_checkpoints` diverges from `catalog_metadata`, automatically realigning the high-watermark to 0 to prevent silent row omission. Operators can also force an immediate manual watermark reset:
 
 ```bash
 /opt/vrc-catalog/dist/vrc-sync --reset-watermark
@@ -307,10 +314,11 @@ Verify watermark alignment between local SQLite and remote Cloudflare D1:
 -- Check local maximum rowid in SQLite:
 SELECT MAX(rowid) AS local_max_rowid FROM canonical_packages;
 
--- Check recorded checkpoint for Cloudflare D1:
-SELECT checkpoint_value, updated_at 
+-- Check recorded checkpoint and projection epoch for Cloudflare D1:
+SELECT last_synced_rowid, projection_epoch, synced_at, status 
 FROM sync_checkpoints 
-WHERE checkpoint_key = 'cloudflare_d1_canonical_packages';
+WHERE sync_target = 'cloudflare_d1' 
+ORDER BY id DESC LIMIT 1;
 ```
 
 If `checkpoint_value` exceeds `local_max_rowid`, reset the checkpoint to zero.
@@ -363,7 +371,7 @@ In v1.0, standalone manual scripts in `tools/` (`requeue_gumroad.ts`, `requeue_m
 Operators must never attempt to invoke scripts in `tools/`. All operations run through supervised binaries (`dist/vrc-crawler.exe`, `dist/vrc-monitor.exe`, `dist/vrc-sync.exe`).
 
 ### 8.4 Media Table Slimming & Pure Origin Pointer Architecture
-Per `LEGAL.md` §7.2(c), the pipeline deprecates SQLite WebP BLOB storage (`media_cache.webp_data`), eliminating over 350 MB of database bloat. Both primary SQLite (`dist/crawler_state.db`), exported catalogs (`dist/vrc_catalog.db`), and Cloudflare D1 edge sync records carry direct origin URL arrays (`media_urls_json`), BlurHash strings, and 64-bit pHash digests without binary BLOB storage. The server media proxy (`GET /v1/media/:id`) issues HTTP 302 redirects directly to origin CDNs (*Perfect 10 v. Amazon* Server Test compliance).
+Per `LEGAL.md` §7.2(c), the pipeline deprecates SQLite WebP BLOB storage (`media_cache.webp_data`), eliminating over 350 MB of database bloat. Both primary SQLite (`dist/crawler_state.db`), exported catalogs (`dist/vrc_catalog.db`), and Cloudflare D1 edge sync records carry direct origin URL arrays (`media_urls_json`), BlurHash strings, and 64-bit pHash digests without binary BLOB storage (*Perfect 10 v. Amazon* Server Test compliance). For clients encountering origin CDN hotlink blocks or `Referer` restrictions, the server provides an on-demand ephemeral in-memory streaming proxy (`GET /v1/media/stream?url=...`) with zero disk storage and private client-side caching.
 
 ### 8.5 Version 0 Ground-Truth Policy & Dead Migration Removal
 This system is version 0. Deprecation shims, backward-compatibility type aliases, and automatic runtime table rename loops (`_v2` -> clean name) are permanently dropped. Delegates and operators are instructed to:

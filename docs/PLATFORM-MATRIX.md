@@ -38,7 +38,7 @@ The Project evaluates each target platform across five compliance dimensions:
 - **Contractual Status**: pixiv Master Terms Article 14 restricts unauthorized automated collection and server burden. Standard form contract rules apply under Japanese Civil Code Article 548-2.
 - **Statutory Copyright Position**: Japanese Copyright Act Article 30-4 permits data analysis. Article 47-5 permits minor exploitation for computerized information retrieval, on condition that it does not unreasonably prejudice the copyright owner.
 - **Contract vs Copyright Separation**: Statutory copyright exceptions do not create affirmative contractual licenses. The Project does not claim that Article 47-5 overrides private contract terms under Japanese law.
-- **Safeguards**: Conservative pacing (1.5s baseline, 0.8s to 5.0s adaptive), URL pointer prioritization, pending deprecation of local image caching, and prompt delisting upon objection.
+- **Safeguards**: Conservative pacing (1.5s baseline, 0.8s to 5.0s adaptive), pure origin URL pointer model (local WebP BLOB caching deprecated and purged), and prompt delisting upon objection.
 
 ### 2.3 Jinxxy (Jinxxy Technologies, LLC)
 - **Access Model**: Unauthenticated public storefront pages.
@@ -56,7 +56,7 @@ The Project evaluates each target platform across five compliance dimensions:
 ### 2.5 GitHub (GitHub, Inc. / Microsoft Corporation)
 - **Access Model**: Authenticated and unauthenticated public developer REST and GraphQL APIs.
 - **Contractual Status**: GitHub Acceptable Use Policy permits API consumption within documented rate limits.
-- **Project Position**: Follows developer terms. Planned support for conditional HTTP headers (`ETag`, `If-None-Match`) to minimize server load.
+- **Project Position**: Follows developer terms. Enforces active conditional HTTP headers (`ETag`, `If-None-Match`, `If-Modified-Since`) to minimize bandwidth and server load.
 - **Safeguards**: Exponential backoff on rate limits, zero scraping of private repositories.
 
 ### 2.6 VRCArena (Community Directory)

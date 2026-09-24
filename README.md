@@ -26,7 +26,7 @@ dist/vrc-server-linux         -- Linux headless REST API binary
 | Poisson Refresh Scheduler | The scheduler will re-crawl URLs based on observed change frequency. It will keep the index fresh during continuous operation. |
 | CQRS Observation Lake | The `entities` table will store raw crawl payloads immutably. Relevance status flags will quarantine items without deleting data. |
 | Canonical Projection Engine | The projection engine will run every 15 minutes. It will synthesize `canonical_packages` and `package_fronts` from raw entities. |
-| WebP Image Proxy Pipeline | The pipeline will download, transcode, and store low-resolution thumbnails (480x270). It will compute BlurHash and 64-bit pHash. |
+| Pure Media & Streaming Proxy | The system returns direct origin CDN URLs by default and provides an ephemeral in-memory streaming proxy (`GET /v1/media/stream`) with zero local BLOB storage. It computes BlurHash and 64-bit pHash. |
 | Loopback IPC Control | The crawler daemon will listen on `127.0.0.1:8765`. It will accept `/stop`, `/recrawl`, `/project`, `/sync`, and `/steering` commands. |
 | Interactive Monitor CLI | The `vrc-monitor.exe` binary will dispatch IPC commands to the daemon. It will display real-time terminal metrics. |
 | Cloudflare Edge Sync | The `vrc-sync.exe` utility will push incremental deltas to Cloudflare D1. It will fall back to local backup deltas if offline. |
@@ -41,7 +41,7 @@ The primary database will reside at `dist/crawler_state.db`. The system will cre
 - `entities`: Immutable raw observation lake across all platforms.
 - `canonical_packages`: Deduplicated catalog projections with lifecycle and confidence tracking.
 - `package_fronts`: Per-platform storefront mappings (BOOTH, GitHub, Gumroad, Jinxxy, Itch).
-- `media_cache`: Proxied low-resolution WebP image metadata, BlurHash, and 64-bit pHash.
+- `media_cache`: Pure origin media metadata, source URLs, BlurHash, and 64-bit pHash (zero local BLOBs).
 - `curator_overrides`: Persistent community and author overrides surviving projection rebuilds.
 - `user_reports`: Inbound user feedback and steering reports (Schema 4).
 - `search_patterns`: Closed-loop dynamic discovery query seeds and negative filter tokens.
@@ -80,7 +80,7 @@ vrc-package-crawler/
     EDGE_SYNC_AND_SCALE_GUIDE.md Cloudflare edge synchronization guide
     OPERATIONS_AND_CHECKLIST.md Operational checklists and verification
     topics/                   Technical deep-dive topics
-  tests/                      Bun test suites (39 passing tests across 12 files)
+  tests/                      Bun test suites (65 passing tests across 16 files)
   dist/                       Isolated runtime environment (gitignored)
     vrc-crawler.exe           Background daemon binary (Windows)
     vrc-monitor.exe           Console monitor & CLI binary (Windows)
@@ -179,11 +179,20 @@ Interactive monitor hotkeys:
 
 ### Run Headless API Server
 
-The headless API server will serve Schemas 1, 2, and 4:
+The headless API server serves Schemas 1, 2, 4, 6, and ephemeral streaming:
 
 ```powershell
 dist\vrc-server.exe --port 8080 --host 127.0.0.1
 ```
+
+Primary Gateway Endpoints:
+- `GET /`: API Home and capability discovery document.
+- `GET /v1/health`: Server uptime, memory metrics, and catalog counts.
+- `GET /v1/catalog/delta`: Schema 1 cursor-paginated delta stream with direct origin media pointers.
+- `GET /v1/vpm/index.json`: Schema 2 native VCC / ALCOM community repository manifest.
+- `POST /v1/reports`: Ingests Schema 4 community steering reports (requires `API_SECRET_TOKEN` bearer auth).
+- `POST /v1/opt-out`: Schema 6 automated creator opt-out (supports storefront bio tokens, DNS TXT, and signed commits).
+- `GET /v1/media/stream`: Ephemeral in-memory WebP streaming proxy for hotlink/Referer blocked storefronts.
 
 Set `API_SECRET_TOKEN` in `.env` to protect administrative endpoints and report processing.
 
@@ -242,7 +251,7 @@ Output will write to `vrc_catalog.db` in the working directory.
    ```powershell
    bun test
    ```
-   The ground-truth test suite contains 57 passing tests across 12 files (276 assertions).
+   The ground-truth test suite contains 65 passing tests across 16 files (306 assertions).
 
 2. Check TypeScript types without emitting:
    ```powershell
@@ -260,6 +269,7 @@ External applications will integrate with the crawler through standardized schem
 - **Schema 3**: End-User Project Dependency Audit Report.
 - **Schema 4**: Upstream User Steering Report (curator overrides, delisting flags, negative tokens).
 - **Schema 5**: Downstream Interaction and Search Telemetry (clicks, bookmarks, queries).
+- **Schema 6**: Rights-Holder Automated Opt-Out Request (`POST /v1/opt-out`).
 
 ---
 

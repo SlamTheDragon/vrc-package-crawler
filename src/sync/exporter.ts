@@ -132,9 +132,9 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
       ('export_epoch', strftime('%s', 'now'));
   `);
 
-  // Stream canonical_packages in chunks
+  // Stream canonical_packages in chunks (excluding delisted & DMCA-removed packages per LEGAL.md §9.5)
   const srcDb = sourceDb || db.rawDb;
-  const packages = srcDb.query("SELECT * FROM canonical_packages;").all() as any[];
+  const packages = srcDb.query("SELECT * FROM canonical_packages WHERE lifecycle NOT IN ('delisted', 'dmca_removed');").all() as any[];
   logger.info(`[Exporter] Copying ${packages.length} canonical packages...`);
 
   const insertPkg = catDb.prepare(`
@@ -169,8 +169,13 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
     }
   })();
 
-  // Stream package_fronts
-  const fronts = srcDb.query("SELECT * FROM package_fronts;").all() as any[];
+  // Stream package_fronts (only for published/active canonical packages)
+  const fronts = srcDb.query(`
+    SELECT pf.*
+    FROM package_fronts pf
+    JOIN canonical_packages cp ON pf.canonical_id = cp.canonical_id
+    WHERE cp.lifecycle NOT IN ('delisted', 'dmca_removed');
+  `).all() as any[];
   logger.info(`[Exporter] Copying ${fronts.length} storefront records...`);
 
   const insertFront = catDb.prepare(`
@@ -224,6 +229,8 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
   logger.info(`[Exporter] Export successful! Catalog ready at: ${fullTargetPath} (${sizeMb} MB, ${packages.length} packages pre-indexed with FTS5).`);
   return fullTargetPath;
 }
+
+export const exportCatalog = (customOut?: string, sourceDb?: Database) => runDatabaseExport("catalog", customOut, sourceDb);
 
 if (import.meta.main) {
   const mode = process.argv.includes("--lake") ? "lake" : "catalog";

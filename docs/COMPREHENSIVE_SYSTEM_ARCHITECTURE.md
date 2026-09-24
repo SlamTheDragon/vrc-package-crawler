@@ -53,7 +53,8 @@ The database layer will run on a unified schema. All 10 tables will operate unde
 | `curator_overrides` | Persistent User Steering | Community corrections (name_override, descriptions, categories, tags) surviving pipeline rebuilds |
 | `user_reports` | Ingested Feedback Buffer | Schema 4 branched feedback submissions awaiting autonomous steering ingestion |
 | `search_patterns` | Closed-Loop Query Weights | Dynamic negative tokens, boost or suppress rules, and priority seed queues |
-| `sync_checkpoints` | Edge Synchronization State | High-watermark tracking for incremental synchronization to Cloudflare D1 and R2 |
+| `sync_checkpoints` | Edge Synchronization State | High-watermark and projection epoch tracking for incremental synchronization to Cloudflare D1 |
+| `catalog_metadata` | Terms & Epoch State | Downstream terms notice, export metadata, and deterministic projection epoch tracking |
 
 ```mermaid
 erDiagram
@@ -120,9 +121,8 @@ Entries will be audited regularly to capture:
 flowchart LR
     subgraph Egress ["Egress Conduit (Every 4 Hours)"]
         CP["canonical_packages"] --> Sync["sync.ts (runEdgeSync)"]
-        Sync --> D1["Cloudflare D1 Database"]
-        Sync --> R2["Cloudflare R2 Bucket"]
-        Sync --> CP_Check["sync_checkpoints (High-Watermark)"]
+        Sync --> D1["Cloudflare D1 Database (Pure Pointers)"]
+        Sync --> CP_Check["sync_checkpoints (Watermark & Epoch)"]
     end
 
     subgraph Ingress ["Ingress Conduit (Every 30 Minutes)"]
@@ -149,10 +149,11 @@ Community feedback will operate via **Schema 4** branched reports:
 
 ### 5.2 Egress: Periodic Cloudflare Edge Sync
 Every 4 hours (or via IPC `/sync`), the engine will push canonical updates to Cloudflare D1:
-1. **High-Watermark Tracking**: Reads `last_synced_rowid` from `sync_checkpoints`.
-2. **Incremental Extraction**: Queries rows where `rowid > watermark`.
-3. **Edge Shipping**: Batches records into Cloudflare D1 SQL queries.
-4. **Watermark Reset**: When projections are rebuilt from scratch, `vrc-sync --reset-watermark` will reset the checkpoint to 0 to prevent data omission.
+1. **High-Watermark & Epoch Tracking**: Reads `last_synced_rowid` and `projection_epoch` from `sync_checkpoints`.
+2. **Epoch Realignment**: Automatically detects projection rebuilds when `projection_epoch` changes, resetting the watermark to 0 to prevent silent row omission.
+3. **Incremental Extraction**: Queries rows where `rowid > watermark`.
+4. **Edge Shipping**: Batches records into Cloudflare D1 SQL queries.
+5. **Watermark Reset**: Operators may manually trigger `vrc-sync --reset-watermark` to reset the checkpoint to 0.
 
 ---
 
@@ -186,16 +187,15 @@ To merge storefronts across platforms into a single canonical package:
 
 ### 7.1 Media Processing and Legal Posture
 Direct hotlinking of images from storefront CDNs strains creator bandwidth:
-- **United States Fair Use and Server Test Doctrines**: *Kelly v. Arriba Soft Corp.* (336 F.3d 811) held under specific facts that search thumbnails were transformative fair use, and *Perfect 10 v. Amazon.com* (508 F.3d 1146) adopted the Server Test. However, other courts have rejected the Server Test (*Goldman*, *Nicklen*), creating jurisdictional uncertainty for media display.
-- **Japanese Copyright Act Art. 47-5**: Recognizes a statutory exception for minor exploitation incidental to computerized information retrieval, on condition that use does not unreasonably prejudice the copyright owner. It does not confer an affirmative contractual license against platform terms.
+- **United States Fair Use and Server Test Doctrines**: *Kelly v. Arriba Soft Corp.* (336 F.3d 811) held under specific facts that search thumbnails were transformative fair use, and *Perfect 10 v. Amazon.com* (508 F.3d 1146) adopted the Server Test. Direct origin pointers serve as the canonical default.
+- **Japanese Copyright Act Art. 47-5**: Recognizes a statutory exception for minor exploitation incidental to computerized information retrieval, on condition that use does not unreasonably prejudice the copyright owner.
 
-### 7.2 Media Processing Standards
-The `ImageProxyService` executes an automated pipeline:
-1. **Transcoding**: Downscales images to low-resolution WebP format ($480 \times 270$ resolution, quality 75).
-2. **BlurHash Generation**: Calculates RFC-compliant BlurHash strings from a $32 \times 32$ RGB grid for client progressive loading.
-3. **64-bit DCT Perceptual Hashing (pHash)**: Computes a 16-character hexadecimal hash from a $32 \times 32$ discrete cosine transform to detect visual duplicates.
-4. **Local Headless Serving**: Serves cached WebP thumbnails via `GET /v1/media/:id`.
-5. **Architectural Direction**: Deprecation of persistent SQLite BLOB caching in favor of ephemeral in-memory proxying and direct URL pointers is tracked in AGENT.md CR-19/CR-21.
+### 7.2 Pure Media Pointer Migration & Ephemeral Streaming Proxy
+Under the Task 3.2 pure pointer migration, persistent SQLite image caching (`media_cache.webp_data`) is permanently purged:
+1. **Zero Disk/BLOB Persistence**: `media_cache` stores only non-expressive visual metadata (`blurhash`, 64-bit `phash_64`, dimensions, and `source_url`). Zero image BLOBs exist in SQLite or Cloudflare R2.
+2. **Direct Origin URLs by Default**: Catalog delta feeds (`GET /v1/catalog/delta`) and VCC feeds return direct origin CDN links.
+3. **Ephemeral In-Memory Streaming Proxy (`GET /v1/media/stream?url=<origin_url>`)**: For downstream clients blocked by upstream CDN `Referer` restrictions or hotlink perimeters, the API gateway transcodes and pipes WebP buffers on-the-fly strictly in volatile RAM, returning `Cache-Control: private, max-age=86400`.
+4. **SSRF Guard & Host Whitelisting**: Strict regex verification restricts stream targets to authorized origin CDNs (`pximg.net`, `gumroad.com`, `jinxxy.com`, `raw.githubusercontent.com`, `itch.zone`), rejecting loopback and internal private IP blocks.
 
 ---
 
@@ -208,11 +208,12 @@ The `ImageProxyService` executes an automated pipeline:
 | **Canonical Creator Routing** | `sanitizeOutboundUrl` strips tracking tokens; outbound links route directly to artist. | **Implemented (URL Sanitizer)** |
 | **Polite Crawling & RFC 9309** | `robotsEnforcer` evaluates full RFC 9309 rules, token priority, and longest match. | **Implemented (RFC 9309)** |
 | **Adaptive AIMD Rate Limiting** | Dynamic additive increase, multiplicative decrease per storefront domain. | **Implemented (AIMD Limiter)** |
-| **Creator Delisting Pathways** | Verified non-scraping takedown engine in `creator_opt_outs` with voluntary target. | **Implemented (Opt-Out Engine)** |
-| **Media Processing & Hashing** | Independent $480 \times 270$ WebP thumbnails with BlurHash and 64-bit pHash. | **Implemented (Local Cache; Deprecation Queued)** |
-| **Headless Discovery Gateway** | Schemas 1 (Delta Stream), 2 (VCC Index), 4 (Reports), and `/media/:id`. Protected by `API_SECRET_TOKEN`. | **Implemented (REST Gateway)** |
+| **Creator Delisting Pathways** | Live automated `POST /v1/opt-out` supporting storefront bio tokens, DNS TXT, and signed commits. | **Implemented (Task 3.1)** |
+| **Media Processing & Hashing** | Pure origin pointers, BlurHash, pHash-64, and ephemeral in-memory proxy (`GET /v1/media/stream`). Zero SQLite BLOBs. | **Implemented (Task 3.2)** |
+| **Headless Discovery Gateway** | Schemas 1 (Delta), 2 (VCC Index), 4 (Reports), 6 (Opt-Out), and `/media/stream`. Bearer auth on reports. | **Implemented (REST Gateway)** |
 | **Continuous 24/7 Operation** | Workers loop indefinitely; saturation monitored without process termination. | **Implemented (Worker Loop)** |
 | **Crash & Interruption Recovery** | SQLite WAL truncation check, quick_check, and `resetStaleFetching` on boot. | **Implemented (WAL Integrity)** |
-| **Periodic 4h Edge Sync** | Incremental Cloudflare D1 and R2 push with high-watermark checkpointing. | **Implemented (Edge Sync)** |
+| **Periodic 4h Edge Sync** | Incremental Cloudflare D1 push with projection epoch tracking and watermark realignment. | **Implemented (Task 3.4)** |
 | **Pull-Based Steering** | Scheduled 30m pull and loopback IPC `/steering` trigger for community reports. | **Implemented (Steering Loop)** |
 | **Multi-Taxonomy Mapping** | Full community tag retention and empirical umbrella tag mappings. | **Implemented (Taxonomy Engine)** |
+

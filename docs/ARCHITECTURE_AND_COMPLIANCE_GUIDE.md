@@ -103,7 +103,7 @@ Online image ingestion and thumbnail display operate under distinct legal doctri
 - In the United States, *Kelly v. Arriba Soft Corp.* (336 F.3d 811) held under specific facts that low-resolution search thumbnails constituted transformative fair use[^13]. In *Perfect 10, Inc. v. Amazon.com, Inc.* (508 F.3d 1146), the Ninth Circuit adopted the Server Test for inline linking[^14]. However, the Server Test has been rejected in other jurisdictions (e.g., *Goldman v. Breitbart News Network*, 271 F. Supp. 3d 495; *Nicklen v. Sinclair Broadcast Group*, 551 F. Supp. 3d 188), and criticized in *Hunley v. Instagram, LLC* (73 F.4th 1060).
 - In Japan, Article 47-5 of the Copyright Act provides a statutory exception for minor exploitation incidental to computerized information retrieval, on condition that use does not unreasonably prejudice the copyright owner[^15]. However, statutory copyright exceptions do not create affirmative contractual licenses, and pixiv Master Terms Article 14 restricts automated data collection under Japanese Civil Code Article 548-2.
 
-The Project policy aims to serve direct source links to original creator media rather than rehosting images. This origin-pointer architecture eliminates server storage and aligns with display-rights jurisprudence. However, active code implementation currently lags behind this architecture. The crawler currently caches low-resolution WebP thumbnails in SQLite (`media_cache.webp_data`) while computing BlurHash and pHash-64 digests. The Maintainer treats local thumbnail storage as an operational risk under jurisdictions that reject the Server Test. The project roadmap and `TODO.md` track the deprecation of persistent image caching (CR-19 and CR-21) to complete the transition to direct origin URLs. Request pacing on `booth.pm` is configured with a 1.5-second baseline delay (0.8s to 5.0s adaptive).
+The Project operates a pure media pointer policy coupled with an ephemeral streaming proxy (`GET /v1/media/stream`), aligning with Ninth Circuit Server Test jurisprudence (*Perfect 10 v. Amazon*). The SQLite database schema permanently purges binary WebP BLOB storage (`media_cache.webp_data` is deleted), retaining only non-expressive visual metadata (BlurHash digests, 64-bit perceptual hashes, dimensions, and source CDN links). In-flight proxying for storefronts enforcing `Referer` restrictions processes WebP downscaling purely in volatile memory with zero disk or R2 persistence, enforcing private client-side caching (`Cache-Control: private, max-age=86400`). Request pacing on `booth.pm` is configured with a 1.5-second baseline delay (0.8s to 5.0s adaptive).
 
 ---
 
@@ -140,10 +140,10 @@ The Project policy strictly prohibits feeding harvested images or descriptions i
 
 ### Self-Service Delisting Verification Pathways
 Indexers supply creators with pathways to request removal of listings from canonical feeds:
-1. **The Bio-Token Scraping Limitation**: Scraper-based bio verification is inoperative because creator storefront profiles sit behind Cloudflare bot perimeters.
-2. **Non-Scraping Ownership Verification**: The platform supports secondary non-scraping verification paths. Creators can verify ownership via DNS TXT records, signed Git commits, or manual ticket fallbacks.
-3. **Dedicated Ingestion Endpoint**: The backend specifies an automated `POST /v1/opt-out` endpoint to record removal requests into `creator_opt_outs`.
-4. **Delisting Processing**: The database marks matching entities with `lifecycle = 'delisted'` and excludes them from canonical public index projection rows.
+1. **Automated Verification Endpoint (`POST /v1/opt-out`)**: The API Gateway exposes a dedicated endpoint allowing automated delisting verification without platform credentials.
+2. **Storefront Bio-Token Verification (`storefront_bio_token`)**: For creators on hosted platforms (BOOTH, Gumroad, Jinxxy) lacking custom domain control, creators place an ephemeral token (`#vrc-opt-out-<vendorId>`) in their public profile bio. The Gateway executes a single-shot, unauthenticated verification probe with strict SSRF protection, streams the body until the token matches, and discards buffers immediately without persistent storage.
+3. **Cryptographic & DNS Proofs**: Creators with custom domains or Git repositories verify ownership via domain DNS TXT records (`_vrc-opt-out.<domain>`) or signed cryptographic Git commit proofs.
+4. **Delisting Processing**: Upon verification, the database marks matching entities with `lifecycle = 'delisted'` in `canonical_packages` and excludes them from canonical public index projection rows and feeds.
 
 The Maintainer aims to process verified delisting requests within a voluntary 24 to 48 hour operational target.
 
@@ -171,7 +171,7 @@ $$\Delta \tau_{\text{host}} = \max(\text{min\_delay}, \text{retry\_after}) + \te
 For storefronts without explicit delay directives, baseline request delays range from 1,200 to 3,000 milliseconds depending on host configuration (e.g., 1,500 ms for BOOTH with adaptive backoff up to 5,000 ms, 3,000 ms for Gumroad, and 1,200 ms for Jinxxy).
 
 ### Adaptive Poisson Freshness and Conditional Headers
-The engine will maintain index freshness using a Poisson change model. The daemon will invoke `requeueStaleUrls()` on monitor loops. Transmitting conditional validation headers (`If-None-Match`, `If-Modified-Since`) represents a planned architectural optimization. On response completion, workers will call `adjustAfterFetch(url, isModified, etag, lastModifiedHeader)` to adapt revisit intervals. The engine will inspect HTML responses to avoid treating Cloudflare challenge pages (`HTTP 200`) as content updates.
+The engine maintains index freshness using a Cho-Garcia-Molina Poisson change model. The daemon invokes `requeueStaleUrls()` during monitor loops. Crawler drivers transmit conditional validation headers (`If-None-Match`, `If-Modified-Since`) using stored `etag` and `last_modified` metadata from the `frontier` table. On HTTP 304 Not Modified responses, workers skip body parsing and invoke `PoissonScheduler.adjustAfterFetch(url, false, etag, lastModified)` to expand re-crawl intervals via exponential backoff; modified items contract the interval. The engine inspects HTML responses to avoid treating Cloudflare challenge pages (`HTTP 200`) as content updates.
 
 ### RFC 9309 Robots Exclusion Protocol
 The crawler will check `/robots.txt` before fetching any URL path[^18]. The parser will honor all `Disallow` rules. It will skip user carts, checkout funnels, and private account pages.

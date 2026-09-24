@@ -9,7 +9,7 @@ This guide describes how the system will configure Cloudflare edge synchronizati
 | Operation Route | Data Target | Frequency | Recommended Tool | Network Overhead |
 | :--- | :--- | :--- | :--- | :--- |
 | Incremental Relational Sync | Cloudflare D1 | Every 15 min | `dist/vrc-sync.exe` | Low (< 50 KB / batch) |
-| WebP Thumbnail Upload | Cloudflare R2 | Hourly | `dist/vrc-sync.exe` | Medium (10-25 KB / image) |
+| Local Backup Conduit | Local JSON Dump | On CF Disconnect | `dist/vrc-sync.exe` | Zero network (Disk write) |
 | Offline Catalog Export | SQLite Client DB | Daily | `dist/vrc-monitor.exe export` | Zero (Local file generation) |
 | Lake Snapshot Dump | Snapshot Archive | Weekly | `bun run export -- --lake` | Zero (Local file generation) |
 
@@ -24,8 +24,8 @@ Set your Cloudflare credentials in `dist/.env`:
 CLOUDFLARE_ACCOUNT_ID=your_account_id_here
 CLOUDFLARE_API_TOKEN=your_api_token_here
 CLOUDFLARE_D1_DATABASE_ID=your_d1_database_uuid_here
-CLOUDFLARE_R2_BUCKET_NAME=vrc-catalog-thumbnails
 ```
+*(Note: Binary WebP thumbnail uploads to Cloudflare R2 have been deprecated under the Pure Media Pointer migration (Task 3.2). Edge distributions serve pure origin CDN URLs directly with zero binary object storage overhead).*
 
 ### Step 2: Test Synchronization in Dry-Run Mode
 Validate your configuration without writing remote data:
@@ -76,7 +76,31 @@ Add this line:
 
 ---
 
-## 3. Worker Operations and Process Control
+---
+
+## 3. Watermark Epoch Alignment & Recovery Mechanics (Task 3.4)
+
+### The Table-Rebuild Watermark Vulnerability
+In standard operation, `vrc-sync` tracks edge synchronization progress using SQLite auto-incrementing `rowid` values (`last_synced_rowid` in `sync_checkpoints`). However, when periodic catalog projection wipes and rebuilds `canonical_packages` (`DELETE FROM canonical_packages`), SQLite resets rowids back to 1. If the newly synthesized table contains more rows than the prior rebuild, naive watermark comparisons (`watermarkRowId > maxRowInDb`) fail to detect the wipe, causing rows `1..watermarkRowId` to be permanently skipped from syncing to Cloudflare D1.
+
+### Deterministic Epoch Tracking Solution
+To eliminate data loss, the system generates and persists a unique `projection_epoch` identifier (`epoch_<timestamp>_<rand>`) in `catalog_metadata` upon every projection completion.
+
+1. **Epoch Detection during Sync**: When `runEdgeSync` initializes, it queries the current `projection_epoch` and compares it to the `projection_epoch` recorded on the latest successful checkpoint in `sync_checkpoints`.
+2. **Automatic Watermark Realignment**: If an epoch change is detected (`currentEpoch !== lastCheckpoint.projection_epoch`), the synchronizer immediately logs a warning:
+   ```text
+   [WARN] [EdgeSync] Projection epoch change detected (epoch_old -> epoch_new). Watermark reset to 0 to prevent data omission.
+   ```
+   Watermark rowid resets to 0, ensuring all canonical packages in the new projection are comprehensively synchronized to Cloudflare D1 without manual intervention.
+3. **Manual CLI Override**: If operators need to force an immediate full re-sync from rowid 0, invoke:
+   ```powershell
+   .\dist\vrc-sync.exe --reset-watermark
+   # Or bun run sync -- --reset-watermark
+   ```
+
+---
+
+## 4. Worker Operations and Process Control
 
 Control the running crawler daemon using `vrc-monitor.exe`:
 
@@ -102,7 +126,7 @@ Control the running crawler daemon using `vrc-monitor.exe`:
 
 ---
 
-## 4. Diagnostics and Troubleshooting
+## 5. Diagnostics and Troubleshooting
 
 | Symptom | Root Cause | Resolution |
 | :--- | :--- | :--- |
@@ -111,11 +135,11 @@ Control the running crawler daemon using `vrc-monitor.exe`:
 | `Could not connect to crawler daemon on 127.0.0.1:8765` | Background crawler is not running | Start `dist/vrc-crawler.exe` before sending IPC signals. |
 | `EBUSY: resource busy or locked` | Multiple concurrent writers on database | Make sure `ProcessLock` is active. Only run one writer instance. |
 | `Stream exceeded 2MB socket guardrail` | Source URL points to binary zip or mesh | Expected safeguard. The socket aborts automatically. |
-| Edge sync skips newly rebuilt packages | Full-wipe projection reset SQLite rowids | Run `.\dist\vrc-sync.exe --reset-watermark` to reset high-watermark to 0. |
+| Edge sync skips newly rebuilt packages | Full-wipe projection reset SQLite rowids | Run `.\dist\vrc-sync.exe --reset-watermark` to reset high-watermark to 0 (or allow automatic epoch detection). |
 
 ---
 
-## 5. Technical Specifications and Architecture (Reference)
+## 6. Technical Specifications and Architecture (Reference)
 
 ### Multi-Node Scaling Path
 The crawler will run as a single-worker daemon per node. Scale horizontally by partitioning discovery domains across dedicated worker hosts:
@@ -138,16 +162,12 @@ flowchart TD
 
     subgraph "Cloudflare Edge Global Tier"
         D1[("Cloudflare D1 Database")]
-        R2[("Cloudflare R2 Object Storage")]
-        Worker["Cloudflare Workers API"]
+        Worker["Cloudflare Workers API (Pure Media Pointers)"]
     end
 
-    S1 -->|Batch Push| D1
-    S1 -->|Upload WebP| R2
-    S2 -->|Batch Push| D1
-    S2 -->|Upload WebP| R2
+    S1 -->|Batch Push Relational Deltas| D1
+    S2 -->|Batch Push Relational Deltas| D1
     D1 --> Worker
-    R2 --> Worker
 ```
 
 ### High-Watermark Verification Query
@@ -157,10 +177,11 @@ Verify watermark alignment between local SQLite and remote Cloudflare D1:
 -- Check local maximum rowid in SQLite:
 SELECT MAX(rowid) AS local_max_rowid FROM canonical_packages;
 
--- Check recorded checkpoint for Cloudflare D1:
-SELECT checkpoint_value, updated_at 
+-- Check recorded checkpoint and projection epoch for Cloudflare D1:
+SELECT last_synced_rowid, projection_epoch, synced_at, status 
 FROM sync_checkpoints 
-WHERE checkpoint_key = 'cloudflare_d1_canonical_packages';
+WHERE sync_target = 'cloudflare_d1' 
+ORDER BY id DESC LIMIT 1;
 ```
 
 ### Cloudflare D1 Table Schema DDL

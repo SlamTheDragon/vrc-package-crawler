@@ -13,8 +13,8 @@ The toolset will separate into dedicated source directories. Each directory will
 | `dist/vrc-crawler.exe` | `src/crawler/index.ts` | 24/7 background harvesting daemon. Acquires single-instance `ProcessLock`. Contains zero CLI subcommand parsing. |
 | `dist/vrc-crawler-linux` | `src/crawler/index.ts` | Headless Linux service binary. Cross-compiled for Linux server deployments. |
 | `dist/vrc-monitor.exe` | `src/monitor/index.ts` | Interactive terminal monitor and primary CLI control interface for the daemon. |
-| `dist/vrc-sync.exe` | `src/sync/index.ts` | High-watermark delta synchronizer for Cloudflare D1 and R2 media. |
-| `dist/vrc-server.exe` | `src/server/index.ts` | Headless REST API gateway serving Schemas 1, 2, and ingesting Schema 4 reports. |
+| `dist/vrc-sync.exe` | `src/sync/index.ts` | High-watermark delta synchronizer for Cloudflare D1 with projection epoch recovery. |
+| `dist/vrc-server.exe` | `src/server/index.ts` | Headless REST API gateway serving Schemas 1, 2, 4, 6, and ephemeral streaming proxy. |
 
 ### Auxiliary Operational Commands
 
@@ -77,7 +77,7 @@ Before starting 24/7 background crawling in production, complete this operationa
   CLOUDFLARE_ACCOUNT_ID=...                  # Optional for vrc-sync
   CLOUDFLARE_API_TOKEN=...
   CLOUDFLARE_D1_DATABASE_ID=...
-  CLOUDFLARE_R2_BUCKET_NAME=...
+  # (CLOUDFLARE_R2_BUCKET_NAME is deprecated under pure media pointer model)
   ```
 
 - [ ] **Check 5: Lock File Check**
@@ -159,7 +159,7 @@ bun run monitor [command] [options]
 
 ### 4.3 `dist/vrc-sync.exe` (Cloudflare Edge Synchronizer)
 
-The synchronizer will push incremental deltas to Cloudflare D1 and upload media thumbnails to R2.
+The synchronizer pushes incremental deltas to Cloudflare D1 or local backup JSONL conduits. Note that R2 media BLOB storage has been deprecated under the Phase 3 pure origin pointer model.
 
 **Syntax:**
 ```powershell
@@ -171,17 +171,17 @@ bun run sync [options]
 **Parameters & Flags:**
 - `--dry-run`: Validates batch payload structures without executing mutations to Cloudflare.
 - `--batch-size <N>`, `-b <N>`: Sets transaction batch size (default: `50`).
-- `--reset-watermark`: Resets high-watermark checkpoint to 0 and re-syncs the entire catalog.
+- `--reset-watermark`: Explicitly resets high-watermark checkpoint to 0 and re-syncs the entire catalog.
 - `--help`, `-h`: Displays sync CLI usage and required variables.
 
-**Watermark Recovery:**
-Full projection rebuilds execute `DELETE FROM canonical_packages`, which restarts SQLite rowids at 1. If the previous watermark exceeds the rebuilt row count, run `--reset-watermark` to prevent silent omission of rows.
+**Watermark Recovery & Projection Epoch Tracking:**
+Full projection rebuilds execute `DELETE FROM canonical_packages`, which restarts SQLite rowids at 1. Each projection rebuild automatically generates a unique `projection_epoch` stored in `catalog_metadata`. The synchronizer automatically detects epoch transitions against `sync_checkpoints` and resets watermarks without data omission. The `--reset-watermark` flag is also available for operator-forced reconciliations.
 
 ---
 
 ### 4.4 `dist/vrc-server.exe` (Headless REST Gateway)
 
-The HTTP server will provide discovery endpoints for community tools and client applications.
+The HTTP server provides discovery endpoints for community tools and client applications.
 
 **Syntax:**
 ```powershell
@@ -197,11 +197,13 @@ bun run server [options]
 - `--help`, `-h`: Displays server usage and endpoint reference.
 
 **API Endpoints:**
-- `GET /v1/health`: Server uptime, memory metrics, and catalog counts.
-- `GET /v1/catalog/delta`: Schema 1 cursor-paginated delta stream with SHA-256 validation digest.
+- `GET /`: API discovery index returning public endpoints, version, documentation, and licensing terms.
+- `GET /v1/health`: Server uptime, memory metrics, catalog counts, and sync status.
+- `GET /v1/catalog/delta`: Schema 1 cursor-paginated delta stream with SHA-256 validation digest and origin CDN media URLs.
 - `GET /v1/vpm/index.json`: Schema 2 VCC/ALCOM community repository manifest.
-- `GET /v1/media/:id`: Serves cached low-resolution WebP images.
-- `POST /v1/reports`: Ingests Schema 4 community steering reports. Requires `API_SECRET_TOKEN` authentication. Enforces rate limits (10 reports/min per IP).
+- `GET /v1/media/stream?url=<origin_url>`: Ephemeral in-memory streaming proxy for downstream clients facing storefront CDN `Referer`/hotlink blocks (zero disk storage, SSRF protected).
+- `POST /v1/opt-out`: Automated non-scraping rights-holder delisting endpoint supporting `storefront_bio_token`, `dns_txt`, and `signed_commit` with SSRF defense and rate limits.
+- `POST /v1/reports`: Ingests Schema 4 community steering reports into a `'needs_review'` quarantine buffer. Mandatory `Authorization: Bearer <API_SECRET_TOKEN>` required. Rate limited to 10 reports/min per IP.
 
 ---
 

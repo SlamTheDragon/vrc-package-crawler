@@ -30,6 +30,22 @@ The discovery engine will enforce three architectural rules on all discovered re
 - **VRCArena Policy:** The system will reject automated HTML DOM scraping against VRCArena. Ingestion will occur only through bilateral API federation with a strict toolchain whitelist.
 - **Avatar Cosmetics Policy:** Standalone cosmetics will remain excluded to prevent SimHash false merges. If added, cosmetics will require an isolated taxonomy tier with base avatar links.
 
+### Conditional Request Headers & Poisson Re-Crawl Mechanics (Task 3.3)
+All crawler drivers (BOOTH, GitHub, etc.) maintain stateful freshness metadata (`etag` and `last_modified`) in the `frontier` table and inject HTTP conditional request headers on subsequent re-crawls:
+- `If-None-Match: <stored_etag>`
+- `If-Modified-Since: <stored_last_modified>`
+
+**Poisson Scheduling Feedback Loop (Cho-Garcia-Molina Model):**
+When the upstream origin responds, the crawler executes `poissonScheduler.adjustAfterFetch(url, isModified, etag, lastModified)`:
+1. **Unmodified Resource (`HTTP 304 Not Modified`)**:
+   - The driver skips body streaming and DOM parsing completely.
+   - The re-crawl interval expands via exponential backoff: $I_{\text{next}} = \min(604800, I_{\text{current}} \times 1.5)$.
+   - `frontier.next_fetch_at` is pushed further into the future, saving server and target bandwidth.
+2. **Modified Resource (`HTTP 200 OK`)**:
+   - If changes are detected, the interval contracts to capture frequent releases: $I_{\text{next}} = \max(3600, \lfloor I_{\text{current}} / 1.5 \rfloor)$.
+   - Stored `etag` and `last_modified` headers update in the database.
+   - The entity is ingested or re-projected into canonical packages.
+
 ---
 
 ## 3. Relevance Scoring and Evaluation Rubric

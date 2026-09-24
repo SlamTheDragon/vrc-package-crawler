@@ -1,4 +1,4 @@
-import { db } from "../db.ts";
+import { db, type CrawlerDB } from "../db.ts";
 import { logger } from "../logger.ts";
 
 export class PoissonScheduler {
@@ -10,10 +10,11 @@ export class PoissonScheduler {
    * Evaluates URLs in the observation lake / frontier that have expired their
    * Poisson freshness window and re-enqueues them as 'pending'.
    */
-  public requeueStaleUrls(limit: number = 50): number {
+  public requeueStaleUrls(limit: number = 50, customDb?: CrawlerDB): number {
+    const targetDb = customDb || db;
     const now = new Date().toISOString();
     try {
-      const rows = db.query(`
+      const rows = targetDb.query(`
         SELECT url, platform, fetch_interval_sec, attempts
         FROM frontier
         WHERE (status = 'done' OR (status = 'failed' AND attempts < 5))
@@ -24,12 +25,12 @@ export class PoissonScheduler {
 
       if (rows.length === 0) return 0;
 
-      const updateStmt = db.prepare(`
+      const updateStmt = targetDb.prepare(`
         UPDATE frontier
         SET status = 'pending', updated_at = ?
         WHERE url = ?;
       `);
-      db.transaction(() => {
+      targetDb.rawDb.transaction(() => {
         for (const r of rows) {
           updateStmt.run(now, r.url);
         }
@@ -50,11 +51,13 @@ export class PoissonScheduler {
     url: string,
     isModified: boolean,
     etag?: string | null,
-    lastModifiedHeader?: string | null
-  ) {
+    lastModifiedHeader?: string | null,
+    customDb?: CrawlerDB
+  ): number {
+    const targetDb = customDb || db;
     const now = new Date().toISOString();
     try {
-      const row = db.query("SELECT fetch_interval_sec FROM frontier WHERE url = ?;").get(url) as any;
+      const row = targetDb.query("SELECT fetch_interval_sec FROM frontier WHERE url = ?;").get(url) as any;
       const currentInterval = row?.fetch_interval_sec || this.DEFAULT_INTERVAL_SEC;
 
       let nextInterval: number;
@@ -68,9 +71,11 @@ export class PoissonScheduler {
 
       const nextFetchAt = new Date(Date.now() + nextInterval * 1000).toISOString();
 
-      db.run(`
+      targetDb.run(`
         UPDATE frontier
         SET status = 'done',
+            attempts = attempts + 1,
+            failure_count = 0,
             etag = COALESCE(?, etag),
             last_modified = COALESCE(?, last_modified),
             fetch_interval_sec = ?,
@@ -79,8 +84,10 @@ export class PoissonScheduler {
             updated_at = ?
         WHERE url = ?;
       `, [etag, lastModifiedHeader, nextInterval, now, nextFetchAt, now, url]);
+      return nextInterval;
     } catch (err) {
       logger.error(`[PoissonScheduler] Failed to adjust schedule for ${url}`, err);
+      return this.DEFAULT_INTERVAL_SEC;
     }
   }
 }

@@ -1,6 +1,6 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
-import { db, type EntityRecord } from "../db.ts";
+import { db, type EntityRecord, type CrawlerDB } from "../db.ts";
 import { rateLimiter } from "../ratelimit.ts";
 import { RelevanceFilter } from "../filter.ts";
 import { CuratedDriver } from "./curated.ts";
@@ -100,26 +100,47 @@ export class BoothDriver {
   }
 
   // Scrapes an individual item page and extracts Schema.org JSON-LD with 404 alternative path fallback
-  static async crawlItemDetail(itemUrl: string): Promise<boolean> {
-    if (this.isAborted || db.isClosed) return false;
+  static async crawlItemDetail(
+    itemUrl: string,
+    customDb?: CrawlerDB,
+    etag?: string | null,
+    lastModified?: string | null
+  ): Promise<boolean | { success: boolean; notModified?: boolean; etag?: string | null; lastModified?: string | null }> {
+    const targetDb = customDb || db;
+    if (this.isAborted || targetDb.isClosed) return false;
     try {
       await rateLimiter.waitIfBackoff("booth");
       const delay = rateLimiter.getPacingDelayMs("booth", CONFIG.boothDelayMs);
       await this.sleep(delay);
-      if (this.isAborted || db.isClosed) return false;
+      if (this.isAborted || targetDb.isClosed) return false;
 
       let currentUrl = itemUrl;
+      const reqHeaders: Record<string, string> = {
+        "User-Agent": CONFIG.userAgent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8"
+      };
+      if (etag) reqHeaders["If-None-Match"] = etag;
+      if (lastModified) reqHeaders["If-Modified-Since"] = lastModified;
+
       let resp = await fetch(currentUrl, {
-        headers: {
-          "User-Agent": CONFIG.userAgent,
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "ja,en-US;q=0.9,en;q=0.8"
-        }
+        headers: reqHeaders
       });
 
       if (resp.status === 429 || resp.status === 403) {
         rateLimiter.handleRateLimit("booth", resp);
         return false;
+      }
+
+      if (resp.status === 304) {
+        logger.info(`[BOOTH] HTTP 304 Not Modified for ${currentUrl}`);
+        rateLimiter.handleSuccess("booth", CONFIG.boothDelayMs);
+        return {
+          success: true,
+          notModified: true,
+          etag: resp.headers.get("etag") || etag,
+          lastModified: resp.headers.get("last-modified") || lastModified
+        };
       }
 
       // 404 alternative path fallback: probe canonical /ja/, /en/, and root /items/
@@ -310,14 +331,21 @@ export class BoothDriver {
 
       const evalRes = RelevanceFilter.evaluate(record);
       if (evalRes.isRelevant) {
-        db.saveEntity(record);
+        targetDb.saveEntity(record);
         logger.info(`[BOOTH] Ingested: [${finalItemId}] ${title.slice(0, 50)} by ${author} (Score: ${evalRes.score}, Media: ${mediaUrls.length} imgs, ${youtubeUrls.length} vids)`);
       } else {
-        db.quarantineEntity(record.id, record.platform, record.url, record.title, record.author, evalRes.reasons, record);
+        targetDb.quarantineEntity(record.id, record.platform, record.url, record.title, record.author, evalRes.reasons, record);
         logger.info(`[BOOTH] Quarantined: [${finalItemId}] ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
       }
 
-      return true;
+      const respEtag = resp.headers.get("etag") || etag || null;
+      const respLastMod = resp.headers.get("last-modified") || lastModified || null;
+      return {
+        success: true,
+        notModified: false,
+        etag: respEtag,
+        lastModified: respLastMod
+      };
 
     } catch (e) {
       logger.error(`[BOOTH] Error processing item ${itemUrl}`, e);

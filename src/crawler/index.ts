@@ -21,8 +21,8 @@ let isRunning = true;
 let lastVpmSeedAt = 0;
 const VPM_RESEED_INTERVAL_MS = 7 * 86400 * 1000; // 7-day temporal staleness window (Task 1.5)
 
-function markCrawlSuccess(item: FrontierItem, etag?: string | null, lastModified?: string | null) {
-  poissonScheduler.adjustAfterFetch(item.url, true, etag || item.etag, lastModified || item.last_modified);
+function markCrawlSuccess(item: FrontierItem, isModified: boolean = true, etag?: string | null, lastModified?: string | null) {
+  poissonScheduler.adjustAfterFetch(item.url, isModified, etag || item.etag, lastModified || item.last_modified);
 }
 
 /**
@@ -292,14 +292,19 @@ async function runBoothWorker() {
             circuitBreaker.recordSuccess("booth.pm");
             markCrawlSuccess(item);
           } else {
-            const ok = await BoothDriver.crawlItemDetail(item.url);
+            const ok = await BoothDriver.crawlItemDetail(item.url, db, item.etag, item.last_modified);
             if (!isRunning) {
               db.markStatus(item.url, "pending");
             } else {
-              if (ok) {
+              const isObj = typeof ok === "object" && ok !== null;
+              const success = isObj ? ok.success : Boolean(ok);
+              if (success) {
+                const isNotModified = isObj && Boolean(ok.notModified);
+                const respEtag = isObj ? ok.etag : undefined;
+                const respLastMod = isObj ? ok.lastModified : undefined;
                 rateLimiter.recordSuccess("booth.pm", Date.now() - t0);
                 circuitBreaker.recordSuccess("booth.pm");
-                markCrawlSuccess(item);
+                markCrawlSuccess(item, !isNotModified, respEtag, respLastMod);
               } else {
                 rateLimiter.recordFailure("booth.pm", false);
                 circuitBreaker.recordFailure("booth.pm", 0, "Item detail crawl failed");
@@ -372,14 +377,19 @@ async function runGithubWorker() {
             circuitBreaker.recordSuccess("api.github.com");
             markCrawlSuccess(item);
           } else {
-            const ok = await GitHubDriver.crawlRepoDetail(item.url);
+            const ok = await GitHubDriver.crawlRepoDetail(item.url, db, item.etag, item.last_modified);
             if (!isRunning) {
               db.markStatus(item.url, "pending");
             } else {
-              if (ok) {
+              const isObj = typeof ok === "object" && ok !== null;
+              const success = isObj ? ok.success : Boolean(ok);
+              if (success) {
+                const isNotModified = isObj && Boolean(ok.notModified);
+                const respEtag = isObj ? ok.etag : undefined;
+                const respLastMod = isObj ? ok.lastModified : undefined;
                 rateLimiter.recordSuccess("api.github.com", Date.now() - t0);
                 circuitBreaker.recordSuccess("api.github.com");
-                markCrawlSuccess(item);
+                markCrawlSuccess(item, !isNotModified, respEtag, respLastMod);
               } else {
                 rateLimiter.recordFailure("api.github.com", false);
                 circuitBreaker.recordFailure("api.github.com", 0, "GitHub repo detail crawl failed");

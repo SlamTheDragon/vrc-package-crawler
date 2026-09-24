@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { CONFIG } from "../config.ts";
-import { db } from "../db.ts";
+import { db, type CrawlerDB } from "../db.ts";
 import { logger } from "../logger.ts";
 
 export interface SyncConfig {
@@ -53,7 +53,7 @@ Options:
   --dry-run               Validate payloads without network mutations or advancing checkpoints
   --batch-size, -b <N>    Batch size per transaction (default: 50)
   --backup-dir <dir>      Explicit local backup directory when Cloudflare is disconnected
-  --full, --reset         Reset high-watermark checkpoint and sync from beginning
+  --full, --reset, --reset-watermark  Reset high-watermark checkpoint and sync from beginning
   --drain, --all          Process all pending batches until up to date
   --help, -h              Show this help message
 
@@ -71,7 +71,7 @@ Environment Variables:
       if (!isNaN(parsed) && parsed > 0) batchSize = parsed;
     } else if (arg === "--backup-dir" && i + 1 < argv.length) {
       backupDir = argv[++i];
-    } else if (arg === "--full" || arg === "--reset") {
+    } else if (arg === "--full" || arg === "--reset" || arg === "--reset-watermark") {
       resetWatermark = true;
     } else if (arg === "--drain" || arg === "--all") {
       drainAll = true;
@@ -96,7 +96,7 @@ Environment Variables:
   };
 }
 
-export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<EdgeSyncResult> {
+export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?: CrawlerDB): Promise<EdgeSyncResult> {
   const baseConfig = getSyncConfig();
   const config: SyncConfig = {
     ...baseConfig,
@@ -106,17 +106,27 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
     drainAll: customConfig?.drainAll !== undefined ? customConfig.drainAll : baseConfig.drainAll
   };
 
+  const targetDb = customDb || db;
   const configured = isCloudflareConfigured(config);
 
   logger.info(`[EdgeSync] Initializing edge sync (Dry-run: ${config.isDryRun}, Cloudflare Configured: ${configured}, Batch: ${config.batchSize}, DrainAll: ${Boolean(config.drainAll)})...`);
 
-  const maxRowInDb = (db.query("SELECT MAX(rowid) as max_r FROM canonical_packages;").get() as any)?.max_r || 0;
+  const maxRowInDb = (targetDb.query("SELECT MAX(rowid) as max_r FROM canonical_packages;").get() as any)?.max_r || 0;
+
+  // Ensure projection_epoch column exists in sync_checkpoints
+  try { targetDb.run("ALTER TABLE sync_checkpoints ADD COLUMN projection_epoch TEXT;"); } catch (_) {}
+
+  let currentEpoch: string | null = null;
+  try {
+    const epochRow = targetDb.query("SELECT value FROM catalog_metadata WHERE key = 'projection_epoch' LIMIT 1;").get() as any;
+    currentEpoch = epochRow?.value || null;
+  } catch (_) {}
 
   // 1. Get remote high-watermark from sync_checkpoints
   let watermarkRowId = 0;
   if (!config.resetWatermark) {
-    const lastCheckpoint = db.query(`
-      SELECT last_synced_rowid, last_synced_id
+    const lastCheckpoint = targetDb.query(`
+      SELECT last_synced_rowid, last_synced_id, projection_epoch
       FROM sync_checkpoints
       WHERE sync_target = 'cloudflare_d1' AND status = 'success'
       ORDER BY id DESC
@@ -125,11 +135,16 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
 
     watermarkRowId = lastCheckpoint?.last_synced_rowid || 0;
 
-    // Detect if canonical_packages table was rebuilt or rowids reset
-    if (watermarkRowId > maxRowInDb) {
+    // Detect if projection epoch changed, table was rebuilt, or rowids reset
+    if (currentEpoch && lastCheckpoint && currentEpoch !== lastCheckpoint.projection_epoch) {
+      logger.warn(`[EdgeSync] Projection epoch change detected (${lastCheckpoint.projection_epoch || "none"} -> ${currentEpoch}). Watermark reset to 0 to prevent data omission.`);
+      watermarkRowId = 0;
+    } else if (watermarkRowId > maxRowInDb) {
       logger.warn(`[EdgeSync] Watermark rowid (${watermarkRowId}) exceeds table max (${maxRowInDb}). Table was rebuilt; resetting sync from beginning.`);
       watermarkRowId = 0;
     }
+  } else {
+    logger.warn(`[EdgeSync] Explicit reset watermark flag detected. Resetting sync from beginning.`);
   }
 
   // --- BRANCH 1: Dry-Run Mode ---
@@ -139,7 +154,7 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
     let totalValidated = 0;
 
     while (true) {
-      const pendingRows = db.query(`
+      const pendingRows = targetDb.query(`
         SELECT rowid, *
         FROM canonical_packages
         WHERE rowid > ?
@@ -187,8 +202,8 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
 
     let localBackupWatermark = 0;
     if (!config.resetWatermark) {
-      const lastBackupCheckpoint = db.query(`
-        SELECT last_synced_rowid
+      const lastBackupCheckpoint = targetDb.query(`
+        SELECT last_synced_rowid, projection_epoch
         FROM sync_checkpoints
         WHERE sync_target = 'local_backup' AND status = 'success'
         ORDER BY id DESC
@@ -196,8 +211,11 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
       `).get() as any;
       localBackupWatermark = lastBackupCheckpoint?.last_synced_rowid || 0;
 
-      // Table rebuild detection for local backup watermark
-      if (localBackupWatermark > maxRowInDb) {
+      // Table rebuild or projection epoch change detection for local backup watermark
+      if (currentEpoch && lastBackupCheckpoint && currentEpoch !== lastBackupCheckpoint.projection_epoch) {
+        logger.warn(`[EdgeSync:Backup] Projection epoch change detected (${lastBackupCheckpoint.projection_epoch || "none"} -> ${currentEpoch}). Resetting local backup watermark to 0.`);
+        localBackupWatermark = 0;
+      } else if (localBackupWatermark > maxRowInDb) {
         logger.warn(`[EdgeSync:Backup] Local backup watermark rowid (${localBackupWatermark}) exceeds table max (${maxRowInDb}). Table was rebuilt; resetting backup from beginning.`);
         localBackupWatermark = 0;
       }
@@ -208,7 +226,7 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
     const backupPaths: string[] = [];
 
     while (true) {
-      const pendingRows = db.query(`
+      const pendingRows = targetDb.query(`
         SELECT rowid, *
         FROM canonical_packages
         WHERE rowid > ?
@@ -241,11 +259,11 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
 
       const now = new Date().toISOString();
       // Record local backup progress only. Remote Cloudflare watermark ('cloudflare_d1') is untouched.
-      db.run(`
+      targetDb.run(`
         INSERT INTO sync_checkpoints (
-          sync_target, last_synced_id, last_synced_rowid, records_synced, synced_at, status
-        ) VALUES ('local_backup', ?, ?, ?, ?, 'success');
-      `, [lastId, lastRowId, pendingRows.length, now]);
+          sync_target, last_synced_id, last_synced_rowid, records_synced, synced_at, status, projection_epoch
+        ) VALUES ('local_backup', ?, ?, ?, ?, 'success', ?);
+      `, [lastId, lastRowId, pendingRows.length, now, currentEpoch]);
 
       if (!config.drainAll) break;
     }
@@ -280,7 +298,7 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
   const url = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/d1/database/${config.d1DatabaseId}/query`;
 
   while (true) {
-    const pendingRows = db.query(`
+    const pendingRows = targetDb.query(`
       SELECT rowid, *
       FROM canonical_packages
       WHERE rowid > ?
@@ -335,11 +353,11 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
       } catch (err: any) {
         logger.error(`[EdgeSync] Failed to sync record ${r.canonical_id}`, err);
         const failTime = new Date().toISOString();
-        db.run(`
+        targetDb.run(`
           INSERT INTO sync_checkpoints (
-            sync_target, last_synced_id, last_synced_rowid, records_synced, synced_at, status, error_message
-          ) VALUES ('cloudflare_d1', ?, ?, 0, ?, 'failed', ?);
-        `, [lastId || null, maxRowId, failTime, String(err?.message || err)]);
+            sync_target, last_synced_id, last_synced_rowid, records_synced, synced_at, status, error_message, projection_epoch
+          ) VALUES ('cloudflare_d1', ?, ?, 0, ?, 'failed', ?, ?);
+        `, [lastId || null, maxRowId, failTime, String(err?.message || err), currentEpoch]);
         throw err;
       }
 
@@ -349,11 +367,11 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>): Promise<E
 
     // Record verified remote watermark checkpoint for batch
     const now = new Date().toISOString();
-    db.run(`
+    targetDb.run(`
       INSERT INTO sync_checkpoints (
-        sync_target, last_synced_id, last_synced_rowid, records_synced, synced_at, status
-      ) VALUES ('cloudflare_d1', ?, ?, ?, ?, 'success');
-    `, [lastId, maxRowId, pendingRows.length, now]);
+        sync_target, last_synced_id, last_synced_rowid, records_synced, synced_at, status, projection_epoch
+      ) VALUES ('cloudflare_d1', ?, ?, ?, ?, 'success', ?);
+    `, [lastId, maxRowId, pendingRows.length, now, currentEpoch]);
 
     totalSynced += pendingRows.length;
     currentWatermark = maxRowId;

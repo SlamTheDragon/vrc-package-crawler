@@ -374,7 +374,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`AGENT.md`](AGENT.md): Section "Test Suite Isolation & Fixture Contracts" — mandate `:memory:` databases and document the purge of legacy tests.
   - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 6 ("Test Suite Architecture & Verification Runbook") — update testbed run commands and fixture isolation invariants.
   - [`DELEGATES.md`](DELEGATES.md): Section 5 ("Testing, CI/CD and Verification Protocols") — specify isolated test execution rules.
-- **Acceptance Criteria**: `bun test` discovers new isolated tests; all tests execute deterministically against `:memory:` or temporary fixture DBs with zero access to `dist/crawler_state.db`. *(Verified: 39 tests across 12 files pass with zero failures and zero access to production DB)*.
+- **Acceptance Criteria**: `bun test` discovers new isolated tests; all tests execute deterministically against `:memory:` or temporary fixture DBs with zero access to `dist/crawler_state.db`. *(Verified: 39 tests across 12 files passed Phase 2; expanded to 65 tests across 16 files and 306 assertions in Phase 3 with zero failures and zero access to production DB)*.
 
 #### Task 2.7: Autonomous Fault Tolerance Subsystem: Domain Circuit Breakers, Exponential Backoff with Jitter & Persistent Dead-Letter Queue (Permanent Removal of manual requeue scripts) [COMPLETED]
 - **Priority**: System Reliability / Unattended Autonomy | **Complexity**: Medium (1 hour 15 mins) | **Traceability**: Operational Defect (HEAD Section 1), G-1, G-3, G-11 | **Status**: Verified & Completed
@@ -407,10 +407,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 ---
 
-### Phase 3: Legal Compliance & Pure Media Pointer Migration (Medium-High)
+### Phase 3: Legal Compliance & Pure Media Pointer Migration (Medium-High) — [100% VERIFIED & COMPLETED]
 
-#### Task 3.1: Expose Automated Non-Scraping Opt-Out Endpoint (`POST /v1/opt-out`)
-- **Priority**: Legal Invariant / Creator Rights | **Complexity**: Medium-High (1.5 hours) | **Traceability**: CR-8, CR-16, G-5, G-25, LEGAL §9.4-9.5
+#### Task 3.1: Expose Automated Non-Scraping Opt-Out Endpoint (`POST /v1/opt-out`) [COMPLETED]
+- **Priority**: Legal Invariant / Creator Rights | **Complexity**: Medium-High (1.5 hours) | **Traceability**: CR-8, CR-16, G-5, G-25, LEGAL §9.4-9.5 | **Status**: Verified & Completed
 - **Files**: [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts#L551-L578), [`src/crawler/projection.ts`](src/crawler/projection.ts)
 - **Problem**: `db.registerOptOut()` exists but has zero API routes or CLI callers; creators (particularly non-domain shop owners on BOOTH, Gumroad, Jinxxy) have no automated, non-scraping method to request delisting.
 - **Remediation**:
@@ -434,10 +434,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Document `POST /v1/opt-out` request/response schemas with `storefront_bio_token` payload.
   - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Add opt-out verification workflow diagram including bio-token validation.
   - [`docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md): Document bio-token non-scraping verification guidelines.
-- **Acceptance Criteria**: Automated test successfully verifies mock DNS TXT and storefront bio token records, rejects SSRF attempts against localhost/private IPs, enforces rate limits, registers opt-out in database, and delists matching packages.
+- **Acceptance Criteria**: Automated test successfully verifies mock DNS TXT and storefront bio token records, rejects SSRF attempts against localhost/private IPs, enforces rate limits, registers opt-out in database, and delists matching packages. *(Verified: test passes in `tests/phase3_opt_out.test.ts`)*.
 
-#### Task 3.2: Pure Media Pointer Migration: Hybrid Delivery Architecture & Deprecate SQLite WebP BLOB Storage
-- **Priority**: Core Legal Compliance | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-19, CR-21, G-1, G-22, G-29, LEGAL §7.2(c)
+#### Task 3.2: Pure Media Pointer Migration: Hybrid Delivery Architecture & Deprecate SQLite WebP BLOB Storage [COMPLETED]
+- **Priority**: Core Legal Compliance | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-19, CR-21, G-1, G-22, G-29, LEGAL §7.2(c) | **Status**: Verified & Completed
 - **Files**: [`src/db.ts`](src/db.ts#L180-L210), [`src/utils/image_proxy.ts`](src/utils/image_proxy.ts), [`src/server/index.ts`](src/server/index.ts#L173-L180), [`src/sync/exporter.ts`](src/sync/exporter.ts)
 - **Problem**: Code currently stores raw WebP buffers directly as BLOBs in SQLite `media_cache.webp_data` (`dist/crawler_state.db`), creating a 357 MB database and re-hosting copyrighted imagery in tension with the Server Test split (*Perfect 10* vs *Goldman v. Breitbart*). Furthermore, closed storefront CDNs enforce `Referer` headers and block direct hotlinking with `403 Forbidden` (G-1).
 - **Remediation**:
@@ -456,10 +456,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Document `GET /v1/media/stream` endpoint schema and caching behavior.
   - [`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md): Remove persistent R2 thumbnail synchronization; edge serves pure URLs.
   - [`docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md): Update Section 1 & Section 3 to document hybrid streaming proxy architecture.
-- **Acceptance Criteria**: SQLite database schema contains no `webp_data BLOB` column; database footprint drops drastically; API feeds return direct source CDN URLs; `/v1/media/stream` streams live origin media ephemerally without disk writes, rejects unwhitelisted domains with 403, and caches privately on client; all tests pass.
+- **Acceptance Criteria**: SQLite database schema contains no `webp_data BLOB` column; database footprint drops drastically; API feeds return direct source CDN URLs; `/v1/media/stream` streams live origin media ephemerally without disk writes, rejects unwhitelisted domains with 403, and caches privately on client; all tests pass. *(Verified: test passes in `tests/phase3_media_stream.test.ts`)*.
 
-#### Task 3.3: Wire Conditional Request Headers (ETag / If-None-Match) & Reconnect Poisson Feedback
-- **Priority**: Bandwidth & Freshness Invariant | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-1, CR-7, CR-20, G-11, LEGAL §5.2(e)
+#### Task 3.3: Wire Conditional Request Headers (ETag / If-None-Match) & Reconnect Poisson Feedback [COMPLETED]
+- **Priority**: Bandwidth & Freshness Invariant | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-1, CR-7, CR-20, G-11, LEGAL §5.2(e) | **Status**: Verified & Completed
 - **Files**: [`src/drivers/github.ts`](src/drivers/github.ts#L174-L177), [`src/drivers/booth.ts`](src/drivers/booth.ts), [`src/utils/poisson_scheduler.ts`](src/utils/poisson_scheduler.ts#L49), [`src/crawler/index.ts`](src/crawler/index.ts), [`src/db.ts`](src/db.ts#L707-L728)
 - **Problem**: Crawlers never send `If-None-Match` or `If-Modified-Since`. `adjustAfterFetch(url, isModified, etag, lastModifiedHeader)` has zero callers; `db.markStatus` sets a rigid 24-hour constant.
 - **Remediation**:
@@ -469,17 +469,19 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 - **Cascading Documentation Changes**:
   - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Update Section 2 re-crawl policy with true conditional request header mechanics.
   - [`AGENT.md`](AGENT.md): Document `adjustAfterFetch()` true signature and conditional header wiring.
-- **Acceptance Criteria**: Mock server returning `HTTP 304` triggers `adjustAfterFetch(url, false)` without re-downloading or re-parsing payload; `next_fetch_at` adapts based on change frequency.
+- **Acceptance Criteria**: Mock server returning `HTTP 304` triggers `adjustAfterFetch(url, false)` without re-downloading or re-parsing payload; `next_fetch_at` adapts based on change frequency. *(Verified: test passes in `tests/phase3_conditional_requests.test.ts`)*.
 
-#### Task 3.4: Edge Sync Watermark Recovery & Data Loss Prevention
-- **Priority**: Critical Data Loss Prevention | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-3, G-12
+#### Task 3.4: Edge Sync Watermark Recovery & Data Loss Prevention [COMPLETED]
+- **Priority**: Critical Data Loss Prevention | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-3, G-12 | **Status**: Verified & Completed
 - **Files**: [`src/sync/index.ts`](src/sync/index.ts#L128-L133), [`src/crawler/projection.ts`](src/crawler/projection.ts)
 - **Problem**: Periodic `DELETE FROM canonical_packages` resets SQLite rowids to 1. In `src/sync/index.ts`, watermark check `watermarkRowId > maxRowInDb` fails to reset if the rebuilt table has more rows, permanently skipping rows 1..watermark from Cloudflare D1.
 - **Remediation**: Track projection generation epochs via a deterministic UUID or timestamp in `sync_checkpoints`. If `canonical_packages` projection epoch changes, automatically trigger a safe watermark realignment sweep rather than comparing raw auto-incrementing rowids.
 - **Cascading Documentation Changes**:
   - [`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md): Add Section 3 detailing watermark epoch alignment and recovery.
   - [`DELEGATES.md`](DELEGATES.md): Document the `--reset-watermark` recovery command in Section 5.
-- **Acceptance Criteria**: Running a simulated table wipe and rebuild with 16k rows correctly resynchronizes all rows without silent omission; `tests/sync.test.ts` passes.
+- **Acceptance Criteria**: Running a simulated table wipe and rebuild with 16k rows correctly resynchronizes all rows without silent omission; `tests/sync.test.ts` passes. *(Verified: test passes in `tests/phase3_watermark_recovery.test.ts`)*.
+
+> **Phase 3 Completion & Sign-Off**: **100% Verified & Finished**. Deterministic testbed expanded to 65 passing tests across 16 files (306 assertions) with zero failures and zero access to production DB. Pre-review amendment specification `docs/legal/TARGETED_LEGAL_WORDING_CORRECTIONS.md` fully adopted into `LEGAL.md` and purged. Factual discrepancies, breaking points, and overlooked items formally documented in [`DISAGREEMENTS.md`](DISAGREEMENTS.md). Ready for Phase 4.
 
 ---
 

@@ -1,7 +1,9 @@
 import { Database } from "bun:sqlite";
 import crypto from "crypto";
+import dns from "node:dns/promises";
 import { logger } from "../logger.ts";
 import { db, type CrawlerDB } from "../db.ts";
+import { CONFIG } from "../config.ts";
 
 export interface ServerConfig {
   port?: number;
@@ -10,11 +12,13 @@ export interface ServerConfig {
   db?: CrawlerDB;
 }
 
-// In-memory sliding window rate limiter: 10 reports per minute per fingerprint
+// In-memory sliding window rate limiter
 class RateLimiter {
   private requests: Map<string, number[]> = new Map();
-  private readonly maxRequests = 10;
-  private readonly windowMs = 60 * 1000;
+  constructor(
+    private readonly maxRequests: number = 10,
+    private readonly windowMs: number = 60 * 1000
+  ) {}
 
   public isAllowed(fingerprint: string): boolean {
     const now = Date.now();
@@ -28,6 +32,29 @@ class RateLimiter {
     this.requests.set(fingerprint, recent);
     return true;
   }
+}
+
+export function isPrivateOrReservedIp(ip: string): boolean {
+  if (!ip) return true;
+  if (ip === "::1" || ip === "localhost" || ip === "::" || ip === "0.0.0.0") return true;
+  if (ip.startsWith("::ffff:")) {
+    ip = ip.slice(7);
+  }
+  const parts = ip.split(".").map(Number);
+  if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
+    const [a, b] = parts;
+    if (a === 127 || a === 10 || a === 0) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a >= 224) return true;
+  }
+  const lower = ip.toLowerCase();
+  if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80") || lower === "::") {
+    return true;
+  }
+  return false;
 }
 
 export function validateSchema4Payload(body: any): { valid: boolean; errors?: string[] } {
@@ -130,7 +157,8 @@ export function startServer(config: ServerConfig = {}) {
   const apiToken = config.apiToken || process.env.API_SECRET_TOKEN;
   const targetDb = config.db || db;
 
-  const rateLimiter = new RateLimiter();
+  const reportRateLimiter = new RateLimiter(10, 60 * 1000);
+  const optOutRateLimiter = new RateLimiter(5, 60 * 1000);
   const startTime = Date.now();
 
   const server = Bun.serve({
@@ -207,6 +235,121 @@ export function startServer(config: ServerConfig = {}) {
         }), { status: 200, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
+      // --- GET /v1/media/stream (Ephemeral In-Memory Streaming Proxy - Task 3.2) ---
+      if (method === "GET" && path === "/v1/media/stream") {
+        const targetUrl = url.searchParams.get("url");
+        if (!targetUrl) {
+          return new Response(JSON.stringify({
+            error: "Missing required 'url' query parameter"
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        let parsedMediaUrl: URL;
+        try {
+          parsedMediaUrl = new URL(targetUrl);
+        } catch {
+          return new Response(JSON.stringify({
+            error: "Invalid URL parameter"
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        if (parsedMediaUrl.protocol !== "https:") {
+          return new Response(JSON.stringify({
+            error: "Invalid URL: Scheme must be https"
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        // Origin Host Whitelist: *.pximg.net, public-files.gumroad.com, assets.jinxxy.com, raw.githubusercontent.com, img.itch.zone
+        const allowedCdnRegex = /^(?:[a-zA-Z0-9_-]+\.)*(?:pximg\.net|gumroad\.com|jinxxy\.com|raw\.githubusercontent\.com|itch\.zone)$/i;
+        if (!allowedCdnRegex.test(parsedMediaUrl.hostname)) {
+          return new Response(JSON.stringify({
+            error: "Forbidden: Origin host not in media CDN whitelist"
+          }), { status: 403, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        // SSRF & DNS Rebinding check
+        try {
+          const lookup = await dns.lookup(parsedMediaUrl.hostname);
+          if (isPrivateOrReservedIp(lookup.address)) {
+            return new Response(JSON.stringify({
+              error: "Bad Request: SSRF blocked - origin hostname resolves to a private or reserved IP address."
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
+        } catch (err: any) {
+          return new Response(JSON.stringify({
+            error: `Bad Request: Failed to resolve origin hostname '${parsedMediaUrl.hostname}'.`
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        const abortController = new AbortController();
+        const timeoutId = setTimeout(() => abortController.abort(), 8000);
+
+        let originResp: Response;
+        try {
+          originResp = await fetch(parsedMediaUrl.href, {
+            signal: abortController.signal,
+            headers: {
+              "User-Agent": CONFIG.userAgent,
+              "Accept": "image/webp,image/avif,image/*;q=0.8",
+              "Referer": "" // strip referrers to bypass storefront hotlink blocks
+            }
+          });
+        } catch (err: any) {
+          clearTimeout(timeoutId);
+          return new Response(JSON.stringify({
+            error: "Bad Gateway: Origin CDN request failed or timed out"
+          }), { status: 502, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+
+        if (originResp.status === 404) {
+          return new Response(JSON.stringify({
+            error: "Media not found on origin CDN"
+          }), { status: 404, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        if (!originResp.ok) {
+          return new Response(JSON.stringify({
+            error: `Bad Gateway: Origin CDN returned HTTP ${originResp.status}`
+          }), { status: 502, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        const arrayBuf = await originResp.arrayBuffer();
+        const inputBuffer = Buffer.from(arrayBuf);
+
+        if (inputBuffer.length > 15 * 1024 * 1024) {
+          return new Response(JSON.stringify({
+            error: "Payload Too Large: Origin media exceeds 15MB limit"
+          }), { status: 413, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        let outBuffer: Buffer = inputBuffer;
+        let contentType = originResp.headers.get("content-type") || "image/webp";
+
+        try {
+          let sharpModule: any = null;
+          try { sharpModule = (await import("sharp")).default; } catch (_) {}
+          if (sharpModule) {
+            outBuffer = await sharpModule(inputBuffer)
+              .resize({ width: 800, withoutEnlargement: true })
+              .webp({ quality: 75 })
+              .toBuffer();
+            contentType = "image/webp";
+          }
+        } catch (_) {}
+
+        return new Response(outBuffer, {
+          status: 200,
+          headers: {
+            ...baseHeaders,
+            "Content-Type": contentType,
+            "Cache-Control": "private, max-age=86400, stale-while-revalidate=3600",
+            "X-Content-Type-Options": "nosniff"
+          }
+        });
+      }
+
       // --- GET /v1/media/:id or /v1/thumbs/:id (Low-Resolution WebP Proxy) ---
       if (method === "GET" && (path.startsWith("/v1/media/") || path.startsWith("/v1/thumbs/"))) {
         const mediaId = path.split("/").pop()?.replace(/\.webp$/, "");
@@ -248,7 +391,7 @@ export function startServer(config: ServerConfig = {}) {
                          "unknown-client";
         const clientFingerprint = req.headers.get("x-client-fingerprint") || clientIp;
 
-        if (!rateLimiter.isAllowed(clientFingerprint)) {
+        if (!reportRateLimiter.isAllowed(clientFingerprint)) {
           return new Response(JSON.stringify({
             error: "Too Many Requests: Rate limit of 10 reports per minute exceeded."
           }), { status: 429, headers: { ...baseHeaders, "Content-Type": "application/json" } });
@@ -297,6 +440,213 @@ export function startServer(config: ServerConfig = {}) {
         }), { status: 201, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
+      // --- POST /v1/opt-out (Creator & Rights-Holder Automated Non-Scraping Delisting - Task 3.1) ---
+      if (method === "POST" && path === "/v1/opt-out") {
+        const clientIp = req.headers.get("cf-connecting-ip") ||
+                         req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+                         req.headers.get("x-real-ip") ||
+                         server.requestIP(req)?.address ||
+                         "unknown-client";
+
+        if (!optOutRateLimiter.isAllowed(clientIp)) {
+          return new Response(JSON.stringify({
+            error: "Too Many Requests: Rate limit of 5 opt-out verification requests per minute exceeded."
+          }), { status: 429, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        let body: any;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response(JSON.stringify({
+            error: "Bad Request: Malformed JSON payload."
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        const { vendorId, proofType, proofValue, storefrontUrl } = body || {};
+
+        if (!vendorId || typeof vendorId !== "string" || !vendorId.trim()) {
+          return new Response(JSON.stringify({
+            error: "Bad Request: 'vendorId' is required and must be a non-empty string."
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        if (!proofType || !["dns_txt", "storefront_bio_token", "signed_commit"].includes(proofType)) {
+          return new Response(JSON.stringify({
+            error: "Bad Request: 'proofType' must be one of 'dns_txt', 'storefront_bio_token', or 'signed_commit'."
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        if (!proofValue || typeof proofValue !== "string" || !proofValue.trim()) {
+          return new Response(JSON.stringify({
+            error: "Bad Request: 'proofValue' is required and must be a non-empty string."
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        const cleanVendorId = vendorId.trim();
+
+        // Verification Logic
+        if (proofType === "dns_txt") {
+          const domain = proofValue.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+          if (!domain || !domain.includes(".") || /[^a-z0-9.-]/i.test(domain)) {
+            return new Response(JSON.stringify({
+              error: "Bad Request: 'proofValue' for dns_txt must be a valid domain name."
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
+
+          try {
+            const txtRecords = await dns.resolveTxt(`_vrc-opt-out.${domain}`);
+            const expectedRecord = `vrc-opt-out=${cleanVendorId}`;
+            const matched = txtRecords.some(chunkArr => {
+              const recStr = Array.isArray(chunkArr) ? chunkArr.join("") : String(chunkArr);
+              const tokens = recStr.split(/[\s;]+/);
+              return tokens.includes(expectedRecord) || recStr.trim() === expectedRecord;
+            });
+            if (!matched) {
+              return new Response(JSON.stringify({
+                error: `DNS verification failed: TXT record '_vrc-opt-out.${domain}' did not contain '${expectedRecord}'.`
+              }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+            }
+          } catch (err: any) {
+            return new Response(JSON.stringify({
+              error: `DNS lookup failed for _vrc-opt-out.${domain}: ${err?.code || err?.message || String(err)}`
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
+        } else if (proofType === "storefront_bio_token") {
+          if (!storefrontUrl || typeof storefrontUrl !== "string") {
+            return new Response(JSON.stringify({
+              error: "Bad Request: 'storefrontUrl' is required for proofType 'storefront_bio_token'."
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
+
+          let parsedStorefront: URL;
+          try {
+            parsedStorefront = new URL(storefrontUrl.trim());
+          } catch {
+            return new Response(JSON.stringify({
+              error: "Bad Request: 'storefrontUrl' must be a valid URL."
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
+
+          if (parsedStorefront.protocol !== "https:") {
+            return new Response(JSON.stringify({
+              error: "Bad Request: 'storefrontUrl' scheme must be https."
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
+
+          const allowedStorefrontRegex = /^https:\/\/([a-zA-Z0-9_-]+\.)*(booth\.pm|gumroad\.com|jinxxy\.com)\//i;
+          if (!allowedStorefrontRegex.test(parsedStorefront.href)) {
+            return new Response(JSON.stringify({
+              error: "Bad Request: 'storefrontUrl' host must match authorized storefront domains (booth.pm, gumroad.com, jinxxy.com)."
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
+
+          try {
+            const lookup = await dns.lookup(parsedStorefront.hostname);
+            if (isPrivateOrReservedIp(lookup.address)) {
+              return new Response(JSON.stringify({
+                error: "Bad Request: SSRF blocked - storefront hostname resolves to a private or reserved IP address."
+              }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+            }
+          } catch (err: any) {
+            return new Response(JSON.stringify({
+              error: `Bad Request: Failed to resolve storefront hostname '${parsedStorefront.hostname}'.`
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
+
+          const expectedToken = proofValue.trim();
+          const abortController = new AbortController();
+          const timeoutId = setTimeout(() => abortController.abort(), 5000);
+
+          let foundToken = false;
+          try {
+            const resp = await fetch(parsedStorefront.href, {
+              signal: abortController.signal,
+              headers: {
+                "User-Agent": "VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com; verification-probe)",
+                "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8"
+              }
+            });
+
+            if (!resp.ok) {
+              clearTimeout(timeoutId);
+              return new Response(JSON.stringify({
+                error: `Storefront probe failed: HTTP ${resp.status} ${resp.statusText}`
+              }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+            }
+
+            if (resp.body) {
+              const reader = resp.body.getReader();
+              let totalBytes = 0;
+              const maxBytes = 512 * 1024;
+              const decoder = new TextDecoder();
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                totalBytes += value.length;
+                const chunkStr = decoder.decode(value, { stream: true });
+                if (chunkStr.includes(expectedToken)) {
+                  foundToken = true;
+                  await reader.cancel();
+                  break;
+                }
+                if (totalBytes > maxBytes) {
+                  await reader.cancel();
+                  break;
+                }
+              }
+            }
+          } catch (err: any) {
+            clearTimeout(timeoutId);
+            return new Response(JSON.stringify({
+              error: `Storefront probe failed or timed out: ${err?.message || String(err)}`
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          } finally {
+            clearTimeout(timeoutId);
+          }
+
+          if (!foundToken) {
+            return new Response(JSON.stringify({
+              error: `Verification failed: Token '${expectedToken}' was not found in storefront profile bio at ${parsedStorefront.href}.`
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
+        } else if (proofType === "signed_commit") {
+          let validSig = false;
+          try {
+            const sigData = JSON.parse(proofValue);
+            if (sigData.publicKey && sigData.signature) {
+              const verifier = crypto.createVerify("SHA256");
+              verifier.update(sigData.message || cleanVendorId);
+              verifier.end();
+              validSig = verifier.verify(sigData.publicKey, Buffer.from(sigData.signature, "hex"));
+            }
+          } catch (_) {
+            validSig = false;
+          }
+
+          if (!validSig) {
+            return new Response(JSON.stringify({
+              error: "Verification failed: Invalid cryptographic commit signature or public key format."
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
+        }
+
+        // Register in DB & delist matching canonical packages
+        const escapedVendorRegex = `^${cleanVendorId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
+        targetDb.registerOptOut(cleanVendorId, proofType, escapedVendorRegex, `Automated creator opt-out verified via ${proofType}`);
+        const delistedCount = targetDb.delistCreatorPackages(cleanVendorId);
+
+        return new Response(JSON.stringify({
+          success: true,
+          vendorId: cleanVendorId,
+          proofType,
+          status: "opted_out",
+          packagesDelisted: delistedCount,
+          message: "Opt-out verified successfully. Matching packages delisted from canonical index."
+        }), { status: 200, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+      }
+
       // --- GET /v1/catalog/delta (Schema 1 Delta Stream) ---
       if (method === "GET" && path === "/v1/catalog/delta") {
         const cursorParam = url.searchParams.get("cursor") || "0";
@@ -321,9 +671,10 @@ export function startServer(config: ServerConfig = {}) {
 
           let mediaObj: any = undefined;
           if (pkg.media_id && pkg.media_id !== "none") {
-            const mRow = targetDb.rawDb.prepare("SELECT blurhash FROM media_cache WHERE id = ?;").get(pkg.media_id) as any;
+            const mRow = targetDb.rawDb.prepare("SELECT source_url, blurhash FROM media_cache WHERE id = ?;").get(pkg.media_id) as any;
             mediaObj = {
-              thumbnailUrl: `${url.origin}/v1/media/${pkg.media_id}.webp`,
+              thumbnailUrl: mRow?.source_url || `${url.origin}/v1/media/${pkg.media_id}.webp`,
+              sourceUrl: mRow?.source_url || undefined,
               blurhash: mRow?.blurhash || undefined
             };
           }

@@ -1,6 +1,6 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
-import { db, type EntityRecord } from "../db.ts";
+import { db, type EntityRecord, type CrawlerDB } from "../db.ts";
 import { RelevanceFilter, CREATOR_ALIASES } from "../filter.ts";
 import { IanaRegistry } from "../utils/iana.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription, extractReadmeDescription } from "../utils/sanitizer.ts";
@@ -152,7 +152,13 @@ export class GitHubDriver {
   }
 
   // Crawls repository details using API or robust raw fallback
-  static async crawlRepoDetail(repoUrl: string): Promise<boolean> {
+  static async crawlRepoDetail(
+    repoUrl: string,
+    customDb?: CrawlerDB,
+    etag?: string | null,
+    lastModified?: string | null
+  ): Promise<boolean | { success: boolean; notModified?: boolean; etag?: string | null; lastModified?: string | null }> {
+    const targetDb = customDb || db;
     const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
     if (!match) return false;
     const [, owner, rawRepo] = match;
@@ -172,7 +178,20 @@ export class GitHubDriver {
       for (const branch of branchCandidates) {
         try {
           const pkgUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/package.json`;
-          const pkgResp = await fetch(pkgUrl, { headers: { "User-Agent": CONFIG.userAgent } });
+          const pkgHeaders: Record<string, string> = { "User-Agent": CONFIG.userAgent };
+          if (etag) pkgHeaders["If-None-Match"] = etag;
+          if (lastModified) pkgHeaders["If-Modified-Since"] = lastModified;
+
+          const pkgResp = await fetch(pkgUrl, { headers: pkgHeaders });
+          if (pkgResp.status === 304) {
+            logger.info(`[GitHub] HTTP 304 Not Modified for ${owner}/${repo}`);
+            return {
+              success: true,
+              notModified: true,
+              etag: pkgResp.headers.get("etag") || etag,
+              lastModified: pkgResp.headers.get("last-modified") || lastModified
+            };
+          }
           if (pkgResp.ok) {
             rawEtag = pkgResp.headers.get("etag");
             rawLastModified = pkgResp.headers.get("last-modified");
@@ -243,27 +262,27 @@ export class GitHubDriver {
                   !targetLower.includes("/tree/")
                 ) {
                   extLinks.push(targetUrl);
-                  db.queueUrl(targetUrl, "github");
+                  targetDb.queueUrl(targetUrl, "github");
                 }
               }
             } else if (l.includes("booth.pm/ja/items/") || l.includes("booth.pm/en/items/")) {
               const m = l.match(/https:\/\/booth\.pm\/(?:ja|en)\/items\/\d+/);
               if (m && !extLinks.includes(m[0])) {
                 extLinks.push(m[0]);
-                db.queueUrl(m[0], "booth");
+                targetDb.queueUrl(m[0], "booth");
               }
             } else if (l.includes("gumroad.com/l/")) {
               const m = l.match(/https:\/\/[^/]*gumroad\.com\/l\/[^/?#]+/);
               if (m && !extLinks.includes(m[0])) {
                 if (RelevanceFilter.isUrlCandidateRelevant(m[0], "gumroad")) {
                   extLinks.push(m[0]);
-                  db.queueUrl(m[0], "gumroad");
+                  targetDb.queueUrl(m[0], "gumroad");
                 }
               }
             } else if (l.endsWith("/vpm.json") || l.endsWith("/index.json")) {
               if (!extLinks.includes(l)) {
                 extLinks.push(l);
-                db.queueUrl(l, "vpm");
+                targetDb.queueUrl(l, "vpm");
               }
             }
           }
@@ -440,15 +459,19 @@ export class GitHubDriver {
 
       const evalRes = RelevanceFilter.evaluate(entity);
       if (evalRes.isRelevant) {
-        db.saveEntity(entity);
+        targetDb.saveEntity(entity);
         logger.info(`[GitHub] Ingested Repo: ${owner}/${repo} (Score: ${evalRes.score}, Confidence: ${evalRes.confidence.toFixed(2)})`);
       } else {
-        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
+        targetDb.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
         logger.info(`[GitHub] Quarantined Repo: ${owner}/${repo} (${evalRes.reasons.join(", ")})`);
       }
 
-
-      return true;
+      return {
+        success: true,
+        notModified: false,
+        etag: rawEtag || etag || null,
+        lastModified: rawLastModified || lastModified || null
+      };
     } catch (e) {
       logger.error(`[GitHub] Error crawling repo ${repoUrl}`, e);
       return false;

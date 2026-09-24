@@ -1,9 +1,9 @@
 # VRChat Package Crawler: Autonomous Coding Agent Contract
 
 **Repository:** `F:\.repo\.main\vrc-package-crawler`  
-**Revision:** Phase 2 Complete (Autonomous Coding Agent Contract & Engineering Reality Baseline)  
+**Revision:** Phase 3 Complete (Autonomous Coding Agent Contract & Engineering Reality Baseline)  
 **Binary Distribution:** Standalone Single-File Native Executables (`dist/`)  
-**Test Suite Baseline:** 39 passing tests across 12 files (193 assertions, `bun test`)  
+**Test Suite Baseline:** 61 passing tests across 16 files (293 assertions, `bun test`)  
 
 ---
 
@@ -419,10 +419,14 @@ Autonomous coding agents must obey the 13 verified engineering reality constrain
 - `src/utils/image_proxy.ts` skipPatterns lacked YouTube domain filters.
 - **Agent Rule:** Filter YouTube embed URLs at both the driver extraction layer and the image proxy skipPatterns guard. Route them to `youtube_urls`.
 
-### CR-7: Conditional HTTP Headers
-- `src/drivers/github.ts` captures raw ETags but does not transmit `If-None-Match`.
-- No driver transmits `If-Modified-Since`.
-- **Agent Rule:** Transmit conditional headers on re-crawl requests. Handle HTTP 304 by refreshing timestamps without parsing payloads.
+### CR-7: Conditional HTTP Headers & Poisson Mutability Feedback
+- `src/drivers/github.ts` and `src/drivers/booth.ts` inject `If-None-Match` and `If-Modified-Since` using cached `etag` and `last_modified` from the `frontier` table.
+- On `HTTP 304 Not Modified`, drivers return `{ success: true, notModified: true, etag, lastModified }`, bypassing HTML body download and DOM parsing.
+- The crawler loop executes `poissonScheduler.adjustAfterFetch(url, isModified, etag, lastModified, customDb)`:
+  - Signature: `adjustAfterFetch(url: string, isModified: boolean, etag?: string | null, lastModifiedHeader?: string | null, customDb?: CrawlerDB): number`
+  - Unmodified (304): multiplies interval by 1.5 (up to max 604800s / 7 days).
+  - Modified (200): divides interval by 1.5 (down to min 3600s / 1 hour).
+- **Agent Rule:** Always pass stored `etag` and `last_modified` to drivers. Never hardcode 24-hour constants in `db.markStatus` when Poisson scheduler yields a computed interval.
 
 ### CR-8: Opt-Out API Routing
 - `db.registerOptOut()` exists in `src/db.ts` lines 551 to 578.
@@ -533,31 +537,33 @@ Autonomous coding agents must obey the 13 verified engineering reality constrain
 - **Agent Rule:** Ground all contractual assertions in Philippine law. Qualify downstream browsewrap covenants under applicable notice and assent standards (*Register.com v. Verio*).
 
 ### CR-31: Automated Delisting Verification Endpoint (POST /v1/opt-out)
-- Individual open-source maintainers cannot process manual email takedowns at commercial scale.
-- Automated cryptographic and DNS verification pathways (`vrc-opt-out=<vendor-id>` DNS TXT, signed git commit, domain email token) are specified to execute autonomous delisting.
-- **Agent Rule:** Implement route `POST /v1/opt-out` in `src/server/index.ts` to validate machine-readable verification proofs and automatically update matching package records to `lifecycle = 'delisted'`.
+- Active unauthenticated endpoint at `POST /v1/opt-out` validates machine-readable verification proofs:
+  - `storefront_bio_token`: Single-shot unauthenticated verification probe checking for `#vrc-opt-out-<vendorId>` in public store bio with strict SSRF protection (private IP blocking) and 5 req/min rate limit.
+  - `dns_txt`: Resolves `_vrc-opt-out.<domain>` for `vrc-opt-out=<vendorId>`.
+  - `signed_commit`: Cryptographically validates author digital signature.
+- **Agent Rule:** Upon successful verification, immediately record opt-out via `db.registerOptOut()` and mark matching canonical packages `lifecycle = 'delisted'`.
 
 ---
 
-## 7. SQLite Test Concurrency & Locking Invariants
+## 7. SQLite Test Concurrency & Complete Testbed Isolation
 
-Coding agents must understand database concurrency before adding or modifying tests:
+Coding agents must maintain strict testbed isolation:
 
-1. **Shared Database File:**
-   Seven test files read from `dist/crawler_state.db` (357 MB database containing 49,438 entities).
-2. **Busy Timeout vs Test Timeout:**
-   In `src/db.ts` line 248, `PRAGMA busy_timeout = 10000;` waits up to 10 seconds for locks. Bun test runner has a default 5,000ms per-test timeout.
-3. **Lock Contention Failure Mode:**
-   When `tests/exporter.test.ts` acquires an exclusive transaction lock, concurrent tests enter busy wait. If SQLite waits longer than 5 seconds, Bun aborts the test with a timeout.
+1. **Clean-Slate Isolation (Zero Production DB Access):**
+   All 16 test files in `tests/` execute exclusively against in-memory SQLite instances (`:memory:`) or ephemeral isolated fixture databases (`dist/test_fixture_<uuid>.db`) cleaned up in `afterAll()`. Zero test files attach to or depend on `dist/crawler_state.db`.
+2. **Busy Timeout & WAL Invariant:**
+   In `src/db.ts`, `PRAGMA busy_timeout = 10000;` and `PRAGMA journal_mode = WAL;` are configured by default.
+3. **Deterministic Decoupling:**
+   Network calls are mocked via MSW or local Bun HTTP mock fixtures to prevent external rate limits or CDN challenges from failing CI test runs.
 4. **Mandatory Test Isolation:**
-   New test suites must instantiate ephemeral in-memory databases (`:memory:`) or dedicated fixture databases. Never attach new tests to `dist/crawler_state.db`.
+   All future test suites must instantiate ephemeral in-memory databases (`:memory:`) or dedicated fixture databases. Never attach tests to `dist/crawler_state.db`.
 
 ---
 
 ## 8. Development & Verification Commands
 
 ```powershell
-# Run full test suite (57 tests across 12 files)
+# Run full test suite (65 tests across 16 files, 306 assertions)
 bun test
 
 # Run type checker
@@ -575,3 +581,22 @@ bun run build:all
 # Run edge sync in dry-run validation mode
 bun run sync --dry-run
 ```
+
+---
+
+## 9. Subsequent Roadmap Phases (High-Level Summary)
+
+Per `TODO.md`, the remaining phases build directly upon the Phase 1–3 foundation:
+
+1. **Phase 4: Schema Normalization & Pipeline Scalability**
+   - **Task 4.1 (CANON-4)**: Database Schema Deduplication, Ground Truth Architecture & Dist Stale DB Policy (formalizing `dist/crawler_state.db` as stale, dropping in-place migrations, normalizing `canonical_packages` to 2 URL columns: `url` and `vcc_url`, and consolidating `curator_overrides`).
+   - **Task 4.2 (CANON-6)**: Air-Gapped Stateless Architecture Invariants (confirming user auth, private lists, and bookmarks remain strictly downstream in client applications).
+   - **Task 4.3 (CANON-5)**: Schema 5 Interaction & Search Telemetry Route (`POST /v1/telemetry` with anonymous aggregation and zero PII).
+   - **Task 4.4**: Parallel Asynchronous Driver Crawling Pipeline (domain worker pool with independent rate limiters).
+   - **Task 4.5**: Distributed Union-Find (DSU) Incremental Entity Clustering (scaling canonical clustering from $O(N^2)$ to $O(N \log N)$).
+2. **Phase 5: Canonical Ecosystem Expansion & Governance**
+   - **Task 5.1 (CANON-1)**: Community VPM Index Feed Expansion (direct manifest ingestion: `index.json`, `vpm-manifest.json`, ALCOM directory listings; open-web unindexed spiders strictly prohibited).
+   - **Task 5.2 (CANON-3)**: Bilateral VRCArena Directory Federation (polite querying within `robots.txt` limits; toolchain whitelisting; automated HTML DOM scraping strictly prohibited).
+   - **Task 5.3 (CANON-2)**: Avatar Cosmetics Taxonomy Tier Isolation (isolated tier tagged with base avatar mesh: Kikyo, Manuka, Shinano, Selestia; preventing SimHash false merges against toolchains).
+3. **Post-v1.0 Milestone: Decentralized Edge Node Ingestion & Provenance Architecture**
+   - **Task 5.4 (CANON-6)**: Decentralized Contributor Node Gateway (Cloudflare Worker Ingestion Gateway with cryptographic request signing, eliminating the distribution of administrative Cloudflare credentials to third-party nodes).

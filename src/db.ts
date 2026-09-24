@@ -399,9 +399,11 @@ export class CrawlerDB {
         records_synced INTEGER DEFAULT 0,
         synced_at TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'success',
-        error_message TEXT
+        error_message TEXT,
+        projection_epoch TEXT
       );
     `);
+    try { this.db.run("ALTER TABLE sync_checkpoints ADD COLUMN projection_epoch TEXT;"); } catch (_) {}
 
     // 8. Curator Overrides (Persistent user/curator overrides for name, description, tags, categories)
     this.db.run(`
@@ -466,6 +468,14 @@ export class CrawlerDB {
       this.db.run("DROP INDEX IF EXISTS idx_search_patterns_query;");
       this.db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_search_patterns_query ON search_patterns(query);");
     } catch (_) {}
+
+    // 11. Catalog Metadata (Downstream terms notice, export metadata & projection epoch tracking)
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS catalog_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
   }
 
   public resetStaleFetching(): number {
@@ -508,12 +518,19 @@ export class CrawlerDB {
     const records = this.db.prepare("SELECT creator_name, pattern, verified FROM creator_opt_outs WHERE verified = 1;").all() as any[];
     for (const r of records) {
       if (r.creator_name.toLowerCase() === cleanName) return true;
+      if (r.pattern && r.pattern.toLowerCase() === cleanName) return true;
       try {
-        const re = new RegExp(r.pattern, "i");
-        if (re.test(cleanName)) return true;
+        if (r.pattern && r.pattern !== r.creator_name) {
+          const re = new RegExp(r.pattern, "i");
+          if (re.test(cleanName)) return true;
+        }
       } catch (_) {}
     }
     return false;
+  }
+
+  public isOptedOut(creatorName: string, platform?: string): boolean {
+    return this.isCreatorOptedOut(creatorName, platform);
   }
 
   public registerOptOut(creatorName: string, platform: string, pattern: string, reason: string): boolean {
@@ -528,6 +545,44 @@ export class CrawlerDB {
     } catch (err) {
       logger.error(`Failed to register opt-out for ${creatorName}`, err);
       return false;
+    }
+  }
+
+  public delistCreatorPackages(creatorName: string): number {
+    if (this._isClosed || !creatorName) return 0;
+    const now = new Date().toISOString();
+    const cleanName = creatorName.trim().toLowerCase();
+    const escapedVendor = cleanName.replace(/[%_\\]/g, "\\$&");
+    try {
+      const res = this.db.run(`
+        UPDATE canonical_packages
+        SET lifecycle = 'delisted',
+            lifecycle_updated_at = ?,
+            updated_at = ?
+        WHERE (
+          LOWER(author) = ?
+          OR (
+            authors_json IS NOT NULL
+            AND json_valid(authors_json) = 1
+            AND EXISTS (
+              SELECT 1 FROM json_each(canonical_packages.authors_json)
+              WHERE LOWER(value) = ?
+            )
+          )
+          OR canonical_id IN (
+            SELECT canonical_id FROM package_fronts WHERE LOWER(author) = ?
+          )
+          OR LOWER(url) LIKE ('https://' || ? || '.booth.pm/%') ESCAPE '\\'
+          OR LOWER(url) LIKE ('https://' || ? || '.gumroad.com/%') ESCAPE '\\'
+          OR LOWER(url) LIKE ('https://github.com/' || ? || '/%') ESCAPE '\\'
+          OR LOWER(url) LIKE ('https://' || ? || '.itch.io/%') ESCAPE '\\'
+        )
+        AND lifecycle != 'delisted';
+      `, [now, now, cleanName, cleanName, cleanName, escapedVendor, escapedVendor, escapedVendor, escapedVendor]);
+      return res.changes;
+    } catch (err) {
+      logger.error(`Failed to delist packages for creator ${creatorName}`, err);
+      return 0;
     }
   }
 
@@ -648,24 +703,41 @@ export class CrawlerDB {
     lastModified?: string | null,
     backoffSec: number = 3600,
     failureCode?: number | null,
-    failureReason?: string | null
+    failureReason?: string | null,
+    nextIntervalSec?: number
   ): void {
     if (this._isClosed) return;
     const now = new Date().toISOString();
     try {
       if (status === "done") {
-        this.db.run(`
-          UPDATE frontier
-          SET status = 'done',
-              attempts = attempts + 1,
-              failure_count = 0,
-              etag = COALESCE(?, etag),
-              last_modified = COALESCE(?, last_modified),
-              last_fetched_at = ?,
-              next_fetch_at = datetime('now', '+' || fetch_interval_sec || ' seconds'),
-              updated_at = ?
-          WHERE url = ?;
-        `, [etag ?? null, lastModified ?? null, now, now, url]);
+        if (nextIntervalSec !== undefined && nextIntervalSec > 0) {
+          this.db.run(`
+            UPDATE frontier
+            SET status = 'done',
+                attempts = attempts + 1,
+                failure_count = 0,
+                etag = COALESCE(?, etag),
+                last_modified = COALESCE(?, last_modified),
+                fetch_interval_sec = ?,
+                last_fetched_at = ?,
+                next_fetch_at = datetime('now', '+' || ? || ' seconds'),
+                updated_at = ?
+            WHERE url = ?;
+          `, [etag ?? null, lastModified ?? null, nextIntervalSec, now, nextIntervalSec, now, url]);
+        } else {
+          this.db.run(`
+            UPDATE frontier
+            SET status = 'done',
+                attempts = attempts + 1,
+                failure_count = 0,
+                etag = COALESCE(?, etag),
+                last_modified = COALESCE(?, last_modified),
+                last_fetched_at = ?,
+                next_fetch_at = datetime('now', '+' || fetch_interval_sec || ' seconds'),
+                updated_at = ?
+            WHERE url = ?;
+          `, [etag ?? null, lastModified ?? null, now, now, url]);
+        }
       } else if (status === "failed") {
         const item = this.db.prepare("SELECT status, failure_count FROM frontier WHERE url = ?;").get(url) as any;
         // Never overwrite an active 'blocked' status (e.g. 3-day Cloudflare challenge backoff) with 'failed'

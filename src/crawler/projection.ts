@@ -1030,6 +1030,13 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
 
     console.log(`  + Qualified and marked ${discardCount} exhausted failed URLs in frontier.`);
 
+    const projectionEpoch = `epoch_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      db.run("CREATE TABLE IF NOT EXISTS catalog_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
+      db.run("INSERT OR REPLACE INTO catalog_metadata (key, value) VALUES ('projection_epoch', ?);", [projectionEpoch]);
+      logger.info(`[Projection] Recorded projection epoch: ${projectionEpoch}`);
+    } catch (_) {}
+
     db.run("PRAGMA wal_checkpoint(TRUNCATE);");
     const check = db.query("PRAGMA quick_check;").get() as any;
     console.log(`PRAGMA quick_check result: ${JSON.stringify(check)}`);

@@ -33,7 +33,7 @@ The Project distinguishes three distinct legal layers:
 
 1.4. **Deployment and Network Ownership Model.**  
 The Project operates under two distinct deployment structures:
-- **(a) The Canonical Network:** When crawler nodes or contributors send discovered metadata to the Maintainer canonical network, that network owns the resulting catalog products. This includes unified projection databases (`vrc_catalog.db`) and search indexes. Access to and redistribution of these canonical network products are governed by these Terms.
+- **(a) The Canonical Network (v1.0 Single-Node Architecture):** In version 1.0, the Canonical Network operates exclusively as a single-node, maintainer-operated deployment. To protect administrative infrastructure keys and eliminate edge database tampering, third-party contributor node ingestion is formally deferred to a Post-v1.0 Milestone governed by cryptographic Worker Ingestion Gateways. The Maintainer owns and publishes the resulting catalog products, including canonical projection databases (`vrc_catalog.db`) and search indexes. Access to and redistribution of these canonical network products are governed by these Terms.
 - **(b) Independent Networks (AGPLv3):** If an entity uses or modifies this crawler software for an independent network, the GNU Affero General Public License v3.0 (AGPLv3) strictly applies. That operator must obey all AGPLv3 copyleft obligations, including Section 13 for network interaction. The Maintainer claims no ownership over independent databases generated outside the Canonical Network.
 
 1.5. **Terms Precedence.**  
@@ -49,19 +49,23 @@ This document serves technical and transparency purposes only. It does not const
 2.1. **Factual Metadata.**  
 The crawler collects objective facts from public storefront pages. Indexed facts include: package names, reverse-DNS identifiers (`com.author.tool`), semantic version numbers, platform compatibility flags (`Unity 2022`, `PhysBones`), prices, tags, and canonical storefront URLs.
 
-2.2. **Statutory Copyright Basis and Functional Description Limits.**  
+2.2. **Statutory Copyright Basis, Functional Description Limits, and Dual-Tier Indexing Architecture.**  
 Individual factual data elements lack copyright protection under 17 U.S.C. Section 102(b), 37 C.F.R. Section 202.1(a), and Philippine Republic Act No. 8293 Section 175 (*Feist Publications, Inc. v. Rural Telephone Service Co.*, 499 U.S. 340). Underlying creative text, marketing copy, and documentation retain independent copyright protection. The Project treats individual factual metadata fields as facts rather than protected expressive works. This treatment does not imply that every third-party compilation, database structure, selection, arrangement, or accompanying creative expression is unprotected.
 
-The crawler extracts short descriptive summaries from publisher metadata fields. Sources include Open Graph (`og:description`) meta tags, JSON-LD structured descriptions, and package manifest fields, or lead text from repository documentation. In *Field v. Google, Inc.* (412 F. Supp. 2d 1106) and *Authors Guild v. Google, Inc.* (804 F.3d 202), courts evaluated search index caching and snippet displays under specific factual records. The Project does not treat these decisions as establishing an affirmative statutory safe harbor or universal fair-use exemption. The Maintainer limits description indexing to short functional summaries as an operational risk-reduction measure. Fair-use assessments remain fact-specific and jurisdiction-dependent.
+As an operational risk-reduction measure informed by search-indexing fair-use jurisprudence (*Authors Guild v. Google, Inc.*, 804 F.3d 202; *Field v. Google, Inc.*, 412 F. Supp. 2d 1106), the Project implements a **Dual-Tier Description Architecture**:
+- **(a) Internal Knowledge Graph Ingestion (Tier 1):** For internal semantic classification, entity resolution, and SQLite FTS5 search indexing, the pipeline may parse technical overview text (e.g. repository README feature lists, compatibility requirements) truncated to an operational engineering limit (up to 2,500 characters), discarding unformatted markup, images, and marketing badges.
+- **(b) Downstream Syndication and Public Snippets (Tier 2):** In all downstream API catalog feeds (`/v1/packages/stream`), public search views, and distributed SQLite search catalogs (`vrc_catalog.db`), descriptions are strictly truncated to short functional summaries (maximum 256 characters) or lead metadata. Downstream consumers agree under Section 10.4 not to expand, cache, or redistribute full creative marketing copy extracted from origin storefronts.
+
+These character limits are engineering and risk-control thresholds, not representations of a statutory safe harbor or categorical fair-use entitlement. Fair-use assessments remain fact-specific and jurisdiction-dependent.
 
 2.3. **Metadata Provenance Architecture.**  
 The database tracks provenance by linking canonical package records to raw immutable entries in the `entities` observation lake and `package_fronts` via source identifiers (`source_ids_json`, `raw_entity_id`), recording origin URLs, platforms, and fetch timestamps. The architecture roadmap specifies extending this schema to granular per-field provenance attributes (`field_name`, `source_url`, `source_platform`, `retrieved_at`, `source_type`, `confidence`, `rights_status`) to maintain an evidentiary audit trail for all catalog entries.
 
-2.4. **Three-State Timestamp Rubric.**  
-The Project records creation timestamps under a three-state rubric:
-- `confirmed`: Extracted directly from authoritative platform metadata.
-- `inferred`: Derived from the earliest verified commit or changelog entry.
-- `unknown`: When no upstream publication date exists, the timestamp is NULL. When an upstream publication date is not identified, the publication timestamp field is set to NULL rather than substituting a local crawl timestamp.
+2.4. **Three-State Timestamp Rubric and Provenance Faithfulness.**  
+To prevent factual distortion and preserve historical origin provenance under Philippine RA 8293 Section 175, the Project strictly records publication timestamps under a three-state rubric:
+- `confirmed`: Extracted directly from authoritative platform metadata fields (e.g. BOOTH `item-created-date`, GitHub repository `created_at`, VPM package release timestamps).
+- `inferred`: Derived from earliest verified commit histories or release tag changelogs.
+- `unknown`: When upstream platform metadata lacks an explicit publication timestamp, `origin_created_at` MUST be recorded as `NULL` with `created_at_confidence = 'unknown'`. Under no circumstances does the pipeline substitute local crawler observation or fetch timestamps (`created_at`, `observed_at`) for upstream creation dates.
 
 2.5. **Indexed Platforms.**  
 The Project indexes public listings from BOOTH.pm, Gumroad, Jinxxy, itch.io, GitHub, and community registries (subject to Section 5).
@@ -163,7 +167,10 @@ Individual factual data do not constitute protected expression under 17 U.S.C. S
 The visual search pipeline operates under these legal and technical boundaries:
 - **(a) Transformative Fair Use Precedents:** In *Kelly v. Arriba Soft Corp.* (336 F.3d 811), the Ninth Circuit held under the specific facts of that case that an image search engine's display of low-resolution thumbnails constituted transformative fair use. In *Authors Guild v. Google, Inc.* (804 F.3d 202), the Second Circuit held that displaying short text snippets to enable book search was transformative and non-substituting under specific facts. The Project does not treat these decisions as establishing universal safe harbors for arbitrary media extraction.
 - **(b) The Server Test and Circuit Split:** In *Perfect 10, Inc. v. Amazon.com, Inc.* (508 F.3d 1146), the Ninth Circuit adopted the Server Test. The court held that inline linking to or framing third-party hosted images does not constitute direct copyright infringement of the display right where the image file is not stored on the defendant's server. However, other courts (e.g., *Goldman v. Breitbart News Network, LLC*, 271 F. Supp. 3d 495, and *Nicklen v. Sinclair Broadcast Group, Inc.*, 551 F. Supp. 3d 188 in the Southern District of New York) have rejected the Server Test, holding that embedding or displaying content can infringe display rights regardless of server hosting. The Ninth Circuit itself acknowledged widespread criticism in *Hunley v. Instagram, LLC* (73 F.4th 1060). Because legal rules regarding online media display remain subject to conflicting jurisdictional authority, the Project treats media ingestion and display as an area of ongoing legal uncertainty.
-- **(c) Direct Origin Media Pointer Policy (Implementation Lag Asterisk):** The Project policy aims to serve direct source links to original creator media instead of rehosting third-party image files. This direct pointer architecture eliminates server storage and aligns with display-rights jurisprudence. However, the current code implementation lags behind this architectural policy. The crawler currently stores low-resolution WebP thumbnails in the SQLite database (`media_cache.webp_data`) while computing BlurHash and pHash-64 digests. The Maintainer treats local thumbnail storage as an operational risk under jurisdictions that reject the Server Test. The project roadmap and `TODO.md` queue the removal of persistent image caching (CR-19 and CR-21) to complete migration to direct origin URLs. The Maintainer deletes cached media records upon verified delisting requests.
+- **(c) Direct Origin Media Pointer Architecture and Hybrid Delivery:** The Project is designed to avoid persistent server-side reproduction of third-party media and, in jurisdictions applying the Ninth Circuit's Server Test (*Perfect 10, Inc. v. Amazon.com, Inc.*, 508 F.3d 1146), direct origin linking may reduce exposure to claims based specifically on unauthorized display. This architecture does not eliminate copyright, contractual, secondary-liability, or other legal risks in every jurisdiction.
+  - **Zero Persistent BLOB Storage**: The database schema (`media_cache` in `src/db.ts`) and exported SQLite catalogs (`vrc_catalog.db`) store zero WebP binary BLOBs and zero raw image payloads. Persistent thumbnail caching has been completely purged from the architecture. The database retains solely mathematical perceptual fingerprints (BlurHash strings, 64-bit DCT pHash digests), content-type metadata, and direct outbound origin CDN URLs (`media_urls_json`).
+  - **Hybrid Delivery & Ephemeral In-Memory Proxying**: API feeds and database distributions return direct origin CDN links by default. To accommodate downstream client applications blocked by closed storefront CDN hotlink protections or mandatory `Referer` headers (e.g. Pixiv `pximg.net`), the Project architecture provides an ephemeral in-memory streaming gateway (`GET /v1/media/stream?url=...`). This conduit strictly transcodes media in transient volatile memory without storing image bytes on disk, without SQLite BLOB writes, and without cloud object rehosting, emitting client-side private caching directives (`Cache-Control: private, max-age=86400`). Transient processing is not represented as legally equivalent to non-reproduction in every jurisdiction; the absence of persistent storage is an architectural risk-reduction measure rather than a categorical copyright exemption.
+  - **Jurisdictional Notice Regarding Display Rights**: While pure origin pointers avoid persistent server storage under the Server Test, legal display exposure under jurisdictions that have criticized or rejected the Server Test (e.g. *Goldman v. Breitbart News Network, LLC*, 271 F. Supp. 3d 495; *Nicklen v. Sinclair Broadcast Group, Inc.*, 551 F. Supp. 3d 188; *Hunley v. Instagram, LLC*, 73 F.4th 1060) remains subject to active judicial debate. Downstream developers must independently evaluate their media presentation model under *Kelly v. Arriba Soft Corp.* (336 F.3d 811) transformative fair-use guidelines.
 
 7.3. **Compilation Rights Limits.**  
 The Maintainer claims compilation rights in Project schema and taxonomy designs, but disclaims ownership of third-party names, descriptions, or prices.
@@ -213,13 +220,14 @@ Requests should include:
 - Confirmation of creator or authorized representative status.
 
 9.4. **Non-Scraping Technical Verification Pathways.**  
-The Project architecture specifies three non-scraping verification pathways:
-- DNS TXT record (`vrc-opt-out=<vendor-id>`) on the creator domain.
-- Signed Git commit from a verified repository account.
-- Direct email verification from an official author domain.
+The Project provides automated, machine-verifiable non-scraping verification pathways:
+- **Domain DNS TXT Verification (`dns_txt`):** Querying `_vrc-opt-out.<creatorDomain>` for `vrc-opt-out=<vendorId>` via standard DNS resolvers.
+- **Storefront Profile Bio Token (`storefront_bio_token`):** For creators on hosted platforms (BOOTH, Gumroad, Jinxxy) lacking custom domain control, the creator temporarily places a verification token (`#vrc-opt-out-<vendorId>`) in their public store profile bio. The Gateway executes an ephemeral, single-shot HTTP verification probe with strict SSRF guards, streams the body until the token substring is detected, and immediately discards the payload without performing structural HTML parsing, indexing, or persistent storage. Once verified, the creator may immediately remove the token.
+- **Cryptographic Commit Signature (`signed_commit`):** For Git repository authors, verifying a digital signature against the author's published public key.
+- **Direct Email Notice:** Direct manual verification from an official domain via the contact in Section 9.2.
 
-9.5. **Automated Delisting Roadmap.**  
-The Project architecture prioritizes an automated delisting route (`POST /v1/opt-out`) to validate machine-readable verification proofs without manual overhead. Supported proofs include domain DNS TXT records, signed repository commits, and domain email tokens. Pending complete production rollout of the automated endpoint, delisting requests are processed directly via the designated email contact in Section 9.2.
+9.5. **Automated Delisting Route (`POST /v1/opt-out`).**  
+The API Gateway exposes an automated, unauthenticated endpoint at `POST /v1/opt-out` gated by the technical verification proofs specified in Section 9.4. This endpoint enforces strict anti-abuse protections, including a sliding-window rate limit (5 verification requests per minute per IP), domain whitelisting, and private-IP SSRF rejection. Upon successful validation, the system immediately records the opt-out in `creator_opt_outs` and transitions all associated packages to `lifecycle = 'delisted'`, removing them from canonical feeds and future catalog exports. Manual requests sent to the designated contact in Section 9.2 continue to be honored concurrently.
 
 9.6. **Delisting Response Target and Scope.**  
 The Maintainer aims to process verified requests within a voluntary 24 to 48 hour operational target.
@@ -239,16 +247,17 @@ The Maintainer has not registered a designated agent under 17 U.S.C. Section 512
 
 ## 10. Downstream Programmatic Catalog and API Covenants
 
-10.1. **Notice and Conditions of Access.**  
-API and catalog access terms are conditions of access and redistribution for Project-controlled feeds, exports, and catalog databases. The Maintainer intends these terms to govern use of Project-controlled materials where legally enforceable. The existence of an HTTP request or download alone is not represented as automatically establishing contractual assent in every circumstance. The Project gives reasonable notice of applicable terms through its API documentation, endpoints, distribution files, and other access mechanisms.
-
-Architectural specifications call for Maintainer-controlled API endpoints and production deployments to configure technical notice through HTTP response headers:
+10.1. **Notice and Conditions of Access (IETF RFC 6648 & RFC 8288).**  
+API and catalog access terms are conditions of access and redistribution for Project-controlled feeds, exports, and catalog databases. The Maintainer intends these terms to govern use of Project-controlled materials where legally enforceable. In adherence to IETF RFC 6648 (deprecating the `X-` prefix for custom application protocols) and IETF RFC 8288 (Web Linking), Maintainer-controlled API endpoints inject conspicuous, machine-readable contractual notice on all HTTP responses:
 ```http
 VRC-Packages-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md
-VRC-Packages-Catalog-Terms-Version: 1.1
-VRC-Packages-Catalog-Terms-Digest: <sha256-digest>
+VRC-Packages-Terms-Version: 1.1
+VRC-Packages-Repository: https://github.com/SlamTheDragon/vrc-package-crawler
+VRC-Packages-License: Layer-A: AGPL-3.0 / Layer-B: Database Compilation Terms / Layer-C: Third-Party Origin Rights
+Link: <https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md>; rel="terms-of-service"
+X-Robots-Tag: noai, noimageai
 ```
-Where a downstream party redistributes Project-controlled catalog data, the applicable redistribution terms are intended to accompany that distribution. The enforceability of particular contractual restrictions depends on applicable law, notice, assent, and the circumstances of the transaction. Downstream consumers who do not assent to these terms are requested not to access, query, or redistribute Maintainer-controlled catalog outputs.
+Repeated automated access after conspicuous notice may provide evidence supporting contractual assent in circumstances similar to those recognized in *Register.com, Inc. v. Verio, Inc.* (356 F.3d 393), but does not guarantee contract formation in every jurisdiction or access context. Where a downstream party redistributes Project-controlled catalog data, the applicable redistribution terms are intended to accompany that distribution. Downstream consumers who do not assent to these terms are requested not to access, query, or redistribute Maintainer-controlled catalog outputs.
 
 10.2. **Mandatory Source Storefront Deep-Linking.**  
 Downstream applications must preserve and prominently display direct outbound links to the Source Storefront URL for every listed package.
@@ -264,11 +273,23 @@ Downstream consumers must not strip Source Storefront URLs, insert affiliate tra
 10.5. **Platform Session Air-Gap Policy.**  
 As an operational security covenant, downstream applications integrating Project feeds are prohibited from querying host storefront platforms on behalf of users using automated accounts or passing logged-in user session cookies through Project endpoints.
 
-10.6. **Community Curation Reports (Schema 4).**  
-The endpoint `POST /v1/reports` accepts structured curation reports. When configured in production, bearer authentication via `API_SECRET_TOKEN` can restrict administrative submissions. Received reports are placed in a `'pending'` queue to allow verification before lifecycle state changes occur.
+10.6. **Community Curation Reports, Bearer Authentication, and Quarantined Processing.**  
+The endpoint `POST /v1/reports` accepts structured curation and moderation reports (Schema 4). To prevent unauthorized competitor sabotage, automated delisting denial-of-service attacks, and catalog poisoning:
+- **Mandatory Bearer Authentication**: Submissions to `POST /v1/reports` strictly require administrative bearer authentication (`Authorization: Bearer <API_SECRET_TOKEN>`). Requests lacking a valid token generated with at least 256 bits of CSPRNG entropy are rejected with `HTTP 401 Unauthorized`. Token verification uses constant-time string comparison (`crypto.timingSafeEqual`) to prevent timing side-channel attacks.
+- **Quarantined Delisting Buffer**: In accordance with the anti-tampering covenant, community reports asserting `irrelevance` or `scam` do not trigger autonomous delisting. Instead, the reported package transitions to an administrative `'needs_review'` quarantine buffer, pending human curator evaluation before any permanent lifecycle mutation (`'delisted'`) may occur.
+- **Strict Separation from Creator Opt-Out**: Administrative curation under this Section is distinct from verified rights-holder delisting under Section 9. Rights holders need not possess administrative bearer credentials and may delist their packages directly via `POST /v1/opt-out` using non-scraping proof pathways.
 
-10.7. **Database Export Metadata Specification.**  
-Architectural specifications require exported SQLite databases (`vrc_catalog.db`) to include a `catalog_metadata` table recording `terms_version`, `terms_url`, `terms_hash`, `export_timestamp`, and license references to supply downstream consumers with in-band notice.
+10.7. **Database Export Metadata Specification and In-Band Contractual Notice.**  
+To ensure that all downstream offline consumers and application redistributors receive unambiguous legal notice regardless of delivery method, all exported SQLite databases (`vrc_catalog.db`) incorporate a mandatory `catalog_metadata` table:
+```sql
+CREATE TABLE IF NOT EXISTS catalog_metadata (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+```
+Populated metadata attributes declare: `terms_of_use_url`, `terms_version`, `repository_url`, `catalog_name`, `license_framework` (Layer-A: AGPL-3.0 / Layer-B: Database Compilation Terms / Layer-C: Origin Author Rights), and `export_epoch`.
+
+For Project-controlled catalog distributions governed by these Terms, downstream redistributors must preserve the `catalog_metadata` table and its legal notices when redistributing the catalog as a catalog product. This requirement does not impose additional restrictions on rights granted by AGPLv3 with respect to the source code itself.
 
 10.8. **Definition of Downstream Recipient.**  
 A "**Downstream Recipient**" includes:
@@ -297,8 +318,11 @@ Downstream distributors must pass this anti-AI training restriction to further d
 11.3. **Open-Web Discovery Policy.**  
 The Software avoids open-web unindexed crawling. Discovery expands strictly through federated registry seeds, community manifests, and verified package indices.
 
-11.4. **Avatar Cosmetics Taxonomy Isolation.**  
-Standalone avatar cosmetics are separated from the primary toolchain catalog to minimize SimHash false merges. Downstream tools must preserve this taxonomy separation.
+11.4. **Avatar Cosmetics Taxonomy Isolation and Base-Avatar Association.**  
+To prevent SimHash locality-sensitive clustering collisions between high-volume avatar apparel/hair listings and developer toolchains sharing generic terminology ("PhysBones", "Modular Avatar"), standalone avatar cosmetics are partitioned into a strictly isolated taxonomy tier.
+- **Base Avatar Tagging**: Cosmetics listings must be tagged with their target base avatar 3D mesh (e.g., Kikyo, Manuka, Shinano, Selestia).
+- **Anti-Merge Guard**: The entity resolution engine prohibits near-duplicate clustering between toolchains and cosmetic items. Near-duplicate evaluations for cosmetics require identical author credentials and matching base-avatar constraints before Hamming distance evaluation.
+- **Downstream Preservation Covenant**: Downstream consumers and search applications integrating Project feeds agree to preserve this taxonomy separation and avoid presenting unvetted cosmetic assets as verified developer toolchains.
 
 ---
 
