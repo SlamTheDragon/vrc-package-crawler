@@ -735,6 +735,7 @@ The following table evaluates every major proposed architectural adjustment and 
    - **[ANSWERED BY CODE AUDIT 2026-09-23]** We are **confident that documentation severely diverges from ground reality**:
      - `AGENT.md` and `DELEGATES.md` are byte-for-byte identical duplicates (`SHA256: 59E18587DF...`).
      - Test metrics in `AGENT.md` (40/40, 51/0) are obsolete  -  ground truth is 57 passing tests across 12 files.
+     - Status: Historical / superseded. Do not use as the current implementation specification. See README.md and docs/OPERATIONS_AND_CHECKLIST.md.
 
      - `tests/migrate.test.ts` does not exist (renamed to `tests/schema_unification.test.ts`).
      - Administrative authentication relies on `API_SECRET_TOKEN` in code, but `AGENT.md` documents `CRAWLER_API_TOKEN`. Neither appears in `.env.example`.

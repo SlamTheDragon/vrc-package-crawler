@@ -20,16 +20,16 @@ These Terms govern access to and use of Project-controlled catalog feeds, API en
 ## 1. Project Scope and Legal Architecture
 
 1.1. **Open-Source Package Discovery Infrastructure.**  
-The Project is an open-source search and indexing engine. It discovers, indexes, and organizes metadata about public software packages, tools, and creator listings. It serves community package managers and discovery utilities in the VRChat and Unity developer ecosystems. It functions as a specialized search engine index.
+The Project is an open-source search and indexing engine. It discovers, indexes, and organizes metadata about public software packages, tools, and creator listings. It serves community package managers and discovery utilities in the VRChat and Unity developer ecosystems. Describing the Project as a search engine index reflects backend software architecture and information-retrieval functions only. The Project does not assert statutory search-engine immunity or equivalent legal status.
 
 1.2. **Backend Infrastructure Only.**  
 The Software operates exclusively as backend infrastructure. It serves REST API endpoints, incremental edge sync feeds, and exported SQLite search catalogs. It does not operate as a store, transaction broker, or payment processor.
 
 1.3. **The Three Legal Layers.**  
 The Project distinguishes three distinct legal layers:
-- **Layer A (Source Code):** Governed exclusively by the GNU Affero General Public License v3.0 ([LICENSE.md](LICENSE.md)). The Project cannot and does not use these Terms to restrict rights granted by AGPLv3. Downloading, compiling, or running the source code does not bind a user to these catalog terms.
-- **Layer B (Project-Created Material):** Database schema design, categorization taxonomy, compilation coordination, and original documentation. The Maintainer claims copyright in original compilation, selection, arrangement, database schema design, categorization taxonomy, and documentation to the extent recognized by applicable law, and supplies access to Project-controlled catalog outputs under these Terms.
-- **Layer C (Third-Party Origin Data):** Package names, creator handles, prices, version numbers, storefront URLs, creative marketing text, and trademarks. Third-party materials remain subject to their original creator or platform rights. The Maintainer does not claim property or ownership rights in underlying third-party origin data.
+- **Layer A (Source Code):** Governed exclusively by the GNU Affero General Public License v3.0 ([LICENSE.md](LICENSE.md)). The Project does not use these Terms to restrict rights granted by AGPLv3. Downloading, compiling, or running the source code does not bind a user to these catalog terms.
+- **Layer B (Project-Created Material):** Database schema design, categorization taxonomy, compilation coordination, and original documentation. The Maintainer claims copyright in original compilation, selection, arrangement, database schema design, and documentation to the extent recognized by applicable law (such as Philippine RA 8293 Section 173.2), and supplies access to Project-controlled outputs under these Terms.
+- **Layer C (Third-Party Origin Data):** Package names, creator handles, prices, version numbers, storefront URLs, descriptions, and trademarks. Third-party materials remain subject to their original creator or platform rights. The Maintainer does not claim property or ownership rights in underlying third-party origin data.
 
 1.4. **Deployment and Network Ownership Model.**  
 The Project operates under two distinct deployment structures:
@@ -50,7 +50,7 @@ This document serves technical and transparency purposes only. It does not const
 The crawler collects objective facts from public storefront pages. Indexed facts include: package names, reverse-DNS identifiers (`com.author.tool`), semantic version numbers, platform compatibility flags (`Unity 2022`, `PhysBones`), prices, tags, and canonical storefront URLs.
 
 2.2. **Statutory Copyright Basis and Functional Description Limits.**  
-Individual factual data elements lack copyright protection under 17 U.S.C. Section 102(b), 37 C.F.R. Section 202.1(a), and Philippine Republic Act No. 8293 Section 175 (*Feist Publications, Inc. v. Rural Telephone Service Co.*, 499 U.S. 340). Underlying creative text, marketing copy, and documentation may retain independent copyright protection.
+Individual factual data elements lack copyright protection under 17 U.S.C. Section 102(b), 37 C.F.R. Section 202.1(a), and Philippine Republic Act No. 8293 Section 175 (*Feist Publications, Inc. v. Rural Telephone Service Co.*, 499 U.S. 340). Underlying creative text, marketing copy, and documentation retain independent copyright protection. The Project treats individual factual metadata fields as facts rather than protected expressive works. This treatment does not imply that every third-party compilation, database structure, selection, arrangement, or accompanying creative expression is unprotected.
 
 The crawler extracts short descriptive summaries from publisher metadata fields. Sources include Open Graph (`og:description`) meta tags, JSON-LD structured descriptions, and package manifest fields, or lead text from repository documentation. In *Field v. Google, Inc.* (412 F. Supp. 2d 1106) and *Authors Guild v. Google, Inc.* (804 F.3d 202), courts evaluated search index caching and snippet displays under specific factual records. The Project does not treat these decisions as establishing an affirmative statutory safe harbor or universal fair-use exemption. The Maintainer limits description indexing to short functional summaries as an operational risk-reduction measure. Fair-use assessments remain fact-specific and jurisdiction-dependent.
 
@@ -175,11 +175,11 @@ The Maintainer claims compilation rights in Project schema and taxonomy designs,
 8.1. **Data Minimization Policy.**  
 The Software is configured to collect public listing metadata for package discovery. As an internal data minimization measure, the crawler is designed to exclude buyer identities, payment records, private messages, user biographies, and personal social accounts. Public availability does not by itself determine whether information constitutes personal data or whether privacy obligations apply.
 
-8.2. **Lawful Basis Analysis.**  
-Where applicable, the Maintainer may rely on legitimate interests or another lawful basis recognized by applicable privacy law (such as Section 12 of Philippine Republic Act No. 10173 or GDPR Article 6(1)(f)). The Maintainer assesses lawful bases according to the jurisdiction and processing activity, subject to balancing tests against individual rights.
+8.2. **Philippine Privacy Basis (RA 10173).**  
+Public creator handles, usernames, and profile links displayed on public storefronts can constitute personal information under Philippine Republic Act No. 10173 (Data Privacy Act of 2012). The Maintainer intends to rely, where applicable, on the legitimate-interest ground (Section 12(f)) for processing public creator metadata. Such processing remains subject to statutory principles of transparency, legitimate purpose, proportionality, and applicable data-subject rights.
 
-8.3. **Territorial Scope of GDPR.**  
-Where GDPR applies to the relevant processing under Article 3 territorial scope, data subjects may exercise rights under Articles 15 through 21, subject to statutory conditions and exemptions.
+8.3. **Territorial Scope and International Privacy Frameworks.**  
+The Maintainer resides in the Republic of the Philippines and operates backend discovery infrastructure. The Project does not target goods or services to individuals in the European Union or monitor behavior under Article 3 of Regulation (EU) 2016/679 (GDPR). GDPR rights and obligations apply where statutory territorial-scope criteria under Article 3 are satisfied, without asserting universal GDPR applicability. Data subjects may submit inquiries or exercise rights under Section 8.4.
 
 8.4. **Privacy Channel.**  
 Data subjects can submit privacy inquiries or requests to `slamthedragon@gmail.com` with subject `[Privacy Request]`. The Maintainer aims to acknowledge requests within 48 hours.
@@ -233,18 +233,22 @@ If an origin receives repeated valid rights complaints, the Maintainer will perm
 Account-based claims and profile editing belong to external applications. The Project does not supply in-band user authentication.
 
 9.9. **Notice Regarding Statutory Safe Harbors.**  
-The Maintainer has not registered a designated agent under 17 U.S.C. Section 512(c)(2). The Maintainer does not represent that the Project qualifies for DMCA statutory safe harbor protections. The Project maintains a voluntary delisting policy. It considers the principles of Section 30 of Philippine Republic Act No. 8792 without asserting statutory immunity.
+The Maintainer has not registered a designated agent under 17 U.S.C. Section 512(c)(2). The Maintainer does not represent that the Project qualifies for DMCA statutory safe harbor protections. The Maintainer operates this notice-and-delisting procedure as a voluntary good-faith operational policy to respect creator preferences and facilitate correction or removal requests. This procedure does not constitute an assertion of statutory safe harbor, intermediary immunity, or other statutory defenses under Philippine law or foreign law.
 
 ---
 
 ## 10. Downstream Programmatic Catalog and API Covenants
 
-10.1. **Notice and Contractual Intention.**  
-The Maintainer intends these Terms to govern access to and redistribution of Maintainer-controlled catalog feeds, API endpoints, and database exports. The Maintainer does not assert that browsing, downloading, or querying automatically creates an enforceable contract in all jurisdictions. Enforceability depends on applicable contract law, reasonable notice, and valid manifestation of assent (*Register.com, Inc. v. Verio, Inc.*). Architectural specifications call for downstream operators and production deployments to configure technical notice via the `X-Catalog-Terms-Of-Use` header:
+10.1. **Notice and Conditions of Access.**  
+API and catalog access terms are conditions of access and redistribution for Project-controlled feeds, exports, and catalog databases. The Maintainer intends these terms to govern use of Project-controlled materials where legally enforceable. The existence of an HTTP request or download alone is not represented as automatically establishing contractual assent in every circumstance. The Project gives reasonable notice of applicable terms through its API documentation, endpoints, distribution files, and other access mechanisms.
+
+Architectural specifications call for Maintainer-controlled API endpoints and production deployments to configure technical notice through HTTP response headers:
 ```http
 X-Catalog-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md
+X-Catalog-Terms-Version: 1.1
+X-Catalog-Terms-Digest: <sha256-digest>
 ```
-Downstream consumers who do not assent to these terms are requested not to access, query, or redistribute Maintainer-controlled catalog outputs.
+Where a downstream party redistributes Project-controlled catalog data, the applicable redistribution terms are intended to accompany that distribution. The enforceability of particular contractual restrictions depends on applicable law, notice, assent, and the circumstances of the transaction. Downstream consumers who do not assent to these terms are requested not to access, query, or redistribute Maintainer-controlled catalog outputs.
 
 10.2. **Mandatory Source Storefront Deep-Linking.**  
 Downstream applications must preserve and prominently display direct outbound links to the Source Storefront URL for every listed package.
@@ -280,12 +284,12 @@ To the extent permitted by applicable law, a downstream operator is responsible 
 
 ## 11. Restrictive Use Covenants and Anti-AI Terms
 
-11.1. **Community Anti-AI Covenant and API Access Policy.**  
-The Maintainer establishes an ethical community covenant and operational access policy for Project-controlled services. Users must not query, scrape, or ingest Maintainer endpoints, metadata feeds, or database files to train generative artificial intelligence models. The Maintainer strictly prohibits automated bots from querying Project APIs to build AI training datasets.
+11.1. **Contractual Use Restriction on Catalog Outputs and Anti-AI Policy.**  
+This section establishes a contractual and operational use restriction governing Project-distributed dataset outputs, API services, and curated compilations. The restriction applies to the use of Project-controlled outputs. It does not assert copyright ownership over individual underlying facts or third-party materials.
 
-To the extent recognized by applicable law, the Maintainer reserves all rights regarding automated extraction for AI model training. This policy aligns with machine-readable reservation frameworks, such as Directive (EU) 2019/790 Article 4(3). Project endpoints and catalog exports communicate machine-readable reservations (`noai`, `noimageai`).
+Use of Project-controlled catalog outputs for training, fine-tuning, evaluation, or development of generative artificial intelligence models is not permitted under these terms. The Maintainer strictly prohibits automated bots from querying Project APIs to assemble AI training datasets. This restriction does not purport to prohibit independent use of underlying facts lawfully obtained from sources other than Project-controlled outputs.
 
-This condition governs Maintainer-controlled services and distributed catalog files. It does not apply to independent operators who run the AGPLv3 source code on private infrastructure. It does not alter or restrict any rights granted under the GNU Affero General Public License v3.0.
+In accordance with international reservation frameworks (including Directive (EU) 2019/790 Article 4(3)), Project endpoints and exports communicate machine-readable reservations (`noai`, `noimageai`). This condition governs Maintainer-controlled services and distributed catalog files. It does not apply to independent operators who run the AGPLv3 source code on private infrastructure. It does not alter or restrict any rights granted under the GNU Affero General Public License v3.0.
 
 11.2. **Downstream Pass-Through Covenant.**  
 Downstream distributors must pass this anti-AI training restriction to further downstream recipients of Project catalog feeds.
@@ -465,7 +469,6 @@ These Terms constitute the entire agreement between the Maintainer and users reg
 
 ### 7. Online Intermediaries and Privacy Frameworks
 - 17 U.S.C. Section 512(d). DMCA statutory limitation on liability for information location tools, conditioned on compliance with statutory prerequisites including designated agent registration under Section 512(c)(2). Not asserted as an established safe harbor.
-- Republic Act No. 8792, Section 30 (Phil.). Electronic Commerce Act provisions regarding network service providers and directories. Referenced as policy guidance rather than established statutory immunity.
 - Republic Act No. 10173, Section 12 (Phil.). Data Privacy Act processing criteria for personal information, including legitimate interests under Section 12(f), subject to balancing tests.
 - Regulation (EU) 2016/679 (GDPR), Articles 3, 6(1)(f), and 15-21. Governs territorial scope, legitimate interests lawful basis, and data-subject rights, applicable where territorial scope criteria under Article 3 are satisfied.
 

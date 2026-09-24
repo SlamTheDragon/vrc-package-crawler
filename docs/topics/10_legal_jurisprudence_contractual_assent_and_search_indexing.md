@@ -190,7 +190,7 @@ Downstream applications that consume API feeds or SQLite databases agree to thes
 2. **No Commercial Paywalls**: Downstreams must not gate indexed factual metadata behind payment walls.
 3. **Functional Snippet Boundary**: Downstreams must display only short functional summaries or normalized lead text. Downstreams must not scrape or redistribute full creative marketing texts.
 4. **Privacy-Minimized Application Telemetry**: Downstreams must strip all IP addresses, user accounts, and session tokens from telemetry feeds (Schema 5).
-5. **Anti-AI Covenant**: Downstreams must not use exported catalogs, visual hashes, or metadata feeds to train generative artificial intelligence models.
+5. **Anti-AI Covenant**: Downstreams must not use exported catalogs, visual hashes, or metadata feeds to train generative artificial intelligence models. This restriction governs Project-distributed outputs and does not claim ownership of underlying facts obtained independently.
 
 ---
 

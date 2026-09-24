@@ -136,7 +136,7 @@ Legitimate discovery platforms will host zero 3D geometry and zero binary archiv
 ### Anti-AI Covenant and Community Governance
 VRChat creators broadly reject generative machine learning ingestion[^16]. Storefront licenses contain explicit anti-AI clauses. Creators forbid using their geometry, textures, or renders in training sets.
 
-The Project policy strictly prohibits feeding harvested images or descriptions into artificial intelligence pipelines. Breaching this norm destroys community goodwill and triggers legal risk.
+The Project policy strictly prohibits feeding harvested images or descriptions into artificial intelligence pipelines. Breaching this norm destroys community goodwill and triggers legal risk. The Project enforces this restriction as a contractual and operational use condition on Project-distributed dataset outputs, API services, and curated compilations. This restriction does not purport to prohibit independent use of underlying facts lawfully obtained from sources other than Project-controlled outputs.
 
 ### Self-Service Delisting Verification Pathways
 Indexers supply creators with pathways to request removal of listings from canonical feeds:
