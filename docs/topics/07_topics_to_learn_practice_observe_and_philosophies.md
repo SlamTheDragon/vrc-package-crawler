@@ -120,7 +120,7 @@ flowchart TD
     P5 --> P6["6. Politeness as Primary Principle"]
     P6 --> P7["7. Administrative Security & Human Buffer"]
     P7 --> P8["8. Stateless Metadata Air-Gap"]
-    P8 --> P9["9. Sovereign Creator Delisting"]
+    P8 --> P9["9. Creator and Rights-Holder Delisting"]
     P9 --> P10["10. Downstream Notice & Assent"]
 ```
 
@@ -137,13 +137,13 @@ flowchart TD
 6. **Politeness as a Primary Principle**:
    Rate limits and backoff jitter are not optional settings. They form the core architecture of the engine.
 7. **Administrative Security and Human Review Gating**:
-   All administrative reports will require authentication via `API_SECRET_TOKEN`. The system will quarantine destructive actions into a human-review buffer (`needs_review`) and will never apply automated delisting without human oversight.
+   All administrative reports will require authentication via `API_SECRET_TOKEN`. The system will quarantine destructive actions into a human-review buffer (`status = 'pending'`) and will never apply automated delisting without human oversight.
 8. **Stateless Metadata Catalog Air-Gap**:
    The crawler engine and public catalog will remain an unauthenticated, stateless, read-only index. User accounts, authentication, bookmarks, and personalization engines will remain strictly air-gapped in external consumer applications.
-9. **Sovereign Creator Delisting and Verification**:
-   Rights holders have sovereign control over their presence in the index. The system will honor delisting requests within 24 to 48 hours through non-scraping verification (DNS TXT, signed Git commits, or direct email).
-10. **Downstream Notice and Assent Enforcement**:
-    Downstream programmatic consumers receive explicit technical notice of usage terms (`X-Catalog-Terms-Of-Use`, RFC 9110) on every API request and catalog release, ensuring contractual enforceability.
+9. **Creator and Rights-Holder Delisting Requests**:
+   Rights holders can request delisting of their presence from canonical index feeds. The Maintainer aims to process verified requests within a 24 to 48 hour target through non-scraping verification pathways (DNS TXT, signed Git commits, or direct email).
+10. **Downstream Notice and Assent Architecture**:
+    The downstream notice architecture plans technical notice of usage terms (`X-Catalog-Terms-Of-Use`, RFC 9110) on API responses and catalog releases, supporting contractual notice and enforceability under applicable contract law.
 
 ***
 

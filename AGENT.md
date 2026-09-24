@@ -469,6 +469,46 @@ Autonomous coding agents must obey the 13 verified engineering reality constrain
 - `src/server/index.ts` returns `404 Not Found` for `GET /`. No discovery payload exists to communicate terms of use or endpoint schemas.
 - **Agent Rule:** Add root route `GET /` in `src/server/index.ts` returning API metadata, version, schema endpoints, terms of use URL, and license covenants.
 
+### CR-24: Robots Exclusion Protocol as Operational Signal
+- The crawler must follow `robots.txt` under RFC 9309 as an access preference signal, not as an affirmative legal authorization.
+- Compliance is an operational practice, not a contractual license.
+- **Agent Rule:** Respect `robots.txt` Disallow directives and 24-hour cache lifecycles. Never assert that robots.txt compliance creates a legal right to harvest data.
+
+### CR-25: Snippet Limit as Internal Risk-Reduction Limit
+- Truncating creative descriptions to 256 characters is an internal risk-reduction threshold derived from *Authors Guild v. Google, Inc.* search snippet doctrine.
+- It is not a statutory safe harbor or guaranteed fair-use threshold.
+- **Agent Rule:** Keep extracted descriptive snippets below 256 characters. Never claim this numerical limit guarantees non-infringement.
+
+### CR-26: Precedent Scope Calibration (Meta v. Bright Data)
+- *Meta Platforms, Inc. v. Bright Data Ltd.* held that logged-off public scraping did not breach Meta terms under specific record facts.
+- It does not establish a universal rule that unauthenticated scraping is lawful across all platforms.
+- **Agent Rule:** Maintain guest status without account authentication. Never claim *Bright Data* creates a universal legal right to scrape public storefronts.
+
+### CR-27: AGPLv3 Decoupling and the Three Legal Layers
+- AGPLv3 governs source code exclusively (Layer A). Catalog and API covenants govern Project-controlled catalog outputs (Layer B). Factual metadata and creator descriptions belong to original creators (Layer C).
+- Compiling, running, or reading source code does not bind users to catalog data covenants.
+- **Agent Rule:** Keep source code licensing strictly isolated under AGPLv3. Never introduce contractual triggers that condition code compilation or local execution on data covenants.
+
+### CR-28: Privacy Frameworks and Data Minimization
+- Public handles and storefront URLs can constitute personal data under Philippine RA 10173 and GDPR.
+- The Project relies on jurisdiction-specific lawful bases (RA 10173 Section 12 criteria and GDPR Article 6(1)(f) balancing where Article 3 territorial scope applies).
+- **Agent Rule:** Apply strict data minimization. Never index creator biographies, private emails, Discord handles, or avatars. Distinguish application telemetry from infrastructure network logs.
+
+### CR-29: Voluntary Delisting Policy and Response Target
+- The Maintainer provides voluntary delisting pathways with a 24 to 48 hour processing target. This is an internal policy, not an enforceable contractual Service Level Agreement (SLA).
+- Delisting purges records within Maintainer control (canonical feeds and exports), but cannot guarantee deletion from copies downloaded by downstream parties.
+- **Agent Rule:** Honor verified delisting requests promptly. Label the response window as a voluntary target, not an SLA.
+
+### CR-30: Governing Law and Boilerplate Hygiene
+- Project terms select the substantive laws and courts of the Republic of the Philippines (Civil Code Art. 1306, RA 8293, RA 8792, RA 10173).
+- Foreign legal boilerplate (such as California Civil Code Section 1542 waivers and US jury trial waivers) is purged from core terms.
+- **Agent Rule:** Ground all contractual assertions in Philippine law. Qualify downstream browsewrap covenants under applicable notice and assent standards (*Register.com v. Verio*).
+
+### CR-31: Automated Delisting Verification Endpoint (POST /v1/opt-out)
+- Individual open-source maintainers cannot process manual email takedowns at commercial scale.
+- Automated cryptographic and DNS verification pathways (`vrc-opt-out=<vendor-id>` DNS TXT, signed git commit, domain email token) are specified to execute autonomous delisting.
+- **Agent Rule:** Implement route `POST /v1/opt-out` in `src/server/index.ts` to validate machine-readable verification proofs and automatically update matching package records to `lifecycle = 'delisted'`.
+
 ---
 
 ## 7. SQLite Test Concurrency & Locking Invariants

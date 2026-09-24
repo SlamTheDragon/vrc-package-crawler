@@ -90,11 +90,10 @@ Deploying automated CAPTCHA solvers or proxy rotators to defeat barriers creates
 ### Ephemeral Pass-Through Image Proxying Versus Hotlink Blocking
 Storefront content delivery networks (including BOOTH and Gumroad) actively prevent client direct image hotlinking. They enforce signed HMAC tokens, `Referer` validation, and return `HTTP 403 Forbidden` to external `<img>` elements.
 
-To display thumbnail previews legally without incurring continuous Cloudflare R2 storage fees, the system will deploy an ephemeral pass-through image proxy:
-1. The proxy will receive incoming requests for image previews.
-2. The proxy will fetch the upstream image using legitimate server-side headers.
-3. The proxy will downscale and optimize the buffer in volatile memory.
-4. The proxy will stream the optimized image directly to the client without persistent disk or object storage.
+To reduce media copyright exposure and storage overhead, the architectural roadmap plans a transition toward an ephemeral pass-through image proxy (AGENT.md CR-19/CR-21):
+1. In the current implementation, `ImageProxyService` fetches storefront preview images, downscales them to $480 \times 270$ WebP format, stores binary thumbnails in local SQLite (`media_cache.webp_data`), and serves them via `/v1/media/:id`.
+2. Under the planned architectural deprecation, the service will phase out persistent BLOB caching in favor of ephemeral in-memory downscaling or direct origin URL redirection.
+3. Volatile processing will stream the optimized image directly to the client without persistent disk or object storage.
 
 ### YouTube Embed Filtering at the Frontier
 Media extraction parsers will frequently observe YouTube iframe or embed links (`youtube.com/embed/`, `youtu.be/`). Passing HTML embed targets into binary image processing queues causes Sharp image workers to crash with unhandled exceptions.

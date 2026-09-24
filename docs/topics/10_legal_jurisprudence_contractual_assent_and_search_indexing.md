@@ -14,7 +14,7 @@ This document reviews six core legal domains:
 3. **Computer Access and Anti-Hacking Law**: CFAA 18 U.S.C. 1030, *Van Buren*, and *hiQ v. LinkedIn*.
 4. **Contract Formation and Logged-Off Access**: *Meta v. Bright Data*, *Register.com v. Verio*, and *Southwest v. Kiwi.com*.
 5. **International Search Exceptions**: Japanese Copyright Act Articles 30-4 and 47-5, and EU DSM Directive.
-6. **Data Privacy and Creator Rights**: Philippine RA 10173, GDPR, and sovereign creator opt-out models.
+6. **Data Privacy and Creator Rights**: Philippine RA 10173, GDPR, and creator opt-out models.
 
 ```mermaid
 flowchart TD
@@ -45,7 +45,7 @@ The crawler indexes only objective facts from public web pages:
 - Platform compatibility flags (`Unity 2022`, `PhysBones`, `Quest`).
 - Direct Source Storefront URLs.
 
-These fields carry zero copyright protection. Creative marketing descriptions, artwork, and character backstories carry copyright protection. The crawler limits descriptive text to a short functional snippet of at most 256 characters.
+Individual factual data elements may lack copyright protection. However, an original selection, arrangement, or compilation structure may receive independent protection. Creative marketing descriptions, artwork, and character backstories carry copyright protection. The crawler extracts only structured metadata summaries (`og:description`, JSON-LD) and normalized lead sentences to identify package functions. Under *Authors Guild v. Google, Inc.* (804 F.3d 202), short functional search snippets do not substitute for expressive storefront text. The Project avoids arbitrary character cutoffs that lack statutory basis.
 
 ---
 
@@ -106,21 +106,21 @@ The crawler operates strictly on the public web. It obeys these technical bounda
 ## 5. Contractual Assent and Logged-Off Access
 
 ### The Meta Platforms v. Bright Data Precedent
-In *Meta Platforms, Inc. v. Bright Data Ltd.* (No. 23-cv-00077-EMC, N.D. Cal. Jan. 23, 2024), the court issued summary judgment in favor of Bright Data:
-- Meta's Terms of Service bind registered account holders while logged into the platform.
-- Scraping public data while logged out does not breach those terms.
-- A public visitor who never agrees to Terms of Service does not form a contract.
-- Contract survival clauses do not prevent logged-off access to public data.
+In *Meta Platforms, Inc. v. Bright Data Ltd.* (No. 23-cv-00077-EMC, N.D. Cal. Jan. 23, 2024), the court evaluated logged-off scraping under specific record facts:
+- Meta's Terms of Service bound registered account holders while logged into the platform.
+- The court found logged-off scraping of public data did not breach the user agreement under those specific facts.
+- Public visitors who never agree to Terms of Service do not form a clickwrap contract.
+- However, *Bright Data* does not establish a universal legal authorization to scrape public websites. Contractual enforceability depends on specific platform terms and jurisdiction.
 
 ### Limits from Southwest Airlines and Register.com
 Courts enforce terms against automated crawlers under specific conditions:
 - In *Register.com, Inc. v. Verio, Inc.* (356 F.3d 393), repeated queries with actual knowledge of restrictions formed a contract.
 - In *Southwest Airlines Co. v. Kiwi.com, Inc.* (N.D. Tex. 2021), Kiwi had actual notice via cease-and-desist letters and agreed to terms during ticket purchases.
 
-To prevent contract formation, this project enforces three rules:
-1. **Logged-Out Execution**: The crawler runs in an isolated guest state without personal accounts.
-2. **Zero Purchases**: The software never buys items, clicks checkout links, or registers user profiles.
-3. **Immediate Delisting**: The maintainer halts crawling and purges records upon receipt of an objection from a rights holder.
+As internal risk-reduction measures regarding contractual assent claims, the project adopts these operational practices:
+1. **Logged-Out Execution**: The crawler operates strictly in an unauthenticated guest state without personal accounts.
+2. **No Commercial Transactions**: The software does not purchase items, execute checkout flows, or register user profiles.
+3. **Prompt Delisting**: The Maintainer halts crawling and excludes records from canonical feeds upon receipt of an objection from a platform or creator.
 
 ---
 
@@ -131,8 +131,9 @@ Storefronts like BOOTH.pm operate under Japanese jurisdiction. The Japanese Copy
 - **Article 30-4 (Data Analysis Exception)**: Allows processing of works for machine data analysis where there is no intent to enjoy creative expression.
 - **Article 47-5 (Information Retrieval Exception)**: Allows minor exploitation of works for computerized information retrieval and search engines.
 - **The Economic Prejudice Proviso**: Article 47-5 does not apply if exploitation unreasonably prejudices the economic interests of the copyright holder.
+- **Contract Separation**: Statutory copyright exceptions do not create affirmative contractual licenses. Pixiv Master Terms Article 14 restricts automated collection under Japanese Civil Code Article 548-2.
 
-The crawler respects this proviso:
+The crawler respects this balance:
 - It routes all checkout traffic to the original creator on BOOTH.pm.
 - It enforces strict rate limits (3.0 to 5.0 seconds per request).
 - It preserves creator attribution and store links.
@@ -141,30 +142,30 @@ The crawler respects this proviso:
 The maintainer resides in the Republic of the Philippines. Local statutes govern the project:
 - **Republic Act No. 8293, Section 175**: Raw data and factual specifications carry no copyright protection.
 - **Republic Act No. 8293, Section 173.2**: Original selection, coordination, and schema arrangement in a database receive compilation protection.
-- **Republic Act No. 8792 (E-Commerce Act), Section 30**: Provides safe harbor limits for online search directories and network intermediaries.
+- **Republic Act No. 8792 (E-Commerce Act), Section 30**: Supplies liability limitations for online search directories and network intermediaries.
 
 ---
 
-## 7. Data Privacy and Data-Subject Sovereignty
+## 7. Data Privacy and Statutory Rights
 
 ### Statutory Framework (Philippine RA 10173 and GDPR)
 Public creator handles, store links, and usernames can constitute personal data under the Philippine Data Privacy Act of 2012 (Republic Act No. 10173) and the EU General Data Protection Regulation (GDPR).
 
-The project processes this data under the **Legitimate Interest** basis:
-- Republic Act No. 10173, Section 12(f).
-- GDPR, Article 6(1)(f).
+Where applicable, the project processes this data under the **Legitimate Interest** basis:
+- Republic Act No. 10173, Section 12.
+- GDPR, Article 6(1)(f), where GDPR territorial scope applies under Article 3.
 
-The legitimate interest is package discovery, creator attribution, and community toolchain interoperability.
+The legitimate interest is package discovery, creator attribution, and community toolchain interoperability, balanced against privacy interests.
 
 ### Creator Rights and Delisting Channels
 Data subjects have statutory rights to information, objection, access, rectification, and erasure (blocking).
 
 The project provides three delisting pathways:
-1. **Direct Delisting Email**: Creators can email `slamthedragon@gmail.com` with a 48-hour response SLA.
+1. **Direct Delisting Email**: Creators can email `slamthedragon@gmail.com` with a 48-hour response target.
 2. **Non-Scraping Domain Verification**: Creators can add a DNS TXT record (`vrc-opt-out=<vendor-id>`) or a signed Git commit.
 3. **Automated API Endpoint**: The server provides an automated delisting interface (`POST /v1/opt-out`).
 
-Matching records change immediately to `lifecycle = 'delisted'` and leave all public feeds.
+Matching records change immediately to `lifecycle = 'delisted'` and leave canonical public feeds.
 
 ---
 
@@ -172,11 +173,11 @@ Matching records change immediately to `lifecycle = 'delisted'` and leave all pu
 
 | Platform | Primary Terms Clause | Search Engine Status | Required Pacing | Project Compliance Posture |
 | :--- | :--- | :--- | :--- | :--- |
-| **BOOTH.pm (pixiv Inc.)** | Master Terms Art. 14 (commercial extraction and load ban) | Covered under Japanese Copyright Act Art. 47-5 | 3.0 to 5.0 seconds delay | Logged-out access, zero asset storage, direct store redirection. |
-| **Gumroad, Inc.** | Terms Section 14(e) | **Explicit search exception**: Permits spiders creating searchable indices, but bans caches/archives | 2.0 to 4.0 seconds delay | Fully compliant: Builds public search index, stores zero file caches. |
-| **Jinxxy Technologies** | Terms Section 8.2 & 23 (unauthorized scraper ban) | No written exception | 3.0 to 5.0 seconds delay | Logged-out guest access, RFC 9309 compliance, immediate opt-out SLA. |
-| **itch.io (itch corp.)** | Terms Section 3 (harvesting and server degradation ban) | Developer friendly | Conservative pacing | Prefers official developer APIs; routes 100% of traffic to origin store. |
-| **GitHub, Inc.** | Acceptable Use Policy | API-first policy with archival and research allowances | Token bucket rate limits | Uses official REST and GraphQL APIs with conditional ETag validation. |
+| **BOOTH.pm (pixiv Inc.)** | Master Terms Art. 14 (commercial extraction and load ban) | Art. 47-5 / 30-4 statutory exceptions (contractual position unresolved) | 1.5s baseline (0.8s to 5.0s adaptive) | Logged-out access, binary package exclusion, direct store redirection. |
+| **Gumroad, Inc.** | Terms Section 14(e) | **Search engine exception**: Permits spiders creating searchable indices, excluding caches | 3.0s baseline (2.5s to 12.0s adaptive) | Relies on search index exception, subject to periodic terms review. Excludes binary caches. |
+| **Jinxxy Technologies** | Terms Section 8.2 & 23 (unauthorized scraper ban) | No written exception | 1.2s baseline (0.8s to 6.0s adaptive) | **Unresolved Contractual Risk**: Logged-out access, polite pacing, immediate opt-out target. |
+| **itch.io (itch corp.)** | Terms Section 3 (harvesting and server degradation ban) | Developer friendly | 1.5s baseline pacing | Prefers official developer APIs; routes 100% of traffic to origin store. |
+| **GitHub, Inc.** | Acceptable Use Policy | API-first policy with archival and research allowances | Token bucket rate limits | Uses official REST and GraphQL APIs; planned conditional ETag validation. |
 | **VRCArena** | Open-source community directory; `robots.txt Allow: /` | Directory indexing permitted | API federation only | **Zero HTML DOM scraping**; uses bilateral API or static catalog dumps. |
 
 ---
@@ -187,8 +188,8 @@ Matching records change immediately to `lifecycle = 'delisted'` and leave all pu
 Downstream applications that consume API feeds or SQLite databases agree to these covenants:
 1. **Mandatory Storefront Attribution**: Applications must display direct links to the original creator storefront on all search cards.
 2. **No Commercial Paywalls**: Downstreams must not gate indexed factual metadata behind payment walls.
-3. **256-Character Snippet Cap**: Downstreams must not display or store more than 256 characters of creative descriptions.
-4. **Zero-PII Telemetry**: Downstreams must strip all IP addresses, user accounts, and session tokens from telemetry feeds (Schema 5).
+3. **Functional Snippet Boundary**: Downstreams must display only short functional summaries or normalized lead text. Downstreams must not scrape or redistribute full creative marketing texts.
+4. **Privacy-Minimized Application Telemetry**: Downstreams must strip all IP addresses, user accounts, and session tokens from telemetry feeds (Schema 5).
 5. **Anti-AI Covenant**: Downstreams must not use exported catalogs, visual hashes, or metadata feeds to train generative artificial intelligence models.
 
 ---
@@ -213,13 +214,13 @@ graph TD
 
 ### Invariant Checklist for Engineering Review
 - [x] Unauthenticated logged-out crawling only.
-- [x] Zero binary downloads (`.unitypackage`, `.vpmz`, `.zip`, `.blend`, `.fbx`).
+- [x] Binary package exclusion policy (`.unitypackage`, `.vpmz`, `.zip`, `.blend`, `.fbx`).
 - [x] RFC 9309 `robots.txt` compliance with 24-hour directive caching.
 - [x] AIMD rate limiting with decorrelated jitter.
 - [x] Three-state timestamp rubric (`confirmed`, `inferred`, `unknown` with NULL).
 - [x] Direct Source Storefront URL deep-linking on all API endpoints.
 - [x] Anti-AI data covenant on exported catalogs and APIs.
-- [x] Verified non-scraping delisting pathways with 24 to 48 hour SLA.
+- [x] Verified non-scraping delisting pathways with 24 to 48 hour response target.
 
 ---
 
@@ -246,7 +247,7 @@ graph TD
 - 18 U.S.C. Section 1030 (Computer Fraud and Abuse Act).
 - Republic of the Philippines, Republic Act No. 8293, Sections 173.2 and 175 (Intellectual Property Code of the Philippines, 1997).
 - Republic of the Philippines, Republic Act No. 8792, Section 30 (Electronic Commerce Act of 2000).
-- Republic of the Philippines, Republic Act No. 10173, Sections 12(f) and 16 (Data Privacy Act of 2012).
+- Republic of the Philippines, Republic Act No. 10173, Sections 12 and 16 (Data Privacy Act of 2012).
 - Agency for Cultural Affairs of Japan, Copyright Act of Japan, Act No. 48 of 1970, Articles 30-4 and 47-5 (Amended 2018).
 - Japanese Civil Code, Act No. 89 of 1896, Article 548-2 (Standard Form Contracts).
 

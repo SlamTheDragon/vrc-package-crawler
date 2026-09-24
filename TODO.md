@@ -165,7 +165,7 @@ When `API_SECRET_TOKEN` is unset in `.env`, the check `if (apiToken) { ... }` (l
   - **Consequence**: The crawler operates on a rigid 24-hour crawl timer regardless of actual resource update velocity or HTTP change indicators.
 
 
-  - **Resolution Path**: Wire `adjustAfterFetch(url, isModified, etag, lastModifiedHeader)` into domain worker completion callbacks. Send conditional HTTP headers in drivers, and replace the hardcoded `+86400` interval in `db.markStatus` with the scheduler's computed `nextInterval`.
+  - **Resolution Path**: Wire `adjustAfterFetch(url, isModified, etag, lastModifiedHeader)` into domain worker completion callbacks. Send conditional HTTP headers in drivers, and replace the hardcoded `+86400` interval in `db.markStatus` with the computed `nextInterval` of the scheduler.
 
   - **Self-Check (Grounding Truth)**: *VERIFIED BY CODE AUDIT 2026-09-23*. Confirmed in `src/utils/poisson_scheduler.ts` line 49, `src/crawler/index.ts` lines 760 & 955, and `src/db.ts` lines 707-728.
 
@@ -261,7 +261,7 @@ When `API_SECRET_TOKEN` is unset in `.env`, the check `if (apiToken) { ... }` (l
 
 - **2. Avatar Cosmetics Inclusion**: `docs/DISCOVERY_RULES.md` penalizes apparel (-15) and hair (-15). High risk of SimHash-64 false merges ($k \le 3$) due to boilerplate vocabulary. If added, cosmetics require an isolated taxonomy tier and base-avatar association.
 
-- **3. VRCArena Scrape Pool (Verdict: Conditionally Safe via Federation, Reject DOM Scraping)**: Both VRCArena and this project are open source, and VRCArena's `robots.txt` explicitly permits public indexation (`User-agent: * Allow: /`), legally protecting logged-out search directory indexing under *Meta v. Bright Data*. However, deploying an automated HTML DOM scraper against VRCArena is architecturally and operationally flawed: (a) VRCArena is a secondary curated directory linking out to BOOTH/Gumroad/itch, making DOM scraping a fragile "aggregator of aggregators" propagating stale caches. (b) HTML scraping imposes SSR compute and bandwidth burdens on a volunteer-funded community project. (c) VRCArena's taxonomy centers on avatar models and clothing, introducing severe SimHash-64 false merge risks against our toolchain catalog. **Verdict**: Strike automated HTML DOM scraping. pursue bilateral open-source API ingestion or static catalog federation with strict toolchain-only category filtering.
+- **3. VRCArena Scrape Pool (Verdict: Conditionally Safe via Federation, Reject DOM Scraping)**: Both VRCArena and this project are open source, and the `robots.txt` of VRCArena explicitly permits public indexation (`User-agent: * Allow: /`), legally protecting logged-out search directory indexing under *Meta v. Bright Data*. However, deploying an automated HTML DOM scraper against VRCArena is architecturally and operationally flawed: (a) VRCArena is a secondary curated directory linking out to BOOTH/Gumroad/itch, making DOM scraping a fragile "aggregator of aggregators" propagating stale caches. (b) HTML scraping imposes SSR compute and bandwidth burdens on a volunteer-funded community project. (c) The taxonomy of VRCArena centers on avatar models and clothing, introducing severe SimHash-64 false merge risks against our toolchain catalog. **Verdict**: Strike automated HTML DOM scraping. pursue bilateral open-source API ingestion or static catalog federation with strict toolchain-only category filtering.
 
 - **4. Column Deduplication & Relational Fragility**: Multiple overlapping URL layers exist: flat columns (`github_url`, `booth_url`, etc.) and `platforms_json` in `canonical_packages`, plus individual rows in `package_fronts`. In `curator_overrides`, both `name_override` and `title_override` exist and are coalesced identically in code.
 
@@ -307,7 +307,7 @@ Open-web scraping without seeds directly contradicts politeness and boundary inv
 
   - **Original Context**: Consideration of integrating VRCArena as a primary scrape source.
 
-  - **The Open Source & `robots.txt` Baseline**: Both VRCArena and this crawler are open source, and VRCArena's `robots.txt` explicitly sets `User-agent: * Allow: /`. Legally, under *Meta v. Bright Data* and RFC 9309, indexed logged-out public metadata extraction to act as a search directory is permissible and non-infringing.
+  - **The Open Source & `robots.txt` Baseline**: Both VRCArena and this crawler are open source, and the `robots.txt` of VRCArena explicitly sets `User-agent: * Allow: /`. Legally, under *Meta v. Bright Data* and RFC 9309, indexed logged-out public metadata extraction to act as a search directory is permissible and non-infringing.
 
   - **The Architectural Contradiction**: In `docs/topics/05_vrchat_ecosystem_case_studies.md` Sec 3, the project explicitly praises VRCArena for *rejecting automated DOM scraping* because scraping introduces noise, misses compatibility flags, and ingests stolen/pirated packages.
 
@@ -418,16 +418,16 @@ Instead, if VRCArena integration is pursued, establish an open-source bilateral 
   - **Gumroad Terms of Service**:
     - The Gumroad Terms of Service do not supply any exception for "metadata-only" crawling. Just like with full content downloads, automated data extraction across their web pages is broadly restricted:
 
-      - **Section 14(e) (Prohibited Scraping)**: You cannot use any manual or automated processes (including spiders, robots, crawlers, scrapers, or data mining tools) to scrape or download data from any pages. The only exception is for public search engine operators building public search indices. [PARADOX: Gumroad's robots.txt outlines a complete sitemap to crawl storefronts].
+      - **Section 14(e) (Prohibited Scraping)**: You cannot use any manual or automated processes (including spiders, robots, crawlers, scrapers, or data mining tools) to scrape or download data from any pages. The only exception is for public search engine operators building public search indices. [PARADOX: the robots.txt file of Gumroad outlines a complete sitemap to crawl storefronts].
       - **Section 14(x) & Section 15 (Harvesting Information)**: You cannot harvest or collect information about any user or entity (such as creator details, usernames, or email addresses) without prior written permission.
-      - **Section 14(xiii) (Harmful Automated Access)**: Automated software intended to crawl, spider, or scrape Gumroad pages is treated as a breach of platform integrity. If you need product or creator information programmatically, you must use Gumroad's official API rather than scraping the web frontend.
+      - **Section 14(xiii) (Harmful Automated Access)**: Automated software intended to crawl, spider, or scrape Gumroad pages is treated as a breach of platform integrity. If you need product or creator information programmatically, you must use the official API of Gumroad rather than scraping the web frontend.
 
   - **BOOTH / pixiv Master Terms of Use**:
 
-    - Under the pixiv Master Terms of Use, BOOTH is governed by pixiv Inc.'s umbrella rules, and there is no special exception for "metadata-only" scraping. Automated data collection and scraping on BOOTH are restricted by several core clauses:
+    - Under the pixiv Master Terms of Use, BOOTH is governed by the umbrella rules of pixiv Inc., and there is no special exception for "metadata-only" scraping. Automated data collection and scraping on BOOTH are restricted by several core clauses:
       - **Article 14, Items 17 & 18 (Server Load & Mechanical Actions)**: The terms ban actions that cause excessive server loads beyond normal usage, as well as mechanically or repeatedly executing high-volume actions within short time windows.
       - **Article 14, Items 3 & 4 (External Use & Data Analysis)**: You cannot extract or use service data outside of the platform for commercial or business aims without permission. Conducting unauthorized data analysis or automated learning on posted content is also prohibited.
-      - **Developer Guidelines (Crawler Prohibition)**: In pixiv's rules for external applications and developers, using crawlers or automated programs to aggregate works or platform content is explicitly forbidden.
+      - **Developer Guidelines (Crawler Prohibition)**: In the pixiv developer rules for external applications, using crawlers or automated programs to aggregate works or platform content is explicitly forbidden.
 
       - **Operational Reality**: Because BOOTH does not supply a public REST API for crawling product catalog metadata, automated scraping tools risk IP rate limits, CAPTCHA blocks, or account termination under Article 15.
 
@@ -474,7 +474,7 @@ The tool supplies a genuine service to the VRChat community by solving asset dis
 
 *(Preserving 100% of original case citations, precedents, and comparative legal analysis)*
 
-If your goal is to build a search engine or metadata aggregator equivalent to Google, the legal framework changes completely from standard "web scraping." Instead of violating a site's private contract, you are operating under the established principles of public indexing and search directories.
+If your goal is to build a search engine or metadata aggregator equivalent to Google, the legal framework changes completely from standard "web scraping." Instead of violating the private contract of a site, you are operating under the established principles of public indexing and search directories.
 
 Major search engines like Google, Bing, and DuckDuckGo do not use official APIs to index the web - they crawl public HTML pages. When building a public-facing search utility, the legal and technical rules rely on four core pillars:
 
@@ -486,7 +486,7 @@ Under US law, facts cannot be copyrighted [1].
 - **Not Allowed**: You cannot scrape and re-host the actual creative assets (e.g., downloading 3D models from Jinxxy, game files from itch.io, or full images). If your index merely points a link back to the source page, it falls under the same "fair use" protections that allow Google to exist [3, 5].
 
 ### 2. The Golden Rule: robots.txt
-Google's entire operations rely on the Robots Exclusion Protocol [6].
+The operations of Google rely on the Robots Exclusion Protocol [6].
 - The `robots.txt` file is not a legally binding contract. it is a voluntary technical request.
 - However, if you want to operate a legitimate search engine, you must configure your crawler to look at `://example.com/robots.txt` before indexing. If Jinxxy or Gumroad writes `Disallow: /products/`, a compliant search crawler must turn around. Ignoring `robots.txt` while trying to act as a public search engine destroys your "good faith" defense in court [6, 7, 8, 9].
 
@@ -496,7 +496,7 @@ You cannot hide your crawler behind fake browser fingerprints if you want to be 
 - The URL in your user-agent must lead to a page explaining who you are, what you are indexing, and offering an opt-out form for creators who do not want their digital products appearing in your directory.
 
 ### 4. Do No Harm (Rate Limiting)
-If your crawler fires 100 requests a second and slows down a platform checkout page, they can sue you for *Trespass to Chattels* (damaging or disrupting private digital property). You must enforce strict crawl delays (e.g., waiting 1-2 seconds between requests per domain) to make sure you aren't accidentally performing a DDoS attack [6, 10, 11].
+If your crawler fires 100 requests a second and slows down a platform checkout page, they can sue you for *Trespass to Chattels* (damaging or disrupting private digital property). You must enforce strict crawl delays (e.g., waiting 1-2 seconds between requests per domain) to make sure you are not accidentally performing a DDoS attack [6, 10, 11].
 
 ---
 
@@ -542,7 +542,7 @@ However, whether you are technically "breaching a contract" depends entirely on 
 ### 1. The Legal Shield: The Meta v. Bright Data Precedent
 Your exact scenario - gathering public data while logged out and offering it to others - was the focus of a major federal ruling in *Meta Platforms, Inc. v. Bright Data Ltd.*. The U.S. District Court established a crucial boundary for web crawlers [1]:
 
-- **Logged-Off Scraping is Protected**: The court ruled that a company's Terms of Service cannot bar logged-off scraping of public data [2].
+- **Logged-Off Scraping is Protected**: The court ruled that the Terms of Service of a company cannot bar logged-off scraping of public data [2].
 
 - **The "User" Bound**: If your crawler visits Jinxxy, Gumroad, Booth, or itch.io without logging into any account, your crawler stands in the exact same shoes as a public visitor. Because a public visitor never clicks "I Agree" to a Terms of Service, no contract is formed, meaning no contract can be breached [3, 4].
 
@@ -553,7 +553,7 @@ While your crawler might be safe under the Bright Data precedent, downstream app
 
 - **The hiQ v. LinkedIn Trap**: In *hiQ Labs v. LinkedIn*, hiQ argued their public indexing tool was a harmless third-party utility. However, LinkedIn won a $500,000 judgment because hiQ created human/automated accounts to manage and verify the backend data feed. If your directory app requires automated testing or validation that touches a logged-in state on Jinxxy or Gumroad, you immediately breach their contract [6, 7].
 
-- **API Distribution Risks (Tortious Interference)**: Even if you aren't breaching a contract with the platforms, supplying an open API means your downstream developers might misuse the data. If a developer uses your free feed to build an app that blocks out the source platforms entirely (e.g., stripping the links), Jinxxy or itch.io can target your infrastructure with a *Tortious Interference* claim for facilitating a disruption to their business [8, 9].
+- **API Distribution Risks (Tortious Interference)**: Even if you are not breaching a contract with the platforms, supplying an open API means your downstream developers might misuse the data. If a developer uses your free feed to build an app that blocks out the source platforms entirely (e.g., stripping the links), Jinxxy or itch.io can target your infrastructure with a *Tortious Interference* claim for facilitating a disruption to their business [8, 9].
 
 ### 3. Platform-Specific Realities:
 
@@ -561,7 +561,7 @@ While your crawler might be safe under the Bright Data precedent, downstream app
 
 - **Gumroad**: They strictly target scrapers because they protect their creators' metrics. If your bot hits their storefronts too fast, they will use Cloudflare blocks to stop you, contract or no contract.
 
-- **Booth.pm**: Based in Japan, Pixiv (Booth's parent company) operates under Japanese copyright and database laws, which do not mirror U.S. fair-use or scraping precedents identically. They are highly aggressive against external aggregators, even free ones [10].
+- **Booth.pm**: Based in Japan, Pixiv (the parent company of Booth) operates under Japanese copyright and database laws, which do not mirror U.S. fair-use or scraping precedents identically. They are highly aggressive against external aggregators, even free ones [10].
 
 ### The Safest Way to Build This:
 If you proceed with this free developer directory, structure your application to remain legally bulletproof:
@@ -570,7 +570,7 @@ If you proceed with this free developer directory, structure your application to
 1. **Air-Gap the Crawler**: make sure the crawling code runs completely separate from any platform accounts you personally own. It must execute requests natively as a logged-out guest.
 
 
-2. **Only Cache IDs and Links**: Do not cache paragraphs of text or full image assets on your servers (which triggers copyright liability). Only store the product's unique platform ID, its metadata tags, and the exact canonical URL to redirect the user.
+2. **Only Cache IDs and Links**: Do not cache paragraphs of text or full image assets on your servers (which triggers copyright liability). Only store the unique platform ID of the product, its metadata tags, and the exact canonical URL to redirect the user.
 
 
 3. **Pass-Through Authentication**: For your app user account features (saving feeds, favoriting items), keep all data localized to your app database. Never allow your system to ping the host platforms on behalf of your users [2, 3].
@@ -631,7 +631,7 @@ The project treats all target platforms similarly, but Booth.pm operates under P
 
 - **The Risk**: Japanese copyright and database laws do not feature an identical, broad mirror of U.S. "Fair Use" or the *Meta v. Bright Data* logged-out scraping protections. Pixiv strictly forbids data harvesting and automated structuring of its database.
 
-- **The Compliance Issue**: If the bot aggressively sweeps Booth's web blocks to maintain a real-time index, it risks triggering cross-border takedowns or localized hardware/IP blacklisting from Pixiv's infrastructure team.
+- **The Compliance Issue**: If the bot aggressively sweeps the web blocks of Booth to maintain a real-time index, it risks triggering cross-border takedowns or localized hardware/IP blacklisting from the Pixiv infrastructure team.
 
 ---
 
@@ -769,11 +769,18 @@ The following table evaluates every major proposed architectural adjustment and 
 | **CR-16** | Creators can submit automated, non-scraping delisting requests via an API route. | `db.registerOptOut()` exists in `src/db.ts` lines 551-578, but `src/server/index.ts` supplies no `POST /v1/opt-out` endpoint. The table is unreachable from external webhooks or DNS verification scripts. | `src/server/index.ts`. `src/db.ts` lines 551-578. |
 | **CR-17** | SimHash clustering converges across Japanese BOOTH listings and Western Gumroad mirrors. | `src/tools/pipeline_sanitize.ts` does not normalize full-width CJK punctuation (`【...】`, `（...）`, `：`) or generate character 2-grams. Distinct Japanese character tokens prevent SimHash Hamming distance from converging ($k \le 3$), creating fragmented duplicate entities. | `src/tools/pipeline_sanitize.ts` lines 180-230. |
 | **CR-18** | Canonical network edge sync verifies the provenance and node identity of contributed metadata. | The SQLite schema (`entities`, `canonical_packages`) contains no `contributor_node_id`, `crawl_signature`, or `batch_id` columns. Pushing records to Cloudflare D1/R2 cannot trace the origin of corrupted or malicious data. | `src/db.ts` DDL sections. `src/sync/index.ts`. |
-| **CR-19** | Image proxy functions as a pure media pointer service, attaching original media links to packages without persisting binaries. | `src/utils/image_proxy.ts` historically attempted binary transcoding. Per maintainer specification, the crawler must strictly pass along media URLs (images, videos, YouTube embeds, GIF links) as pointers; interfacing apps handle caching under their own legal grounds. | `src/utils/image_proxy.ts`. |
+| **CR-19** | Image proxy functions as a pure media pointer service, attaching original media links to packages without persisting binaries. | `src/utils/image_proxy.ts` historically attempted binary transcoding. Per maintainer specification, the crawler must strictly pass along media URLs (images, videos, YouTube embeds, GIF links) as pointers. Interfacing apps handle caching under their own legal grounds. | `src/utils/image_proxy.ts`. |
 | **CR-20** | ETag conditional requests prevent redundant data transfer and rate limit exhaustion across all drivers. | `src/drivers/github.ts` extracts raw `ETag` headers but never sends `If-None-Match`. BOOTH, Gumroad, and Jinxxy drivers send no conditional headers. The `HTTP 304 Not Modified` code path is 100% inoperative. | `src/drivers/github.ts` lines 174-177. `src/drivers/booth.ts`. `src/drivers/gumroad.ts`. |
 | **CR-21** | `media_cache` avoids persistent storage of third-party image binaries in SQLite. | Code stores raw WebP buffers directly as BLOBs in SQLite `media_cache.webp_data` (`dist/crawler_state.db`), creating a 357 MB file. `src/server/index.ts` serves binary files via `/v1/media/:id`, and `src/tools/exporter.ts` defines `webp_data BLOB`. Per maintainer specification, this BLOB storage must be deprecated in favor of pure URL pointer arrays. | `src/utils/image_proxy.ts` lines 480-550. `src/server/index.ts` lines 173-180. `src/db.ts` lines 180-210. |
 | **CR-22** | `vrc_catalog.db` exports supply in-band notice of `LEGAL.md` and licensing covenants to SQLite consumers. | `src/tools/exporter.ts` creates tables for packages and fronts, but completely omits a `catalog_metadata` table. Downloaded SQLite databases contain zero contractual terms or license text. | `src/tools/exporter.ts` lines 80-215. |
 | **CR-23** | Headless API server supplies a root discovery route describing services, versions, and legal terms. | `src/server/index.ts` returns `404 Not Found` for `GET /`. No discovery payload exists to communicate terms of use or endpoint schemas. | `src/server/index.ts` lines 140-388. |
+| **CR-24** | `robots.txt` compliance is treated as affirmative legal access authorization. | RFC 9309 establishes that robots directives represent operator preferences, not legal access authorization. Code and docs voluntarily follow directives without claiming contractual permission. | IETF RFC 9309 Section 1. `LEGAL.md` Section 5.1(a) and 6.1. |
+| **CR-25** | 256-character truncation is claimed to prevent copyright appropriation. | *Authors Guild v. Google* evaluated transformative fair use for search indexing without setting a rigid numerical safe harbor. 256 characters is an internal risk-reduction threshold. | `LEGAL.md` Section 2.2 and Section 10.4(b). *Authors Guild*, 804 F.3d at 224. |
+| **CR-26** | *Bright Data* citation used to claim unauthenticated scraping is universally lawful. | The *Bright Data* ruling was fact-specific to Meta user agreements. It does not establish a universal rule authorizing logged-out scraping across all websites. | `LEGAL.md` Section 5.1(b). *Meta v. Bright Data*, 2024 WL 245903. |
+| **CR-27** | Source code compilation and execution treated as triggering agreement to catalog terms. | AGPLv3 grants unconditional rights to compile and run the software. Imposing catalog terms on code users creates an AGPLv3 conflict. Decoupled into Layer A (code), Layer B (compilation), and Layer C (third-party facts). | `LEGAL.md` Preamble, Section 1.3, Section 18.4. AGPLv3 Section 10. |
+| **CR-28** | Philippine RA 10173 and GDPR legitimate interest frameworks treated as interchangeable. | Philippine Data Privacy Act Section 12 has distinct statutory criteria from GDPR Article 6(1)(f). GDPR also requires Article 3 territorial scope analysis before evaluating data-subject rights. | `LEGAL.md` Section 8.2, 8.3, and 8.6. RA 10173 Sec. 12. GDPR Art. 3. |
+| **CR-29** | Voluntary 24 to 48 hour delisting response target framed as an enforceable SLA. | The Project is an individual open-source utility with a voluntary response policy, not a commercial enterprise with contractual SLAs. Delisting scope distinguishes Maintainer feeds from downstream copies. | `LEGAL.md` Section 9.1, 9.6, and 9.7. |
+| **CR-30** | Philippine-governed terms incorporated US-only jury waivers and California § 1542 waivers in core terms. | The Project selects Philippine governing law (Civil Code Art. 1306) and Philippine courts. US-specific jury trial waivers and California Civil Code Section 1542 waivers represent foreign boilerplate in core terms. | `LEGAL.md` Section 15.3, 16.4, 16.5, and 17. |
 
 ---
 
@@ -984,8 +991,8 @@ Based on the 2026-09-23 complete audit, the following five remediation tasks are
         - The indexer strictly passes along media attachment URLs (images, videos, YouTube embeds, GIF links) as pointers in the canonical package metadata.
         - Deprecates local SQLite `media_cache.webp_data` BLOB storage. Interfacing client applications (such as desktop package managers) handle caching and rendering under their own independent legal and operational frameworks.
         - Delivers direct origin Source CDN URLs in API feeds (*Perfect 10 v. Amazon* Server Test).
-      5. *Autonomous Governance & Sovereign Creator Rights (`src/tools/steering.ts`, `src/server/index.ts`)*:
-        - Non-scraping delisting interface (`POST /v1/opt-out`) supporting DNS TXT verification (`vrc-opt-out=<vendor-id>`) and signed Git commits with a 24-48h SLA.
+      5. *Autonomous Governance & Creator Rights (`src/tools/steering.ts`, `src/server/index.ts`)*:
+        - Non-scraping delisting interface (`POST /v1/opt-out`) supporting DNS TXT verification (`vrc-opt-out=<vendor-id>`) and signed Git commits with a 24-48h response target.
         - Quarantined Schema 4 curation reports (`needs_review` buffer) requiring `API_SECRET_TOKEN` authentication and consensus thresholds before permanent lifecycle mutations.
 
         - Automatic injection of `X-Catalog-Terms-Of-Use: <url>` headers on all API responses (RFC 9110) to establish enforceable contractual notice for downstream consumers.
@@ -1026,7 +1033,7 @@ Based on the 2026-09-23 complete audit, the following five remediation tasks are
 
 11. **Automated Non-Scraping Opt-Out Endpoint (`POST /v1/opt-out` in `src/server/index.ts`)**:
 
-    - **Problem**: `db.registerOptOut()` exists in `src/db.ts` but has zero callers in `src/server/index.ts`. Creators cannot exercise sovereign delisting rights without contacting the maintainer manually.
+    - **Problem**: `db.registerOptOut()` exists in `src/db.ts` but has zero callers in `src/server/index.ts`. Creators cannot exercise creator delisting requests without contacting the maintainer manually.
 
     - **Remediation**: Expose `POST /v1/opt-out` in `src/server/index.ts`:
       - Accept payload: `{ vendorId: string, proofType: "dns_txt" | "signed_commit" | "email_token", proofValue: string }`.
@@ -1045,3 +1052,117 @@ Based on the 2026-09-23 complete audit, the following five remediation tasks are
       res.setHeader("X-Catalog-Terms-Of-Use", "https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md");
       ```
       Include licensing invariants in the root `GET /` API response object.
+
+---
+
+## 12. Adversarial Legal Review, 20-Point Audit Matrix & Calibration Action Plan (2026-09-24)
+
+An adversarial legal review was conducted on September 24, 2026. The review evaluated `LEGAL.md` and related documentation against twenty strict criteria.
+
+### 12.1 The 20-Point Adversarial Audit Matrix
+
+1. **Public Accessibility as Permission**:
+   - *Problem*: Conflated public accessibility with contractual permission on Jinxxy.
+   - *Evidence*: Jinxxy Terms Sections 8.2 and 23 prohibit systematic extraction without written consent.
+   - *Resolution*: Reframe Jinxxy as "Unresolved Contractual Risk". Public availability does not defeat contractual terms.
+
+2. **Robots Exclusion Protocol as Legal Authorization**:
+   - *Problem*: Treated robots.txt compliance as affirmative legal authorization.
+   - *Evidence*: RFC 9309 states that robots rules are operator preferences, not access authorization.
+   - *Resolution*: State that robots.txt is an operational signal followed voluntarily, not a legal license.
+
+3. **Numerical Limit as Copyright Safe Harbor**:
+   - *Problem*: Claimed 256-character truncation prevents copyright appropriation.
+   - *Evidence*: *Authors Guild v. Google* evaluated search snippet systems without setting numerical safe harbors.
+   - *Resolution*: State that 256 characters is an internal risk-reduction limit, not a statutory safe harbor.
+
+4. **Overextension of Judicial Precedents**:
+   - *Problem*: Stated *Bright Data* established a universal rule for unauthenticated scraping.
+   - *Evidence*: The holding in *Bright Data* was fact-specific to Meta user agreements and record facts.
+   - *Resolution*: State that decisions are fact-specific and do not establish universal scraping authorization.
+
+5. **Citation Alignment with Specific Propositions**:
+   - *Problem*: Cited Philippine RA 8792 Section 30 as granting statutory immunity.
+   - *Evidence*: Section 30 outlines network provider criteria, not self-executing immunity for crawlers.
+   - *Resolution*: State that the Maintainer operates a voluntary delisting policy without claiming statutory immunity.
+
+6. **Contract Formation and Terms Presentation**:
+   - *Problem*: Claimed API access automatically forms an enforceable contract.
+   - *Evidence*: Browsewrap contracts require notice, knowledge, and assent under applicable contract law.
+   - *Resolution*: Frame terms as the Maintainer intention, binding where enforceable under applicable contract law.
+
+7. **Assent via Continued Use**:
+   - *Problem*: Claimed continued use automatically binds users to modified terms.
+   - *Evidence*: Enforceability requires reasonable notice and assent.
+   - *Resolution*: Version catalog exports using `catalog_metadata` tables and qualify assent under contract law.
+
+8. **Third-Party Material Ownership**:
+   - *Problem*: Conflated database compilation rights with ownership of underlying factual metadata.
+   - *Evidence*: Raw facts lack copyright, and third-party descriptions belong to original creators.
+   - *Resolution*: Formalize Three Legal Layers. Disclaim ownership over Layer C third-party data.
+
+9. **Public Data Privacy Exemption**:
+   - *Problem*: Treated public usernames as automatically exempt from privacy laws.
+   - *Evidence*: Philippine RA 10173 and GDPR apply to personal data even if publicly accessible.
+   - *Resolution*: Acknowledge public handles as personal data, apply data minimization, and evaluate balancing.
+
+10. **GDPR Territorial Applicability**:
+    - *Problem*: Stated GDPR rights apply universally to all indexed data subjects.
+    - *Evidence*: GDPR Article 3 requires establishment or targeting of data subjects in the Union.
+    - *Resolution*: Qualify GDPR rights with "Where GDPR applies under Article 3 territorial scope".
+
+11. **Philippine versus Foreign Privacy Legal Bases**:
+    - *Problem*: Conflated Philippine RA 10173 Section 12 with GDPR Article 6(1)(f).
+    - *Evidence*: Statutory conditions and balancing tests differ between jurisdictions.
+    - *Resolution*: Present a jurisdiction privacy matrix separating Philippine and European requirements.
+
+12. **Personal Data in Telemetry and Infrastructure**:
+    - *Problem*: Claimed zero personal data across the entire system.
+    - *Evidence*: Network web servers and reverse proxies log client IP addresses for network security.
+    - *Resolution*: Rename to Privacy-Minimized Application Telemetry and distinguish infrastructure logs.
+
+13. **Delisting Propagation Outside Control**:
+    - *Problem*: Claimed delisting purges records from all databases and feeds universally.
+    - *Evidence*: The Maintainer cannot purge local copies downloaded by third parties.
+    - *Resolution*: Distinguish Maintainer-controlled canonical feeds from downstream local copies.
+
+14. **Unauthorized Statutory Terminology**:
+    - *Problem*: Used terms like "Sovereign Delisting Rights" without statutory foundation.
+    - *Evidence*: Private search indices do not grant sovereign rights under statute.
+    - *Resolution*: Rename to "Creator and Rights-Holder Delisting Requests".
+
+15. **Absolute and Unverified Language**:
+    - *Problem*: Used words like "prevents" regarding copyright claims.
+    - *Evidence*: Character truncation reduces risk but does not prevent claims.
+    - *Resolution*: Replace absolute assertions with calibrated risk-reduction statements.
+
+16. **Conflicts with AGPLv3**:
+    - *Problem*: Preamble claimed compiling or running source code triggered catalog terms.
+    - *Evidence*: AGPLv3 grants unconditional rights to compile, run, and modify source code.
+    - *Resolution*: Remove compiling triggers. Clarify that AGPLv3 governs source code exclusively.
+
+17. **Conflicts with Implementation**:
+    - *Problem*: Documentation previously claimed the service never downloads or stores media, contradicting `ImageProxyService` caching WebP thumbnails in `media_cache.webp_data`.
+    - *Evidence*: `src/utils/image_proxy.ts` and `src/server/index.ts` store and serve WebP thumbnail BLOBs from SQLite.
+    - *Resolution*: Accurately describe current WebP thumbnail caching, recognize display copyright exposure under the Server Test split, and document the queued deprecation of persistent BLOB caching in favor of ephemeral proxying and direct URL pointers (CR-19/CR-21).
+
+18. **Internal Document Consistency**:
+    - *Problem*: Aggressive downstream indemnity conflicted with non-commercial posture.
+    - *Evidence*: Broad indemnities exceed what an individual maintainer can extract.
+    - *Resolution*: Narrow downstream operator responsibility to claims arising from misuse.
+
+19. **Policy versus Statement of Law**:
+    - *Problem*: Framed voluntary 24 to 48 hour target as a Service Level Agreement.
+    - *Evidence*: A voluntary policy is not a negotiated contractual SLA.
+    - *Resolution*: Rename to "Delisting Response Target".
+
+20. **Unresolved Legal Questions**:
+    - *Problem*: Stated scraping legality and database restrictions as confident conclusions.
+    - *Evidence*: Courts and jurisdictions diverge on web scraping and dataset covenants.
+    - *Resolution*: State positions as calibrated risk controls and document unresolved risks.
+
+### 12.2 Adversarial Verification Verdict
+
+Following this line-level audit and remediation across `LEGAL.md`, `TODO.md`, `docs/PLATFORM-MATRIX.md`, and platform decision records:
+
+**NO UNSUPPORTED LEGAL CONCLUSION FOUND**

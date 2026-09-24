@@ -184,34 +184,35 @@ To merge storefronts across platforms into a single canonical package:
 
 ## 7. Compliant Media Pipeline & Perceptual Hashing
 
-### 7.1 Legal Compliance Framework
+### 7.1 Media Processing and Legal Posture
 Direct hotlinking of images from storefront CDNs strains creator bandwidth:
-- **United States Fair Use** (*Kelly v. Arriba Soft Corp.* & *Perfect 10 v. Amazon.com*): Visual search indexers can display low-resolution thumbnail previews.
-- **Japanese Copyright Act Art. 47-5**: Authorizes search and indexing services to display minor thumbnails incidental to information retrieval.
+- **United States Fair Use and Server Test Doctrines**: *Kelly v. Arriba Soft Corp.* (336 F.3d 811) held under specific facts that search thumbnails were transformative fair use, and *Perfect 10 v. Amazon.com* (508 F.3d 1146) adopted the Server Test. However, other courts have rejected the Server Test (*Goldman*, *Nicklen*), creating jurisdictional uncertainty for media display.
+- **Japanese Copyright Act Art. 47-5**: Recognizes a statutory exception for minor exploitation incidental to computerized information retrieval, on condition that use does not unreasonably prejudice the copyright owner. It does not confer an affirmative contractual license against platform terms.
 
 ### 7.2 Media Processing Standards
-The `ImageProxyService` will execute an automated pipeline:
+The `ImageProxyService` executes an automated pipeline:
 1. **Transcoding**: Downscales images to low-resolution WebP format ($480 \times 270$ resolution, quality 75).
 2. **BlurHash Generation**: Calculates RFC-compliant BlurHash strings from a $32 \times 32$ RGB grid for client progressive loading.
 3. **64-bit DCT Perceptual Hashing (pHash)**: Computes a 16-character hexadecimal hash from a $32 \times 32$ discrete cosine transform to detect visual duplicates.
 4. **Local Headless Serving**: Serves cached WebP thumbnails via `GET /v1/media/:id`.
+5. **Architectural Direction**: Deprecation of persistent SQLite BLOB caching in favor of ephemeral in-memory proxying and direct URL pointers is tracked in AGENT.md CR-19/CR-21.
 
 ---
 
-## 8. Guardrails Compliance Audit
+## 8. Guardrails Operational Audit
 
-| Requirement & Guardrail | Implementation Mechanism | Compliance Status |
+| Policy & Safeguard | Implementation Mechanism | Implementation Status |
 | :--- | :--- | :--- |
-| **Zero-Binary Storage** | Regex filters discard `.unitypackage`, `.zip`, `.fbx`, `.dll`. Only metadata recorded. | **100% Compliant** |
-| **Metadata-Only Public Lake** | Stores factual titles, prices, tags, manifests, and author names (*Feist v. Rural*). | **100% Compliant** |
-| **Canonical Creator Routing** | `sanitizeOutboundUrl` strips tracking tokens; outbound links route directly to artist. | **100% Compliant** |
-| **Polite Crawling & RFC 9309** | `robotsEnforcer` evaluates full RFC 9309 rules, token priority, and longest match. | **100% Compliant** |
-| **Adaptive AIMD Rate Limiting** | Dynamic additive increase, multiplicative decrease per storefront domain. | **100% Compliant** |
-| **Creator Self-Service Opt-Out** | Instant regex and exact-match takedown engine in `creator_opt_outs`. | **100% Compliant** |
-| **Fair-Use Media Proxying** | Independent $480 \times 270$ WebP thumbnails with BlurHash and 64-bit pHash. | **100% Compliant** |
-| **Headless Discovery Gateway** | Schemas 1 (Delta Stream), 2 (VCC Index), 4 (Reports), and `/media/:id`. Protected by `API_SECRET_TOKEN`. | **100% Compliant** |
-| **Continuous 24/7 Operation** | Workers loop indefinitely; saturation monitored without process termination. | **100% Compliant** |
-| **Crash & Interruption Recovery** | SQLite WAL truncation check, quick_check, and `resetStaleFetching` on boot. | **100% Compliant** |
-| **Periodic 4h Edge Sync** | Incremental Cloudflare D1 and R2 push with high-watermark checkpointing. | **100% Compliant** |
-| **Pull-Based Steering** | Scheduled 30m pull and loopback IPC `/steering` trigger for community reports. | **100% Compliant** |
-| **Unrestricted Multi-Taxonomy** | Full community tag retention and automatic empirical umbrella tag guarantee. | **100% Compliant** |
+| **Binary Package Exclusion** | Regex filters discard `.unitypackage`, `.zip`, `.fbx`, `.dll`. Only metadata recorded. | **Implemented (Filter Rules)** |
+| **Factual Metadata Public Lake** | Stores factual titles, prices, tags, manifests, and author names (*Feist v. Rural*). | **Implemented (Lake Schema)** |
+| **Canonical Creator Routing** | `sanitizeOutboundUrl` strips tracking tokens; outbound links route directly to artist. | **Implemented (URL Sanitizer)** |
+| **Polite Crawling & RFC 9309** | `robotsEnforcer` evaluates full RFC 9309 rules, token priority, and longest match. | **Implemented (RFC 9309)** |
+| **Adaptive AIMD Rate Limiting** | Dynamic additive increase, multiplicative decrease per storefront domain. | **Implemented (AIMD Limiter)** |
+| **Creator Delisting Pathways** | Verified non-scraping takedown engine in `creator_opt_outs` with voluntary target. | **Implemented (Opt-Out Engine)** |
+| **Media Processing & Hashing** | Independent $480 \times 270$ WebP thumbnails with BlurHash and 64-bit pHash. | **Implemented (Local Cache; Deprecation Queued)** |
+| **Headless Discovery Gateway** | Schemas 1 (Delta Stream), 2 (VCC Index), 4 (Reports), and `/media/:id`. Protected by `API_SECRET_TOKEN`. | **Implemented (REST Gateway)** |
+| **Continuous 24/7 Operation** | Workers loop indefinitely; saturation monitored without process termination. | **Implemented (Worker Loop)** |
+| **Crash & Interruption Recovery** | SQLite WAL truncation check, quick_check, and `resetStaleFetching` on boot. | **Implemented (WAL Integrity)** |
+| **Periodic 4h Edge Sync** | Incremental Cloudflare D1 and R2 push with high-watermark checkpointing. | **Implemented (Edge Sync)** |
+| **Pull-Based Steering** | Scheduled 30m pull and loopback IPC `/steering` trigger for community reports. | **Implemented (Steering Loop)** |
+| **Multi-Taxonomy Mapping** | Full community tag retention and empirical umbrella tag mappings. | **Implemented (Taxonomy Engine)** |

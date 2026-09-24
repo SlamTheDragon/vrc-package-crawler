@@ -9,11 +9,11 @@ Virtual reality (VR) content discovery will require careful balance. Creators wi
 
 A compliant discovery engine will index metadata to help users find tools and assets. The engine will not harvest or mirror proprietary creative files.
 
-To operate within legal bounds and maintain community trust, indexers will obey three foundational invariants:
+To operate within legal bounds and maintain community trust, indexers will obey three foundational policies:
 
-1. **The Zero-Binary Invariant**: The indexer will never download, cache, or redistribute compiled 3D meshes, textures, `.unitypackage` bundles, `.fbx` models, or executable scripts.
-2. **The Metadata-Only Boundary**: The engine will collect only public factual attributes: titles, tags, prices, platform compatibility flags, and store URLs.
-3. **The Canonical Traffic Invariant**: All outbound clicks will route users directly to the original creator storefront for transactions.
+1. **Binary Package Exclusion Policy**: The indexer policy strictly excludes downloading, caching, storing, or redistributing proprietary compiled asset packages, 3D meshes, textures, `.unitypackage` bundles, `.fbx` models, or executable scripts.
+2. **Factual Metadata Indexing Boundary**: The engine focuses collection on public factual attributes: titles, tags, prices, platform compatibility flags, and canonical storefront URLs.
+3. **Canonical Outbound Traffic Routing**: Search results and API responses direct users to the original creator storefront for transactions.
 
 ```mermaid
 flowchart TD
@@ -77,33 +77,33 @@ Itch.io hosts indie tools, shaders, and procedural worlds. Itch.io permits open 
 ```mermaid
 graph LR
     subgraph Legal Precedents
-        A["Feist v. Rural (1991)"] --> D["Factual Metadata is Public"]
-        B["Meta v. Bright Data (2024)"] --> E["Public Logged-Off Data Access"]
-        C["Japan Copyright Art. 47-5"] --> F["Search Thumbnails & Snippets"]
+        A["Feist v. Rural (1991)"] --> D["Factual Data Non-Copyrightability"]
+        B["Meta v. Bright Data (2024)"] --> E["Logged-Off Contract Interpretation"]
+        C["Japan Copyright Art. 47-5"] --> F["Search Indexing Statutory Exception"]
     end
-    D & E & F --> G["Compliant Discovery Engine"]
+    D & E & F --> G["Discovery Engine Risk Framework"]
 ```
 
 ### The Non-Copyrightability of Factual Metadata
 Under United States copyright law, pure product specifications are non-copyrightable facts. In *Feist Publications, Inc. v. Rural Telephone Service Co.*, the Supreme Court ruled that facts lack original authorship[^9].
 
-Product titles, prices, release dates, and compatibility tags (such as "PhysBones", "Quest", or "Kikyo compatible") are objective facts. Indexing factual metadata will not violate copyright law.
+Product titles, prices, release dates, and compatibility tags (such as "PhysBones", "Quest", or "Kikyo compatible") are objective facts. Indexing factual metadata does not violate copyright law.
 
-Creative text descriptions, marketing copy, and lore remain protected by copyright. Discovery engines will not mirror full descriptions. Engines will extract structured tags and will display short summaries that link to the source. Downstream feeds will truncate descriptions to prevent tortious interference claims.
+Creative text descriptions, marketing copy, and lore remain protected by copyright. Discovery engines will not mirror full descriptions. The crawler extracts only structured metadata summaries (`og:description`, JSON-LD) and normalized lead sentences to identify package functions. Under *Authors Guild v. Google, Inc.* (804 F.3d 202), short functional search snippets do not substitute for expressive storefront text. Downstream feeds must preserve this functional summary boundary rather than scraping full creative texts.
 
-### The Computer Fraud and Abuse Act (CFAA)
-In *hiQ Labs, Inc. v. LinkedIn Corp.*, the Ninth Circuit confirmed that accessing public web data does not breach the CFAA[^10]. The court ruled that when a website is open to the public, automated access does not bypass an authorization gate. The Supreme Court reinforced this principle in *Van Buren v. United States*[^11].
+### Computer Access Law and Anti-Hacking Boundaries
+In *hiQ Labs, Inc. v. LinkedIn Corp.* (31 F.4th 1180), the Ninth Circuit held on preliminary injunction review that accessing publicly available data without bypassing technical barriers does not constitute access without authorization under the Computer Fraud and Abuse Act (CFAA)[^10]. The Supreme Court interpreted CFAA unauthorized access provisions under a gates-up versus gates-down framework in *Van Buren v. United States* (593 U.S. 374)[^11].
 
-In *Meta Platforms, Inc. v. Bright Data Ltd.* (2024), the court granted summary judgment for Bright Data[^12]. The court ruled that platform terms prohibiting automated access do not bind users who collect public data without logging into user accounts.
+In *Meta Platforms, Inc. v. Bright Data Ltd.* (2024), the court evaluated unauthenticated web scraping under specific record facts and platform terms, granting summary judgment where Meta failed to establish breach of contract[^12]. These decisions are fact-specific and do not establish a universal authorization to scrape public websites or defeat contractual terms.
 
-These rulings protect the collection of public metadata. But crawlers will never bypass authentication gates, exploit software bugs, or overwhelm origin servers.
+The crawler is designed to avoid bypassing authentication gates, exploiting software vulnerabilities, or overwhelming origin servers.
 
-### Thumbnail Caching Under US and Japanese Law
-Displaying preview imagery will require careful copyright compliance:
-- In the United States, *Kelly v. Arriba Soft Corp.* and *Perfect 10, Inc. v. Amazon.com, Inc.* established that low-resolution search thumbnails qualify as fair use[^13],[^14].
-- In Japan, Article 47-5 of the Copyright Act provides a statutory exception for search and indexing engines[^15]. Search engines can show small thumbnails and text excerpts incidental to information retrieval.
+### Media Processing, Visual Search, and Jurisdictional Risk
+Online image ingestion and thumbnail display operate under distinct legal doctrines:
+- In the United States, *Kelly v. Arriba Soft Corp.* (336 F.3d 811) held under specific facts that low-resolution search thumbnails constituted transformative fair use[^13]. In *Perfect 10, Inc. v. Amazon.com, Inc.* (508 F.3d 1146), the Ninth Circuit adopted the Server Test for inline linking[^14]. However, the Server Test has been rejected in other jurisdictions (e.g., *Goldman v. Breitbart News Network*, 271 F. Supp. 3d 495; *Nicklen v. Sinclair Broadcast Group*, 551 F. Supp. 3d 188), and criticized in *Hunley v. Instagram, LLC* (73 F.4th 1060).
+- In Japan, Article 47-5 of the Copyright Act provides a statutory exception for minor exploitation incidental to computerized information retrieval, on condition that use does not unreasonably prejudice the copyright owner[^15]. However, statutory copyright exceptions do not create affirmative contractual licenses, and pixiv Master Terms Article 14 restricts automated data collection under Japanese Civil Code Article 548-2.
 
-However, Article 47-5 contains a proviso barring actions that unreasonably prejudice the economic interests of the copyright holder. Pixiv Master Terms ban automated data extraction. US fair use doctrines will not apply within Japanese jurisdiction. Discovery engines will maintain conservative, human-paced request rates (3 to 5 second delays) on `booth.pm`. Direct hotlinking will fail due to referer verification and CDN HMAC tokens. The engine will deploy an ephemeral in-memory proxy that streams downscaled buffers without persistent R2 storage.
+The Project policy aims to serve direct source links to original creator media rather than rehosting images. This origin-pointer architecture eliminates server storage and aligns with display-rights jurisprudence. However, active code implementation currently lags behind this architecture. The crawler currently caches low-resolution WebP thumbnails in SQLite (`media_cache.webp_data`) while computing BlurHash and pHash-64 digests. The Maintainer treats local thumbnail storage as an operational risk under jurisdictions that reject the Server Test. The project roadmap and `TODO.md` track the deprecation of persistent image caching (CR-19 and CR-21) to complete the transition to direct origin URLs. Request pacing on `booth.pm` is configured with a 1.5-second baseline delay (0.8s to 5.0s adaptive).
 
 ---
 
@@ -133,19 +133,19 @@ In software engineering, "scraping" means reading text via HTTP requests. In the
 
 Legitimate discovery platforms will host zero 3D geometry and zero binary archives.
 
-### The Absolute Anti-AI Mandate
+### Anti-AI Covenant and Community Governance
 VRChat creators broadly reject generative machine learning ingestion[^16]. Storefront licenses contain explicit anti-AI clauses. Creators forbid using their geometry, textures, or renders in training sets.
 
-A discovery indexer will never feed harvested images or descriptions into artificial intelligence pipelines. Breaching this norm will destroy community goodwill and will trigger legal action.
+The Project policy strictly prohibits feeding harvested images or descriptions into artificial intelligence pipelines. Breaching this norm destroys community goodwill and triggers legal risk.
 
-### Frictionless Self-Service Opt-Out Systems
-Indexers will supply creators with reliable tools to remove listings:
+### Self-Service Delisting Verification Pathways
+Indexers supply creators with pathways to request removal of listings from canonical feeds:
 1. **The Bio-Token Scraping Limitation**: Scraper-based bio verification is inoperative because creator storefront profiles sit behind Cloudflare bot perimeters.
-2. **Non-Scraping Ownership Verification**: The platform will support secondary non-scraping verification paths. Creators can verify ownership via DNS TXT records, signed Git commits, or manual ticket fallbacks.
-3. **Dedicated Ingestion Endpoint**: The backend will expose a dedicated `POST /v1/opt-out` endpoint to record removal requests into `creator_opt_outs`.
-4. **Instant Delisting**: The database will mark entities with `lifecycle = 'delisted'` and will drop public index projection rows.
+2. **Non-Scraping Ownership Verification**: The platform supports secondary non-scraping verification paths. Creators can verify ownership via DNS TXT records, signed Git commits, or manual ticket fallbacks.
+3. **Dedicated Ingestion Endpoint**: The backend specifies an automated `POST /v1/opt-out` endpoint to record removal requests into `creator_opt_outs`.
+4. **Delisting Processing**: The database marks matching entities with `lifecycle = 'delisted'` and excludes them from canonical public index projection rows.
 
-Notice-and-takedown requests will be resolved within 24 to 48 hours.
+The Maintainer aims to process verified delisting requests within a voluntary 24 to 48 hour operational target.
 
 ---
 
@@ -168,10 +168,10 @@ To prevent rate-limit bans, the engine will implement two-level priority and pol
 
 $$\Delta \tau_{\text{host}} = \max(\text{min\_delay}, \text{retry\_after}) + \text{jitter}$$
 
-For storefronts without explicit delay directives, the minimum delay will be 1,000 milliseconds (1.0 Hz). For BOOTH, the delay will be 3,000 to 5,000 milliseconds.
+For storefronts without explicit delay directives, baseline request delays range from 1,200 to 3,000 milliseconds depending on host configuration (e.g., 1,500 ms for BOOTH with adaptive backoff up to 5,000 ms, 3,000 ms for Gumroad, and 1,200 ms for Jinxxy).
 
 ### Adaptive Poisson Freshness and Conditional Headers
-The engine will maintain index freshness using a Poisson change model. The daemon will invoke `requeueStaleUrls()` on monitor loops. Upstream drivers will transmit `If-None-Match` and `If-Modified-Since` conditional headers. On response completion, workers will call `adjustAfterFetch(url, isModified, etag, lastModifiedHeader)` to adapt revisit intervals. The engine will inspect HTML responses to avoid treating Cloudflare challenge pages (`HTTP 200`) as content updates.
+The engine will maintain index freshness using a Poisson change model. The daemon will invoke `requeueStaleUrls()` on monitor loops. Transmitting conditional validation headers (`If-None-Match`, `If-Modified-Since`) represents a planned architectural optimization. On response completion, workers will call `adjustAfterFetch(url, isModified, etag, lastModifiedHeader)` to adapt revisit intervals. The engine will inspect HTML responses to avoid treating Cloudflare challenge pages (`HTTP 200`) as content updates.
 
 ### RFC 9309 Robots Exclusion Protocol
 The crawler will check `/robots.txt` before fetching any URL path[^18]. The parser will honor all `Disallow` rules. It will skip user carts, checkout funnels, and private account pages.
@@ -195,7 +195,7 @@ Avatar cosmetics will be excluded from generic toolchain clustering. Cosmetics s
 The engine will record creation dates using a strict three-state confidence rubric:
 - `'confirmed'`: Directly extracted from upstream platform timestamps.
 - `'inferred'`: Derived from earliest release tag or commit history.
-- `'unknown'`: Explicitly set to `NULL`. The engine will never substitute local crawl fetch times for missing origin publication dates.
+- `'unknown'`: Explicitly set to `NULL`. When an upstream publication date is not identified, the publication timestamp field is set to NULL rather than substituting a local crawl timestamp.
 
 ### Media Extraction and YouTube Filtering
 Storefront parsers will filter media links before forwarding to image processing pipelines. Embed URLs matching `youtube.com/embed/` or `youtu.be/` will route directly to `youtube_urls` metadata arrays. They will never pass to the Sharp worker or image proxy service.

@@ -126,22 +126,22 @@ The system will declare and enforce `API_SECRET_TOKEN` across all codebases and 
 - The default configuration template will include `API_SECRET_TOKEN`.
 - The obsolete identifier `CRAWLER_API_TOKEN` is permanently removed.
 
-### Human Review Buffer (`needs_review`)
-Destructive lifecycle mutations will never execute autonomously:
-1. When a report specifies `branch = 'irrelevance'` with reason `malicious_or_scam`, the report will enter a quarantine buffer (`status = 'needs_review'`).
-2. The package will remain active until an authorized human curator reviews the claim.
-3. The steering worker will reject autonomous delisting mutations, preserving catalog availability.
+### Human Review Buffer (`pending`)
+Destructive lifecycle mutations do not execute autonomously:
+1. When a report specifies `branch = 'irrelevance'` with reason `malicious_or_scam`, the report enters a quarantine buffer (`status = 'pending'`).
+2. The package remains active until an authorized human curator reviews the claim.
+3. The steering worker rejects autonomous delisting mutations, preserving catalog availability.
 
 ---
 
 ## 5. Privacy Preservation in Downstream Search Telemetry
 
-Collecting interaction telemetry must not compromise user privacy. Schema 5 will operate under strict privacy-preserving invariants[^3]:
+Collecting interaction telemetry must not compromise user privacy. Schema 5 operates under privacy-minimizing guidelines[^3]:
 
-### The Zero-PII Mandate
-Downstream consumer clients will never transmit personal identifiers:
+### Privacy-Minimized Application Telemetry Policy
+Downstream consumer client guidelines specify excluding personal information and identifiers from application-level telemetry feeds:
 - No user account identifiers or usernames.
-- No IP addresses, device identifiers, or hardware serials.
+- No IP addresses, device identifiers, or hardware serials (distinguished from web server network logs).
 - No personal session tokens.
 
 ### Aggregated Batches and Query Hashing

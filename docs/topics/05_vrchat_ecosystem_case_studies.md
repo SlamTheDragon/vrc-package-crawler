@@ -65,7 +65,7 @@ VRCArena chose a manual submission model over automated crawlers for specific re
 3. **Piracy Risks**: Automated scraping often ingests stolen or re-uploaded packages from unverified shops.
 
 ### The Grounding Truth Verdict on VRCArena Ingestion
-Both VRCArena and this crawler are open source, and VRCArena's `robots.txt` explicitly allows public indexation (`User-agent: * Allow: /`). Under *Meta v. Bright Data* and RFC 9309, indexed logged-out public metadata extraction is legally permissible.
+Both VRCArena and this crawler are open source, and VRCArena's `robots.txt` records `User-agent: * Allow: /`. While RFC 9309 provides operational crawling conventions and decisions such as *Meta Platforms, Inc. v. Bright Data Ltd.* evaluated unauthenticated web access under specific contractual records, the Project does not treat these sources as universal legal authorization.
 
 However, deploying an automated HTML DOM scraper against VRCArena will remain prohibited for three architectural reasons:
 - **Aggregator Fragility**: VRCArena is a secondary curated index linking out to BOOTH, Gumroad, and itch. Scraping rendered HTML parses secondary redirects and stale caches rather than primary source records.

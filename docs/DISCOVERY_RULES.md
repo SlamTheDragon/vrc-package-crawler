@@ -56,6 +56,29 @@ Every candidate entity will pass through the `RelevanceFilter` before entering t
 2. **Dummy Template Guard:** Fork skeletons with no commits or releases enter quarantine with reason `empty_or_template`.
 3. **Malicious Link Guard:** URLs redirecting to scam domains or fake Nitro links enter quarantine with reason `malicious_or_scam`.
 
+### 3.5 Description Extraction and Normalization Algorithm
+
+The crawler indexes descriptions to identify software functions. It does not ingest full creative marketing text. The extraction pipeline follows standard information retrieval literature for document summarization (Luhn lead-sentence paradigm; Manning et al., *Introduction to Information Retrieval*).
+
+#### 1. Structured Metadata Resolution (Primary Source)
+The crawler resolves descriptions in this priority order:
+1. **Package Manifests:** Read the root `description` property from `vpm.json` or `package.json`.
+2. **Schema.org / JSON-LD:** Extract the `description` string from structured `SoftwareApplication` or `Product` schemas (used on BOOTH).
+3. **Open Graph Protocol (OGP):** Extract the `<meta property="og:description">` tag curated by storefront platforms (Gumroad, Jinxxy, itch.io).
+
+#### 2. Lead-Text Extraction (Fallback for Unstructured Pages)
+When structured metadata is absent (e.g., GitHub repository READMEs):
+1. Extract the first non-header, non-empty paragraph.
+2. Stop the extraction at a natural sentence boundary (`. `, `! `, or `? `) between 100 and 300 characters.
+3. Reject arbitrary byte slicing that cuts words in half.
+
+#### 3. Normalization and Trimming Pipeline
+Every extracted text snippet passes through these sanitization steps:
+1. **Markup Stripping:** Strip HTML tags (`<[^>]+>`) and Markdown image syntax (`!\[.*?\]\(.*?\)`).
+2. **Boilerplate Stripping:** Remove platform calls-to-action ("Buy now", "Join Discord", "Follow on Twitter", "Patreon link").
+3. **Whitespace Collapsing:** Collapse consecutive whitespace characters into a single space and trim margins.
+4. **Functional Scope:** Limit stored text to the functional summary necessary for search indexing.
+
 ---
 
 ## 4. Origin Timestamps vs Local Indexing Timestamps
