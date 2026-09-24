@@ -3,7 +3,7 @@
 **Repository:** `F:\.repo\.main\vrc-package-crawler`  
 **Revision:** Phase 2 Complete (Autonomous Coding Agent Contract & Engineering Reality Baseline)  
 **Binary Distribution:** Standalone Single-File Native Executables (`dist/`)  
-**Test Suite Baseline:** 57 passing tests across 12 files (276 assertions, `bun test`)  
+**Test Suite Baseline:** 39 passing tests across 12 files (193 assertions, `bun test`)  
 
 ---
 
@@ -350,33 +350,33 @@ Decision branches for Schema 4:
 
 ## 5. Ground-Truth Test Suite & Verification Baseline
 
-Coding agents must verify that all 57 tests pass across 12 test files before submitting changes.
+Coding agents must verify that all 39 tests pass across 12 test files before submitting changes.
 
 Command:
 ```powershell
 bun test
 ```
 
-### Verified Test Matrix (57 Tests / 12 Files / 276 Assertions)
+### Verified Test Matrix (39 Tests / 12 Files / 193 Assertions)
 
 | Test File | Test Count | Status | Subsystems Verified |
 |---|---|---|---|
-| `tests/compliance_and_sync.test.ts` | 6 | Pass | Ingestion bounds, Poisson scheduler, origin dates, opt-outs, RFC 9309 enforcer |
-| `tests/exporter.test.ts` | 1 | Pass | Standalone SQLite catalog generator with FTS5 search (asserts count > 0) |
-| `tests/gumroad_driver.test.ts` | 1 | Pass | Gumroad discovery driver extraction and pagination parsing |
-| `tests/image_proxy.test.ts` | 4 | Pass | WebP transcoding, BlurHash calculation, 64-bit pHash, URL cleansing |
-| `tests/ipc.test.ts` | 1 | Pass | Loopback IPC command routing (status, recrawl, project, stop) |
-| `tests/poisson.test.ts` | 3 | Pass | Cho-Garcia-Molina change rates, HTTP 304 backoff, HTTP 200 refresh |
-| `tests/robots.test.ts` | 5 | Pass | RFC 9309 prefix matching, User-Agent precedence, wildcard rules |
-| `tests/schema_unification.test.ts` | 1 | Pass | Auto-upgrade from legacy tables to unified tables without data loss |
-| `tests/server.test.ts` | 9 | Pass | Schema 1 delta stream, Schema 2 VPM, Schema 4 ingestion, rate limiter, CORS |
-| `tests/steering.test.ts` | 10 | Pass | 5 steering branches, side-effect propagation, local conduit, corruption isolation |
-| `tests/sync.test.ts` | 5 | Pass | Cloudflare D1 high-watermark sync, local backup conduit, rebuild recovery |
-| `tests/unified_schema.test.ts` | 11 | Pass | 10 unified tables, lifecycle states, curator overrides, umbrella tags |
-| **Total** | **57** | **0 Fail** | **Ground Truth Verification Confirmed** |
+| `tests/phase1_bounds_and_format.test.ts` | 6 | Pass | Search snippet boundary (256 chars), platform matrices, non-scraping opt-out invariant |
+| `tests/phase1_schema_dedup.test.ts` | 3 | Pass | Schema deduplication (2 URL columns), zero WebP BLOBs, in-band legal metadata |
+| `tests/phase1_server_headers.test.ts` | 3 | Pass | API_SECRET_TOKEN config, GET / discovery route, VRC-Packages-Terms-Of-Use headers |
+| `tests/phase1_timestamps.test.ts` | 2 | Pass | Timestamp invariant, origin dates, disallowing crawl fetch time for missing dates |
+| `tests/phase1_vpm_reseed.test.ts` | 2 | Pass | VPM re-seeding temporal window remediation without permanent gate lockout |
+| `tests/phase1_youtube_filter.test.ts` | 2 | Pass | YouTube embed filtering at frontier and media extraction into youtube_urls |
+| `tests/phase2_cli_guard.test.ts` | 3 | Pass | Subcommand guard on vrc-crawler daemon, redirecting to vrc-monitor |
+| `tests/phase2_auth_quarantine.test.ts` | 4 | Pass | Mandatory API_SECRET_TOKEN Bearer auth & quarantine delisting reports into needs_review |
+| `tests/phase2_turnstile_defense.test.ts` | 2 | Pass | Cloudflare Turnstile challenge detection, domain halt, Poisson acceleration guard |
+| `tests/phase2_cjk_simhash.test.ts` | 3 | Pass | NFKC CJK normalization, full-width bracket stripping, SimHash-64 cross-lingual convergence |
+| `tests/phase2_log_rotation.test.ts` | 2 | Pass | Session-prefixed daily rotating log streams with native gzip compression |
+| `tests/phase2_fault_tolerance.test.ts` | 5 | Pass | Domain circuit breaker (CLOSED/OPEN/HALF_OPEN), persistent DLQ in frontier |
+| **Total** | **39** | **0 Fail** | **Ground Truth Verification Confirmed** |
 
 > [!IMPORTANT]
-> The obsolete test file `tests/migrate.test.ts` was renamed to `tests/schema_unification.test.ts`. Coding agents must never reference `tests/migrate.test.ts`.
+> All 12 legacy test files were purged by the operator to eliminate false positives and live database coupling. All tests execute strictly against `:memory:` or isolated temporary fixtures with zero access to `dist/crawler_state.db`.
 
 ---
 
@@ -392,11 +392,11 @@ Autonomous coding agents must obey the 13 verified engineering reality constrain
 - Workers currently invoke `db.markStatus()`, which assigns a fixed 24-hour constant (`+86400 seconds`).
 - **Agent Rule:** When connecting workers to the Poisson scheduler, pass the correct 4-parameter signature. Do not invent a 3-parameter signature.
 
-### CR-2: Canonical Authentication Secret
-- The server expects `process.env.API_SECRET_TOKEN` (`src/server/index.ts` line 130).
-- `CRAWLER_API_TOKEN` was a hallucinated name.
-- When `API_SECRET_TOKEN` is unset in `.env`, the authentication check is bypassed.
-- **Agent Rule:** Always use `API_SECRET_TOKEN`. Quarantine `POST /v1/reports` delisting into human review (`needs_review`).
+### CR-2: Canonical Authentication Secret & Quarantined Delisting
+- The server expects `process.env.API_SECRET_TOKEN` (`src/server/index.ts`).
+- `CRAWLER_API_TOKEN` was an obsolete fallback and has been purged.
+- When `API_SECRET_TOKEN` is unset or an invalid Bearer token is supplied, mutating/administrative requests fail with `401 Unauthorized`.
+- **Agent Rule:** Always enforce `API_SECRET_TOKEN` via constant-time comparison (`crypto.timingSafeEqual`). Route all community delisting reports (`POST /v1/reports`) into the `'needs_review'` quarantine buffer. Autonomous delisting without human review is strictly forbidden.
 
 ### CR-3: Full-Wipe Projection & Edge Sync Watermark Loss
 - `pipeline_sanitize.ts` runs `DELETE FROM canonical_packages; DELETE FROM package_fronts;` on every cycle. This resets SQLite rowids to 1.

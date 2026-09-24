@@ -53,11 +53,15 @@ export function cleanTitle(rawTitle: string): string {
   return title.length > 0 ? title : unescapeHtml(rawTitle).trim();
 }
 
-/**
- * Normalizes title for SimHash shingling and mirror matching
- */
 export function normalizeListingTitle(title: string): string {
-  return cleanTitle(title);
+  if (!title) return "";
+  return title
+    .normalize("NFKC")
+    .replace(/【[^】]*】/g, " ")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/[（(][^）)]*[）)]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**

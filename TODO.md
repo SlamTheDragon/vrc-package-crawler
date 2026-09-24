@@ -250,10 +250,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 ---
 
-### Phase 2: Security Hardening & Defect Remediation (Medium)
+### Phase 2: Security Hardening & Defect Remediation (Medium) — [100% VERIFIED & COMPLETED]
 
-#### Task 2.1: Add Subcommand Guard on Crawler Daemon Binary
-- **Priority**: Maintainability / CLI Guard | **Complexity**: Medium (30 mins) | **Traceability**: CR-13, CR-18, G-18
+#### Task 2.1: Add Subcommand Guard on Crawler Daemon Binary [COMPLETED]
+- **Priority**: Maintainability / CLI Guard | **Complexity**: Medium (30 mins) | **Traceability**: CR-13, CR-18, G-18 | **Status**: Verified & Completed
 - **Files**: [`src/crawler/index.ts`](src/crawler/index.ts#L970-L1030)
 - **Problem**: Running `vrc-crawler.exe <subcommand>` spawns a second daemon that crashes with a `ProcessLock` collision instead of routing commands.
 - **Remediation**: Inspect `process.argv.slice(2)`. If arguments (e.g. `status`, `recrawl`, `stop`) are provided, print an instructional error message:
@@ -267,10 +267,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 - **Cascading Documentation Changes**:
   - [`README.md`](README.md): Re-verify that CLI dispatch instructions explicitly specify `vrc-monitor.exe`.
   - [`DELEGATES.md`](DELEGATES.md): Ensure Section 2 binary topography states `vrc-crawler.exe` takes zero subcommands.
-- **Acceptance Criteria**: Running `bun run src/crawler/index.ts status` exits cleanly with code 1 and redirection message.
+- **Acceptance Criteria**: Running `bun run src/crawler/index.ts status` exits cleanly with code 1 and redirection message. *(Verified: test passes in `tests/phase2_cli_guard.test.ts`)*.
 
-#### Task 2.2: Enforce Mandatory `API_SECRET_TOKEN` Auth & Quarantine Delisting Reports
-- **Priority**: Critical Security Vulnerability | **Complexity**: Medium (45 mins) | **Traceability**: CR-2, G-4, LEGAL §10.6, §9.4
+#### Task 2.2: Enforce Mandatory `API_SECRET_TOKEN` Auth & Quarantine Delisting Reports [COMPLETED]
+- **Priority**: Critical Security Vulnerability | **Complexity**: Medium (45 mins) | **Traceability**: CR-2, G-4, LEGAL §10.6, §9.4 | **Status**: Verified & Completed
 - **Files**: [`src/server/index.ts`](src/server/index.ts#L130, #L196-L204), [`src/crawler/steering.ts`](src/crawler/steering.ts)
 - **Token Generation Guidelines**:
   - The administrative secret must be generated using a Cryptographically Secure Pseudo-Random Number Generator (CSPRNG) with at least 256 bits of entropy:
@@ -310,10 +310,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`DELEGATES.md`](DELEGATES.md): Section 4 ("Token Generation, Key Rotation & Secret Storage Runbook") — document CSPRNG token generation and rotation.
   - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 3 ("Curator Report Ingestion & Quarantined Delisting Verification") — document curation queue triage.
   - [`LEGAL.md`](LEGAL.md): Section 10.6 ("Downstream Reporting Invariants") & Section 9.4 ("Takedown Protocols") — explicitly distinguish administrative curation auth from unauthenticated rights-holder proof-based delisting.
-- **Acceptance Criteria**: Anonymous `POST /v1/reports` returns `401 Unauthorized`; authenticated delisting reports enter `'needs_review'` buffer.
+- **Acceptance Criteria**: Anonymous `POST /v1/reports` returns `401 Unauthorized`; authenticated delisting reports enter `'needs_review'` buffer. *(Verified: test passes in `tests/phase2_auth_quarantine.test.ts`)*.
 
-#### Task 2.3: Cloudflare Turnstile Detection & Poisson Acceleration Guard
-- **Priority**: Bot Perimeter Defense | **Complexity**: Medium (45 mins) | **Traceability**: CR-15, G-3, G-23, LEGAL §5.1(c), §6.4
+#### Task 2.3: Cloudflare Turnstile Detection & Poisson Acceleration Guard [COMPLETED]
+- **Priority**: Bot Perimeter Defense | **Complexity**: Medium (45 mins) | **Traceability**: CR-15, G-3, G-23, LEGAL §5.1(c), §6.4 | **Status**: Verified & Completed
 - **Files**: [`src/drivers/gumroad.ts`](src/drivers/gumroad.ts#L80-L120), [`src/drivers/jinxxy.ts`](src/drivers/jinxxy.ts#L75-L115)
 - **Problem**: Cloudflare Managed Challenges serve `HTTP 200` with Turnstile HTML challenge scripts. The crawler treats this as a document update, accelerates the Poisson crawl rate ($\lambda \times 1.4$), and triggers an IP ban.
 - **Remediation**: Before parsing HTML DOM, inspect payload:
@@ -327,10 +327,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 - **Cascading Documentation Changes (Targeted Sections)**:
   - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Section 3.6 ("Turnstile Zero-Circumvention & Halt Invariants") — formalize detection signatures.
   - [`docs/PLATFORM-MATRIX.md`](docs/PLATFORM-MATRIX.md): Section 2.2 & 2.4 — update perimeter defense notes for Gumroad and Jinxxy.
-- **Acceptance Criteria**: Simulated Turnstile HTML payload halts domain crawl and sets status `"blocked"` without accelerating crawl rate.
+- **Acceptance Criteria**: Simulated Turnstile HTML payload halts domain crawl and sets status `"blocked"` without accelerating crawl rate. *(Verified: test passes in `tests/phase2_turnstile_defense.test.ts`)*.
 
-#### Task 2.4: Implement CJK Text Normalization & SimHash Bracket Stripping
-- **Priority**: Search Convergence / Entity Resolution | **Complexity**: Medium (1 hour) | **Traceability**: CR-17, G-24
+#### Task 2.4: Implement CJK Text Normalization & SimHash Bracket Stripping [COMPLETED]
+- **Priority**: Search Convergence / Entity Resolution | **Complexity**: Medium (1 hour) | **Traceability**: CR-17, G-24 | **Status**: Verified & Completed
 - **Files**: [`src/utils/sanitizer.ts`](src/utils/sanitizer.ts), [`src/crawler/projection.ts`](src/crawler/projection.ts)
 - **Problem**: Japanese BOOTH listings heavily use full-width decorative brackets (`【...】`, `［...］`, `（...）`). Unstripped boilerplate distorts character 2-grams, preventing SimHash-64 Hamming distance from converging with Western mirrors.
 - **Remediation**: Implement `normalizeListingTitle(title: string)`:
@@ -348,20 +348,20 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 - **Cascading Documentation Changes (Targeted Sections)**:
   - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Section 3.5 ("NFKC Normalization & CJK Bracket Stripping") — document title cleaning pipeline.
   - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.2 ("Entity Resolution & SimHash Pipeline") — update character shingling and bracket normalization description.
-- **Acceptance Criteria**: Title `"【VRChat想定】Modular Avatar対応 ツール"` converges (Hamming distance $\le 3$) with mirror `"Modular Avatar Tool"`.
+- **Acceptance Criteria**: Title `"【VRChat想定】Modular Avatar対応 ツール"` converges (Hamming distance $\le 3$) with mirror `"Modular Avatar Tool"`. *(Verified: test passes in `tests/phase2_cjk_simhash.test.ts`)*.
 
-#### Task 2.5: Implement Session-Prefixed Daily Rotating Log Streams
-- **Priority**: System Reliability / SRE | **Complexity**: Medium (1 hour) | **Traceability**: CR-12, G-8
+#### Task 2.5: Implement Session-Prefixed Daily Rotating Log Streams [COMPLETED]
+- **Priority**: System Reliability / SRE | **Complexity**: Medium (1 hour) | **Traceability**: CR-12, G-8 | **Status**: Verified & Completed
 - **Files**: [`src/logger.ts`](src/logger.ts#L1-L92)
 - **Problem**: Monolithic log files stream indefinitely without session prefixes or daily gzip compression, risking unbounded disk growth during 24/7 autonomous runs.
 - **Remediation**: Implement structured file logging with session prefixes (`session_<pid>_<timestamp>.log`), date-based rotation triggers, and asynchronous daily `.gz` compression during idle Poisson intervals.
 - **Cascading Documentation Changes (Targeted Sections)**:
   - [`DELEGATES.md`](DELEGATES.md): Section 8 ("Logging & Rotation Runbook") — document native session rotation.
   - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 5 ("Log File Inspection & Rotation Paths") — update monitoring paths.
-- **Acceptance Criteria**: Daemon writes to session-prefixed log files; simulated date change rotates and compresses prior logs.
+- **Acceptance Criteria**: Daemon writes to session-prefixed log files; simulated date change rotates and compresses prior logs. *(Verified: test passes in `tests/phase2_log_rotation.test.ts`)*.
 
-#### Task 2.6: Rebuild Deterministic Testbed with In-Memory Isolation (Ground Zero after Legacy Test Deletion)
-- **Priority**: CI/CD Reliability & Testbed Integrity | **Complexity**: Medium (1 hour) | **Traceability**: CR-9, G-17
+#### Task 2.6: Rebuild Deterministic Testbed with In-Memory Isolation (Ground Zero after Legacy Test Deletion) [COMPLETED]
+- **Priority**: CI/CD Reliability & Testbed Integrity | **Complexity**: Medium (1 hour) | **Traceability**: CR-9, G-17 | **Status**: Verified & Completed
 - **Files**: `tests/` directory, [`src/db.ts`](src/db.ts#L248)
 - **Testbed Deletion & Clean-Slate Reality**:
   - All 12 legacy test files in `tests/` (`compliance_and_sync.test.ts`, `exporter.test.ts`, `gumroad_driver.test.ts`, `image_proxy.test.ts`, `ipc.test.ts`, `poisson.test.ts`, `robots.test.ts`, `schema_unification.test.ts`, `server.test.ts`, `steering.test.ts`, `sync.test.ts`, `unified_schema.test.ts`) were deleted by the operator to eliminate false-positive test results, mock-reality drift, and codebase dislocation against stale production database files (`dist/crawler_state.db` [357 MB]).
@@ -374,10 +374,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`AGENT.md`](AGENT.md): Section "Test Suite Isolation & Fixture Contracts" — mandate `:memory:` databases and document the purge of legacy tests.
   - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 6 ("Test Suite Architecture & Verification Runbook") — update testbed run commands and fixture isolation invariants.
   - [`DELEGATES.md`](DELEGATES.md): Section 5 ("Testing, CI/CD and Verification Protocols") — specify isolated test execution rules.
-- **Acceptance Criteria**: `bun test` discovers new isolated tests; all tests execute deterministically against `:memory:` or temporary fixture DBs with zero access to `dist/crawler_state.db`.
+- **Acceptance Criteria**: `bun test` discovers new isolated tests; all tests execute deterministically against `:memory:` or temporary fixture DBs with zero access to `dist/crawler_state.db`. *(Verified: 39 tests across 12 files pass with zero failures and zero access to production DB)*.
 
-#### Task 2.7: Autonomous Fault Tolerance Subsystem: Domain Circuit Breakers, Exponential Backoff with Jitter & Persistent Dead-Letter Queue (Permanent Removal of manual requeue scripts)
-- **Priority**: System Reliability / Unattended Autonomy | **Complexity**: Medium (1 hour 15 mins) | **Traceability**: Operational Defect (HEAD Section 1), G-1, G-3, G-11
+#### Task 2.7: Autonomous Fault Tolerance Subsystem: Domain Circuit Breakers, Exponential Backoff with Jitter & Persistent Dead-Letter Queue (Permanent Removal of manual requeue scripts) [COMPLETED]
+- **Priority**: System Reliability / Unattended Autonomy | **Complexity**: Medium (1 hour 15 mins) | **Traceability**: Operational Defect (HEAD Section 1), G-1, G-3, G-11 | **Status**: Verified & Completed
 - **Files**: [`src/crawler/index.ts`](src/crawler/index.ts), [`src/drivers/gumroad.ts`](src/drivers/gumroad.ts), [`src/utils/image_proxy.ts`](src/utils/image_proxy.ts), [`src/tools/requeue_gumroad.ts`](src/tools/requeue_gumroad.ts), [`src/tools/requeue_media.ts`](src/tools/requeue_media.ts), [`package.json`](package.json)
 - **Problem**:
   - When encountering transient network errors, HTTP 429 rate limits, or CDN stalls, Gumroad and image proxy queues halt. Operators previously executed manual batch scripts (`src/tools/requeue_gumroad.ts`, `src/tools/requeue_media.ts`, `bun run requeue:gumroad`, `bun run requeue:media`) to reset failed/stalled frontier items. Relying on manual intervention violates 24/7 unattended autonomy and causes lock contention with the active daemon.
@@ -403,7 +403,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`DELEGATES.md`](DELEGATES.md): Section 8 ("Fault Recovery Runbook & Elimination of Manual Batch Scripts") — document autonomous self-healing and purge manual requeue runbooks.
   - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 4 ("Operational Self-Healing & Circuit Breaker Diagnostics") — document monitoring commands.
   - [`package.json`](package.json): Permanently delete `requeue:gumroad` and `requeue:media` entries.
-- **Acceptance Criteria**: Crawler daemon autonomously pauses and recovers from simulated HTTP 429 and network timeouts without requiring manual script execution; dead-letter entries are reconciled during idle loops; manual requeue scripts and `package.json` entries are permanently removed.
+- **Acceptance Criteria**: Crawler daemon autonomously pauses and recovers from simulated HTTP 429 and network timeouts without requiring manual script execution; dead-letter entries are reconciled during idle loops; manual requeue scripts and `package.json` entries are permanently removed. *(Verified: test passes in `tests/phase2_fault_tolerance.test.ts`)*.
 
 ---
 

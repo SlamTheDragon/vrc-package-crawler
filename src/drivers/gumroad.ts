@@ -1,7 +1,7 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
-import { db, type EntityRecord } from "../db.ts";
-import { rateLimiter } from "../ratelimit.ts";
+import { db, CrawlerDB, type EntityRecord } from "../db.ts";
+import { rateLimiter, circuitBreaker } from "../ratelimit.ts";
 import { RelevanceFilter } from "../filter.ts";
 import { CuratedDriver } from "./curated.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../utils/sanitizer.ts";
@@ -26,9 +26,17 @@ export class GumroadDriver {
   }
 
   // Crawls a Gumroad Discover search query page with exponential backoff & dynamic pacing
-  static async crawlDiscoverQuery(query: string, page: number = 1): Promise<{ productsCount: number; sellersFound: string[]; savedCount?: number }> {
-    if (this.isAborted || db.isClosed) return { productsCount: 0, sellersFound: [] };
+  static async crawlDiscoverQuery(query: string, page: number = 1, customDb?: CrawlerDB): Promise<{ productsCount: number; sellersFound: string[]; savedCount?: number }> {
+    const targetDb = customDb || db;
+    if (this.isAborted || targetDb.isClosed) return { productsCount: 0, sellersFound: [] };
     const key = "gumroad:discover";
+
+    // Circuit breaker check (Task 2.7)
+    if (!circuitBreaker.canExecute("gumroad.com")) {
+      const waitMs = circuitBreaker.getRemainingBackoffMs("gumroad.com");
+      logger.info(`[Gumroad:Discover] Circuit breaker OPEN for gumroad.com. Skipping query '${query}' for ${(waitMs / 1000).toFixed(0)}s.`);
+      return { productsCount: 0, sellersFound: [] };
+    }
 
     // Wait if currently in backoff from previous 429
     if (rateLimiter.isBackingOff(key)) {
@@ -55,18 +63,29 @@ export class GumroadDriver {
 
       if (resp.status === 429 || resp.status === 403) {
         rateLimiter.handleRateLimit(key, resp);
+        circuitBreaker.recordFailure("gumroad.com", resp.status, "Rate limit / forbidden");
         return { productsCount: 0, sellersFound: [] };
       }
 
       if (!resp.ok) {
         logger.warn(`[Gumroad:Discover] HTTP ${resp.status} for query '${query}' offset ${offset}`);
+        circuitBreaker.recordFailure("gumroad.com", resp.status, `HTTP error ${resp.status}`);
+        return { productsCount: 0, sellersFound: [] };
+      }
+
+      const html = await resp.text();
+
+      // Cloudflare Managed Challenge & Turnstile detection (Task 2.3)
+      if (html.includes("challenges.cloudflare.com/turnstile") || html.includes("cf-mitigated: challenge")) {
+        logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${url}. Halting domain crawl.`);
+        targetDb.markStatus(url, "blocked", "Cloudflare Turnstile challenge detected", undefined, undefined, 86400 * 3, 403, "Cloudflare Turnstile challenge detected");
+        circuitBreaker.trip("gumroad.com", 403, "Cloudflare Turnstile Challenge", 86400 * 3 * 1000);
         return { productsCount: 0, sellersFound: [] };
       }
 
       // Record success
       rateLimiter.handleSuccess(key, CONFIG.gumroadDelayMs);
-
-      const html = await resp.text();
+      circuitBreaker.recordSuccess("gumroad.com");
       const match = html.match(/data-page="([^"]+)"/);
       if (!match) {
         logger.warn(`[Gumroad:Discover] No data-page found for query '${query}' offset ${offset}`);
@@ -141,22 +160,32 @@ export class GumroadDriver {
       logger.info(`[Gumroad:Discover] Ingested ${saved}/${products.length} vetted products, queued ${sellersFound.length} creator storefronts for '${query}' offset ${offset}`);
       return { productsCount: products.length, savedCount: saved, sellersFound };
     } catch (e) {
+      circuitBreaker.recordFailure("gumroad.com", 0, e instanceof Error ? e.message : String(e));
       logger.error(`[Gumroad:Discover] Error for query '${query}' offset ${offset}`, e);
       return { productsCount: 0, savedCount: 0, sellersFound: [] };
     }
   }
 
   // Crawls an individual product page
-  static async crawlProduct(productUrl: string): Promise<boolean> {
-    if (this.isAborted || db.isClosed) return false;
+  static async crawlProduct(productUrl: string, customDb?: CrawlerDB): Promise<boolean> {
+    const targetDb = customDb || db;
+    if (this.isAborted || targetDb.isClosed) return false;
     const key = "gumroad";
+
+    // Circuit breaker check (Task 2.7)
+    if (!circuitBreaker.canExecute("gumroad.com")) {
+      const waitMs = circuitBreaker.getRemainingBackoffMs("gumroad.com");
+      logger.info(`[Gumroad:Product] Circuit breaker OPEN for gumroad.com. Skipping ${productUrl} for ${(waitMs / 1000).toFixed(0)}s.`);
+      return false;
+    }
+
     await rateLimiter.waitIfBackoff(key);
 
     logger.info(`[Gumroad] Fetching product: ${productUrl}`);
     try {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.gumroadDelayMs);
       await this.sleep(delay);
-      if (this.isAborted || db.isClosed) return false;
+      if (this.isAborted || targetDb.isClosed) return false;
 
       let currentUrl = productUrl;
       let resp = await fetch(currentUrl, {
@@ -168,6 +197,7 @@ export class GumroadDriver {
 
       if (resp.status === 429 || resp.status === 403) {
         rateLimiter.handleRateLimit(key, resp);
+        circuitBreaker.recordFailure("gumroad.com", resp.status, "Rate limit / forbidden");
         return false;
       }
 
@@ -197,7 +227,7 @@ export class GumroadDriver {
         // If still 404, try Discover query fallback for the slug
         if (resp.status === 404 && slug) {
           logger.info(`[Gumroad] Product 404 on ${currentUrl}. Probing alternative path via Discover search: "${slug}"...`);
-          const discRes = await this.crawlDiscoverQuery(slug.replace(/[-_]/g, " "), 1);
+          const discRes = await this.crawlDiscoverQuery(slug.replace(/[-_]/g, " "), 1, targetDb);
           if (discRes.productsCount > 0) {
             logger.info(`[Gumroad] Discovered ${discRes.productsCount} products via fallback search for "${slug}"`);
             return true;
@@ -207,12 +237,22 @@ export class GumroadDriver {
 
       if (!resp.ok) {
         logger.warn(`[Gumroad] HTTP ${resp.status} for ${currentUrl} (all alternative paths failed)`);
+        circuitBreaker.recordFailure("gumroad.com", resp.status, `HTTP error ${resp.status}`);
+        return false;
+      }
+
+      const html = await resp.text();
+
+      // Cloudflare Managed Challenge & Turnstile detection (Task 2.3)
+      if (html.includes("challenges.cloudflare.com/turnstile") || html.includes("cf-mitigated: challenge")) {
+        logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${currentUrl}. Halting domain crawl.`);
+        targetDb.markStatus(currentUrl, "blocked", "Cloudflare Turnstile challenge detected", undefined, undefined, 86400 * 3, 403, "Cloudflare Turnstile challenge detected");
+        circuitBreaker.trip("gumroad.com", 403, "Cloudflare Turnstile Challenge", 86400 * 3 * 1000);
         return false;
       }
 
       rateLimiter.handleSuccess(key, CONFIG.gumroadDelayMs);
-
-      const html = await resp.text();
+      circuitBreaker.recordSuccess("gumroad.com");
       const finalUrl = resp.url || currentUrl;
 
       // Extract OpenGraph tags
@@ -230,7 +270,7 @@ export class GumroadDriver {
 
       // Queue the creator's root storefront to discover ALL their tools!
       if (subMatch && subMatch[1] !== "www") {
-        db.queueUrl(`https://${subMatch[1]}.gumroad.com`, "gumroad");
+        targetDb.queueUrl(`https://${subMatch[1]}.gumroad.com`, "gumroad");
       }
 
       const title = ogTitleMatch ? ogTitleMatch[1].trim() : `Gumroad Product ${slug}`;
@@ -242,7 +282,7 @@ export class GumroadDriver {
       for (const gh of ghMatches) {
         if (!extLinks.includes(gh)) {
           extLinks.push(gh);
-          db.queueUrl(gh, "github");
+          targetDb.queueUrl(gh, "github");
         }
       }
 
@@ -385,10 +425,10 @@ export class GumroadDriver {
 
       const evalRes = RelevanceFilter.evaluate(entity);
       if (evalRes.isRelevant) {
-        db.saveEntity(entity);
+        targetDb.saveEntity(entity);
         logger.info(`[Gumroad] Ingested: ${title.slice(0, 50)} by ${creatorName} (Score: ${evalRes.score}, Media: ${mediaUrls.length} imgs, ${videoUrls.length} vids, ${youtubeUrls.length} yt)`);
       } else {
-        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
+        targetDb.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
         logger.info(`[Gumroad] Quarantined: ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
       }
 
@@ -396,9 +436,10 @@ export class GumroadDriver {
     } catch (e: any) {
       if (e?.message?.includes("ENOTFOUND") || e?.code === "ENOTFOUND") {
         logger.warn(`[Gumroad] Dead subdomain detected for ${productUrl}. Archiving to qualified_discards.`);
-        db.discardFailedUrl(productUrl, "gumroad", "Dead subdomain (ENOTFOUND)");
+        targetDb.discardFailedUrl(productUrl, "gumroad", "Dead subdomain (ENOTFOUND)");
         return true;
       }
+      circuitBreaker.recordFailure("gumroad.com", 0, e instanceof Error ? e.message : String(e));
       logger.error(`[Gumroad] Error crawling product ${productUrl}`, e);
       return false;
     }
@@ -406,9 +447,18 @@ export class GumroadDriver {
 
 
   // Crawls creator storefront and parses Inertia.js data-page payload
-  static async crawlStorefront(storeUrl: string): Promise<boolean> {
-    if (this.isAborted || db.isClosed) return false;
+  static async crawlStorefront(storeUrl: string, customDb?: CrawlerDB): Promise<boolean> {
+    const targetDb = customDb || db;
+    if (this.isAborted || targetDb.isClosed) return false;
     const key = "gumroad";
+
+    // Circuit breaker check (Task 2.7)
+    if (!circuitBreaker.canExecute("gumroad.com")) {
+      const waitMs = circuitBreaker.getRemainingBackoffMs("gumroad.com");
+      logger.info(`[Gumroad:Storefront] Circuit breaker OPEN for gumroad.com. Skipping ${storeUrl} for ${(waitMs / 1000).toFixed(0)}s.`);
+      return false;
+    }
+
     await rateLimiter.waitIfBackoff(key);
 
     logger.info(`[Gumroad] Spidering creator storefront: ${storeUrl}`);
@@ -427,6 +477,7 @@ export class GumroadDriver {
 
       if (resp.status === 429 || resp.status === 403) {
         rateLimiter.handleRateLimit(key, resp);
+        circuitBreaker.recordFailure("gumroad.com", resp.status, "Rate limit / forbidden");
         return false;
       }
 
@@ -461,12 +512,22 @@ export class GumroadDriver {
 
       if (!resp.ok) {
         logger.warn(`[Gumroad] Storefront HTTP ${resp.status} for ${currentStore} (all alternative paths failed)`);
+        circuitBreaker.recordFailure("gumroad.com", resp.status, `HTTP error ${resp.status}`);
+        return false;
+      }
+
+      const htmlText = await resp.text();
+
+      // Cloudflare Managed Challenge & Turnstile detection (Task 2.3)
+      if (htmlText.includes("challenges.cloudflare.com/turnstile") || htmlText.includes("cf-mitigated: challenge")) {
+        logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${currentStore}. Halting domain crawl.`);
+        targetDb.markStatus(currentStore, "blocked", "Cloudflare Turnstile challenge detected", undefined, undefined, 86400 * 3, 403, "Cloudflare Turnstile challenge detected");
+        circuitBreaker.trip("gumroad.com", 403, "Cloudflare Turnstile Challenge", 86400 * 3 * 1000);
         return false;
       }
 
       rateLimiter.handleSuccess(key, CONFIG.gumroadDelayMs);
-
-      const htmlText = await resp.text();
+      circuitBreaker.recordSuccess("gumroad.com");
       const match = htmlText.match(/data-page="([^"]+)"/);
       if (!match) {
         logger.warn(`[Gumroad] No Inertia data-page found on ${storeUrl}`);
@@ -542,6 +603,7 @@ export class GumroadDriver {
         db.discardFailedUrl(storeUrl, "gumroad", "Dead storefront subdomain (ENOTFOUND)");
         return true;
       }
+      circuitBreaker.recordFailure("gumroad.com", 0, e instanceof Error ? e.message : String(e));
       logger.error(`[Gumroad] Error parsing storefront ${storeUrl}`, e);
       return false;
     }

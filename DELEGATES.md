@@ -375,7 +375,10 @@ This system is version 0. Deprecation shims, backward-compatibility type aliases
 
 ## 9. Log Management & Archival
 
-Until native log rotation is integrated into `src/logger.ts`, operators will configure external log rotation.
+The logging subsystem (`src/logger.ts`) provides native session-prefixed daily rotating log streams with automatic gzip (`.log.gz`) compression:
+- **Session Prefixes**: File paths follow `dist/logs/session_<pid>_<sessionId>_<YYYY-MM-DD>.log`.
+- **Daily Rotation & Gzip**: At UTC midnight turnover, active file handles are closed, prior day log files are compressed via native zlib gzip (`level: 9`) to `.log.gz`, uncompressed originals are purged, and fresh stream handles are opened.
+- **External Log Management**: Optional external rotation configurations below may still be used if host OS retention policies are desired.
 
 ### Linux logrotate Configuration (`/etc/logrotate.d/vrc-catalog`)
 

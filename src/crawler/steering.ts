@@ -72,41 +72,15 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
         }
 
         case "irrelevance": {
-          const reason = payload.irrelevanceReason;
-          // Flag package as delisted or quarantined
-          if (reason === "cosmetics_only" || reason === "malicious_or_scam") {
-            targetDb.rawDb.run(`
-              UPDATE canonical_packages
-              SET lifecycle = 'delisted',
-                  lifecycle_updated_at = ?,
-                  updated_at = ?
-              WHERE canonical_id = ?;
-            `, [now, now, report.target_package_id]);
-
-            // Mark observation lake as quarantined via constituent source_ids_json
-            const pkgRow = targetDb.rawDb.prepare("SELECT source_ids_json FROM canonical_packages WHERE canonical_id = ?;").get(report.target_package_id) as any;
-            if (pkgRow) {
-              let sourceIds: string[] = [];
-              try { sourceIds = JSON.parse(pkgRow.source_ids_json || "[]"); } catch (_) {}
-              for (const sid of sourceIds) {
-                targetDb.rawDb.run(`
-                  UPDATE entities
-                  SET is_quarantined = 1,
-                      quarantine_reasons_json = json_insert(COALESCE(quarantine_reasons_json, '[]'), '$[#]', ?),
-                      updated_at = ?
-                  WHERE id = ?;
-                `, [`user_reported_${reason}`, now, sid]);
-              }
-            }
-
-            targetDb.rawDb.run(`
-              UPDATE entities
-              SET is_quarantined = 1,
-                  quarantine_reasons_json = json_insert(COALESCE(quarantine_reasons_json, '[]'), '$[#]', ?),
-                  updated_at = ?
-              WHERE id = ? OR url LIKE ?;
-            `, [`user_reported_${reason}`, now, report.target_package_id, `%${report.target_package_id}%`]);
-          }
+          // Task 2.2: Reports for irrelevance / scam route into 'needs_review' quarantine buffer
+          // rather than executing immediate 'delisted' lifecycle mutations on canonical packages or raw entities
+          targetDb.rawDb.run(`
+            UPDATE canonical_packages
+            SET lifecycle = 'needs_review',
+                lifecycle_updated_at = ?,
+                updated_at = ?
+            WHERE canonical_id = ?;
+          `, [now, now, report.target_package_id]);
 
           // Register negative exclusion tokens
           if (Array.isArray(payload.negativeTokens) && payload.negativeTokens.length > 0) {
@@ -118,7 +92,10 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
               weight: 2.0
             });
           }
-          break;
+
+          targetDb.markReportStatus(report.report_id, "needs_review");
+          applied++;
+          continue;
         }
 
         case "listing": {

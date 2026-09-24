@@ -56,20 +56,18 @@ The primary database will reside at `dist/crawler_state.db`. The system will cre
 vrc-package-crawler/
   src/                        Core crawler engine and foundation
     crawler/                  Autonomous 24/7 crawler daemon (vrc-crawler.exe / linux)
-      index.ts
+      index.ts                Main harvesting daemon & DLQ idle draining loop
+      projection.ts           Canonical projection, SimHash clustering, and umbrella tagging
+      steering.ts             Autonomous steering feedback processor & quarantine buffer
     monitor/                  Interactive console monitor & IPC status CLI (vrc-monitor.exe)
       index.ts
     sync/                     Cloudflare D1/R2 incremental sync daemon (vrc-sync.exe)
       index.ts
+      exporter.ts             Single-file catalog and FTS5 SQLite exporter (vrc-export.exe)
     server/                   Headless REST API server (Schemas 1, 2, 4) (vrc-server.exe)
       index.ts
-    tools/                    Auxiliary maintenance toolset
-      pipeline_sanitize.ts    Canonical projection, SimHash clustering, and umbrella tagging
-      exporter.ts             Single-file catalog and data lake exporter
-      steering.ts             Autonomous steering & Cloudflare R2 pull engine
-      discover_vpm.ts         VPM community repository discoverer
     drivers/                  Per-platform crawl drivers (BOOTH, GitHub, Gumroad, Jinxxy, Itch, VPM)
-    utils/                    Shared utilities (image proxy, robots.txt enforcer, Poisson scheduler, IPC, lock)
+    utils/                    Shared utilities (circuit breaker, image proxy, robots.txt, Poisson, IPC, lock)
     db.ts                     Unified SQLite database layer with auto-upgrade
     filter.ts                 Relevance and safety filters
     classifier.ts             Taxonomy classification
@@ -82,7 +80,7 @@ vrc-package-crawler/
     EDGE_SYNC_AND_SCALE_GUIDE.md Cloudflare edge synchronization guide
     OPERATIONS_AND_CHECKLIST.md Operational checklists and verification
     topics/                   Technical deep-dive topics
-  tests/                      Bun test suites (57 passing tests across 12 files)
+  tests/                      Bun test suites (39 passing tests across 12 files)
   dist/                       Isolated runtime environment (gitignored)
     vrc-crawler.exe           Background daemon binary (Windows)
     vrc-monitor.exe           Console monitor & CLI binary (Windows)

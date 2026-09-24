@@ -1,6 +1,7 @@
 import { db, type PlatformMetrics } from "../db.ts";
 import { CONFIG } from "../config.ts";
 import { CrawlerIpcServer } from "../utils/ipc.ts";
+import { ProcessLock } from "../utils/lock.ts";
 import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -153,7 +154,12 @@ if (cliArgs.includes("status") && !cliArgs.includes("--once")) {
   if (res.running) {
     console.log("[CLI] Crawler daemon is active:\n" + JSON.stringify(res.data, null, 2));
   } else {
-    console.log("[CLI] Crawler daemon is not currently running (offline).");
+    const lockInfo = ProcessLock.getLockInfo();
+    if (lockInfo) {
+      console.log(`[CLI] Crawler daemon is offline / unreachable via IPC (Lock held by PID ${lockInfo.pid}, started ${lockInfo.startedAt}).`);
+    } else {
+      console.log("[CLI] Crawler daemon is not currently running (offline).");
+    }
   }
   process.exit(0);
 }

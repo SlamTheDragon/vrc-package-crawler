@@ -127,7 +127,7 @@ Options:
 export function startServer(config: ServerConfig = {}) {
   const port = config.port || parseInt(process.env.PORT || process.env.API_PORT || "8080", 10);
   const host = config.host || process.env.HOST || process.env.API_HOST || "0.0.0.0";
-  const apiToken = config.apiToken || process.env.API_SECRET_TOKEN || process.env.CRAWLER_API_TOKEN;
+  const apiToken = config.apiToken || process.env.API_SECRET_TOKEN;
   const targetDb = config.db || db;
 
   const rateLimiter = new RateLimiter();
@@ -222,14 +222,21 @@ export function startServer(config: ServerConfig = {}) {
 
       // --- POST /v1/reports (Schema 4 Ingestion) ---
       if (method === "POST" && path === "/v1/reports") {
-        // Administrative Auth Check:
+        // Administrative Auth Check (Task 2.2):
         // Must supply valid Bearer token matching API_SECRET_TOKEN.
         // If API_SECRET_TOKEN is unset or token is invalid, fail with 401 Unauthorized.
-        const authHeader = req.headers.get("Authorization") || "";
-        const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-        if (!apiToken || token !== apiToken) {
+        const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+        if (!apiToken || !authHeader.startsWith("Bearer ")) {
           return new Response(JSON.stringify({
-            error: "Unauthorized: Invalid or missing API bearer token."
+            error: "Unauthorized: Administrative bearer token required"
+          }), { status: 401, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+        const providedToken = authHeader.slice(7).trim();
+        const tokenBuffer = Buffer.from(providedToken);
+        const expectedBuffer = Buffer.from(apiToken);
+        if (tokenBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(tokenBuffer, expectedBuffer)) {
+          return new Response(JSON.stringify({
+            error: "Unauthorized: Invalid administrative bearer token"
           }), { status: 401, headers: { ...baseHeaders, "Content-Type": "application/json" } });
         }
 

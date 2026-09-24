@@ -1,7 +1,7 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
-import { db, type EntityRecord } from "../db.ts";
-import { rateLimiter } from "../ratelimit.ts";
+import { db, CrawlerDB, type EntityRecord } from "../db.ts";
+import { rateLimiter, circuitBreaker } from "../ratelimit.ts";
 import { RelevanceFilter } from "../filter.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../utils/sanitizer.ts";
 
@@ -33,16 +33,25 @@ export class JinxxyDriver {
   ];
 
   // Crawls a curated marketplace category or tag URL
-  static async crawlBrowsePage(browseUrl: string): Promise<string[]> {
-    if (this.isAborted || db.isClosed) return [];
+  static async crawlBrowsePage(browseUrl: string, customDb?: CrawlerDB): Promise<string[]> {
+    const targetDb = customDb || db;
+    if (this.isAborted || targetDb.isClosed) return [];
     const key = "jinxxy";
+
+    // Circuit breaker check (Task 2.7)
+    if (!circuitBreaker.canExecute("jinxxy.com")) {
+      const waitMs = circuitBreaker.getRemainingBackoffMs("jinxxy.com");
+      logger.info(`[Jinxxy:Browse] Circuit breaker OPEN for jinxxy.com. Skipping ${browseUrl} for ${(waitMs / 1000).toFixed(0)}s.`);
+      return [];
+    }
+
     await rateLimiter.waitIfBackoff(key);
 
     logger.info(`[Jinxxy:Browse] Fetching browse page: ${browseUrl}`);
     try {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.jinxxyDelayMs);
       await this.sleep(delay);
-      if (this.isAborted || db.isClosed) return [];
+      if (this.isAborted || targetDb.isClosed) return [];
 
       const resp = await fetch(browseUrl, {
         headers: {
@@ -53,17 +62,28 @@ export class JinxxyDriver {
 
       if (resp.status === 429 || resp.status === 403) {
         rateLimiter.handleRateLimit(key, resp);
+        circuitBreaker.recordFailure("jinxxy.com", resp.status, "Rate limit / forbidden");
         return [];
       }
 
       if (!resp.ok) {
         logger.warn(`[Jinxxy:Browse] HTTP ${resp.status} for ${browseUrl}`);
+        circuitBreaker.recordFailure("jinxxy.com", resp.status, `HTTP error ${resp.status}`);
+        return [];
+      }
+
+      const html = await resp.text();
+
+      // Cloudflare Managed Challenge & Turnstile detection (Task 2.3)
+      if (html.includes("challenges.cloudflare.com/turnstile") || html.includes("cf-mitigated: challenge")) {
+        logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${browseUrl}. Halting domain crawl.`);
+        targetDb.markStatus(browseUrl, "blocked", "Cloudflare Turnstile challenge detected", undefined, undefined, 86400 * 3, 403, "Cloudflare Turnstile challenge detected");
+        circuitBreaker.trip("jinxxy.com", 403, "Cloudflare Turnstile Challenge", 86400 * 3 * 1000);
         return [];
       }
 
       rateLimiter.handleSuccess(key, CONFIG.jinxxyDelayMs);
-
-      const html = await resp.text();
+      circuitBreaker.recordSuccess("jinxxy.com");
       // Match product links: href="/CreatorName/ProductSlug"
       const linkMatches = html.match(/href="\/([A-Za-z0-9_-]+\/[A-Za-z0-9_-]+)"/g) || [];
       const discoveredUrls: string[] = [];
@@ -92,22 +112,32 @@ export class JinxxyDriver {
       logger.info(`[Jinxxy:Browse] Found ${discoveredUrls.length} candidate products on ${browseUrl}`);
       return discoveredUrls;
     } catch (e) {
+      circuitBreaker.recordFailure("jinxxy.com", 0, e instanceof Error ? e.message : String(e));
       logger.error(`[Jinxxy:Browse] Error crawling ${browseUrl}`, e);
       return [];
     }
   }
 
   // Crawls an individual Jinxxy product page
-  static async crawlProduct(productUrl: string): Promise<boolean> {
-    if (this.isAborted || db.isClosed) return false;
+  static async crawlProduct(productUrl: string, customDb?: CrawlerDB): Promise<boolean> {
+    const targetDb = customDb || db;
+    if (this.isAborted || targetDb.isClosed) return false;
     const key = "jinxxy";
+
+    // Circuit breaker check (Task 2.7)
+    if (!circuitBreaker.canExecute("jinxxy.com")) {
+      const waitMs = circuitBreaker.getRemainingBackoffMs("jinxxy.com");
+      logger.info(`[Jinxxy:Product] Circuit breaker OPEN for jinxxy.com. Skipping ${productUrl} for ${(waitMs / 1000).toFixed(0)}s.`);
+      return false;
+    }
+
     await rateLimiter.waitIfBackoff(key);
 
     logger.info(`[Jinxxy:Product] Inspecting: ${productUrl}`);
     try {
       const delay = rateLimiter.getPacingDelayMs(key, CONFIG.jinxxyDelayMs);
       await this.sleep(delay);
-      if (this.isAborted || db.isClosed) return false;
+      if (this.isAborted || targetDb.isClosed) return false;
 
       let currentUrl = productUrl;
       let resp = await fetch(currentUrl, {
@@ -119,6 +149,7 @@ export class JinxxyDriver {
 
       if (resp.status === 429 || resp.status === 403) {
         rateLimiter.handleRateLimit(key, resp);
+        circuitBreaker.recordFailure("jinxxy.com", resp.status, "Rate limit / forbidden");
         return false;
       }
 
@@ -162,6 +193,7 @@ export class JinxxyDriver {
 
       if (!resp.ok) {
         logger.warn(`[Jinxxy:Product] HTTP ${resp.status} for ${currentUrl} (all alternative paths failed)`);
+        circuitBreaker.recordFailure("jinxxy.com", resp.status, `HTTP error ${resp.status}`);
         return false;
       }
 
@@ -172,6 +204,16 @@ export class JinxxyDriver {
       }
 
       const html = await resp.text();
+
+      // Cloudflare Managed Challenge & Turnstile detection (Task 2.3)
+      if (html.includes("challenges.cloudflare.com/turnstile") || html.includes("cf-mitigated: challenge")) {
+        logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${currentUrl}. Halting domain crawl.`);
+        targetDb.markStatus(currentUrl, "blocked", "Cloudflare Turnstile challenge detected", undefined, undefined, 86400 * 3, 403, "Cloudflare Turnstile challenge detected");
+        circuitBreaker.trip("jinxxy.com", 403, "Cloudflare Turnstile Challenge", 86400 * 3 * 1000);
+        return false;
+      }
+
+      circuitBreaker.recordSuccess("jinxxy.com");
 
       // Extract title
       const titleMatch = html.match(/<title>(.*?)<\/title>/i);
@@ -344,59 +386,19 @@ export class JinxxyDriver {
 
       const evalRes = RelevanceFilter.evaluate(entity);
       if (evalRes.isRelevant) {
-        db.saveEntity(entity);
+        targetDb.saveEntity(entity);
         logger.info(`[Jinxxy:Product] Ingested: ${title.slice(0, 50)} by ${creatorName} (Score: ${evalRes.score}, Media: ${mediaUrls.length} imgs, ${youtubeUrls.length} yt)`);
       } else {
-        db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
+        targetDb.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
         logger.info(`[Jinxxy:Product] Quarantined: ${title.slice(0, 50)} (${evalRes.reasons.join(", ")})`);
       }
 
       return true;
     } catch (e) {
+      circuitBreaker.recordFailure("jinxxy.com", 0, e instanceof Error ? e.message : String(e));
       logger.error(`[Jinxxy:Product] Error inspecting ${productUrl}`, e);
       return false;
     }
   }
-
-
-  // Scans Jinxxy sitemaps 59-65 for tool-related product URLs
-  static async scanSitemapForTools(sitemapIdx: number): Promise<string[]> {
-    const sitemapUrl = `https://jinxxy.com/sitemaps/sitemap${sitemapIdx}.xml`;
-    logger.info(`[Jinxxy:Sitemap] Scanning sitemap ${sitemapIdx} for tools...`);
-
-    try {
-      await this.sleep(500);
-      const resp = await fetch(sitemapUrl, {
-        headers: { "User-Agent": CONFIG.userAgent }
-      });
-
-      if (!resp.ok) return [];
-
-      const xml = await resp.text();
-      const locMatches = xml.match(/<loc>(https:\/\/jinxxy\.com\/[^<]+)<\/loc>/g) || [];
-      const toolUrls: string[] = [];
-
-      for (const loc of locMatches) {
-        const u = loc.replace("<loc>", "").replace("</loc>", "");
-        const path = u.replace("https://jinxxy.com/", "");
-        const slashCount = (path.match(/\//g) || []).length;
-        if (slashCount !== 1) continue;
-
-        // Check if slug contains tool keywords and passes pre-screening
-        const lower = path.toLowerCase();
-        if (
-          this.TOOL_KEYWORDS.some((kw) => lower.includes(kw)) &&
-          RelevanceFilter.isUrlCandidateRelevant(u, "jinxxy")
-        ) {
-          toolUrls.push(u);
-        }
-      }
-
-      logger.info(`[Jinxxy:Sitemap] Discovered ${toolUrls.length} tool-matching URLs in sitemap ${sitemapIdx}`);
-      return toolUrls;
-    } catch (e) {
-      logger.error(`[Jinxxy:Sitemap] Error scanning sitemap ${sitemapIdx}`, e);
-      return [];
-    }
-  }
 }
+

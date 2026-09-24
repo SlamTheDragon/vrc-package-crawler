@@ -263,13 +263,11 @@ export class CuratedDriver {
     logger.info("[Curated] Launching comprehensive multi-source decentralized registry ingestion...");
     let totalQueued = 0;
 
-    // 1. Ingest all decentralized bootstrap seeds
-    for (const seed of COMMUNITY_REGISTRY_SEEDS) {
-      if (this.isAborted || db.isClosed) break;
-      const count = await this.ingestCommunityRepo(seed);
-      totalQueued += count;
-    }
+    // 1. Ingest all decentralized bootstrap seeds via granular category ingesters
+    totalQueued += await this.ingestVpmRepositoriesList();
+    if (this.isAborted || db.isClosed) return totalQueued;
 
+    totalQueued += await this.ingestAwesomeVRChat();
     if (this.isAborted || db.isClosed) return totalQueued;
 
     // 2. Discover and ingest live dynamic registries on GitHub

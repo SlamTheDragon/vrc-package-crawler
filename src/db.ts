@@ -33,7 +33,7 @@ export interface SystemMetrics {
 export interface FrontierItem {
   url: string;
   platform: PlatformType;
-  status: "pending" | "fetching" | "done" | "failed";
+  status: "pending" | "fetching" | "done" | "failed" | "blocked" | "dead_letter" | "circuit_broken" | "backoff";
   attempts: number;
   etag?: string | null;
   last_modified?: string | null;
@@ -44,6 +44,9 @@ export interface FrontierItem {
   priority: number;
   discovered_at: string;
   updated_at: string;
+  last_failure_code?: number | null;
+  last_failure_reason?: string | null;
+  failure_count?: number;
 }
 
 export interface EntityRecord {
@@ -95,7 +98,7 @@ export interface CanonicalPackage {
   origin_created_at?: string | null;
   origin_updated_at?: string | null;
   created_at_confidence?: "confirmed" | "inferred" | "unknown" | null;
-  lifecycle?: "published" | "updated" | "delisted" | "archived" | "paywall_introduced" | "dmca_removed" | "creator_opted_out";
+  lifecycle?: "published" | "updated" | "delisted" | "archived" | "paywall_introduced" | "dmca_removed" | "creator_opted_out" | "needs_review";
   lifecycle_updated_at?: string | null;
   created_at: string;
   updated_at: string;
@@ -126,7 +129,7 @@ export interface UserReport {
   reporter_notes?: string | null;
   client_fingerprint?: string | null;
   trust_tier?: "anonymous" | "verified_creator" | "trusted_curator";
-  status: "pending" | "applied" | "rejected";
+  status: "pending" | "applied" | "rejected" | "needs_review";
   applied_at?: string | null;
   submitted_at: string;
   created_at: string;
@@ -235,7 +238,8 @@ export class CrawlerDB {
       CREATE TABLE IF NOT EXISTS frontier (
         url TEXT PRIMARY KEY,
         platform TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK(status IN ('pending', 'fetching', 'done', 'failed', 'blocked', 'dead_letter', 'circuit_broken', 'backoff')),
         attempts INTEGER DEFAULT 0,
         etag TEXT,
         last_modified TEXT,
@@ -245,11 +249,17 @@ export class CrawlerDB {
         next_fetch_at TEXT NOT NULL,
         priority INTEGER DEFAULT 0,
         discovered_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        last_failure_code INTEGER,
+        last_failure_reason TEXT,
+        failure_count INTEGER DEFAULT 0
       );
     `);
     this.db.run("CREATE INDEX IF NOT EXISTS idx_frontier_status_next ON frontier(status, next_fetch_at);");
     this.db.run("CREATE INDEX IF NOT EXISTS idx_frontier_platform_status ON frontier(platform, status);");
+    try { this.db.run("ALTER TABLE frontier ADD COLUMN last_failure_code INTEGER;"); } catch (_) {}
+    try { this.db.run("ALTER TABLE frontier ADD COLUMN last_failure_reason TEXT;"); } catch (_) {}
+    try { this.db.run("ALTER TABLE frontier ADD COLUMN failure_count INTEGER DEFAULT 0;"); } catch (_) {}
 
     // 2. Entities: Immutable Observation Lake
     this.db.run(`
@@ -323,7 +333,7 @@ export class CrawlerDB {
           CHECK(created_at_confidence IN ('confirmed','inferred','unknown')),
         lifecycle TEXT DEFAULT 'published'
           CHECK(lifecycle IN ('published','updated','delisted','archived',
-                              'paywall_introduced','dmca_removed','creator_opted_out')),
+                              'paywall_introduced','dmca_removed','creator_opted_out','needs_review')),
         lifecycle_updated_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -424,7 +434,7 @@ export class CrawlerDB {
         reporter_notes TEXT,
         client_fingerprint TEXT,
         trust_tier TEXT DEFAULT 'anonymous' CHECK(trust_tier IN ('anonymous','verified_creator','trusted_curator')),
-        status TEXT DEFAULT 'pending' CHECK(status IN ('pending','applied','rejected')),
+        status TEXT DEFAULT 'pending' CHECK(status IN ('pending','applied','rejected','needs_review')),
         applied_at TEXT,
         submitted_at TEXT NOT NULL,
         created_at TEXT NOT NULL
@@ -632,10 +642,13 @@ export class CrawlerDB {
 
   public markStatus(
     url: string,
-    status: "pending" | "fetching" | "done" | "failed",
+    status: "pending" | "fetching" | "done" | "failed" | "blocked" | "dead_letter" | "circuit_broken" | "backoff",
     notes?: string,
     etag?: string | null,
-    lastModified?: string | null
+    lastModified?: string | null,
+    backoffSec: number = 3600,
+    failureCode?: number | null,
+    failureReason?: string | null
   ): void {
     if (this._isClosed) return;
     const now = new Date().toISOString();
@@ -645,6 +658,7 @@ export class CrawlerDB {
           UPDATE frontier
           SET status = 'done',
               attempts = attempts + 1,
+              failure_count = 0,
               etag = COALESCE(?, etag),
               last_modified = COALESCE(?, last_modified),
               last_fetched_at = ?,
@@ -653,14 +667,46 @@ export class CrawlerDB {
           WHERE url = ?;
         `, [etag ?? null, lastModified ?? null, now, now, url]);
       } else if (status === "failed") {
+        const item = this.db.prepare("SELECT status, failure_count FROM frontier WHERE url = ?;").get(url) as any;
+        // Never overwrite an active 'blocked' status (e.g. 3-day Cloudflare challenge backoff) with 'failed'
+        if (item?.status === "blocked") {
+          return;
+        }
+        const currentFailures = (item?.failure_count || 0) + 1;
+        const newStatus = currentFailures >= 5 ? "dead_letter" : "failed";
+        const delay = currentFailures >= 5 ? 86400 * 30 : Math.min(86400, 3600 * Math.pow(2, currentFailures - 1));
         this.db.run(`
           UPDATE frontier
-          SET status = 'failed',
+          SET status = ?,
               attempts = attempts + 1,
-              next_fetch_at = datetime('now', '+3600 seconds'),
+              failure_count = ?,
+              last_failure_code = COALESCE(?, last_failure_code),
+              last_failure_reason = COALESCE(?, last_failure_reason),
+              next_fetch_at = datetime('now', '+' || ? || ' seconds'),
               updated_at = ?
           WHERE url = ?;
-        `, [now, url]);
+        `, [newStatus, currentFailures, failureCode ?? null, failureReason ?? notes ?? null, delay, now, url]);
+      } else if (status === "blocked") {
+        this.db.run(`
+          UPDATE frontier
+          SET status = 'blocked',
+              attempts = attempts + 1,
+              last_failure_code = COALESCE(?, last_failure_code),
+              last_failure_reason = COALESCE(?, last_failure_reason),
+              next_fetch_at = datetime('now', '+' || ? || ' seconds'),
+              updated_at = ?
+          WHERE url = ?;
+        `, [failureCode ?? 403, failureReason ?? notes ?? "Blocked / Challenge", backoffSec, now, url]);
+      } else if (status === "circuit_broken" || status === "backoff") {
+        this.db.run(`
+          UPDATE frontier
+          SET status = ?,
+              last_failure_code = COALESCE(?, last_failure_code),
+              last_failure_reason = COALESCE(?, last_failure_reason),
+              next_fetch_at = datetime('now', '+' || ? || ' seconds'),
+              updated_at = ?
+          WHERE url = ?;
+        `, [status, failureCode ?? null, failureReason ?? notes ?? null, backoffSec, now, url]);
       } else {
         this.db.run(`
           UPDATE frontier
@@ -670,6 +716,24 @@ export class CrawlerDB {
         `, [status, now, url]);
       }
     } catch (_) {}
+  }
+
+  public drainDeadLetterQueue(limit: number = 20): number {
+    if (this._isClosed) return 0;
+    const now = new Date().toISOString();
+    try {
+      const res = this.db.run(`
+        UPDATE frontier
+        SET status = 'pending',
+            updated_at = ?
+        WHERE status IN ('backoff', 'circuit_broken', 'dead_letter', 'blocked')
+          AND next_fetch_at <= ?
+        LIMIT ?;
+      `, [now, now, limit]);
+      return res.changes;
+    } catch {
+      return 0;
+    }
   }
 
   public discardFailedUrl(url: string, platform: string, reason: string): boolean {
@@ -1146,7 +1210,7 @@ export class CrawlerDB {
     }
   }
 
-  public markReportStatus(reportId: string, status: "applied" | "rejected"): boolean {
+  public markReportStatus(reportId: string, status: "applied" | "rejected" | "needs_review"): boolean {
     const now = new Date().toISOString();
     try {
       const res = this.db.run(`

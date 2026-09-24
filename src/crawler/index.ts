@@ -8,7 +8,7 @@ import { GumroadDriver } from "../drivers/gumroad.ts";
 import { JinxxyDriver } from "../drivers/jinxxy.ts";
 import { ItchDriver } from "../drivers/itch.ts";
 import { CuratedDriver } from "../drivers/curated.ts";
-import { rateLimiter } from "../ratelimit.ts";
+import { rateLimiter, circuitBreaker } from "../ratelimit.ts";
 import { ProcessLock } from "../utils/lock.ts";
 import { runPipelineSanitize, abortPipelineSanitize } from "./projection.ts";
 import { CrawlerIpcServer } from "../utils/ipc.ts";
@@ -238,6 +238,13 @@ export async function seedAllDomains() {
 async function runBoothWorker() {
   logger.info("[Worker:BOOTH] Started (Adaptive AIMD limiter).");
   while (isRunning) {
+    if (!circuitBreaker.canExecute("booth.pm")) {
+      const waitMs = circuitBreaker.getRemainingBackoffMs("booth.pm");
+      logger.info(`[Worker:BOOTH] Circuit breaker OPEN. Pausing BOOTH worker for ${(waitMs / 1000).toFixed(0)}s.`);
+      await sleepOrInterrupt(Math.min(waitMs, 5000));
+      continue;
+    }
+
     const items = db.getNextPendingForPlatform("booth", 6);
     if (items.length === 0) {
       await sleepOrInterrupt(4000);
@@ -282,6 +289,7 @@ async function runBoothWorker() {
               db.queueUrl(u, "booth");
             }
             rateLimiter.recordSuccess("booth.pm", Date.now() - t0);
+            circuitBreaker.recordSuccess("booth.pm");
             markCrawlSuccess(item);
           } else {
             const ok = await BoothDriver.crawlItemDetail(item.url);
@@ -290,10 +298,12 @@ async function runBoothWorker() {
             } else {
               if (ok) {
                 rateLimiter.recordSuccess("booth.pm", Date.now() - t0);
+                circuitBreaker.recordSuccess("booth.pm");
                 markCrawlSuccess(item);
               } else {
                 rateLimiter.recordFailure("booth.pm", false);
-                db.markStatus(item.url, "failed");
+                circuitBreaker.recordFailure("booth.pm", 0, "Item detail crawl failed");
+                db.markStatus(item.url, "failed", "Item detail crawl failed", undefined, undefined, undefined, 400, "Item detail crawl failed");
               }
             }
           }
@@ -302,8 +312,9 @@ async function runBoothWorker() {
             db.markStatus(item.url, "pending");
           } else {
             rateLimiter.recordFailure("booth.pm", false);
+            circuitBreaker.recordFailure("booth.pm", 0, err instanceof Error ? err.message : String(err));
             logger.error(`[Worker:BOOTH] Error on ${item.url}`, err);
-            db.markStatus(item.url, "failed");
+            db.markStatus(item.url, "failed", err instanceof Error ? err.message : String(err), undefined, undefined, undefined, 500, err instanceof Error ? err.message : String(err));
           }
         } finally {
           release();
@@ -318,6 +329,13 @@ async function runBoothWorker() {
 async function runGithubWorker() {
   logger.info("[Worker:GitHub] Started (Adaptive AIMD limiter).");
   while (isRunning) {
+    if (!circuitBreaker.canExecute("api.github.com")) {
+      const waitMs = circuitBreaker.getRemainingBackoffMs("api.github.com");
+      logger.info(`[Worker:GitHub] Circuit breaker OPEN. Pausing GitHub worker for ${(waitMs / 1000).toFixed(0)}s.`);
+      await sleepOrInterrupt(Math.min(waitMs, 5000));
+      continue;
+    }
+
     const items = db.getNextPendingForPlatform("github", 3);
     if (items.length === 0) {
       await sleepOrInterrupt(5000);
@@ -351,6 +369,7 @@ async function runGithubWorker() {
               db.queueUrl(ru, "github", 10);
             }
             rateLimiter.recordSuccess("api.github.com", Date.now() - t0);
+            circuitBreaker.recordSuccess("api.github.com");
             markCrawlSuccess(item);
           } else {
             const ok = await GitHubDriver.crawlRepoDetail(item.url);
@@ -359,10 +378,12 @@ async function runGithubWorker() {
             } else {
               if (ok) {
                 rateLimiter.recordSuccess("api.github.com", Date.now() - t0);
+                circuitBreaker.recordSuccess("api.github.com");
                 markCrawlSuccess(item);
               } else {
                 rateLimiter.recordFailure("api.github.com", false);
-                db.markStatus(item.url, "failed");
+                circuitBreaker.recordFailure("api.github.com", 0, "GitHub repo detail crawl failed");
+                db.markStatus(item.url, "failed", "GitHub repo detail crawl failed", undefined, undefined, undefined, 400, "Repo crawl failed");
               }
             }
           }
@@ -371,8 +392,9 @@ async function runGithubWorker() {
             db.markStatus(item.url, "pending");
           } else {
             rateLimiter.recordFailure("api.github.com", false);
+            circuitBreaker.recordFailure("api.github.com", 0, err instanceof Error ? err.message : String(err));
             logger.error(`[Worker:GitHub] Error on ${item.url}`, err);
-            db.markStatus(item.url, "failed");
+            db.markStatus(item.url, "failed", err instanceof Error ? err.message : String(err), undefined, undefined, undefined, 500, err instanceof Error ? err.message : String(err));
           }
         } finally {
           release();
@@ -449,6 +471,13 @@ async function runGumroadWorker() {
   const DISCOVER_COOLDOWN_MS = 60000; // 60s cooldown between discover query bursts
 
   while (isRunning) {
+    if (!circuitBreaker.canExecute("gumroad.com")) {
+      const waitMs = circuitBreaker.getRemainingBackoffMs("gumroad.com");
+      logger.info(`[Worker:Gumroad] Circuit breaker OPEN. Pausing Gumroad worker for ${(waitMs / 1000).toFixed(0)}s.`);
+      await sleepOrInterrupt(Math.min(waitMs, 5000));
+      continue;
+    }
+
     let items = db.getNextPendingForPlatform("gumroad", 1);
     let item = items[0];
     // If pending queue is low, first check for shallow entities needing deep hydration
@@ -456,6 +485,15 @@ async function runGumroadWorker() {
       const promoted = db.requeueShallowGumroadEntities();
       if (promoted.promoted > 0) {
         logger.info(`[Worker:Gumroad] Autonomously promoted ${promoted.promoted} shallow Gumroad entities to frontier.`);
+        items = db.getNextPendingForPlatform("gumroad", 1);
+        item = items[0];
+      }
+    }
+
+    // If still empty, harvest unqueued Gumroad cross-links from existing entities
+    if (!item) {
+      const harvested = GumroadDriver.harvestCrossLinks();
+      if (harvested > 0) {
         items = db.getNextPendingForPlatform("gumroad", 1);
         item = items[0];
       }
@@ -472,7 +510,7 @@ async function runGumroadWorker() {
         queryIndex++;
         logger.info(`[Worker:Gumroad] Queue empty. Running discover search for '${q}'...`);
         for (let p = 1; p <= 3; p++) {
-          if (!isRunning || rateLimiter.isBackingOff("gumroad.com")) break;
+          if (!isRunning || rateLimiter.isBackingOff("gumroad.com") || !circuitBreaker.canExecute("gumroad.com")) break;
           const release = await rateLimiter.acquire("gumroad.com");
           if (!isRunning) {
             release();
@@ -482,9 +520,11 @@ async function runGumroadWorker() {
           try {
             const res = await GumroadDriver.crawlDiscoverQuery(q, p);
             rateLimiter.recordSuccess("gumroad.com", Date.now() - t0);
+            circuitBreaker.recordSuccess("gumroad.com");
             if (res.productsCount === 0) break;
           } catch (err) {
             rateLimiter.recordFailure("gumroad.com", false);
+            circuitBreaker.recordFailure("gumroad.com", 0, err instanceof Error ? err.message : String(err));
             break;
           } finally {
             release();
@@ -523,10 +563,12 @@ async function runGumroadWorker() {
         } else {
           if (ok) {
             rateLimiter.recordSuccess("gumroad.com", Date.now() - t0);
+            circuitBreaker.recordSuccess("gumroad.com");
             markCrawlSuccess(item);
           } else {
             rateLimiter.recordFailure("gumroad.com", false);
-            db.markStatus(item.url, "failed");
+            circuitBreaker.recordFailure("gumroad.com", 0, "Product crawl returned false");
+            db.markStatus(item.url, "failed", "Product crawl returned false", undefined, undefined, undefined, 400, "Product crawl returned false");
           }
         }
       } else {
@@ -536,10 +578,12 @@ async function runGumroadWorker() {
         } else {
           if (ok) {
             rateLimiter.recordSuccess("gumroad.com", Date.now() - t0);
+            circuitBreaker.recordSuccess("gumroad.com");
             markCrawlSuccess(item);
           } else {
             rateLimiter.recordFailure("gumroad.com", false);
-            db.markStatus(item.url, "failed");
+            circuitBreaker.recordFailure("gumroad.com", 0, "Storefront crawl returned false");
+            db.markStatus(item.url, "failed", "Storefront crawl returned false", undefined, undefined, undefined, 400, "Storefront crawl returned false");
           }
         }
       }
@@ -548,8 +592,9 @@ async function runGumroadWorker() {
         db.markStatus(item.url, "pending");
       } else {
         rateLimiter.recordFailure("gumroad.com", false);
+        circuitBreaker.recordFailure("gumroad.com", 0, err instanceof Error ? err.message : String(err));
         logger.error(`[Worker:Gumroad] Error on ${item.url}`, err);
-        db.markStatus(item.url, "failed");
+        db.markStatus(item.url, "failed", err instanceof Error ? err.message : String(err), undefined, undefined, undefined, 500, err instanceof Error ? err.message : String(err));
       }
     } finally {
       release();
@@ -562,6 +607,13 @@ async function runGumroadWorker() {
 async function runJinxxyWorker() {
   logger.info("[Worker:Jinxxy] Started (Adaptive AIMD limiter).");
   while (isRunning) {
+    if (!circuitBreaker.canExecute("jinxxy.com")) {
+      const waitMs = circuitBreaker.getRemainingBackoffMs("jinxxy.com");
+      logger.info(`[Worker:Jinxxy] Circuit breaker OPEN. Pausing worker for ${(waitMs / 1000).toFixed(0)}s.`);
+      await sleepOrInterrupt(Math.min(waitMs, 5000));
+      continue;
+    }
+
     const items = db.getNextPendingForPlatform("jinxxy", 5);
     if (items.length === 0) {
       await sleepOrInterrupt(4000);
@@ -601,6 +653,7 @@ async function runJinxxyWorker() {
               db.queueUrl(pu, "jinxxy");
             }
             rateLimiter.recordSuccess("jinxxy.com", Date.now() - t0);
+            circuitBreaker.recordSuccess("jinxxy.com");
             markCrawlSuccess(item);
           } else {
             const ok = await JinxxyDriver.crawlProduct(item.url);
@@ -609,10 +662,12 @@ async function runJinxxyWorker() {
             } else {
               if (ok) {
                 rateLimiter.recordSuccess("jinxxy.com", Date.now() - t0);
+                circuitBreaker.recordSuccess("jinxxy.com");
                 markCrawlSuccess(item);
               } else {
                 rateLimiter.recordFailure("jinxxy.com", false);
-                db.markStatus(item.url, "failed");
+                circuitBreaker.recordFailure("jinxxy.com", 0, "Product crawl failed");
+                db.markStatus(item.url, "failed", "Product crawl failed", undefined, undefined, undefined, 400, "Product crawl failed");
               }
             }
           }
@@ -621,8 +676,9 @@ async function runJinxxyWorker() {
             db.markStatus(item.url, "pending");
           } else {
             rateLimiter.recordFailure("jinxxy.com", false);
+            circuitBreaker.recordFailure("jinxxy.com", 0, err instanceof Error ? err.message : String(err));
             logger.error(`[Worker:Jinxxy] Error on ${item.url}`, err);
-            db.markStatus(item.url, "failed");
+            db.markStatus(item.url, "failed", err instanceof Error ? err.message : String(err), undefined, undefined, undefined, 500, err instanceof Error ? err.message : String(err));
           }
         } finally {
           release();
@@ -637,6 +693,13 @@ async function runJinxxyWorker() {
 async function runItchWorker() {
   logger.info("[Worker:Itch] Started (Adaptive AIMD limiter).");
   while (isRunning) {
+    if (!circuitBreaker.canExecute("itch.io")) {
+      const waitMs = circuitBreaker.getRemainingBackoffMs("itch.io");
+      logger.info(`[Worker:Itch] Circuit breaker OPEN. Pausing worker for ${(waitMs / 1000).toFixed(0)}s.`);
+      await sleepOrInterrupt(Math.min(waitMs, 5000));
+      continue;
+    }
+
     const items = db.getNextPendingForPlatform("itch", 5);
     if (items.length === 0) {
       await sleepOrInterrupt(4000);
@@ -681,6 +744,7 @@ async function runItchWorker() {
               db.queueUrl(pu, "itch");
             }
             rateLimiter.recordSuccess("itch.io", Date.now() - t0);
+            circuitBreaker.recordSuccess("itch.io");
             markCrawlSuccess(item);
           } else {
             const ok = await ItchDriver.crawlProduct(item.url);
@@ -689,10 +753,12 @@ async function runItchWorker() {
             } else {
               if (ok) {
                 rateLimiter.recordSuccess("itch.io", Date.now() - t0);
+                circuitBreaker.recordSuccess("itch.io");
                 markCrawlSuccess(item);
               } else {
                 rateLimiter.recordFailure("itch.io", false);
-                db.markStatus(item.url, "failed");
+                circuitBreaker.recordFailure("itch.io", 0, "Product crawl failed");
+                db.markStatus(item.url, "failed", "Product crawl failed", undefined, undefined, undefined, 400, "Product crawl failed");
               }
             }
           }
@@ -701,8 +767,9 @@ async function runItchWorker() {
             db.markStatus(item.url, "pending");
           } else {
             rateLimiter.recordFailure("itch.io", false);
+            circuitBreaker.recordFailure("itch.io", 0, err instanceof Error ? err.message : String(err));
             logger.error(`[Worker:Itch] Error on ${item.url}`, err);
-            db.markStatus(item.url, "failed");
+            db.markStatus(item.url, "failed", err instanceof Error ? err.message : String(err), undefined, undefined, undefined, 500, err instanceof Error ? err.message : String(err));
           }
         } finally {
           release();
@@ -797,6 +864,18 @@ async function runMonitor() {
       }
     }
 
+    // Task 2.7: Autonomous Dead-Letter Queue & Circuit Breaker Backoff Drainage
+    if (cycle % 3 === 0) {
+      try {
+        const drained = db.drainDeadLetterQueue(20);
+        if (drained > 0) {
+          logger.info(`[Monitor:FaultTolerance] Drained ${drained} expired backoff / circuit-broken tasks to 'pending'.`);
+        }
+      } catch (err) {
+        logger.error("[Monitor] Error draining dead-letter queue", err);
+      }
+    }
+
     // 2. Periodic 15-minute catalog projection synthesis
     if (Date.now() - lastProjectionTime >= PROJECTION_INTERVAL_MS) {
       lastProjectionTime = Date.now();
@@ -849,69 +928,11 @@ async function runMonitor() {
 }
 
 export async function main() {
-  // Handle CLI commands before acquiring lock
-  if (process.argv.includes("stop")) {
-    const res = await CrawlerIpcServer.sendCommand("stop");
-    if (res.success) {
-      console.log("[CLI] Graceful shutdown signal dispatched to running crawler daemon.");
-    } else {
-      console.error(`[CLI] Shutdown command failed: ${res.error}`);
-    }
-    process.exit(res.success ? 0 : 1);
-  }
-
-  if (process.argv.includes("status") && !process.argv.includes("--once")) {
-    const res = await CrawlerIpcServer.getStatus();
-    if (res.running) {
-      console.log("[CLI] Crawler daemon is active:", JSON.stringify(res.data, null, 2));
-    } else {
-      console.log("[CLI] Crawler daemon is not currently running.");
-    }
-    process.exit(0);
-  }
-
-  if (process.argv.includes("recrawl")) {
-    const res = await CrawlerIpcServer.sendCommand("recrawl");
-    if (res.success) {
-      console.log("[CLI] Freshness re-crawl triggered successfully on active daemon.");
-    } else {
-      console.error(`[CLI] Recrawl command failed: ${res.error}`);
-    }
-    process.exit(res.success ? 0 : 1);
-  }
-
-  if (process.argv.includes("project")) {
-    const res = await CrawlerIpcServer.sendCommand("project");
-    if (res.success) {
-      console.log("[CLI] Projection rebuild triggered successfully on active daemon.");
-    } else {
-      console.error(`[CLI] Projection rebuild failed: ${res.error}`);
-    }
-    process.exit(res.success ? 0 : 1);
-  }
-
-  if (process.argv.includes("--help") || process.argv.includes("-h")) {
-    console.log(`
-VRChat Package Crawler - Harvester Daemon
-Usage:
-  vrc-crawler.exe [command] [options]
-  bun run start [command] [options]
-
-Commands (dispatched to running daemon via loopback IPC):
-  status                  Show active crawler daemon status
-  stop                    Trigger graceful shutdown on running daemon
-  recrawl                 Trigger Poisson freshness re-crawl sweep
-  project                 Trigger canonical projection synthesis pass
-
-Options:
-  --help, -h              Show this help message
-
-For monitoring, run: dist/vrc-monitor.exe
-For edge sync, run:  dist/vrc-sync.exe
-For HTTP API, run:   dist/vrc-server.exe
-For offline export, run: dist/vrc-export.exe
-`);
-    process.exit(0);
+  // Task 2.1: Enforce subcommand guard on crawler daemon binary
+  if (process.argv.length > 2) {
+    console.error(`[ERROR] Direct subcommand invocation on vrc-crawler is unsupported.`);
+    console.error(`Administrative commands must be dispatched via vrc-monitor.exe or bun run src/monitor/index.ts <command>`);
+    process.exit(1);
   }
 
   console.log("\x1b[36m");

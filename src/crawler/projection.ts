@@ -34,6 +34,7 @@ function shutdownPipeline(signal: string) {
 
 export function abortPipelineSanitize() {
   isPipelineInterrupted = true;
+  abortProjection();
 }
 
 export function abortProjection() {
@@ -103,7 +104,7 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
           CHECK(created_at_confidence IN ('confirmed','inferred','unknown')),
         lifecycle TEXT DEFAULT 'published'
           CHECK(lifecycle IN ('published','updated','delisted','archived',
-                              'paywall_introduced','dmca_removed','creator_opted_out')),
+                              'paywall_introduced','dmca_removed','creator_opted_out','needs_review')),
         lifecycle_updated_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -464,10 +465,10 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
         entityToCluster.set(e.id, cluster);
         clusterById.set(cluster.id, cluster);
         if (cluster.description && cluster.description.length > 50) {
-          simHashIndex.insert(cluster.id, SimHash64.compute(`${cluster.name}\n${cluster.description}`));
+          simHashIndex.insert(cluster.id, SimHash64.compute(`${normalizeListingTitle(cluster.name)}\n${cluster.description}`));
         }
 
-        const atKey = `${normalizeSlug(cluster.author)}::${normalizeSlug(cluster.name)}`;
+        const atKey = `${normalizeSlug(cluster.author)}::${normalizeSlug(normalizeListingTitle(cluster.name))}`;
         clusterByAuthorTitle.set(atKey, cluster);
         registerClusterUrls(cluster);
       }
@@ -514,9 +515,9 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
         entityToCluster.set(e.id, cluster);
         clusterById.set(cluster.id, cluster);
         if (cluster.description && cluster.description.length > 50) {
-          simHashIndex.insert(cluster.id, SimHash64.compute(`${cluster.name}\n${cluster.description}`));
+          simHashIndex.insert(cluster.id, SimHash64.compute(`${normalizeListingTitle(cluster.name)}\n${cluster.description}`));
         }
-        const atKey = `${normalizeSlug(cluster.author)}::${normalizeSlug(cluster.name)}`;
+        const atKey = `${normalizeSlug(cluster.author)}::${normalizeSlug(normalizeListingTitle(cluster.name))}`;
         clusterByAuthorTitle.set(atKey, cluster);
         registerClusterUrls(cluster);
         ghClusters++;
@@ -551,7 +552,7 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
         // B. Check Author + Title normalized match
         if (!matchedCluster) {
           const normAuth = normalizeSlug(e.author);
-          const normTitle = normalizeSlug(e.title);
+          const normTitle = normalizeSlug(normalizeListingTitle(e.title));
           const atKey = `${normAuth}::${normTitle}`;
           if (clusterByAuthorTitle.has(atKey)) {
             matchedCluster = clusterByAuthorTitle.get(atKey)!;
@@ -570,7 +571,7 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
 
         // D. Check 64-bit SimHash near-duplicate descriptions
         if (!matchedCluster && simHashIndex.size > 0 && e.description && e.description.length > 60) {
-          const eHash = SimHash64.compute(`${e.title}\n${e.description}`);
+          const eHash = SimHash64.compute(`${normalizeListingTitle(e.title)}\n${e.description}`);
           const nearMatches = simHashIndex.query(eHash, 3);
           if (nearMatches.length > 0) {
             for (const match of nearMatches) {
@@ -675,9 +676,9 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
           entityToCluster.set(e.id, cluster);
           clusterById.set(cluster.id, cluster);
           if (cluster.description && cluster.description.length > 50) {
-            simHashIndex.insert(cluster.id, SimHash64.compute(`${cluster.name}\n${cluster.description}`));
+            simHashIndex.insert(cluster.id, SimHash64.compute(`${normalizeListingTitle(cluster.name)}\n${cluster.description}`));
           }
-          const atKey = `${normalizeSlug(cluster.author)}::${normalizeSlug(cluster.name)}`;
+          const atKey = `${normalizeSlug(cluster.author)}::${normalizeSlug(normalizeListingTitle(cluster.name))}`;
           clusterByAuthorTitle.set(atKey, cluster);
           registerClusterUrls(cluster);
           storeStandalone++;

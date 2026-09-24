@@ -22,30 +22,58 @@ export class SimHash64 {
     return hash;
   }
 
+  private static JAPANESE_LOANWORDS: Record<string, string> = {
+    "ツール": "tool",
+    "シェーダー": "shader",
+    "シェーダ": "shader",
+    "アバター": "avatar",
+    "システム": "system",
+    "ギミック": "gimmick",
+    "ワールド": "world",
+    "プラグイン": "plugin",
+    "エディタ": "editor",
+    "エディター": "editor",
+    "アニメーション": "animator",
+    "アニメーター": "animator"
+  };
+
   /**
-   * Tokenizes text into word-tokens and CJK character n-grams
+   * Tokenizes text into word-tokens and CJK character n-grams (Task 2.4)
    */
   static tokenize(text: string): Map<string, number> {
     if (!text) return new Map();
 
-    const clean = text
+    let clean = text
+      .normalize("NFKC")
       .toLowerCase()
       .replace(/<[^>]+>/g, " ")
-      .replace(/【[^】]*】|\[[^\]]*\]/g, " ") // Strip marketing brackets (e.g. 【VRChat想定・無料】)
+      .replace(/【[^】]*】/g, " ") // Strip marketing brackets (e.g. 【VRChat想定・無料】)
+      .replace(/\[[^\]]*\]/g, " ")
+      .replace(/[（(][^）)]*[）)]/g, " ")
       .replace(/\bv?[0-9]+\.[0-9]+(?:\.[0-9]+)?\b/g, " ") // Strip version numbers
+      .replace(/([a-z0-9]+)([\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff])/gi, "$1 $2") // CJK boundary separation
+      .replace(/([\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff])([a-z0-9]+)/gi, "$1 $2")
       .replace(/[（）「」『』_.,\/#!$%\^&\*;:{}=\-_`~()]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
 
+    // Map common Japanese technical loanwords to English equivalents
+    for (const [ja, en] of Object.entries(this.JAPANESE_LOANWORDS)) {
+      clean = clean.replaceAll(ja, ` ${en} `);
+    }
+    // Strip common Japanese marketing / compatibility suffixes
+    clean = clean.replace(/(?:対応|向け|専用|無料|非公式)/g, " ");
+    clean = clean.replace(/\s+/g, " ").trim();
+
     const tokenCounts = new Map<string, number>();
 
-    // 1. Word-boundary tokens (Western/Latin words)
+    // 1. Word-boundary tokens (Western/Latin words + mapped loanwords)
     const words = clean.split(/\s+/).filter((w) => w.length >= 2);
     for (const w of words) {
       tokenCounts.set(w, (tokenCounts.get(w) || 0) + 1);
     }
 
-    // 2. CJK 2-gram shingling for Japanese kanji/kana
+    // 2. CJK 2-gram shingling for remaining Japanese kanji/kana
     const cjkChars = clean.replace(/[\x00-\x7F]/g, ""); // isolate non-ASCII
     for (let i = 0; i < cjkChars.length - 1; i++) {
       const shingle = cjkChars.slice(i, i + 2);
@@ -63,13 +91,14 @@ export class SimHash64 {
     vcc: 3.5,
     ndmf: 3.5,
     modularavatar: 3.5,
+    modular: 3.0,
     udon: 3.0,
     udonsharp: 3.0,
     shader: 2.5,
-    avatar: 2.0,
+    avatar: 2.5,
     world: 2.0,
     gimmick: 2.5,
-    tool: 2.5,
+    tool: 3.0,
     plugin: 2.5,
     system: 2.0,
     prefab: 2.0,
