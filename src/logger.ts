@@ -22,10 +22,12 @@ export class Logger {
   private errorLogPath!: string;
   private isClosed: boolean = false;
   private isRotating: boolean = false;
+  private hasExplicitInitialDate: boolean = false;
 
   constructor(options: LoggerOptions = {}) {
     this.logsDir = options.logsDir || CONFIG.logsDir;
     this.sessionId = options.sessionId || `${process.pid}_${Date.now()}`;
+    this.hasExplicitInitialDate = !!options.initialDate;
     this.currentDate = options.initialDate || new Date().toISOString().slice(0, 10);
 
     if (!fs.existsSync(this.logsDir)) {
@@ -116,6 +118,7 @@ export class Logger {
   }
 
   public async checkRotation(): Promise<void> {
+    if (this.hasExplicitInitialDate) return;
     const today = new Date().toISOString().slice(0, 10);
     if (today > this.currentDate && !this.isRotating && !this.isClosed) {
       await this.rotate(today);

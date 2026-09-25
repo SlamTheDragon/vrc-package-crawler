@@ -119,7 +119,12 @@ export class JinxxyDriver {
   }
 
   // Crawls an individual Jinxxy product page
-  static async crawlProduct(productUrl: string, customDb?: CrawlerDB): Promise<boolean> {
+  static async crawlProduct(
+    productUrl: string,
+    customDb?: CrawlerDB,
+    etag?: string | null,
+    lastModified?: string | null
+  ): Promise<boolean | { success: boolean; notModified?: boolean; etag?: string | null; lastModified?: string | null }> {
     const targetDb = customDb || db;
     if (this.isAborted || targetDb.isClosed) return false;
     const key = "jinxxy";
@@ -140,17 +145,33 @@ export class JinxxyDriver {
       if (this.isAborted || targetDb.isClosed) return false;
 
       let currentUrl = productUrl;
+      const reqHeaders: Record<string, string> = {
+        "User-Agent": CONFIG.userAgent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      };
+      if (etag) reqHeaders["If-None-Match"] = etag;
+      if (lastModified) reqHeaders["If-Modified-Since"] = lastModified;
+
       let resp = await fetch(currentUrl, {
-        headers: {
-          "User-Agent": CONFIG.userAgent,
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        }
+        headers: reqHeaders
       });
 
       if (resp.status === 429 || resp.status === 403) {
         rateLimiter.handleRateLimit(key, resp);
         circuitBreaker.recordFailure("jinxxy.com", resp.status, "Rate limit / forbidden");
         return false;
+      }
+
+      if (resp.status === 304) {
+        logger.info(`[Jinxxy] HTTP 304 Not Modified for ${currentUrl}`);
+        rateLimiter.handleSuccess(key, CONFIG.jinxxyDelayMs);
+        circuitBreaker.recordSuccess("jinxxy.com");
+        return {
+          success: true,
+          notModified: true,
+          etag: resp.headers.get("etag") || etag,
+          lastModified: resp.headers.get("last-modified") || lastModified
+        };
       }
 
       // 404 alternative path fallback: probe creator profile or browse search

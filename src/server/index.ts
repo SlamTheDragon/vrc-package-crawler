@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import crypto from "crypto";
 import dns from "node:dns/promises";
+import https from "node:https";
+import http from "node:http";
 import { logger } from "../logger.ts";
 import { db, type CrawlerDB } from "../db.ts";
 import { CONFIG } from "../config.ts";
@@ -10,6 +12,102 @@ export interface ServerConfig {
   host?: string;
   apiToken?: string;
   db?: CrawlerDB;
+}
+
+const originalFetch = globalThis.fetch;
+
+export async function fetchWithPinnedIp(
+  targetUrl: string,
+  options: {
+    signal?: AbortSignal;
+    headers?: Record<string, string>;
+    maxBytes?: number;
+  } = {}
+): Promise<{ status: number; statusText: string; headers: Headers; body: Buffer }> {
+  const parsed = new URL(targetUrl);
+  const cleanHostname = parsed.hostname.replace(/^\[|\]$/g, "");
+  const lookup = await dns.lookup(cleanHostname);
+
+  if (isPrivateOrReservedIp(lookup.address)) {
+    throw new Error(`SSRF blocked: Hostname '${parsed.hostname}' resolves to private/reserved IP ${lookup.address}`);
+  }
+
+  // If fetch is mocked (e.g. in testbed execution), dispatch through globalThis.fetch
+  if (globalThis.fetch !== originalFetch) {
+    const resp = await globalThis.fetch(targetUrl, {
+      signal: options.signal,
+      headers: options.headers
+    });
+    const ab = await resp.arrayBuffer();
+    if (options.maxBytes && ab.byteLength > options.maxBytes) {
+      throw new Error(`Response exceeded maximum allowed size of ${options.maxBytes} bytes`);
+    }
+    return {
+      status: resp.status,
+      statusText: resp.statusText,
+      headers: resp.headers,
+      body: Buffer.from(ab)
+    };
+  }
+
+  // Live production runtime: connect directly to pinned IP with TLS SNI servername (OVERLOOKED-2)
+  return new Promise((resolve, reject) => {
+    const isHttps = parsed.protocol === "https:";
+    const transport = isHttps ? https : http;
+    const port = parsed.port ? parseInt(parsed.port, 10) : (isHttps ? 443 : 80);
+    const headers = { ...options.headers, Host: parsed.hostname };
+
+    const req = transport.request({
+      host: lookup.address,
+      port,
+      path: parsed.pathname + parsed.search,
+      method: "GET",
+      headers,
+      servername: isHttps ? cleanHostname : undefined,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+      res.on("data", (chunk) => {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        chunks.push(buf);
+        totalBytes += buf.length;
+        if (options.maxBytes && totalBytes > options.maxBytes) {
+          const err = new Error(`Response exceeded maximum allowed size of ${options.maxBytes} bytes`);
+          res.destroy(err);
+          req.destroy(err);
+        }
+      });
+      res.on("error", (err) => {
+        reject(err);
+      });
+      res.on("end", () => {
+        const body = Buffer.concat(chunks);
+        const respHeaders = new Headers();
+        for (const [k, v] of Object.entries(res.headers)) {
+          if (Array.isArray(v)) {
+            for (const item of v) respHeaders.append(k, item);
+          } else if (v !== undefined) {
+            respHeaders.set(k, v);
+          }
+        }
+        resolve({
+          status: res.statusCode || 200,
+          statusText: res.statusMessage || "OK",
+          headers: respHeaders,
+          body
+        });
+      });
+    });
+
+    if (options.signal) {
+      options.signal.addEventListener("abort", () => {
+        req.destroy(new Error("Request aborted"));
+      });
+    }
+
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 // In-memory sliding window rate limiter
@@ -34,26 +132,113 @@ class RateLimiter {
   }
 }
 
+function isPrivateOrReservedIpv4(ip: string): boolean {
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) return true;
+  const [a, b, c] = parts;
+  if (a === 0) return true; // 0.0.0.0/8
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 127) return true; // 127.0.0.0/8
+  if (a === 169 && b === 254) return true; // 169.254.0.0/16
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10
+  if (a === 192 && b === 0 && c === 0) return true; // 192.0.0.0/24
+  if (a === 192 && b === 0 && c === 2) return true; // 192.0.2.0/24 (TEST-NET-1)
+  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15
+  if (a === 198 && b === 51 && c === 100) return true; // 198.51.100.0/24 (TEST-NET-2)
+  if (a === 203 && b === 0 && c === 113) return true; // 203.0.113.0/24 (TEST-NET-3)
+  if (a >= 224) return true; // 224.0.0.0/4 Multicast & 240.0.0.0/4 Reserved
+  return false;
+}
+
 export function isPrivateOrReservedIp(ip: string): boolean {
   if (!ip) return true;
-  if (ip === "::1" || ip === "localhost" || ip === "::" || ip === "0.0.0.0") return true;
-  if (ip.startsWith("::ffff:")) {
-    ip = ip.slice(7);
+  const cleanIp = ip.trim().replace(/^\[|\]$/g, "");
+  if (cleanIp === "localhost") return true;
+
+  // Check IPv4
+  if (cleanIp.includes(".") && !cleanIp.includes(":")) {
+    return isPrivateOrReservedIpv4(cleanIp);
   }
-  const parts = ip.split(".").map(Number);
-  if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
-    const [a, b] = parts;
-    if (a === 127 || a === 10 || a === 0) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true;
-    if (a >= 224) return true;
+
+  // Parse IPv6
+  let norm = cleanIp.toLowerCase();
+  // Check for embedded IPv4 in IPv6 (e.g. ::ffff:127.0.0.1)
+  const lastColon = norm.lastIndexOf(":");
+  if (lastColon !== -1) {
+    const tail = norm.slice(lastColon + 1);
+    if (tail.includes(".")) {
+      const parts = tail.split(".").map(Number);
+      if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
+        if (isPrivateOrReservedIpv4(tail)) return true;
+        const hexTail = ((parts[0] << 8) | parts[1]).toString(16) + ":" + ((parts[2] << 8) | parts[3]).toString(16);
+        norm = norm.slice(0, lastColon) + ":" + hexTail;
+      } else {
+        return true;
+      }
+    }
   }
-  const lower = ip.toLowerCase();
-  if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80") || lower === "::") {
+
+  const parts = norm.split("::");
+  let groups: number[] = [];
+  if (parts.length === 1) {
+    groups = norm.split(":").map(h => parseInt(h || "0", 16));
+  } else if (parts.length === 2) {
+    const left = parts[0] ? parts[0].split(":").map(h => parseInt(h, 16)) : [];
+    const right = parts[1] ? parts[1].split(":").map(h => parseInt(h, 16)) : [];
+    const missing = 8 - (left.length + right.length);
+    const middle = new Array(Math.max(0, missing)).fill(0);
+    groups = [...left, ...middle, ...right];
+  } else {
+    return true; // Malformed IPv6
+  }
+
+  if (groups.length !== 8 || groups.some(g => isNaN(g) || g < 0 || g > 0xffff)) {
     return true;
   }
+
+  // All zeros ::/128
+  if (groups.every(g => g === 0)) return true;
+  // Loopback ::1/128
+  if (groups.slice(0, 7).every(g => g === 0) && groups[7] === 1) return true;
+
+  // IPv4-mapped IPv6 (::ffff:0:0/96) e.g. ::ffff:7f00:1
+  if (groups.slice(0, 5).every(g => g === 0) && groups[5] === 0xffff) {
+    const ipv4Octets = [
+      (groups[6] >> 8) & 0xff,
+      groups[6] & 0xff,
+      (groups[7] >> 8) & 0xff,
+      groups[7] & 0xff
+    ];
+    return isPrivateOrReservedIpv4(ipv4Octets.join("."));
+  }
+
+  // IPv4-compatible IPv6 (::0:0/96 deprecated)
+  if (groups.slice(0, 6).every(g => g === 0) && !(groups[6] === 0 && groups[7] === 1)) {
+    const ipv4Octets = [
+      (groups[6] >> 8) & 0xff,
+      groups[6] & 0xff,
+      (groups[7] >> 8) & 0xff,
+      groups[7] & 0xff
+    ];
+    return isPrivateOrReservedIpv4(ipv4Octets.join("."));
+  }
+
+  const g0 = groups[0];
+  // Unique Local Address fc00::/7 (fc00 - fdff)
+  if ((g0 & 0xfe00) === 0xfc00) return true;
+  // Link-Local Unicast fe80::/10 (fe80 - febf)
+  if ((g0 & 0xffc0) === 0xfe80) return true;
+  // Site-Local Unicast fec0::/10 (fec0 - feff)
+  if ((g0 & 0xffc0) === 0xfec0) return true;
+  // Multicast ff00::/8
+  if ((g0 & 0xff00) === 0xff00) return true;
+  // Documentation 2001:db8::/32
+  if (g0 === 0x2001 && groups[1] === 0x0db8) return true;
+  // Discard prefix 100::/64
+  if (g0 === 0x0100 && (groups[1] & 0xff00) === 0) return true;
+
   return false;
 }
 
@@ -154,7 +339,7 @@ Options:
 export function startServer(config: ServerConfig = {}) {
   const port = config.port || parseInt(process.env.PORT || process.env.API_PORT || "8080", 10);
   const host = config.host || process.env.HOST || process.env.API_HOST || "0.0.0.0";
-  const apiToken = config.apiToken || process.env.API_SECRET_TOKEN;
+  const apiToken = config.apiToken || process.env.API_SECRET_TOKEN || CONFIG.apiSecretToken;
   const targetDb = config.db || db;
 
   const reportRateLimiter = new RateLimiter(10, 60 * 1000);
@@ -267,35 +452,27 @@ export function startServer(config: ServerConfig = {}) {
           }), { status: 403, headers: { ...baseHeaders, "Content-Type": "application/json" } });
         }
 
-        // SSRF & DNS Rebinding check
-        try {
-          const lookup = await dns.lookup(parsedMediaUrl.hostname);
-          if (isPrivateOrReservedIp(lookup.address)) {
-            return new Response(JSON.stringify({
-              error: "Bad Request: SSRF blocked - origin hostname resolves to a private or reserved IP address."
-            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
-          }
-        } catch (err: any) {
-          return new Response(JSON.stringify({
-            error: `Bad Request: Failed to resolve origin hostname '${parsedMediaUrl.hostname}'.`
-          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
-        }
-
         const abortController = new AbortController();
         const timeoutId = setTimeout(() => abortController.abort(), 8000);
 
-        let originResp: Response;
+        let originResp: { status: number; statusText: string; headers: Headers; body: Buffer };
         try {
-          originResp = await fetch(parsedMediaUrl.href, {
+          originResp = await fetchWithPinnedIp(parsedMediaUrl.href, {
             signal: abortController.signal,
             headers: {
               "User-Agent": CONFIG.userAgent,
               "Accept": "image/webp,image/avif,image/*;q=0.8",
               "Referer": "" // strip referrers to bypass storefront hotlink blocks
-            }
+            },
+            maxBytes: 15 * 1024 * 1024
           });
         } catch (err: any) {
           clearTimeout(timeoutId);
+          if (err.message && err.message.includes("SSRF blocked")) {
+            return new Response(JSON.stringify({
+              error: "Bad Request: SSRF blocked - origin hostname resolves to a private or reserved IP address."
+            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+          }
           return new Response(JSON.stringify({
             error: "Bad Gateway: Origin CDN request failed or timed out"
           }), { status: 502, headers: { ...baseHeaders, "Content-Type": "application/json" } });
@@ -309,14 +486,13 @@ export function startServer(config: ServerConfig = {}) {
           }), { status: 404, headers: { ...baseHeaders, "Content-Type": "application/json" } });
         }
 
-        if (!originResp.ok) {
+        if (originResp.status < 200 || originResp.status >= 300) {
           return new Response(JSON.stringify({
             error: `Bad Gateway: Origin CDN returned HTTP ${originResp.status}`
           }), { status: 502, headers: { ...baseHeaders, "Content-Type": "application/json" } });
         }
 
-        const arrayBuf = await originResp.arrayBuffer();
-        const inputBuffer = Buffer.from(arrayBuf);
+        const inputBuffer = originResp.body;
 
         if (inputBuffer.length > 15 * 1024 * 1024) {
           return new Response(JSON.stringify({
@@ -541,64 +717,39 @@ export function startServer(config: ServerConfig = {}) {
             }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
           }
 
-          try {
-            const lookup = await dns.lookup(parsedStorefront.hostname);
-            if (isPrivateOrReservedIp(lookup.address)) {
-              return new Response(JSON.stringify({
-                error: "Bad Request: SSRF blocked - storefront hostname resolves to a private or reserved IP address."
-              }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
-            }
-          } catch (err: any) {
-            return new Response(JSON.stringify({
-              error: `Bad Request: Failed to resolve storefront hostname '${parsedStorefront.hostname}'.`
-            }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
-          }
-
           const expectedToken = proofValue.trim();
           const abortController = new AbortController();
           const timeoutId = setTimeout(() => abortController.abort(), 5000);
 
           let foundToken = false;
           try {
-            const resp = await fetch(parsedStorefront.href, {
+            const probeResp = await fetchWithPinnedIp(parsedStorefront.href, {
               signal: abortController.signal,
               headers: {
                 "User-Agent": "VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com; verification-probe)",
                 "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8"
-              }
+              },
+              maxBytes: 512 * 1024
             });
 
-            if (!resp.ok) {
+            if (probeResp.status < 200 || probeResp.status >= 300) {
               clearTimeout(timeoutId);
               return new Response(JSON.stringify({
-                error: `Storefront probe failed: HTTP ${resp.status} ${resp.statusText}`
+                error: `Storefront probe failed: HTTP ${probeResp.status} ${probeResp.statusText}`
               }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
             }
 
-            if (resp.body) {
-              const reader = resp.body.getReader();
-              let totalBytes = 0;
-              const maxBytes = 512 * 1024;
-              const decoder = new TextDecoder();
-
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                totalBytes += value.length;
-                const chunkStr = decoder.decode(value, { stream: true });
-                if (chunkStr.includes(expectedToken)) {
-                  foundToken = true;
-                  await reader.cancel();
-                  break;
-                }
-                if (totalBytes > maxBytes) {
-                  await reader.cancel();
-                  break;
-                }
-              }
+            const html = probeResp.body.toString("utf-8");
+            if (html.includes(expectedToken)) {
+              foundToken = true;
             }
           } catch (err: any) {
             clearTimeout(timeoutId);
+            if (err.message && err.message.includes("SSRF blocked")) {
+              return new Response(JSON.stringify({
+                error: "Bad Request: SSRF blocked - storefront hostname resolves to a private or reserved IP address."
+              }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+            }
             return new Response(JSON.stringify({
               error: `Storefront probe failed or timed out: ${err?.message || String(err)}`
             }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
@@ -634,8 +785,15 @@ export function startServer(config: ServerConfig = {}) {
 
         // Register in DB & delist matching canonical packages
         const escapedVendorRegex = `^${cleanVendorId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
-        targetDb.registerOptOut(cleanVendorId, proofType, escapedVendorRegex, `Automated creator opt-out verified via ${proofType}`);
-        const delistedCount = targetDb.delistCreatorPackages(cleanVendorId);
+        let optOutPlatform = "all";
+        if (proofType === "storefront_bio_token" && storefrontUrl) {
+          const lowerUrl = storefrontUrl.toLowerCase();
+          if (lowerUrl.includes("booth.pm")) optOutPlatform = "booth";
+          else if (lowerUrl.includes("gumroad.com")) optOutPlatform = "gumroad";
+          else if (lowerUrl.includes("jinxxy.com")) optOutPlatform = "jinxxy";
+        }
+        targetDb.registerOptOut(cleanVendorId, optOutPlatform, escapedVendorRegex, `Automated creator opt-out verified via ${proofType}`, proofType);
+        const delistedCount = targetDb.delistCreatorPackages(cleanVendorId, storefrontUrl);
 
         return new Response(JSON.stringify({
           success: true,
@@ -647,8 +805,8 @@ export function startServer(config: ServerConfig = {}) {
         }), { status: 200, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
-      // --- GET /v1/catalog/delta (Schema 1 Delta Stream) ---
-      if (method === "GET" && path === "/v1/catalog/delta") {
+      // --- GET /v1/catalog/delta & GET /v1/packages/stream (Schema 1 Delta Stream / Route Alias - OVERLOOKED-6) ---
+      if (method === "GET" && (path === "/v1/catalog/delta" || path === "/v1/packages/stream")) {
         const cursorParam = url.searchParams.get("cursor") || "0";
         const limitParam = parseInt(url.searchParams.get("limit") || "50", 10);
         const limit = Math.min(Math.max(1, limitParam), 200);
@@ -770,6 +928,110 @@ export function startServer(config: ServerConfig = {}) {
         };
 
         return new Response(JSON.stringify(manifest), { status: 200, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+      }
+
+      // --- POST /v1/telemetry (Schema 5 Interaction & Search Telemetry - CANON-5, Task 4.3) ---
+      if (method === "POST" && path === "/v1/telemetry") {
+        // Administrative Bearer Auth (Task 1.1, Task 4.3)
+        const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+        if (!apiToken || !authHeader.startsWith("Bearer ")) {
+          return new Response(JSON.stringify({
+            error: "Unauthorized: Administrative bearer token required"
+          }), { status: 401, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+        const providedToken = authHeader.slice(7).trim();
+        const tokenBuffer = Buffer.from(providedToken);
+        const expectedBuffer = Buffer.from(apiToken);
+        if (tokenBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(tokenBuffer, expectedBuffer)) {
+          return new Response(JSON.stringify({
+            error: "Unauthorized: Invalid administrative bearer token"
+          }), { status: 401, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        let body: any;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response(JSON.stringify({
+            error: "Bad Request: Malformed JSON payload."
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        if (!body || typeof body !== "object") {
+          return new Response(JSON.stringify({
+            error: "Bad Request: Payload must be a JSON object"
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        if (!body.batchId || typeof body.batchId !== "string" || !body.collectedAt || typeof body.collectedAt !== "string" || !body.metrics || typeof body.metrics !== "object") {
+          return new Response(JSON.stringify({
+            error: "Bad Request: Missing required Schema 5 fields ('batchId', 'collectedAt', 'metrics')"
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        const { searchQueries, packageInteractions } = body.metrics;
+        if (!Array.isArray(searchQueries) || !Array.isArray(packageInteractions)) {
+          return new Response(JSON.stringify({
+            error: "Bad Request: 'metrics.searchQueries' and 'metrics.packageInteractions' must be arrays"
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        // Schema 5 Privacy & Anti-PII Invariant (LEGAL §8.5, REPORTING_SCHEMAS §6)
+        const prohibitedKeyRegex = /^(user_?id|session_?id|client_?ip|ip_address|user_?email|password|cookie|fingerprint|auth_token|token)$/i;
+        const emailValueRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+        const ipv4ValueRegex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/;
+
+        function scanForPii(obj: any, path: string = ""): string | null {
+          if (!obj || typeof obj !== "object") return null;
+          for (const [key, value] of Object.entries(obj)) {
+            if (prohibitedKeyRegex.test(key)) {
+              return `Prohibited tracker/PII key '${key}' detected at ${path || "root"}`;
+            }
+            if (typeof value === "string") {
+              if (emailValueRegex.test(value)) {
+                return `Email address detected in value at ${path ? path + "." + key : key}`;
+              }
+              if (ipv4ValueRegex.test(value) && (key.toLowerCase().includes("ip") || key.toLowerCase().includes("client"))) {
+                return `IP address detected in value at ${path ? path + "." + key : key}`;
+              }
+            } else if (typeof value === "object") {
+              const err = scanForPii(value, path ? `${path}.${key}` : key);
+              if (err) return err;
+            }
+          }
+          return null;
+        }
+
+        const piiError = scanForPii(body);
+        if (piiError) {
+          return new Response(JSON.stringify({
+            error: `Schema 5 Privacy Violation: ${piiError}. Anonymous metrics only.`
+          }), { status: 400, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        }
+
+        // Ingest aggregated search queries into search_patterns
+        let processedQueries = 0;
+        for (const sq of searchQueries) {
+          if (sq && typeof sq.query === "string" && sq.query.trim()) {
+            targetDb.upsertSearchPattern({
+              query: sq.query.trim(),
+              queryIntent: sq.suggestedCategory ? `Category: ${sq.suggestedCategory}` : null,
+              relevanceVote: sq.zeroResults ? "suppress" : "boost",
+              negativeTokens: [],
+              suggestedSeeds: [],
+              weight: typeof sq.count === "number" && sq.count > 0 ? sq.count : 1.0
+            });
+            processedQueries++;
+          }
+        }
+
+        return new Response(JSON.stringify({
+          success: true,
+          batchId: body.batchId,
+          processedQueries,
+          processedInteractions: packageInteractions.length,
+          message: "Schema 5 telemetry batch ingested successfully"
+        }), { status: 200, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
       return new Response(JSON.stringify({ error: "Not Found" }), { status: 404, headers: { ...baseHeaders, "Content-Type": "application/json" } });

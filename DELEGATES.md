@@ -1,7 +1,7 @@
 # VRChat Package Crawler: Production Deployment Runbook & SRE Guide
 
 **Target Audience:** Site Reliability Engineers (SRE), Infrastructure Delegates, and Systems Operators  
-**Revision:** Phase 3 Complete (Production Deployment, Supervisor Management, Ephemeral Media Streaming & Edge Distribution)  
+**Revision:** Phase 4 Complete (Production Deployment, Supervisor Management, Blocker Remediation, Ephemeral Media Streaming & Edge Distribution)  
 **Binary Distribution:** Standalone Single-File Native Executables (`dist/`)  
 
 ---

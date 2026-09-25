@@ -18,8 +18,11 @@ export interface SyncConfig {
 
 export interface EdgeSyncResult {
   syncedPackages: number;
+  syncedFronts?: number;
   backedUpPackages: number;
+  backedUpFronts?: number;
   validatedPackages: number;
+  validatedFronts?: number;
   isDryRun: boolean;
   status: "synced" | "backed_up" | "dry_run" | "up_to_date";
   backupPath?: string;
@@ -152,6 +155,7 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?:
   if (config.isDryRun) {
     let currentWatermark = watermarkRowId;
     let totalValidated = 0;
+    let totalValidatedFronts = 0;
 
     while (true) {
       const pendingRows = targetDb.query(`
@@ -165,6 +169,18 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?:
       if (pendingRows.length === 0) break;
 
       totalValidated += pendingRows.length;
+
+      const canonicalIds = pendingRows.map(r => r.canonical_id);
+      const placeholders = canonicalIds.map(() => "?").join(",");
+      let frontCount = 0;
+      try {
+        const countRow = targetDb.query(`
+          SELECT COUNT(*) as c FROM package_fronts WHERE canonical_id IN (${placeholders});
+        `).get(...canonicalIds) as any;
+        frontCount = countRow?.c || 0;
+      } catch (_) {}
+      totalValidatedFronts += frontCount;
+
       currentWatermark = pendingRows[pendingRows.length - 1].rowid;
 
       if (!config.drainAll) break;
@@ -174,18 +190,24 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?:
       logger.info("[EdgeSync:DryRun] Up to date. No new canonical packages require synchronization.");
       return {
         syncedPackages: 0,
+        syncedFronts: 0,
         backedUpPackages: 0,
+        backedUpFronts: 0,
         validatedPackages: 0,
+        validatedFronts: 0,
         isDryRun: true,
         status: "up_to_date"
       };
     }
 
-    logger.info(`[EdgeSync:DryRun] Validated ${totalValidated} packages for D1 push. Checkpoint advancement skipped.`);
+    logger.info(`[EdgeSync:DryRun] Validated ${totalValidated} packages (${totalValidatedFronts} fronts) for D1 push. Checkpoint advancement skipped.`);
     return {
       syncedPackages: 0,
+      syncedFronts: 0,
       backedUpPackages: 0,
+      backedUpFronts: 0,
       validatedPackages: totalValidated,
+      validatedFronts: totalValidatedFronts,
       isDryRun: true,
       status: "dry_run"
     };
@@ -223,6 +245,7 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?:
 
     let effectiveWatermark = Math.max(watermarkRowId, localBackupWatermark);
     let totalBackedUp = 0;
+    let totalBackedUpFronts = 0;
     const backupPaths: string[] = [];
 
     while (true) {
@@ -242,6 +265,21 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?:
       const timestampStr = new Date().toISOString().replace(/[:.]/g, "-");
       const backupFile = path.resolve(backupDir, `delta_${timestampStr}_rows_${firstRowId}_${lastRowId}.json`);
 
+      const canonicalIds = pendingRows.map(r => r.canonical_id);
+      const placeholders = canonicalIds.map(() => "?").join(",");
+      let frontRows: any[] = [];
+      try {
+        frontRows = targetDb.query(`
+          SELECT * FROM package_fronts
+          WHERE canonical_id IN (${placeholders});
+        `).all(...canonicalIds) as any[];
+      } catch (_) {}
+
+      let metadataRows: any[] = [];
+      try {
+        metadataRows = targetDb.query(`SELECT key, value FROM catalog_metadata;`).all() as any[];
+      } catch (_) {}
+
       const backupPayload = {
         conduit: "local_backup_conduit",
         reason: "cloudflare_unconfigured",
@@ -249,12 +287,15 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?:
         count: pendingRows.length,
         watermarkStart: firstRowId,
         watermarkEnd: lastRowId,
-        packages: pendingRows
+        packages: pendingRows,
+        package_fronts: frontRows,
+        catalog_metadata: metadataRows
       };
 
       fs.writeFileSync(backupFile, JSON.stringify(backupPayload, null, 2), "utf-8");
       backupPaths.push(backupFile);
       totalBackedUp += pendingRows.length;
+      totalBackedUpFronts += frontRows.length;
       effectiveWatermark = lastRowId;
 
       const now = new Date().toISOString();
@@ -272,19 +313,25 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?:
       logger.info("[EdgeSync:Backup] Local backup conduit up to date. No new incremental package deltas.");
       return {
         syncedPackages: 0,
+        syncedFronts: 0,
         backedUpPackages: 0,
+        backedUpFronts: 0,
         validatedPackages: 0,
+        validatedFronts: 0,
         isDryRun: false,
         status: "up_to_date"
       };
     }
 
-    logger.info(`[EdgeSync:Backup] Cloudflare disconnected. Rerouted ${totalBackedUp} incremental package deltas to local backup conduit (${backupPaths.length} file(s)). Remote Cloudflare watermark untouched.`);
+    logger.info(`[EdgeSync:Backup] Cloudflare disconnected. Rerouted ${totalBackedUp} incremental package deltas (${totalBackedUpFronts} fronts) to local backup conduit (${backupPaths.length} file(s)). Remote Cloudflare watermark untouched.`);
 
     return {
       syncedPackages: 0,
+      syncedFronts: 0,
       backedUpPackages: totalBackedUp,
+      backedUpFronts: totalBackedUpFronts,
       validatedPackages: 0,
+      validatedFronts: 0,
       isDryRun: false,
       status: "backed_up",
       backupPath: backupPaths[backupPaths.length - 1],
@@ -295,6 +342,7 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?:
   // --- BRANCH 3: Live Cloudflare Synchronization ---
   let currentWatermark = watermarkRowId;
   let totalSynced = 0;
+  let totalSyncedFronts = 0;
   const url = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/d1/database/${config.d1DatabaseId}/query`;
 
   while (true) {
@@ -365,6 +413,85 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?:
       lastId = r.id;
     }
 
+    // Synchronize package_fronts for all canonical packages in the batch (OVERLOOKED-10)
+    const canonicalIds = pendingRows.map(r => r.canonical_id);
+    const placeholders = canonicalIds.map(() => "?").join(",");
+    let pendingFronts: any[] = [];
+    try {
+      pendingFronts = targetDb.query(`
+        SELECT * FROM package_fronts
+        WHERE canonical_id IN (${placeholders});
+      `).all(...canonicalIds) as any[];
+    } catch (_) {}
+
+    for (const f of pendingFronts) {
+      const frontSql = `
+        INSERT OR REPLACE INTO package_fronts (
+          id, canonical_id, platform, platform_item_id, url, title, author,
+          price_currency, price_amount, origin_created_at, origin_updated_at,
+          raw_entity_id, media_urls_json, youtube_urls_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      `;
+      const frontParams = [
+        f.id, f.canonical_id, f.platform, f.platform_item_id, f.url, f.title, f.author,
+        f.price_currency, f.price_amount, f.origin_created_at, f.origin_updated_at,
+        f.raw_entity_id, f.media_urls_json || "[]", f.youtube_urls_json || "[]",
+        f.created_at, f.updated_at
+      ];
+
+      try {
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${config.apiToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ sql: frontSql, params: frontParams })
+        });
+        if (!resp.ok) {
+          const errText = await resp.text();
+          throw new Error(`Cloudflare D1 HTTP ${resp.status} (package_fronts): ${errText}`);
+        }
+      } catch (err: any) {
+        logger.error(`[EdgeSync] Failed to sync package front ${f.id}`, err);
+        const failTime = new Date().toISOString();
+        targetDb.run(`
+          INSERT INTO sync_checkpoints (
+            sync_target, last_synced_id, last_synced_rowid, records_synced, synced_at, status, error_message, projection_epoch
+          ) VALUES ('cloudflare_d1', ?, ?, 0, ?, 'failed', ?, ?);
+        `, [lastId || null, maxRowId, failTime, String(err?.message || err), currentEpoch]);
+        throw err;
+      }
+    }
+    totalSyncedFronts += pendingFronts.length;
+
+    // Synchronize catalog_metadata key-values
+    let metadataRows: any[] = [];
+    try {
+      metadataRows = targetDb.query(`SELECT key, value FROM catalog_metadata;`).all() as any[];
+    } catch (_) {}
+
+    for (const m of metadataRows) {
+      const metaSql = `INSERT OR REPLACE INTO catalog_metadata (key, value) VALUES (?, ?);`;
+      const metaParams = [m.key, m.value];
+      try {
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${config.apiToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ sql: metaSql, params: metaParams })
+        });
+        if (!resp.ok) {
+          const errText = await resp.text();
+          logger.warn(`[EdgeSync] Cloudflare D1 metadata push HTTP ${resp.status}: ${errText}`);
+        }
+      } catch (err: any) {
+        logger.warn(`[EdgeSync] Metadata sync warning for key ${m.key}: ${err?.message || err}`);
+      }
+    }
+
     // Record verified remote watermark checkpoint for batch
     const now = new Date().toISOString();
     targetDb.run(`
@@ -383,18 +510,24 @@ export async function runEdgeSync(customConfig?: Partial<SyncConfig>, customDb?:
     logger.info("[EdgeSync] Up to date. No new canonical packages require edge synchronization.");
     return {
       syncedPackages: 0,
+      syncedFronts: 0,
       backedUpPackages: 0,
+      backedUpFronts: 0,
       validatedPackages: 0,
+      validatedFronts: 0,
       isDryRun: false,
       status: "up_to_date"
     };
   }
 
-  logger.info(`[EdgeSync] Edge synchronization complete: synced ${totalSynced} records. New Cloudflare watermark: ${currentWatermark}.`);
+  logger.info(`[EdgeSync] Edge synchronization complete: synced ${totalSynced} records (${totalSyncedFronts} fronts). New Cloudflare watermark: ${currentWatermark}.`);
   return {
     syncedPackages: totalSynced,
+    syncedFronts: totalSyncedFronts,
     backedUpPackages: 0,
+    backedUpFronts: 0,
     validatedPackages: 0,
+    validatedFronts: 0,
     isDryRun: false,
     status: "synced"
   };

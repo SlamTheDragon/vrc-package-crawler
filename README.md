@@ -80,7 +80,7 @@ vrc-package-crawler/
     EDGE_SYNC_AND_SCALE_GUIDE.md Cloudflare edge synchronization guide
     OPERATIONS_AND_CHECKLIST.md Operational checklists and verification
     topics/                   Technical deep-dive topics
-  tests/                      Bun test suites (65 passing tests across 16 files)
+  tests/                      Bun test suites (84 passing tests across 17 files)
   dist/                       Isolated runtime environment (gitignored)
     vrc-crawler.exe           Background daemon binary (Windows)
     vrc-monitor.exe           Console monitor & CLI binary (Windows)
@@ -189,9 +189,11 @@ Primary Gateway Endpoints:
 - `GET /`: API Home and capability discovery document.
 - `GET /v1/health`: Server uptime, memory metrics, and catalog counts.
 - `GET /v1/catalog/delta`: Schema 1 cursor-paginated delta stream with direct origin media pointers.
+- `GET /v1/packages/stream`: Route alias for `/v1/catalog/delta` ensuring spec compatibility.
 - `GET /v1/vpm/index.json`: Schema 2 native VCC / ALCOM community repository manifest.
 - `POST /v1/reports`: Ingests Schema 4 community steering reports (requires `API_SECRET_TOKEN` bearer auth).
 - `POST /v1/opt-out`: Schema 6 automated creator opt-out (supports storefront bio tokens, DNS TXT, and signed commits).
+- `POST /v1/telemetry`: Ingests Schema 5 anonymous query/click telemetry with strict anti-PII filtering.
 - `GET /v1/media/stream`: Ephemeral in-memory WebP streaming proxy for hotlink/Referer blocked storefronts.
 
 Set `API_SECRET_TOKEN` in `.env` to protect administrative endpoints and report processing.
@@ -251,7 +253,7 @@ Output will write to `vrc_catalog.db` in the working directory.
    ```powershell
    bun test
    ```
-   The ground-truth test suite contains 65 passing tests across 16 files (306 assertions).
+   The ground-truth test suite contains 84 passing tests across 17 files (551 assertions).
 
 2. Check TypeScript types without emitting:
    ```powershell

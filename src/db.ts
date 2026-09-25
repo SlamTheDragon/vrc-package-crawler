@@ -297,7 +297,8 @@ export class CrawlerDB {
         pattern TEXT NOT NULL,
         reason TEXT NOT NULL,
         opted_out_at TEXT NOT NULL,
-        verified INTEGER DEFAULT 1
+        verified INTEGER DEFAULT 1,
+        proof_type TEXT
       );
     `);
     this.db.run("CREATE INDEX IF NOT EXISTS idx_opt_outs_creator ON creator_opt_outs(creator_name);");
@@ -515,8 +516,11 @@ export class CrawlerDB {
   public isCreatorOptedOut(creatorName: string, platform?: string): boolean {
     if (!creatorName) return false;
     const cleanName = creatorName.trim().toLowerCase();
-    const records = this.db.prepare("SELECT creator_name, pattern, verified FROM creator_opt_outs WHERE verified = 1;").all() as any[];
+    const records = this.db.prepare("SELECT creator_name, platform, pattern, verified FROM creator_opt_outs WHERE verified = 1;").all() as any[];
     for (const r of records) {
+      if (platform && r.platform && r.platform !== "all" && r.platform.toLowerCase() !== platform.toLowerCase()) {
+        continue;
+      }
       if (r.creator_name.toLowerCase() === cleanName) return true;
       if (r.pattern && r.pattern.toLowerCase() === cleanName) return true;
       try {
@@ -533,14 +537,14 @@ export class CrawlerDB {
     return this.isCreatorOptedOut(creatorName, platform);
   }
 
-  public registerOptOut(creatorName: string, platform: string, pattern: string, reason: string): boolean {
+  public registerOptOut(creatorName: string, platform: string, pattern: string, reason: string, proofType?: string): boolean {
     const id = `optout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const now = new Date().toISOString();
     try {
       this.db.run(`
-        INSERT OR REPLACE INTO creator_opt_outs (id, creator_name, platform, pattern, reason, opted_out_at, verified)
-        VALUES (?, ?, ?, ?, ?, ?, 1);
-      `, [id, creatorName, platform, pattern, reason, now]);
+        INSERT OR REPLACE INTO creator_opt_outs (id, creator_name, platform, pattern, reason, opted_out_at, verified, proof_type)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?);
+      `, [id, creatorName, platform, pattern, reason, now, proofType || null]);
       return true;
     } catch (err) {
       logger.error(`Failed to register opt-out for ${creatorName}`, err);
@@ -548,17 +552,23 @@ export class CrawlerDB {
     }
   }
 
-  public delistCreatorPackages(creatorName: string): number {
+  public delistCreatorPackages(creatorName: string, storefrontUrl?: string): number {
     if (this._isClosed || !creatorName) return 0;
     const now = new Date().toISOString();
     const cleanName = creatorName.trim().toLowerCase();
     const escapedVendor = cleanName.replace(/[%_\\]/g, "\\$&");
+
+    let itemId: string | null = null;
+    let cleanStorefrontUrl: string | null = null;
+    if (storefrontUrl) {
+      cleanStorefrontUrl = storefrontUrl.trim().toLowerCase();
+      const m = cleanStorefrontUrl.match(/items\/(\d+)/);
+      if (m) itemId = m[1];
+    }
+
     try {
-      const res = this.db.run(`
-        UPDATE canonical_packages
-        SET lifecycle = 'delisted',
-            lifecycle_updated_at = ?,
-            updated_at = ?
+      const selectSql = `
+        SELECT id FROM canonical_packages
         WHERE (
           LOWER(author) = ?
           OR (
@@ -570,16 +580,66 @@ export class CrawlerDB {
             )
           )
           OR canonical_id IN (
-            SELECT canonical_id FROM package_fronts WHERE LOWER(author) = ?
+            SELECT canonical_id FROM package_fronts
+            WHERE LOWER(author) = ?
+               OR LOWER(url) LIKE ('https://' || ? || '.booth.pm/%') ESCAPE '\\'
+               OR LOWER(url) LIKE ('https://booth.pm/@' || ? || '/%') ESCAPE '\\'
+               OR LOWER(url) LIKE ('https://' || ? || '.gumroad.com/%') ESCAPE '\\'
+               OR LOWER(url) LIKE ('https://gumroad.com/' || ? || '/%') ESCAPE '\\'
+               OR LOWER(url) LIKE ('https://jinxxy.com/' || ? || '/%') ESCAPE '\\'
+               OR LOWER(url) LIKE ('https://jinxxy.com/market/' || ? || '/%') ESCAPE '\\'
+               OR LOWER(url) LIKE ('https://github.com/' || ? || '/%') ESCAPE '\\'
+               OR LOWER(url) LIKE ('https://' || ? || '.itch.io/%') ESCAPE '\\'
+               ${itemId ? "OR platform_item_id = ? OR LOWER(url) LIKE ('%/items/' || ? || '%')" : ""}
+               ${cleanStorefrontUrl ? "OR LOWER(url) = ?" : ""}
           )
           OR LOWER(url) LIKE ('https://' || ? || '.booth.pm/%') ESCAPE '\\'
+          OR LOWER(url) LIKE ('https://booth.pm/@' || ? || '/%') ESCAPE '\\'
           OR LOWER(url) LIKE ('https://' || ? || '.gumroad.com/%') ESCAPE '\\'
+          OR LOWER(url) LIKE ('https://gumroad.com/' || ? || '/%') ESCAPE '\\'
+          OR LOWER(url) LIKE ('https://jinxxy.com/' || ? || '/%') ESCAPE '\\'
+          OR LOWER(url) LIKE ('https://jinxxy.com/market/' || ? || '/%') ESCAPE '\\'
           OR LOWER(url) LIKE ('https://github.com/' || ? || '/%') ESCAPE '\\'
           OR LOWER(url) LIKE ('https://' || ? || '.itch.io/%') ESCAPE '\\'
+          ${cleanStorefrontUrl ? "OR LOWER(url) = ?" : ""}
         )
         AND lifecycle != 'delisted';
-      `, [now, now, cleanName, cleanName, cleanName, escapedVendor, escapedVendor, escapedVendor, escapedVendor]);
-      return res.changes;
+      `;
+
+      const params: any[] = [
+        cleanName, cleanName,
+        cleanName, escapedVendor, escapedVendor, escapedVendor, escapedVendor, escapedVendor, escapedVendor, escapedVendor, escapedVendor
+      ];
+      if (itemId) {
+        params.push(itemId, itemId);
+      }
+      if (cleanStorefrontUrl) {
+        params.push(cleanStorefrontUrl);
+      }
+      params.push(escapedVendor, escapedVendor, escapedVendor, escapedVendor, escapedVendor, escapedVendor, escapedVendor, escapedVendor);
+      if (cleanStorefrontUrl) {
+        params.push(cleanStorefrontUrl);
+      }
+
+      const matchingRows = this.db.prepare(selectSql).all(...params) as { id: string }[];
+      if (matchingRows.length === 0) return 0;
+
+      const updateStmt = this.db.prepare(`
+        UPDATE canonical_packages
+        SET rowid = (SELECT COALESCE(MAX(rowid), 0) + 1 FROM canonical_packages),
+            lifecycle = 'delisted',
+            lifecycle_updated_at = ?,
+            updated_at = ?
+        WHERE id = ?;
+      `);
+
+      this.db.transaction(() => {
+        for (const row of matchingRows) {
+          updateStmt.run(now, now, row.id);
+        }
+      })();
+
+      return matchingRows.length;
     } catch (err) {
       logger.error(`Failed to delist packages for creator ${creatorName}`, err);
       return 0;

@@ -567,14 +567,19 @@ async function runGumroadWorker() {
     const t0 = Date.now();
     try {
       if (item.url.includes("/l/")) {
-        const ok = await GumroadDriver.crawlProduct(item.url);
+        const ok = await GumroadDriver.crawlProduct(item.url, db, item.etag, item.last_modified);
         if (!isRunning) {
           db.markStatus(item.url, "pending");
         } else {
-          if (ok) {
+          const isObj = typeof ok === "object" && ok !== null;
+          const success = isObj ? ok.success : Boolean(ok);
+          if (success) {
+            const isNotModified = isObj && Boolean(ok.notModified);
+            const respEtag = isObj ? ok.etag : undefined;
+            const respLastMod = isObj ? ok.lastModified : undefined;
             rateLimiter.recordSuccess("gumroad.com", Date.now() - t0);
             circuitBreaker.recordSuccess("gumroad.com");
-            markCrawlSuccess(item);
+            markCrawlSuccess(item, !isNotModified, respEtag, respLastMod);
           } else {
             rateLimiter.recordFailure("gumroad.com", false);
             circuitBreaker.recordFailure("gumroad.com", 0, "Product crawl returned false");
@@ -666,14 +671,19 @@ async function runJinxxyWorker() {
             circuitBreaker.recordSuccess("jinxxy.com");
             markCrawlSuccess(item);
           } else {
-            const ok = await JinxxyDriver.crawlProduct(item.url);
+            const ok = await JinxxyDriver.crawlProduct(item.url, db, item.etag, item.last_modified);
             if (!isRunning) {
               db.markStatus(item.url, "pending");
             } else {
-              if (ok) {
+              const isObj = typeof ok === "object" && ok !== null;
+              const success = isObj ? ok.success : Boolean(ok);
+              if (success) {
+                const isNotModified = isObj && Boolean(ok.notModified);
+                const respEtag = isObj ? ok.etag : undefined;
+                const respLastMod = isObj ? ok.lastModified : undefined;
                 rateLimiter.recordSuccess("jinxxy.com", Date.now() - t0);
                 circuitBreaker.recordSuccess("jinxxy.com");
-                markCrawlSuccess(item);
+                markCrawlSuccess(item, !isNotModified, respEtag, respLastMod);
               } else {
                 rateLimiter.recordFailure("jinxxy.com", false);
                 circuitBreaker.recordFailure("jinxxy.com", 0, "Product crawl failed");
@@ -757,14 +767,19 @@ async function runItchWorker() {
             circuitBreaker.recordSuccess("itch.io");
             markCrawlSuccess(item);
           } else {
-            const ok = await ItchDriver.crawlProduct(item.url);
+            const ok = await ItchDriver.crawlProduct(item.url, db, item.etag, item.last_modified);
             if (!isRunning) {
               db.markStatus(item.url, "pending");
             } else {
-              if (ok) {
+              const isObj = typeof ok === "object" && ok !== null;
+              const success = isObj ? Boolean(ok.success) : Boolean(ok);
+              if (success) {
+                const isNotModified = isObj && Boolean(ok.notModified);
+                const respEtag = isObj ? ok.etag : undefined;
+                const respLastMod = isObj ? ok.lastModified : undefined;
                 rateLimiter.recordSuccess("itch.io", Date.now() - t0);
                 circuitBreaker.recordSuccess("itch.io");
-                markCrawlSuccess(item);
+                markCrawlSuccess(item, !isNotModified, respEtag, respLastMod);
               } else {
                 rateLimiter.recordFailure("itch.io", false);
                 circuitBreaker.recordFailure("itch.io", 0, "Product crawl failed");

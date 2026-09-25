@@ -134,7 +134,7 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
 
   // Stream canonical_packages in chunks (excluding delisted & DMCA-removed packages per LEGAL.md §9.5)
   const srcDb = sourceDb || db.rawDb;
-  const packages = srcDb.query("SELECT * FROM canonical_packages WHERE lifecycle NOT IN ('delisted', 'dmca_removed');").all() as any[];
+  const packages = srcDb.query("SELECT * FROM canonical_packages WHERE lifecycle NOT IN ('delisted', 'dmca_removed', 'creator_opted_out');").all() as any[];
   logger.info(`[Exporter] Copying ${packages.length} canonical packages...`);
 
   const insertPkg = catDb.prepare(`
@@ -174,7 +174,7 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
     SELECT pf.*
     FROM package_fronts pf
     JOIN canonical_packages cp ON pf.canonical_id = cp.canonical_id
-    WHERE cp.lifecycle NOT IN ('delisted', 'dmca_removed');
+    WHERE cp.lifecycle NOT IN ('delisted', 'dmca_removed', 'creator_opted_out');
   `).all() as any[];
   logger.info(`[Exporter] Copying ${fronts.length} storefront records...`);
 
@@ -193,6 +193,31 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
         f.price_currency, f.price_amount, f.origin_created_at, f.origin_updated_at,
         f.raw_entity_id, f.media_urls_json || "[]", f.youtube_urls_json || "[]",
         f.created_at, f.updated_at
+      );
+    }
+  })();
+
+  // Stream media_cache (pure origin metadata without any BLOBs, eliminating dangling foreign keys - OVERLOOKED-4)
+  const mediaRecords = srcDb.query(`
+    SELECT DISTINCT mc.*
+    FROM media_cache mc
+    JOIN canonical_packages cp ON cp.media_id = mc.id
+    WHERE cp.lifecycle NOT IN ('delisted', 'dmca_removed', 'creator_opted_out');
+  `).all() as any[];
+  logger.info(`[Exporter] Copying ${mediaRecords.length} media metadata records...`);
+
+  const insertMedia = catDb.prepare(`
+    INSERT INTO media_cache (
+      id, source_url, blurhash, phash_64, width, height, content_type, etag, last_processed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+  `);
+
+  catDb.transaction(() => {
+    for (const m of mediaRecords) {
+      insertMedia.run(
+        m.id, m.source_url, m.blurhash || null, m.phash_64 || null,
+        m.width || null, m.height || null, m.content_type || "image/webp",
+        m.etag || null, m.last_processed_at
       );
     }
   })();

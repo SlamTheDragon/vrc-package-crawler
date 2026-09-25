@@ -691,7 +691,7 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
     // STEP 4: PERSIST PROJECTIONS (canonical_packages & package_fronts)
     // =========================================================================
     const insertCanonical = db.prepare(`
-      INSERT OR REPLACE INTO canonical_packages (
+      INSERT INTO canonical_packages (
         id, canonical_id, name, author, authors_json, category, subcategory, type,
         description, primary_platform, platforms_json, url, vcc_url,
         price_currency, price_amount, is_vcc, tags_json, dependencies_json, source_ids_json,
@@ -703,46 +703,56 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
       );
     `);
 
+    const updateCanonical = db.prepare(`
+      UPDATE canonical_packages
+      SET rowid = (SELECT COALESCE(MAX(rowid), 0) + 1 FROM canonical_packages),
+          name = ?, author = ?, authors_json = ?, category = ?, subcategory = ?, type = ?,
+          description = ?, primary_platform = ?, platforms_json = ?, url = ?, vcc_url = ?,
+          price_currency = ?, price_amount = ?, is_vcc = ?, tags_json = ?, dependencies_json = ?, source_ids_json = ?,
+          media_id = ?, media_urls_json = ?, youtube_urls_json = ?, origin_created_at = ?, origin_updated_at = ?,
+          created_at_confidence = ?, lifecycle = ?, lifecycle_updated_at = ?, updated_at = ?
+      WHERE canonical_id = ?;
+    `);
+
     const insertFront = db.prepare(`
-      INSERT OR REPLACE INTO package_fronts (
+      INSERT INTO package_fronts (
         id, canonical_id, platform, platform_item_id, url, title, author,
         price_currency, price_amount, origin_created_at, origin_updated_at,
         raw_entity_id, media_urls_json, youtube_urls_json, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     `);
 
-    const existingMetadata = new Map<string, { lifecycle: string; lifecycle_updated_at: string | null; media_id: string | null; created_at: string | null }>();
+    const updateFront = db.prepare(`
+      UPDATE package_fronts
+      SET platform_item_id = ?, url = ?, title = ?, author = ?, price_currency = ?, price_amount = ?,
+          origin_created_at = ?, origin_updated_at = ?, raw_entity_id = ?, media_urls_json = ?, youtube_urls_json = ?, updated_at = ?
+      WHERE id = ?;
+    `);
+
+    const existingMetadata = new Map<string, any>();
     try {
-      const rows = db.query("SELECT canonical_id, lifecycle, lifecycle_updated_at, media_id, created_at FROM canonical_packages;").all() as any[];
+      const rows = db.query("SELECT * FROM canonical_packages;").all() as any[];
       for (const r of rows) {
-        existingMetadata.set(r.canonical_id, {
-          lifecycle: r.lifecycle || "published",
-          lifecycle_updated_at: r.lifecycle_updated_at,
-          media_id: r.media_id || null,
-          created_at: r.created_at || null
-        });
+        existingMetadata.set(r.canonical_id, r);
       }
     } catch (_) {}
 
-    const existingFrontMetadata = new Map<string, { created_at: string | null }>();
+    const existingFrontMetadata = new Map<string, any>();
     try {
-      const frontRows = db.query("SELECT id, created_at FROM package_fronts;").all() as any[];
+      const frontRows = db.query("SELECT * FROM package_fronts;").all() as any[];
       for (const fr of frontRows) {
-        existingFrontMetadata.set(fr.id, { created_at: fr.created_at || null });
+        existingFrontMetadata.set(fr.id, fr);
       }
     } catch (_) {}
 
     const curatorOverrides = sharedDb.getAllCuratorOverrides();
 
     db.transaction(() => {
-      db.run("DELETE FROM canonical_packages;");
-      db.run("DELETE FROM package_fronts;");
+      // Incremental projection: Never execute full table wipes (DELETE FROM canonical_packages / package_fronts),
+      // preserving delisting tombstones across synthesis cycles (Task 4.4, OVERLOOKED-1).
       const timestampNow = new Date().toISOString();
 
       for (const c of clusters) {
-        if (sharedDb.isCreatorOptedOut(c.author)) {
-          continue;
-        }
 
         let originCreatedAt: string | null = null;
         let originUpdatedAt: string | null = null;
@@ -859,8 +869,16 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
         tagsList = Array.from(tagSet);
 
         const preservedMeta = existingMetadata.get(c.canonical_id);
-        const lifecycle = preservedMeta?.lifecycle || "published";
-        const lifecycleUpdatedAt = preservedMeta?.lifecycle_updated_at || null;
+        const isCreatorOptedOut = sharedDb.isCreatorOptedOut(c.author);
+        const isDelisted = isCreatorOptedOut ||
+          preservedMeta?.lifecycle === "delisted" ||
+          preservedMeta?.lifecycle === "dmca_removed" ||
+          preservedMeta?.lifecycle === "creator_opted_out";
+
+        const lifecycle = isDelisted ? "delisted" : (preservedMeta?.lifecycle || "published");
+        const lifecycleUpdatedAt = isDelisted
+          ? (preservedMeta?.lifecycle_updated_at || timestampNow)
+          : (preservedMeta?.lifecycle_updated_at || null);
 
         let assignedMediaId: string | null = preservedMeta?.media_id || null;
         if (!assignedMediaId) {
@@ -922,21 +940,64 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
         }
         const cleanVccUrl = c.vcc_url ? sanitizeOutboundUrl(c.vcc_url) : null;
 
-        insertCanonical.run(
-          c.id, c.canonical_id, finalName, c.author, authorsJson,
-          finalCategory, finalSubcategory, c.type, finalDesc,
-          c.primary_platform, platformsJson, cleanUrl, cleanVccUrl,
-          c.price_currency, c.price_amount, c.is_vcc,
-          tagsJson, depsJson, sourceIdsJson,
-          assignedMediaId, canonicalMediaUrlsJson, canonicalYoutubeUrlsJson,
-          originCreatedAt, originUpdatedAt, createdAtConfidence,
-          lifecycle, lifecycleUpdatedAt, localCreatedAt, localUpdatedAt
-        );
+        const existingPkg = existingMetadata.get(c.canonical_id);
+        if (!existingPkg) {
+          insertCanonical.run(
+            c.id, c.canonical_id, finalName, c.author, authorsJson,
+            finalCategory, finalSubcategory, c.type, finalDesc,
+            c.primary_platform, platformsJson, cleanUrl, cleanVccUrl,
+            c.price_currency || "USD", c.price_amount || 0, c.is_vcc ? 1 : 0,
+            tagsJson, depsJson, sourceIdsJson,
+            assignedMediaId, canonicalMediaUrlsJson, canonicalYoutubeUrlsJson,
+            originCreatedAt, originUpdatedAt, createdAtConfidence,
+            lifecycle, lifecycleUpdatedAt, localCreatedAt, localCreatedAt
+          );
+        } else {
+          const isUnchanged =
+            existingPkg.name === finalName &&
+            existingPkg.author === c.author &&
+            existingPkg.authors_json === authorsJson &&
+            existingPkg.category === finalCategory &&
+            existingPkg.subcategory === finalSubcategory &&
+            existingPkg.type === c.type &&
+            existingPkg.description === finalDesc &&
+            existingPkg.primary_platform === c.primary_platform &&
+            existingPkg.platforms_json === platformsJson &&
+            existingPkg.url === cleanUrl &&
+            (existingPkg.vcc_url || null) === (cleanVccUrl || null) &&
+            (existingPkg.price_currency || null) === (c.price_currency || null) &&
+            (existingPkg.price_amount ?? null) === (c.price_amount ?? null) &&
+            Boolean(existingPkg.is_vcc) === Boolean(c.is_vcc) &&
+            existingPkg.tags_json === tagsJson &&
+            existingPkg.dependencies_json === depsJson &&
+            existingPkg.source_ids_json === sourceIdsJson &&
+            (existingPkg.media_id || null) === (assignedMediaId || null) &&
+            existingPkg.media_urls_json === canonicalMediaUrlsJson &&
+            existingPkg.youtube_urls_json === canonicalYoutubeUrlsJson &&
+            (existingPkg.origin_created_at || null) === (originCreatedAt || null) &&
+            (existingPkg.origin_updated_at || null) === (originUpdatedAt || null) &&
+            existingPkg.created_at_confidence === createdAtConfidence &&
+            existingPkg.lifecycle === lifecycle;
+
+          if (!isUnchanged) {
+            updateCanonical.run(
+              finalName, c.author, authorsJson,
+              finalCategory, finalSubcategory, c.type, finalDesc,
+              c.primary_platform, platformsJson, cleanUrl, cleanVccUrl,
+              c.price_currency || "USD", c.price_amount || 0, c.is_vcc ? 1 : 0,
+              tagsJson, depsJson, sourceIdsJson,
+              assignedMediaId, canonicalMediaUrlsJson, canonicalYoutubeUrlsJson,
+              originCreatedAt, originUpdatedAt, createdAtConfidence,
+              lifecycle, lifecycleUpdatedAt, timestampNow,
+              c.canonical_id
+            );
+          }
+        }
 
         const storefronts: { p: string; u: string | null }[] = [
           { p: c.primary_platform, u: cleanUrl }
         ];
-        if (cleanVccUrl) {
+        if (cleanVccUrl && !storefronts.some(sf => sf.p === "vpm")) {
           storefronts.push({ p: "vpm", u: cleanVccUrl });
         }
         for (const [p, u] of c.platform_urls.entries()) {
@@ -963,8 +1024,8 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
             if (!frontOriginCreated) frontOriginCreated = originCreatedAt;
             if (!frontOriginUpdated) frontOriginUpdated = originUpdatedAt || frontOriginCreated;
 
-            const frontCreatedAt = existingFrontMetadata.get(frontId)?.created_at || matchingEnt?.created_at || localCreatedAt;
-            const frontUpdatedAt = timestampNow;
+            const existingFront = existingFrontMetadata.get(frontId);
+            const frontCreatedAt = existingFront?.created_at || matchingEnt?.created_at || localCreatedAt;
 
             let frontMediaUrlsJson = "[]";
             let frontYoutubeUrlsJson = "[]";
@@ -993,25 +1054,91 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
             const rawEntityId = matchingEnt?.id || c.id;
             const platformItemId = matchingEnt ? matchingEnt.id.replace(/^[^:]+:/, "") : sf.u;
 
-            insertFront.run(
-              frontId,
-              c.canonical_id,
-              sf.p,
-              platformItemId,
-              sf.u,
-              c.name,
-              c.author,
-              c.price_currency,
-              c.price_amount,
-              frontOriginCreated,
-              frontOriginUpdated,
-              rawEntityId,
-              frontMediaUrlsJson,
-              frontYoutubeUrlsJson,
-              frontCreatedAt,
-              frontUpdatedAt
-            );
+            if (!existingFront) {
+              insertFront.run(
+                frontId,
+                c.canonical_id,
+                sf.p,
+                platformItemId,
+                sf.u,
+                c.name,
+                c.author,
+                c.price_currency,
+                c.price_amount,
+                frontOriginCreated,
+                frontOriginUpdated,
+                rawEntityId,
+                frontMediaUrlsJson,
+                frontYoutubeUrlsJson,
+                frontCreatedAt,
+                frontCreatedAt
+              );
+              existingFrontMetadata.set(frontId, {
+                id: frontId,
+                canonical_id: c.canonical_id,
+                platform: sf.p,
+                platform_item_id: platformItemId,
+                url: sf.u,
+                title: c.name,
+                author: c.author,
+                price_currency: c.price_currency,
+                price_amount: c.price_amount,
+                origin_created_at: frontOriginCreated,
+                origin_updated_at: frontOriginUpdated,
+                raw_entity_id: rawEntityId,
+                media_urls_json: frontMediaUrlsJson,
+                youtube_urls_json: frontYoutubeUrlsJson,
+                created_at: frontCreatedAt,
+                updated_at: frontCreatedAt
+              });
+            } else {
+              const isFrontUnchanged =
+                existingFront.platform_item_id === platformItemId &&
+                existingFront.url === sf.u &&
+                existingFront.title === c.name &&
+                existingFront.author === c.author &&
+                (existingFront.price_currency || null) === (c.price_currency || null) &&
+                (existingFront.price_amount ?? null) === (c.price_amount ?? null) &&
+                (existingFront.origin_created_at || null) === (frontOriginCreated || null) &&
+                (existingFront.origin_updated_at || null) === (frontOriginUpdated || null) &&
+                existingFront.raw_entity_id === rawEntityId &&
+                existingFront.media_urls_json === frontMediaUrlsJson &&
+                existingFront.youtube_urls_json === frontYoutubeUrlsJson;
+
+              if (!isFrontUnchanged) {
+                updateFront.run(
+                  platformItemId,
+                  sf.u,
+                  c.name,
+                  c.author,
+                  c.price_currency,
+                  c.price_amount,
+                  frontOriginCreated,
+                  frontOriginUpdated,
+                  rawEntityId,
+                  frontMediaUrlsJson,
+                  frontYoutubeUrlsJson,
+                  timestampNow,
+                  frontId
+                );
+              }
+            }
           }
+        }
+      }
+
+      // Tombstone preservation for packages that disappeared from clusters (Task 4.4, OVERLOOKED-1)
+      const activeCanonicalIds = new Set(clusters.map(c => c.canonical_id));
+      for (const [existingId, meta] of existingMetadata.entries()) {
+        if (!activeCanonicalIds.has(existingId) && meta.lifecycle !== "delisted") {
+          db.run(`
+            UPDATE canonical_packages
+            SET rowid = (SELECT COALESCE(MAX(rowid), 0) + 1 FROM canonical_packages),
+                lifecycle = 'delisted',
+                lifecycle_updated_at = ?,
+                updated_at = ?
+            WHERE canonical_id = ?;
+          `, [timestampNow, timestampNow, existingId]);
         }
       }
     })();

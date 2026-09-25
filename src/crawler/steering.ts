@@ -50,10 +50,16 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
 
       const now = new Date().toISOString();
 
+      // Resolve canonical_id if target_package_id was raw entity ID (OVERLOOKED-5)
+      const resolved = targetDb.rawDb.prepare(`
+        SELECT canonical_id FROM canonical_packages WHERE canonical_id = ? OR id = ? LIMIT 1;
+      `).get(report.target_package_id, report.target_package_id) as any;
+      const targetCanonicalId = resolved?.canonical_id || report.target_package_id;
+
       switch (report.branch) {
         case "categorization": {
           targetDb.upsertCuratorOverride({
-            canonicalId: report.target_package_id,
+            canonicalId: targetCanonicalId,
             categoryOverride: payload.suggestedClass,
             subcategoryOverride: payload.suggestedSubcategory || null,
             reason: report.reporter_notes || null,
@@ -63,11 +69,12 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
           // Immediate projection update
           targetDb.rawDb.run(`
             UPDATE canonical_packages
-            SET category = ?,
+            SET rowid = (SELECT COALESCE(MAX(rowid), 0) + 1 FROM canonical_packages),
+                category = ?,
                 subcategory = COALESCE(?, subcategory),
                 updated_at = ?
-            WHERE canonical_id = ?;
-          `, [payload.suggestedClass, payload.suggestedSubcategory || null, now, report.target_package_id]);
+            WHERE canonical_id = ? OR id = ?;
+          `, [payload.suggestedClass, payload.suggestedSubcategory || null, now, report.target_package_id, report.target_package_id]);
           break;
         }
 
@@ -76,11 +83,12 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
           // rather than executing immediate 'delisted' lifecycle mutations on canonical packages or raw entities
           targetDb.rawDb.run(`
             UPDATE canonical_packages
-            SET lifecycle = 'needs_review',
+            SET rowid = (SELECT COALESCE(MAX(rowid), 0) + 1 FROM canonical_packages),
+                lifecycle = 'needs_review',
                 lifecycle_updated_at = ?,
                 updated_at = ?
-            WHERE canonical_id = ?;
-          `, [now, now, report.target_package_id]);
+            WHERE canonical_id = ? OR id = ?;
+          `, [now, now, report.target_package_id, report.target_package_id]);
 
           // Register negative exclusion tokens
           if (Array.isArray(payload.negativeTokens) && payload.negativeTokens.length > 0) {
@@ -104,7 +112,7 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
           const desc = payload.correctedDescription;
 
           targetDb.upsertCuratorOverride({
-            canonicalId: report.target_package_id,
+            canonicalId: targetCanonicalId,
             nameOverride: payload.nameOverride || payload.correctedTitle || null,
             urlOverride: url,
             descriptionOverride: desc || null,
@@ -115,12 +123,13 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
           // Immediate projection update
           targetDb.rawDb.run(`
             UPDATE canonical_packages
-            SET name = COALESCE(?, name),
+            SET rowid = (SELECT COALESCE(MAX(rowid), 0) + 1 FROM canonical_packages),
+                name = COALESCE(?, name),
                 url = COALESCE(?, url),
                 description = COALESCE(?, description),
                 updated_at = ?
-            WHERE canonical_id = ?;
-          `, [title || null, url || null, desc || null, now, report.target_package_id]);
+            WHERE canonical_id = ? OR id = ?;
+          `, [title || null, url || null, desc || null, now, report.target_package_id, report.target_package_id]);
           break;
         }
 
@@ -129,7 +138,7 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
           const removeTags: string[] = Array.isArray(payload.removeTags) ? payload.removeTags : [];
 
           targetDb.upsertCuratorOverride({
-            canonicalId: report.target_package_id,
+            canonicalId: targetCanonicalId,
             addedTags: addTags,
             removedTags: removeTags,
             reason: report.reporter_notes || null,
@@ -137,7 +146,7 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
           });
 
           // Apply to existing tags in canonical_packages
-          const existingPkg = targetDb.rawDb.prepare("SELECT tags_json FROM canonical_packages WHERE canonical_id = ?;").get(report.target_package_id) as any;
+          const existingPkg = targetDb.rawDb.prepare("SELECT tags_json FROM canonical_packages WHERE canonical_id = ? OR id = ?;").get(report.target_package_id, report.target_package_id) as any;
           if (existingPkg) {
             let currentTags: string[] = [];
             try {
@@ -151,9 +160,10 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
             const updatedTags = Array.from(tagSet);
             targetDb.rawDb.run(`
               UPDATE canonical_packages
-              SET tags_json = ?, updated_at = ?
-              WHERE canonical_id = ?;
-            `, [JSON.stringify(updatedTags), now, report.target_package_id]);
+              SET rowid = (SELECT COALESCE(MAX(rowid), 0) + 1 FROM canonical_packages),
+                  tags_json = ?, updated_at = ?
+              WHERE canonical_id = ? OR id = ?;
+            `, [JSON.stringify(updatedTags), now, report.target_package_id, report.target_package_id]);
           }
           break;
         }
