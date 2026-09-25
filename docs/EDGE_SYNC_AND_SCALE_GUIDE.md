@@ -144,25 +144,54 @@ Control the running crawler daemon using `vrc-monitor.exe`:
 ### Deployment Topology & Single-Node v1.0 Perimeter (LEGAL.md §1.4 Alignment)
 In accordance with **`LEGAL.md` §1.4** and **`TODO.md` CANON-6**, the version 1.0 Canonical Network operates strictly as a **single-node, maintainer-operated deployment**. Direct edge synchronization requires administrative Cloudflare credentials (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`), which cannot be safely distributed to untrusted third-party contributor nodes without credential leakage and edge tampering risks.
 
-- **Version 1.0 Topology**: A single supervised daemon (`dist/vrc-crawler.exe`) performs localized ingestion and projection, and executes `dist/vrc-sync.exe` to push incremental deltas to Cloudflare D1.
-- **Post-v1.0 Decentralized Scaling Path (Task 5.4)**: External contributor nodes will not sync directly to D1 via API tokens. Instead, a cryptographic Cloudflare Worker Ingestion Gateway will validate signed community contributions and quarantine unverified submissions prior to edge persistence.
+- **Version 1.0 Topology**: A single supervised daemon (`dist/vrc-crawler.exe`) performs localized ingestion and projection, and executes `dist/vrc-sync.exe` to push incremental deltas to Cloudflare D1 using administrative master credentials.
+- **Post-v1.0 Tri-Domain Architecture & Control Plane (Task 5.4)**: Decouples into three strictly isolated domains plus a dedicated control plane:
+  1. **Crawler Nodes**: Independent machines fetching VPM/storefront listings. Authenticate to the platform strictly using **`Crawler Credentials`** (`Authorization: Bearer <crawler-instance-token>` or Ed25519 signatures). Crawler nodes *never* receive Cloudflare infrastructure credentials.
+  2. **Canonical Platform**: Authoritative Cloudflare-hosted infrastructure (`Crawler Ingestion API`, `Validation Engine`, `Client Registry`, `Cloudflare D1`, and public `Catalog API`). Enforces *Authorization $\neq$ Trust $\neq$ Authority* by validating observations prior to canonical promotion.
+  3. **Consumer Applications**: Third-party applications (ALCOM, VCC, desktop tools) consuming the catalog via `Application Credentials` without exposing end-user identities (Alice, Bob). Submit versioned reports (`schema_version: 1`).
+  4. **Control Plane Web Frontend (Post-v1.0 Blueprint)**: Lightweight web control plane planned for post-v1.0 deployment, exposing public transparency documentation (`/`, `/about`, `/robots-policy`, `/legal`, `/docs`) alongside an authenticated control panel for operator self-service credential lifecycle management (while current v1.0 operations continue to reference the canonical GitHub repository).
 
 ```mermaid
 flowchart TD
-    subgraph "Single-Node Maintainer Perimeter (v1.0 Ground Truth)"
-        W1["vrc-crawler.exe (Ingestion & Projection)"] --> DB1["crawler_state.db (WAL)"]
-        S1["vrc-sync.exe"] -->|Read Incremental Deltas| DB1
+    subgraph ControlPlane["Control Plane Web Frontend (crawler.example.com)"]
+        Public["Public Information & Docs\n(/, /about, /docs, /robots-policy, /legal)"]
+        Dashboard["Operator / Developer Control Panel\n(/dashboard, /crawlers, /credentials, /apps)"]
     end
 
-    subgraph "Cloudflare Edge Global Tier"
-        D1[("Cloudflare D1 Database (canonical_packages + package_fronts)")]
-        Meta[("catalog_metadata (In-Band Notice)")]
-        Worker["Cloudflare Workers API (Pure Media Pointers)"]
+    subgraph CanonicalPlatform["Canonical Platform (Authoritative Cloudflare Tier)"]
+        Reg["Client / Credential Registry\n(Crawler Tokens & App Tokens)"]
+        Ingest["Crawler Ingestion API\n(POST /v1/ingest/batch)"]
+        CatalogAPI["Consumer Catalog API\n(GET /v1/catalog/delta, /stream)"]
+        Validation["Validation & Quarantine Engine\n(Observation -> Canonical Promotion)"]
+        D1[("Cloudflare D1 Database\n(canonical_packages + package_fronts)")]
+        Meta[("catalog_metadata\n(In-Band Legal Notice)")]
+        
+        Dashboard -->|Manage Nodes & Keys| Reg
+        Reg -->|Authenticate| Ingest
+        Reg -->|Authenticate| CatalogAPI
+        Ingest --> Validation
+        Validation -->|Promote Validated Data| D1
+        D1 --> CatalogAPI
+        Meta --> CatalogAPI
     end
 
-    S1 -->|Batch Push Relational Deltas| D1
-    S1 -->|Ensure Legal Notice| Meta
-    D1 --> Worker
+    subgraph CrawlerDomain["Crawler Nodes (External Crawlers)"]
+        C1["Crawler Node A (VPS)"]
+        C2["Crawler Node B (Server)"]
+        C1 -->|"Crawler Credential (Bearer / Ed25519)"| Ingest
+        C2 -->|"Zero Cloudflare Master Tokens"| Ingest
+    end
+
+    subgraph ConsumerDomain["Consumer Applications (Third-Party Ecosystem)"]
+        App1["Consumer App A (ALCOM / VCC)"]
+        App2["Consumer App B (Web / Tools)"]
+        CatalogAPI -->|Catalog Sync & Deltas| App1
+        CatalogAPI -->|Catalog Sync & Deltas| App2
+        App1 -->|"Application Credential (Schema v1 Reports)"| CatalogAPI
+        App1 --> Users["App's Own Users & Local DB"]
+    end
+
+    RepositoryHosts["Storefront & Repo Hosts"] -.->|Inspect User-Agent URL| Public
 ```
 
 ### High-Watermark Verification Query

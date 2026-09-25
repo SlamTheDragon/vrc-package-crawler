@@ -217,3 +217,170 @@ Under the Task 3.2 pure pointer migration, persistent SQLite image caching (`med
 | **Pull-Based Steering** | Scheduled 30m pull and loopback IPC `/steering` trigger for community reports. | **Implemented (Steering Loop)** |
 | **Multi-Taxonomy Mapping** | Full community tag retention and empirical umbrella tag mappings. | **Implemented (Taxonomy Engine)** |
 
+---
+
+## 9. Post-v1.0 Control Plane, Client Registry & Repository Modularization Blueprint
+
+### 9.1 Control Plane Web Frontend Architecture
+The Canonical Network incorporates a lightweight web frontend serving as an administrative control plane and public informational portal. The web frontend is decoupled from crawler execution: crawler nodes require the web control plane only during operator registration and credential lifecycle events, never during the fetch loop.
+
+```mermaid
+flowchart TD
+    subgraph ControlPlane["Control Plane Web Frontend (crawler.example.com)"]
+        Public["Public Surface\n(/, /about, /docs, /robots-policy, /legal, /crawler)"]
+        AuthPanel["Authenticated Control Panel\n(/dashboard, /crawlers, /credentials, /applications)"]
+    end
+
+    subgraph CanonicalPlatform["Canonical Platform (Cloudflare Tier)"]
+        Reg["Client / Credential Registry\n(Crawler Clients & Application Clients)"]
+        CrawlerAPI["Crawler Ingestion API\n(POST /v1/ingest/batch)"]
+        ConsumerAPI["Consumer Catalog API\n(GET /v1/catalog/delta, Stream)"]
+    end
+
+    subgraph ExternalActors["External Ecosystem"]
+        Hosts["Repository Hosts & Visitors"]
+        Nodes["External Crawler Nodes"]
+        Apps["Consumer Applications (ALCOM, VCC)"]
+    end
+
+    Hosts -->|Inspect User-Agent URL| Public
+    AuthPanel -->|User Auth & Credential Issuance| Reg
+    Reg -->|Validate Crawler Credential| CrawlerAPI
+    Reg -->|Validate App Credential| ConsumerAPI
+    Nodes -->|Submit Batches via Crawler Credential| CrawlerAPI
+    ConsumerAPI -->|Catalog Sync & Feeds| Apps
+```
+
+- **Public Surface (Unauthenticated)**:
+  - Accessible to all repository hosts, creators, and public visitors.
+  - Endpoints: `/`, `/about`, `/docs`, `/robots-policy`, `/legal`, `/api`, `/crawler`.
+  - Explains crawler purpose, fetched metadata vs excluded binaries, robots.txt compliance, contact pathways, and direct creator opt-out instructions.
+- **Authenticated Control Panel (Registered Operators & Developers)**:
+  - Accessible to registered crawler operators and downstream application developers.
+  - Endpoints: `/dashboard`, `/crawlers`, `/crawlers/:id`, `/credentials`, `/applications`, `/reports`.
+  - Enables self-service crawler registration, credential rotation/revocation, heartbeat monitoring, application API key generation, and curation report tracking.
+
+### 9.2 Client Registry & Credential Isolation Boundary
+Rather than distributing Cloudflare infrastructure tokens, the Canonical Platform hosts an independent **Client Registry**:
+- **Crawler Clients**: `crawler_id`, `owner_user_id`, `credential_hash`, `status` (`online`, `offline`, `revoked`), `capabilities`, `last_heartbeat`.
+- **Application Clients**: `application_id`, `owner_user_id`, `credential_hash`, `status` (`active`, `revoked`), `scopes`.
+- **Security Boundary**: A compromised or misbehaving crawler token can be revoked in the Client Registry in sub-second time without rotating Cloudflare master API keys.
+
+### 9.3 Transparent User-Agent Identification
+HTTP fetch requests transmit a User-Agent header referencing the canonical repository:
+```http
+User-Agent: VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)
+```
+In the current implementation prior to control plane website deployment, the project retains this canonical GitHub repository link as the single authoritative transparency source, allowing repository and storefront operators to inspect the open-source implementation, operational covenants, and contact pathways directly.
+
+### 9.4 Post-Phase 5 Source Code Organization Blueprint
+Following completion of Phase 5 and during the scheduled Code Freeze & Simplification milestone, the repository will be reorganized into domain-specific packages:
+```
+vrc-package-crawler/
+├── packages/
+│   ├── crawler/        # Autonomous crawling engine (vrc-crawler, storefront drivers, projection)
+│   ├── server/         # Canonical Platform Cloudflare edge Worker APIs (Ingestion API, Catalog API, D1 sync)
+│   ├── web/            # Control Plane Web Frontend (Public documentation portal + Operator dashboard)
+│   └── shared/         # Common TypeScript types, protocol contracts, and validation schemas
+```
+**Phase 5 Boundary Guard**: Directory restructuring is reserved exclusively for the post-Phase 5 milestone. Current Phase 5 development (VPM manifest discovery, VRCArena adapter, cosmetics taxonomy) proceeds against the stable `src/` layout with zero premature refactoring churn.
+
+### 9.5 Crawl Coordinator & Origin Scheduling (Post-v1.0)
+
+#### Overview
+In the multi-node decentralized architecture, crawler nodes operate as **workers**, not autonomous agents. A centralized **Crawl Coordinator** component, hosted on the Canonical Platform, is the sole authority for assigning crawl targets and enforcing polite origin-level rate limits. Crawler nodes pull jobs from the coordinator; they never independently select or schedule origins.
+
+```mermaid
+flowchart TD
+    subgraph CanonicalPlatform["Canonical Platform"]
+        Coord["Crawl Coordinator\n(Origin Scheduler & Lease Manager)"]
+        OriginRL["Origin Rate-Limit State\n(per-origin: min_delay, last_request_at,\nbackoff_enabled, concurrent_requests=1)"]
+        Registry["Client / Credential Registry"]
+        CatalogAPI["Consumer Catalog API"]
+    end
+
+    subgraph CrawlerNodes["Crawler Nodes (Workers)"]
+        NodeA["Crawler Node A"]
+        NodeB["Crawler Node B"]
+        NodeC["Crawler Node C"]
+    end
+
+    subgraph Origins["VPM / Storefront Origins"]
+        OA["Origin A (BOOTH)"]
+        OB["Origin B (Gumroad)"]
+        OC["Origin C (Jinxxy)"]
+    end
+
+    Registry -->|Validates Crawler Credential| Coord
+    Coord -->|Reads & writes origin rate state| OriginRL
+    NodeA -->|POST /v1/crawlers/jobs/pull| Coord
+    NodeB -->|POST /v1/crawlers/jobs/pull| Coord
+    NodeC -->|POST /v1/crawlers/jobs/pull| Coord
+    Coord -->|Issues origin lease| NodeA
+    Coord -->|Issues origin lease| NodeB
+    Coord -->|Issues origin lease| NodeC
+    NodeA -->|Fetches under lease| OA
+    NodeB -->|Fetches under lease| OB
+    NodeC -->|Fetches under lease| OC
+    NodeA -->|POST /v1/crawlers/jobs/:id/result| Coord
+    NodeB -->|POST /v1/crawlers/jobs/:id/result| Coord
+    NodeC -->|POST /v1/crawlers/jobs/:id/result| Coord
+```
+
+#### Origin Lease Model
+The coordinator assigns a **lease** before any crawler node may fetch from an origin. The lease schema:
+```
+origin_leases:
+  origin            TEXT    -- e.g. "booth.pm"
+  lease_holder      TEXT    -- crawler_id
+  expires           INTEGER -- Unix epoch ms
+  next_allowed_fetch INTEGER -- Unix epoch ms (earliest permitted request)
+```
+
+Per-origin rate state managed by the coordinator:
+```
+origin_rate_state:
+  origin               TEXT
+  concurrent_requests  INTEGER  DEFAULT 1  -- maximum simultaneous requests to this origin
+  min_delay_ms         INTEGER             -- derived from robots.txt Crawl-delay or platform default
+  backoff_enabled      BOOLEAN
+  last_request_at      INTEGER             -- Unix epoch ms (shared across ALL nodes)
+  backoff_until        INTEGER             -- Unix epoch ms; set on 429 / 5xx signals
+```
+
+#### Architectural Invariants
+
+1. **Rate-Limit by Origin, Not by Crawler Node**: The rate limit is a property of the *destination origin*, not the submitting node. All per-origin backoff state is stored centrally and shared across every crawler node.
+
+2. **Failing-Closed Safety Property**: If the Crawl Coordinator is unreachable, crawler nodes **must wait** — they must not fall back to local crawling schedules or self-assign targets. An unreachable coordinator is treated as a full crawl stop. This prevents uncoordinated traffic spikes against third-party origins during coordinator outages.
+
+3. **`robots.txt` Crawl-Delay as Scheduler Input**: RFC 9309 `Crawl-delay` values and `Disallow` paths feed directly into the centralized origin rate state. A crawler node cannot override source-level crawling restrictions; the coordinator enforces them as non-negotiable scheduler inputs.
+
+4. **Shared Backoff State**: HTTP 429 and persistent 5xx responses from an origin become **platform-level signals**, not node-level signals. All nodes back off from that origin simultaneously until the coordinator's `backoff_until` timestamp clears.
+
+5. **Anti-Amplification Invariant** *(explicit architectural constraint)*:
+   > No crawler node may increase the request rate toward an origin merely because additional crawler capacity becomes available.
+
+   Additional crawler nodes expand *parallel origin coverage*, not *per-origin request frequency*.
+
+#### Two-Plane Identity Split (Structural)
+The Post-v1.0 platform separates into two structurally distinct product planes under one legal entity:
+
+| Plane | Name | Users | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Infrastructure Plane** | Crawler Network | Crawler Operators | Crawler registration, auth, crawl scheduling, origin rate-limiting, robots.txt enforcement, ingestion |
+| **Consumer Plane** | VPM Search / Public Catalog | End Users & API Developers | Package search, package pages, metadata, community reports, consumer API |
+
+Umbrella project name: **VPM Network** (optional future brand identifier, not a legal entity).
+
+Eventual document structure (note only — do NOT restructure `LEGAL.md` during Phase 5):
+```
+LEGAL/
+├── PLATFORM.md         # General platform terms and operator responsibilities
+├── CRAWLER_NETWORK.md  # Crawler operator covenant, origin restrictions, credential terms
+├── CATALOG.md          # Consumer catalog access and redistribution terms
+├── API.md              # API use policy and versioning
+├── PRIVACY.md          # Data privacy across both planes
+└── ORIGIN_POLICY.md    # robots.txt compliance, opt-out, and origin safeguards
+```
+Unified `LEGAL.md` retained as an index linking the above documents during the transition period.

@@ -62,6 +62,50 @@ flowchart TD
     end
 ```
 
+### 1.1 Core Pipeline Mental Model & Boundary Enforcement
+To prevent cognitive overload, architectural creep, and document fragmentation across future development, agents must reason about the system strictly from the outside inward along the single canonical pipeline:
+```
+VPM Source ──► Discovery ──► Fetch ──► Parse ──► Normalize ──► Store ──► Index / Projection ──► API ──► Consumer
+```
+Every subsystem in the codebase attaches directly to one of these pipeline stages:
+- **Legal Policy & robots.txt**: Governs `Discovery` and `Fetch`.
+- **Front Metadata & Classifiers**: Governs `Normalize` and `Store`.
+- **Projection & SimHash Clustering**: Governs `Index / Projection`.
+- **Delta Sync & In-Memory Media Streaming**: Governs `API` and `Consumer`.
+
+**Agent Invariants**:
+- Agents must not invent new speculative architectural layers to solve problems introduced by earlier layers. When completing `TODO.md` items, adhere strictly to the task scope. Do not treat `DISAGREEMENTS.md` as an alternative architectural specification; it is strictly an active defect and gap registry. Following completion of `TODO.md`, the codebase enters a hard Code Freeze for manual archaeological review, simplification, and code deletion.
+- **Failing-Closed (Post-v1.0 Crawl Coordinator)**: If the Crawl Coordinator is unreachable, crawler nodes must wait and must NOT self-assign targets or fall back to a local schedule. An unreachable coordinator is a full crawl stop.
+- **Anti-Amplification Invariant**: No crawler node may increase the request rate toward any origin merely because additional crawler capacity becomes available. Additional nodes expand parallel origin *coverage*, not per-origin *frequency*. Rate-limit state is a property of the destination origin and is stored centrally on the Canonical Platform.
+
+### 1.2 Tri-Domain Architecture, Control Plane & Standardized Vocabulary
+To eliminate terminological confusion where the Cloudflare layer is colloquially called "the crawler", agents must strictly adhere to the standardized three-domain and control-plane vocabulary:
+
+| Standardized Term | Architectural Definition | Credential & Boundary Invariant |
+| :--- | :--- | :--- |
+| **Crawler Node** | An executable instance (`vrc-crawler`) that fetches VPM and storefront sources | Authenticates via `Crawler Credential`; never receives Cloudflare infrastructure tokens |
+| **Crawler Ingestion API** | API through which crawler nodes submit raw observations to the platform | Validates node authentication and schemas; enforces rate-limits |
+| **Canonical Platform** | Authoritative catalog infrastructure (Worker, D1, R2, validation engine) | Single source of truth; determines which observations become canonical packages |
+| **Catalog API** | Public / consumer-facing API (`GET /v1/catalog/delta`, `/v1/packages/stream`) | Emits in-band terms headers (`VRC-Packages-Terms-Of-Use`) |
+| **Consumer Application** | Third-party software built using the catalog (e.g., ALCOM, VCC, desktop tools) | Air-gapped from platform; manages its own end-users (Alice, Bob) downstream |
+| **Report** | Structured curation information submitted by a consumer application | Formatted under versioned schema (`schema_version: 1`); validated by platform |
+| **Control Plane Frontend** | Web frontend serving public informational docs and operator dashboard | Control plane only; the crawler node does not require the website after registration |
+| **Client Registry** | Platform registry managing crawler and application client identities | Isolates client credential lifecycle from Cloudflare master infrastructure keys |
+| **Crawler Credential** | Credential identifying an authorized crawler node (`Bearer <token>` / Ed25519) | Revocable without exposing or rotating Cloudflare master credentials |
+| **Application Credential** | Credential identifying an authorized consumer application | Authorizes application API access without exposing end-user identities |
+
+### 1.3 Planned Post-Phase 5 Source Code Organization Blueprint
+Per reviewer recommendations, following Phase 5 completion and during the scheduled Code Freeze & Simplification milestone, the codebase will be cleanly partitioned into domain-specific packages:
+```
+vrc-package-crawler/
+├── packages/
+│   ├── crawler/        # Standalone crawler node engine (vrc-crawler, storefront drivers, projection)
+│   ├── server/         # Canonical Platform Cloudflare edge Worker APIs (Ingestion API, Catalog API, D1 sync)
+│   ├── web/            # Control Plane Web Frontend (Public documentation portal + Operator dashboard)
+│   └── shared/         # Common TypeScript types, protocol contracts, and validation schemas
+```
+**Phase 5 Boundary Guard**: Agents must not execute this physical directory move during Phase 5. Phase 5 tasks (VPM manifest parsing, VRCArena adapter, avatar cosmetics taxonomy) build on the stable `src/` layout. Monorepo folder splitting is strictly reserved for the Post-Phase 5 Code Freeze milestone.
+
 ---
 
 ## 2. Standalone Compilation & Binary Distribution

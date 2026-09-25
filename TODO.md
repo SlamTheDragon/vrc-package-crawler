@@ -658,35 +658,106 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 ### Post-v1.0 Milestone: Decentralized Edge Node Ingestion & Provenance Architecture
 
-#### Task 5.4: Canonical Network Node Provenance, Edge Ingestion Gateway & Delisting Propagation
-- **Priority**: Post-v1.0 Network Scaling & Decentralized Governance | **Complexity**: Architectural Milestone (6+ hours) | **Traceability**: CANON-6, CR-18, G-26, LEGAL §1.4, §9.6
+#### Task 5.4: Canonical Network Architecture: Tri-Domain Separation, Crawler Ingestion API & Delisting Propagation
+- **Priority**: Post-v1.0 Network Scaling & Decentralized Governance | **Complexity**: Architectural Milestone (6+ hours) | **Traceability**: CANON-6, CR-18, G-26, LEGAL §1.4, §9.6, §10.9
 - **Files**: [`src/db.ts`](src/db.ts), [`src/sync/index.ts`](src/sync/index.ts), [`src/server/index.ts`](src/server/index.ts), `workers/ingestion_gateway/` (future service)
 - **Problem & Security Rationale for Deferral**:
   - In v1.0, the crawler operates strictly in a single-node, maintainer-operated mode. `src/sync/index.ts` pushes incremental deltas to Cloudflare D1/R2 using administrative master credentials (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`).
   - Distributing write access to external contributor nodes in v1.0 would require sharing master Cloudflare API keys or opening unrestricted D1 HTTP endpoints, exposing the canonical database to catastrophic security vulnerabilities (database wiping, credential leakage, and untrusted spam injection).
   - Consequently, decentralized contributor features are postponed beyond v1.0, preserving a secure single-node perimeter during Phase 1-5.
-- **Post-v1.0 Architecture Specification**:
-  1. **Cloudflare Worker Ingestion Gateway (`POST /v1/ingest/batch`)**:
-     - Deploy a dedicated edge Worker Gateway that terminates external contributor traffic without exposing D1 master credentials.
-     - Contributor nodes register with an Ed25519 public key. Ingestion requests must include cryptographic headers (`X-Node-Id`, `X-Node-Signature`, `X-Batch-Id`).
-  2. **Asynchronous Validation & Quarantine Pipeline**:
-     - The gateway pushes submitted batches into Cloudflare Queues for asynchronous schema validation, rate-limiting, and anomaly detection prior to committing to D1.
-  3. **Database Provenance Tracking Columns**:
-     - Extend SQLite schema in `src/db.ts` to add `contributor_node_id TEXT`, `crawl_signature TEXT`, and `batch_id TEXT` to `entities` and `canonical_packages` (CR-18, G-26, LEGAL §1.4).
-  4. **Automated Delisting Propagation Broadcast**:
+- **Post-v1.0 Tri-Domain Architecture Specification**:
+  1. **Tri-Domain Separation**:
+     The system decouples into three independent architectural domains:
+     - **Crawler Nodes**: Independent machines/processes executing the discovery and fetch loop against VPM manifests and storefront sources.
+     - **Canonical Platform**: Authoritative Cloudflare-hosted infrastructure maintaining the catalog, validation engine, crawler ingestion API, and public consumer API.
+     - **Consumer Applications**: Third-party client applications (e.g., desktop package managers, ALCOM, VCC) consuming the catalog and submitting structured reports.
+  2. **Strict Credential Isolation Boundary**:
+     - Crawler nodes authenticate with a **`Crawler Credential`** (`Authorization: Bearer <crawler-instance-token>` or Ed25519 request signature) submitted to the **`Crawler Ingestion API`**.
+     - Crawler nodes **never** receive Cloudflare API tokens, account IDs, or D1 master keys.
+     - If a crawler instance is compromised or misbehaves, revoking its `Crawler Credential` immediately severs its access while Cloudflare infrastructure credentials remain completely safe and unexposed.
+  3. **Protocol-First Architecture Over Premature Infrastructure Complexity**:
+     - Avoid premature distributed clustering, complex worker fleets, or heavy OAuth federations. The system defines a clean, stateless **Crawler Protocol**:
+       - `POST /v1/crawlers/register` (registration & public key / token issuance)
+       - `POST /v1/crawlers/heartbeat` (liveness and node health)
+       - `POST /v1/crawlers/jobs/pull` (fetch targets from crawl frontier)
+       - `POST /v1/crawlers/jobs/:id/result` (return observation payloads)
+       - `POST /v1/crawlers/reports` (or batch ingestion `POST /v1/ingest/batch`)
+     - The Canonical Platform initially operates simply (Crawler Node ──► Cloudflare Worker ──► D1) and can later scale to Queues and worker fleets without altering the crawler protocol. The API serves as the immutable abstraction boundary.
+  4. **Authorization $\neq$ Trust $\neq$ Authority**:
+     - An authenticated crawler node does **not** automatically produce authoritative data:
+       ```
+       Authenticated source  ──►  Trusted data  ──►  Canonical data
+       ```
+     - The Canonical Platform records observation metadata (`source`, `crawler_instance`, `observation`, `timestamp`, `content_hash`, `validation_result`).
+     - The Canonical Platform's internal validation, deduplication, and projection engine determines what becomes authoritative in `canonical_packages`.
+  5. **Consumer Application Air-Gap & Application-Level Credentials (Model A)**:
+     - Consumer applications authenticate at the application level using an **`Application Credential`** (`application_token`), NOT individual end-user identities (Alice, Bob).
+     - Consumer applications maintain their own user databases, authentication systems, and privacy boundaries.
+     - Reporting follows **Model A (Application-Level Reports)**: Consumer applications submit structured reports under a published, versioned schema (`schema_version: 1` or `Content-Type: application/vnd.vrc-crawler.report+json;version=1`). The Canonical Platform validates reports against its schema rather than blindly trusting consumer assertions.
+  6. **Standardized Terminology Matrix**:
+     | Term | Meaning |
+     | :--- | :--- |
+     | **Crawler Node** | An executable instance that fetches VPM sources |
+     | **Crawler API / Ingestion API** | API through which crawler nodes communicate with the canonical platform |
+     | **Canonical Platform** | Authoritative catalog infrastructure (Cloudflare Worker, D1, R2, validation engine) |
+     | **Catalog API** | Public / consumer-facing API (`GET /v1/catalog/delta`, `GET /v1/packages/stream`, etc.) |
+     | **Consumer Application** | Third-party software built using the catalog (e.g., ALCOM, VCC, desktop tools) |
+     | **Report** | Structured information submitted by a consumer application |
+     | **Crawler Credential** | Credential identifying an authorized crawler node |
+     | **Application Credential** | Credential identifying an authorized consumer application |
+  7. **Control Plane Web Frontend & Client Registry Architecture**:
+     - **Control Plane Separation**: The Web Frontend operates strictly as an administrative control plane and public informational portal; it is not part of the crawler execution loop. The crawler does not depend on the website after registration.
+     - **Two Decoupled Surfaces**:
+       - *Public Surface (Unauthenticated)*: `/`, `/about`, `/docs`, `/robots-policy`, `/legal`, `/api`, `/crawler`. Explains what the crawler is, what it fetches, User-Agent identification, how repository/storefront operators can contact maintainers or request delisting, and documents public API/data policies.
+       - *Authenticated Control Panel (Registered Operators/Developers)*: `/dashboard`, `/crawlers`, `/crawlers/:id`, `/credentials`, `/applications`, `/reports`. Handles operator account management, crawler node registration, credential issuance/rotation/revocation, crawler status/heartbeats, application client registration, API keys, and report tracking.
+     - **Client Registry / Credential Registry Model**:
+       - Central registry hosted on the canonical platform, managing:
+         - *Crawler Clients*: `crawler_id`, `owner`, `credential_hash`, `status` (`online`, `offline`, `revoked`), `capabilities`, `last_heartbeat`.
+         - *Application Clients*: `application_id`, `owner`, `credential_hash`, `status` (`active`, `revoked`), `scopes`.
+       - Decouples client authentication from Cloudflare infrastructure credentials. A revoked crawler or application token severs API access while master Cloudflare keys remain untouched.
+     - **User-Agent Canonical Identification**:
+       - `User-Agent: VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)`
+       - Retains the canonical GitHub repository as the primary transparent identification link until a dedicated control plane web frontend is deployed post-v1.0.
+  8. **Automated Delisting Propagation Broadcast**:
      - When a package is marked `delisted` on the canonical edge, downstream sync passes broadcast delist directives across nodes to prevent recrawl resurrection.
-  5. **Decentralized Transition & Readiness Gates**:
+  9. **Decentralized Transition & Readiness Gates**:
      - Before any external untrusted node is authorized to push records to the canonical network, all five gates must pass:
        - *Gate 1 (Single-Node Baseline Stability)*: Phases 1-5 must be fully verified and operational on maintainer hardware with zero edge-sync data drops.
        - *Gate 2 (Zero Credential Leakage)*: The Cloudflare Worker Ingestion Gateway must be active, strictly isolating master D1/R2 API keys from external contributors.
-       - *Gate 3 (Cryptographic Provenance)*: Node registration with Ed25519 keypairs must be enforced on all incoming batch submissions.
+       - *Gate 3 (Cryptographic Provenance)*: Node registration with Ed25519 keypairs or instance tokens must be enforced on all incoming batch submissions.
        - *Gate 4 (Schema Migration)*: Provenance columns must be migrated in both local SQLite and Cloudflare D1 tables.
        - *Gate 5 (Delisting Synchronization)*: Automated delisting broadcast directives must be proven to propagate and suppress recrawls across distributed nodes.
+   10. **Crawl Coordinator & Origin Lease System** *(Post-v1.0, part of Task 5.4 infrastructure)*:
+       - **Crawl Coordinator Component**: A centralized scheduler hosted on the Canonical Platform. Crawler nodes operate as *workers* that pull jobs from the coordinator; no node independently selects or schedules origins.
+       - **Origin Lease Model**: Before fetching from any origin, a crawler node must hold an active lease issued by the coordinator. Key fields: `origin`, `lease_holder` (crawler_id), `expires` (epoch ms), `next_allowed_fetch` (epoch ms); and per-origin rate state: `concurrent_requests=1`, `min_delay_ms`, `backoff_enabled`, `last_request_at`, `backoff_until`.
+       - **Rate-Limit by Origin, Not by Crawler**: Per-origin rate limits are stored centrally and enforced across *all* nodes. Adding more crawler nodes expands parallel origin *coverage*, not per-origin *frequency*.
+       - **Failing-Closed Safety Property**: If the Crawl Coordinator is unreachable, crawler nodes must wait — they must NOT fall back to local schedules or self-assign targets. An unreachable coordinator equals a full crawl stop. This prevents uncoordinated distributed traffic spikes against third-party origins.
+       - **Shared Backoff State**: HTTP 429 and persistent 5xx responses from an origin are platform-level signals. All nodes simultaneously back off from that origin until the coordinator's `backoff_until` timestamp clears.
+       - **`robots.txt` Crawl-Delay as Scheduler Input**: RFC 9309 `Crawl-delay` values and `Disallow` paths feed directly into centralized origin rate state. Crawler nodes cannot override source-level restrictions; the coordinator enforces them as non-negotiable scheduler inputs.
+       - **Anti-Amplification Invariant** *(explicit architectural constraint)*: *"No crawler instance may independently increase the request rate toward an origin merely because additional crawler capacity becomes available."*
+       - **Two-Plane Identity Split** *(structural, not a separate legal entity)*: The platform decouples into two product planes: *Crawler Network* (infrastructure plane — crawler operators, registration, scheduling, rate-limiting, ingestion) and *VPM Search / Public Catalog* (consumer plane — end users, search, package pages, consumer API). Umbrella identifier: **VPM Network** (optional future brand name). Two distinct Terms of Service documents can govern the two planes without requiring two legal entities; a single Philippine juridical entity can operate both under separate terms while maintaining distinct contractual relationships with crawler operators and end users.
 - **Cascading Documentation Changes**:
-  - [`LEGAL.md`](LEGAL.md): Retains Section 1.4 and Section 2.3 decentralized network ownership model as the target architecture, noting implementation is queued for Post-v1.0.
-  - [`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md): Add Section 4 detailing future multi-node Worker Ingestion Gateway design.
+  - [`LEGAL.md`](LEGAL.md): Retains Section 1.4 and Section 2.3 decentralized network ownership model, adding the Tri-Domain separation, credential isolation invariant, and Section 10.9 tri-party responsibility breakdown.
+  - [`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md): Update Section 6 with Tri-Domain architecture, Control Plane Web Frontend, Crawler Ingestion API protocol, and credential isolation.
   - [`DELEGATES.md`](DELEGATES.md): Clarify that v1.0 operations are strictly single-node maintainer runs.
-- **Acceptance Criteria**: Submitted edge records contain cryptographically verifiable node provenance; Worker Ingestion Gateway validates signatures without exposing D1 master credentials; delisting directives propagate across nodes to suppress recrawl.
+
+### Post-Phase 5 Milestone: Code Freeze, Archaeological Manual Review & Simplification Pass
+- **Purpose**: Following the completion of Phase 5, the codebase enters a hard **Code Freeze**.
+- **Scope & Protocol**:
+  1. **Strict Freeze Boundary**: Halt all new feature additions and speculative abstractions.
+  2. **Outside-Inward Pipeline Audit**: Reconstruct and trace the codebase along the single canonical pipeline:
+     ```
+     VPM Source ──► Discovery ──► Fetch ──► Parse ──► Normalize ──► Store ──► Index/Projection ──► API ──► Consumer
+     ```
+  3. **Discrepancy Remediation**: Triage and resolve active items in `DISAGREEMENTS.md` (OVERLOOKED-11 through OVERLOOKED-19).
+  4. **Aggressive Simplification & Deletion**: Evaluate every subsystem for genuine necessity. Purge accidental complexity, dead status enums, and redundant subprocesses (`sharp_worker.ts`).
+  5. **Repository Modularization & Directory Layout Blueprint**:
+     - Formally split monolithic source code into clean domain-isolated directories:
+       - `packages/crawler` (or `apps/crawler`): Standalone crawling engine (`vrc-crawler`), storefront drivers, and projection pipeline.
+       - `packages/server` (or `apps/server` / `workers/`): Canonical Platform Cloudflare edge Worker APIs (`Crawler Ingestion API`, `Catalog API`, D1/R2 sync engine).
+       - `packages/web` (or `apps/web`): Control Plane Web Frontend (Public informational portal + Authenticated operator/developer dashboard).
+       - `packages/shared`: Shared TypeScript types, protocol contracts, and validation schemas.
+     - *Execution Note*: Directory restructuring is strictly deferred to this post-Phase 5 milestone to protect current Phase 5 development (VPM manifest parsing, VRCArena adapter, avatar cosmetics taxonomy) from disruptive import breaking changes.
 
 ---
 

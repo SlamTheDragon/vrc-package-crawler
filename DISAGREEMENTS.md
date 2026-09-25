@@ -28,6 +28,24 @@ To eliminate mock-reality drift, false-positive compliances, and premature produ
 > 
 > However, an adversarial deep-dive into the post-Phase 4 codebase uncovers **new critical breaking points, fragile edge behaviors, factual discrepancies, and stale/uncalled code** (OVERLOOKED-11 through OVERLOOKED-19) that must be formally triaged before production exposure.
 
+### Document Role: Gap Registry, Not a Parallel Architecture
+Per architectural review, **`DISAGREEMENTS.md` is strictly a Discrepancy, Contradiction, and Gap Registry** ("Here are known disagreements between intended behavior, implementation, documentation, and external constraints").  
+**It MUST NOT be treated as an independent architectural specification** ("Here is how the system works").  
+To prevent documentation sprawl where multiple artifacts independently redefine the system, the project maintains a single core pipeline mental model:
+
+```
+VPM Source ──► Discovery ──► Fetch ──► Parse ──► Normalize ──► Store ──► Index/Projection ──► API ──► Consumer
+```
+
+All auxiliary modules (legal policy, robots.txt, storefronts, delta sync, media streaming, terms headers) must attach cleanly to this pipeline.
+
+### The Post-TODO Code Freeze & System Simplification Boundary
+The repository operates under a strict **Freeze Boundary Workflow**:
+```
+Current State (Phase 4 Done) ──► Complete Phase 5 (TODO.md) ──► CODE FREEZE ──► Manual System Review ──► Simplification & Deletion Pass
+```
+Rather than continuously layering new speculative architecture to solve problems caused by prior layers, once `TODO.md` is finished, the codebase enters a hard Code Freeze. A comprehensive manual system review will audit the pipeline from the outside inward, evaluating which subsystems are genuinely necessary and cutting accidental complexity. OVERLOOKED-11 through OVERLOOKED-19 are formally queued for this simplification and stabilization review.
+
 This document formally records:
 1. **Critical Breaking Points, Fragile Edge Behaviors & Missing Guards** (Active edging points and subtle failure modes).
 2. **Critical Highlight: Mock, Stale, Uncalled, and Outdated Code** (Redundant subprocesses, dead enums, stale status filters).

@@ -33,7 +33,7 @@ The Project distinguishes three distinct legal layers:
 
 1.4. **Deployment and Network Ownership Model.**  
 The Project operates under two distinct deployment structures:
-- **(a) The Canonical Network (v1.0 Single-Node Architecture):** In version 1.0, the Canonical Network operates exclusively as a single-node, maintainer-operated deployment. To protect administrative infrastructure keys and eliminate edge database tampering, third-party contributor node ingestion is formally deferred to a Post-v1.0 Milestone governed by cryptographic Worker Ingestion Gateways. The Maintainer owns and publishes the resulting catalog products, including canonical projection databases (`vrc_catalog.db`) and search indexes. Access to and redistribution of these canonical network products are governed by these Terms.
+- **(a) The Canonical Network (v1.0 Single-Node Architecture & Tri-Domain Separation):** In version 1.0, the Canonical Network operates exclusively as a single-node, maintainer-operated deployment. To protect administrative infrastructure keys and eliminate edge database tampering, third-party contributor node ingestion is formally deferred to a Post-v1.0 Milestone governed by cryptographic Crawler Ingestion Gateways. The Canonical Architecture formally establishes three decoupled operational domains: (1) **Crawler Nodes** (executable instances that fetch VPM and storefront sources), (2) the **Canonical Platform** (authoritative Cloudflare-hosted catalog, validation engine, crawler ingestion API, and public consumer API), and (3) **Consumer Applications** (third-party software consuming the catalog or submitting curation reports). *Authentication to the canonical API does not grant access to the underlying infrastructure or Cloudflare account, nor does it by itself establish that submitted data is authoritative or accurate.* The Maintainer owns and publishes the resulting catalog products, including canonical projection databases (`vrc_catalog.db`) and search indexes. Access to and redistribution of these canonical network products are governed by these Terms.
 - **(b) Independent Networks (AGPLv3):** If an entity uses or modifies this crawler software for an independent network, the GNU Affero General Public License v3.0 (AGPLv3) strictly applies. That operator must obey all AGPLv3 copyleft obligations, including Section 13 for network interaction. The Maintainer claims no ownership over independent databases generated outside the Canonical Network.
 
 1.5. **Terms Precedence.**  
@@ -136,7 +136,7 @@ The Project has no corporate or contractual relationship with any indexed platfo
 ## 6. Crawling and Technical Safeguards
 
 6.1. **Robots Exclusion Protocol Compliance (IETF RFC 9309).**  
-The crawler voluntarily honors RFC 9309 as an operational signal. The crawler checks `/robots.txt` before fetching URL paths, follows Disallow rules, applies longest prefix matching, and caches directives for 24 hours.
+The crawler voluntarily honors RFC 9309 as an operational signal. The crawler checks `/robots.txt` before fetching URL paths, follows Disallow rules, applies longest prefix matching, and caches directives for 24 hours. In the post-v1.0 multi-node architecture, RFC 9309 `Crawl-delay` values and `Disallow` path rules feed directly into the centralized Crawl Coordinator as non-negotiable scheduler inputs. Individual crawler nodes cannot override source-level crawling restrictions; the Canonical Platform enforces them uniformly across all nodes. **Crawler operators are not independently authorized to disregard source-level crawling restrictions merely because they possess a crawler credential.**
 
 6.2. **Transparent User-Agent Identification.**  
 All HTTP requests include an honest User-Agent header identifying the project and contact email:
@@ -237,8 +237,8 @@ The Maintainer aims to process verified requests within a voluntary 24 to 48 hou
 9.7. **Repeated Valid Delisting and Rights Complaints.**  
 If an origin receives repeated valid rights complaints, the Maintainer will permanently suppress that origin from discovery queues.
 
-9.8. **Account-Based Functions Out of Scope.**  
-Account-based claims and profile editing belong to external applications. The Project does not supply in-band user authentication.
+9.8. **Account-Based Functions and Consumer Identity Air-Gap.**  
+Account-based user identity, profile editing, and user-specific claims belong strictly to external consumer applications. The Project does not manage, store, or track end-user accounts (e.g. individual desktop application users). *Consumer applications authenticate as applications rather than as users of those applications. Consumer applications remain responsible for their own user accounts, authentication systems, and downstream handling of catalog data unless otherwise expressly provided by the platform.*
 
 9.9. **Notice Regarding Statutory Safe Harbors.**  
 The Maintainer has not registered a designated agent under 17 U.S.C. Section 512(c)(2). The Maintainer does not represent that the Project qualifies for DMCA statutory safe harbor protections. The Maintainer operates this notice-and-delisting procedure as a voluntary good-faith operational policy to respect creator preferences and facilitate correction or removal requests. This procedure does not constitute an assertion of statutory safe harbor, intermediary immunity, or other statutory defenses under Philippine law or foreign law.
@@ -275,7 +275,8 @@ As an operational security covenant, downstream applications integrating Project
 
 10.6. **Community Curation Reports, Bearer Authentication, and Quarantined Processing.**  
 The endpoint `POST /v1/reports` accepts structured curation and moderation reports (Schema 4). To prevent unauthorized competitor sabotage, automated delisting denial-of-service attacks, and catalog poisoning:
-- **Mandatory Bearer Authentication**: Submissions to `POST /v1/reports` strictly require administrative bearer authentication (`Authorization: Bearer <API_SECRET_TOKEN>`). Requests lacking a valid token generated with at least 256 bits of CSPRNG entropy are rejected with `HTTP 401 Unauthorized`. Token verification uses constant-time string comparison (`crypto.timingSafeEqual`) to prevent timing side-channel attacks.
+- **Mandatory Bearer Authentication**: Submissions to `POST /v1/reports` strictly require administrative or application-level bearer authentication (`Authorization: Bearer <API_SECRET_TOKEN>` or registered `Application Credential`). Requests lacking a valid token generated with at least 256 bits of CSPRNG entropy are rejected with `HTTP 401 Unauthorized`. Token verification uses constant-time string comparison (`crypto.timingSafeEqual`) to prevent timing side-channel attacks.
+- **Application-Level Reports & Versioned Schemas (Model A)**: Reports are accepted at the application level. Consumer applications need not transmit end-user references. All reports must declare and conform to published, versioned report schemas (e.g. `schema_version: 1` or `Content-Type: application/vnd.vrc-crawler.report+json;version=1`). The Canonical Platform validates every report against its schema rather than trusting consumer-side validation.
 - **Quarantined Delisting Buffer**: In accordance with the anti-tampering covenant, community reports asserting `irrelevance` or `scam` do not trigger autonomous delisting. Instead, the reported package transitions to an administrative `'needs_review'` quarantine buffer, pending human curator evaluation before any permanent lifecycle mutation (`'delisted'`) may occur.
 - **Strict Separation from Creator Opt-Out**: Administrative curation under this Section is distinct from verified rights-holder delisting under Section 9. Rights holders need not possess administrative bearer credentials and may delist their packages directly via `POST /v1/opt-out` using non-scraping proof pathways.
 
@@ -291,15 +292,18 @@ Populated metadata attributes declare: `terms_of_use_url`, `terms_version`, `rep
 
 For Project-controlled catalog distributions governed by these Terms, downstream redistributors must preserve the `catalog_metadata` table and its legal notices when redistributing the catalog as a catalog product. This requirement does not impose additional restrictions on rights granted by AGPLv3 with respect to the source code itself.
 
-10.8. **Definition of Downstream Recipient.**  
-A "**Downstream Recipient**" includes:
-- Direct API consumers querying Project HTTP endpoints.
-- Distributors who mirror or host exported catalog databases.
-- Cached feed redistributors.
-- End-user search applications integrating catalog data.
+10.8. **Classification of Project Users and Downstream Recipients.**  
+The Project defines three distinct categories of users across its operational and legal surfaces:
+- **(a) Website Visitor**: Any individual or automated system accessing the unauthenticated public surface of the Control Plane (`/`, `/about`, `/docs`, `/robots-policy`, `/legal`, `/api`, `/crawler`). Website visitors require no user account, registration, or credentials.
+- **(b) Crawler Operator**: An individual or entity operating an autonomous crawler node that has registered an operator account on the Control Plane and received a `Crawler Credential` to submit observation payloads to the `Crawler Ingestion API`.
+- **(c) Consumer Developer & Downstream Recipient**: An individual or entity operating third-party software (e.g. desktop managers, ALCOM, VCC, web directories) that queries the `Catalog API`, mirrors or hosts exported SQLite databases (`vrc_catalog.db`), redistributes cached feeds, or submits versioned curation reports using an `Application Credential`.
 
-10.9. **Downstream Operator Responsibility.**  
-To the extent permitted by applicable law, a downstream operator is responsible for claims arising from its own modification, deployment, redistribution, or misuse of Project outputs, including violations of these Terms.
+10.9. **Tri-Party Operational Responsibilities and Allocation of Liability.**  
+The Canonical Architecture establishes clear operational boundaries and allocations of responsibility across three independent parties:
+- **(a) Crawler Operator**: Responsible for operating their crawler instance; protecting and securing crawler credentials; complying with crawler/source host restrictions and polite crawling pacing covenants; refraining from impersonating other crawlers or systems; and submitting data strictly according to the API protocol. In the post-v1.0 multi-node architecture, Crawler Operators additionally agree: (i) that crawler nodes must not self-schedule or self-assign crawl targets when the Crawl Coordinator is unreachable — nodes must wait (failing-closed property); (ii) that the addition of additional crawler node capacity must not increase the request rate toward any individual origin (anti-amplification invariant); and (iii) that source-level `robots.txt` restrictions, including `Crawl-delay`, are enforced by the Canonical Platform and may not be circumvented by individual crawler nodes.
+- **(b) Canonical Platform**: Responsible for authenticating crawler and consumer application clients; issuing and revoking credentials upon compromise or terms violations; validating API payloads against published schemas; defining canonical schemas; and determining how submitted raw observations enter the catalog projection (Authorization $\neq$ Trust $\neq$ Authority).
+- **(c) Consumer Application**: Responsible for protecting and securing its application credentials; complying with API and catalog terms of use; validating catalog data appropriately for its downstream environment; maintaining and governing its own user accounts and user data privacy; and never representing itself as the canonical platform.
+- **(d) Downstream Operator Responsibility**: To the extent permitted by applicable law, a downstream operator is responsible for claims arising from its own modification, deployment, redistribution, or misuse of Project outputs, including violations of these Terms.
 
 ---
 
