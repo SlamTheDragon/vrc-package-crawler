@@ -141,6 +141,7 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
     // =========================================================================
     // STEP 1: AUDIT & CLEAN RAW ENTITIES + QUARANTINE RECOVERY
     // =========================================================================
+    // FIXME: why is quarantine recovery a thing if such methods can be implemented during discovery and filter phase anyway??
     if (isPipelineInterrupted) return;
     console.log("\n[Step 1/5] Auditing raw entities and salvaging legitimate quarantined items...");
 
@@ -176,6 +177,7 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
         };
 
         const evalRes = RelevanceFilter.evaluate(minEntity);
+        // FIXME: if relevance were called for filtering prior pipeline then this whole block is stale and redundant
         if (evalRes.isRelevant) {
           salvagedCount++;
           unquarantineStmt.run(now, q.id);

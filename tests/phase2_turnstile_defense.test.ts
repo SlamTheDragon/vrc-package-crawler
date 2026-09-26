@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { CrawlerDB } from "../src/db.ts";
-import { GumroadDriver } from "../src/drivers/gumroad.ts";
-import { JinxxyDriver } from "../src/drivers/jinxxy.ts";
+import { GumroadDriver } from "../src/drivers/gumroad";
+import { JinxxyDriver } from "../src/drivers/jinxxy";
 import { circuitBreaker } from "../src/ratelimit.ts";
 import path from "path";
 import fs from "fs";
 
+// FIXME: new mandated behavior stated
 describe("Phase 2 - Task 2.3: Cloudflare Turnstile Detection & Poisson Acceleration Guard", () => {
   const fixturePath = path.resolve(__dirname, `../dist/test_turnstile_${Date.now()}.db`);
   let testDb: CrawlerDB;

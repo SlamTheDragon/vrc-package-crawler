@@ -35,6 +35,7 @@ export const CONFIG = {
   itchDelayMs: 1500,         // 1.5s delay between Itch requests
   
   // High saturation ceiling threshold (approaching 100% catalog coverage)
+  // FIXME: obsolete
   targetSaturationScore: 0.95,
   
   // Batch size for SQLite transaction chunks

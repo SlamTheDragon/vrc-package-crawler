@@ -43,6 +43,7 @@ export const CREATOR_WHITELIST = new Set([
 ]);
 
 // Canonical aliases for prominent creators / tooling where community references differ from current GitHub handles
+// FIXME: hardcoddd without remedy on future cases??
 export const CREATOR_ALIASES: Record<string, string> = {
   "modular-avatar": "bdunderscore",
   "architechanon": "techan",
@@ -76,6 +77,7 @@ export class RelevanceFilter {
     "slack bot", "twitch bot", "php form", "form mailer", "cryptocurrency"
   ];
 
+  // FIXME: new rules in upcoming phase implementations accept assets, but fall on cosmetics category
   // 3. Pure cosmetic asset exclusion regexes (Clothing, Hair, Outfits, Tattoos, Pure Avatars, Props)
   private static ASSET_EXCLUSION_PATTERNS = [
     /\btattoo\s+(?:set|pack|bundle)\b/i,
@@ -143,6 +145,7 @@ export class RelevanceFilter {
   ];
 
   // 4. Strong Tool & System Inclusion Signals (+4 to +6)
+  // FIXME: needs verification
   private static STRONG_TOOL_TERMS = [
     "vpm", "vpm-package", "vpmdependencies", "vrcfury", "modular avatar", "modular-avatar",
     "ndmf", "udon", "udonsharp", "u#", "aao", "avatar optimizer", "avataroptimizer", "protv",
@@ -204,6 +207,7 @@ export class RelevanceFilter {
     const combinedText = `${idLower} ${authorLower} ${titleLower} ${descLower} ${tagsLower}`;
 
     // A. Check uncustomized sample templates and dummy test packages (reject immediately)
+    // FIXME: honestly not a good way to find stale templates, perhaps research algorithms?
     if (
       titleLower === "0" ||
       idLower === "vpm:0" ||
@@ -225,7 +229,7 @@ export class RelevanceFilter {
         score: -10,
         confidence: 0.99,
         category: "generic_software",
-        reasons: ["Uncustomized sample template / dummy test package"]
+        reasons: ["Uncustomized sample template / dummy test package"] // FIXME: i find it absolutely unoptimized that reasons are not written on a centralized store (especially version semantics and such similar supposed global values too)
       };
     }
 
@@ -275,6 +279,7 @@ export class RelevanceFilter {
         };
       }
 
+      // FIXME: isnt there an area that extracts canonical package directpries, decoupled from this block?
       // Reject curated awesome list repositories (collections of markdown links)
       if (
         titleLower.startsWith("awesome-") ||
@@ -306,13 +311,14 @@ export class RelevanceFilter {
         };
       }
 
+      // FIXME: some of these terms are not researched-backed for true empirical verified terms. no research weee applied
       // STRICT REQUIREMENT: Must have explicit VRChat or Unity ecosystem context on GitHub, or verified release assets
       const hasRelease = rawObj.hasReleaseAssets || tagsLower.includes("verified-release");
       const hasVrcContext = hasRelease || [
         "vrchat", "vrc", "vpm", "udon", "unity", "avatar", "shader", "modular avatar",
         "modular-avatar", "vrcfury", "ndmf", "physbone", "dynamicbone", "liltoon",
         "poiyomi", "unlitwf", "gogoloco", "faceemo", "osc", "saccflight", "qvpen",
-        "cyanemu", "udonemu", "facetracking", "cats-blender", "blender-addon", "world"
+        "cyanemu", "udonemu", "facetracking", "world"
       ].some((term) => this.hasTerm(repoText, term));
 
       if (!hasVrcContext) {
@@ -338,6 +344,7 @@ export class RelevanceFilter {
       }
     }
 
+    // FIXME: similar inclusion fix for cosmetics
     // C. Check Asset Exclusion Patterns (Clothing, Tattoos, Hair, Jewelry, Outfits)
     for (const pat of this.ASSET_EXCLUSION_PATTERNS) {
       if (pat.test(titleLower)) {
@@ -359,6 +366,7 @@ export class RelevanceFilter {
     }
 
     // Check commercial full avatar bases
+    // FIXME: crawler needs to identify canonical avatar bases
     if (
       (titleLower.includes("avatar base") ||
         titleLower.includes("original 3d avatar") ||
@@ -370,7 +378,7 @@ export class RelevanceFilter {
       !titleLower.includes("sdk")
     ) {
       return {
-        isRelevant: false,
+        isRelevant: false, // FIXME: refer to latest phases
         score: -5,
         confidence: 0.92,
         category: "asset_pollution",
@@ -440,6 +448,7 @@ export class RelevanceFilter {
   static isUrlCandidateRelevant(url: string, platform: string): boolean {
     const u = url.toLowerCase();
 
+    // FIXME: Again, what is the reason for "awesome"??? these questions do not mean eemoval, i need clarification
     // Fast reject blacklisted GitHub orgs & awesome lists
     if (platform === "github") {
       if (
@@ -476,6 +485,7 @@ export class RelevanceFilter {
       return true;
     }
 
+    // FIXME: phase 5
     // Fast reject obvious cosmetic slugs on Jinxxy, Gumroad & Itch
     if (platform === "jinxxy" || platform === "gumroad" || platform === "itch") {
       for (const pat of this.ASSET_EXCLUSION_PATTERNS) {

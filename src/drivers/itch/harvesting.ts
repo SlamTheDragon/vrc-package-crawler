@@ -1,102 +1,29 @@
-import { CONFIG } from "../config.ts";
-import { logger } from "../logger.ts";
-import { db, type EntityRecord, type CrawlerDB } from "../db.ts";
-import { rateLimiter } from "../ratelimit.ts";
-import { RelevanceFilter } from "../filter.ts";
-import { cleanTitle, cleanAuthorName, cleanDescription } from "../utils/sanitizer.ts";
+import { CONFIG } from "../../config.ts";
+import { logger } from "../../logger.ts";
+import { db, type EntityRecord, type CrawlerDB } from "../../db.ts";
+import { rateLimiter } from "../../ratelimit.ts";
+import { RelevanceFilter } from "../../filter.ts";
+import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";
+import type { DriverRuntime } from "./runtime.ts";
+import { crawlBrowsePage } from "./discovery.ts";
 
-export class ItchDriver {
-  private static isAborted = false;
-
-  public static abort() {
-    this.isAborted = true;
-  }
-
-  public static reset() {
-    this.isAborted = false;
-  }
-
-  private static async sleep(ms: number) {
-    const end = Date.now() + ms;
-    while (!this.isAborted && Date.now() < end) {
-      const wait = Math.min(100, end - Date.now());
-      await new Promise((resolve) => setTimeout(resolve, wait));
-    }
-  }
-
-  // Crawls an Itch browse or search results page
-  static async crawlBrowsePage(browseUrl: string): Promise<string[]> {
-    if (this.isAborted || db.isClosed) return [];
-    const key = "itch";
-    await rateLimiter.waitIfBackoff(key);
-
-    logger.info(`[Itch:Browse] Fetching browse page: ${browseUrl}`);
-    try {
-      const delay = rateLimiter.getPacingDelayMs(key, 1500);
-      await this.sleep(delay);
-      if (this.isAborted || db.isClosed) return [];
-
-      const resp = await fetch(browseUrl, {
-        headers: {
-          "User-Agent": CONFIG.userAgent,
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        }
-      });
-
-      if (resp.status === 429 || resp.status === 403) {
-        rateLimiter.handleRateLimit(key, resp);
-        return [];
-      }
-
-      if (!resp.ok) {
-        logger.warn(`[Itch:Browse] HTTP ${resp.status} for ${browseUrl}`);
-        return [];
-      }
-
-      rateLimiter.handleSuccess(key, 1500);
-
-      const html = await resp.text();
-      // Match product card links: href="https://username.itch.io/game-title"
-      const matches = html.match(/href="(https:\/\/[a-zA-Z0-9_-]+\.itch\.io\/[a-zA-Z0-9_-]+)"/g) || [];
-      const discoveredUrls: string[] = [];
-
-      for (const m of matches) {
-        const u = m.replace('href="', '').replace('"', '');
-        if (
-          !u.includes(".itch.io/tag-") &&
-          !u.includes("/community") &&
-          !u.includes("/devlog") &&
-          !discoveredUrls.includes(u)
-        ) {
-          discoveredUrls.push(u);
-        }
-      }
-
-      logger.info(`[Itch:Browse] Found ${discoveredUrls.length} candidate products on ${browseUrl}`);
-      return discoveredUrls;
-    } catch (e) {
-      logger.error(`[Itch:Browse] Error crawling browse page ${browseUrl}`, e);
-      return [];
-    }
-  }
-
-  // Scrapes an individual Itch product page
-  static async crawlProduct(
+// Scrapes an individual Itch product page
+  export async function crawlProduct(runtime: DriverRuntime, 
     productUrl: string,
     customDb?: CrawlerDB,
     etag?: string | null,
     lastModified?: string | null
   ): Promise<boolean | { success: boolean; notModified?: boolean; etag?: string | null; lastModified?: string | null }> {
     const targetDb = customDb || db;
-    if (this.isAborted || targetDb.isClosed) return false;
+    if (runtime.isAborted || targetDb.isClosed) return false;
     const key = "itch";
     await rateLimiter.waitIfBackoff(key);
 
     logger.info(`[Itch:Product] Inspecting product: ${productUrl}`);
     try {
       const delay = rateLimiter.getPacingDelayMs(key, 1500);
-      await this.sleep(delay);
-      if (this.isAborted || targetDb.isClosed) return false;
+      await runtime.sleep(delay);
+      if (runtime.isAborted || targetDb.isClosed) return false;
 
       let currentUrl = productUrl;
       const reqHeaders: Record<string, string> = {
@@ -134,7 +61,7 @@ export class ItchDriver {
 
         if (creator && slug) {
           logger.info(`[Itch:Product] Product 404 on ${currentUrl}. Probing creator storefront: https://${creator}.itch.io...`);
-          await this.sleep(1000);
+          await runtime.sleep(1000);
           try {
             const authorResp = await fetch(`https://${creator}.itch.io`, {
               headers: { "User-Agent": CONFIG.userAgent }
@@ -145,17 +72,17 @@ export class ItchDriver {
               const similar = foundLinks.find((l) => l.toLowerCase().includes(slug.toLowerCase().slice(0, 5)));
               if (similar && similar !== currentUrl) {
                 logger.info(`[Itch:Product] Alternative path resolved on creator profile: ${similar}`);
-                return this.crawlProduct(similar);
+                return crawlProduct(runtime, similar);
               }
             }
           } catch (_) {}
 
           // Search fallback
           logger.info(`[Itch:Product] Probing alternative path via search for "${slug}"...`);
-          const searchUrls = await this.crawlBrowsePage(`https://itch.io/search?q=${encodeURIComponent(slug.replace(/[-_]/g, " "))}`);
+          const searchUrls = await crawlBrowsePage(runtime, `https://itch.io/search?q=${encodeURIComponent(slug.replace(/[-_]/g, " "))}`);
           if (searchUrls.length > 0) {
             logger.info(`[Itch:Product] Discovered ${searchUrls.length} alternative paths via search`);
-            return this.crawlProduct(searchUrls[0]);
+            return crawlProduct(runtime, searchUrls[0]);
           }
         }
       }
@@ -327,4 +254,3 @@ export class ItchDriver {
       return false;
     }
   }
-}

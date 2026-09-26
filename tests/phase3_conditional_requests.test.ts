@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { CrawlerDB } from "../src/db.ts";
-import { BoothDriver } from "../src/drivers/booth.ts";
-import { GitHubDriver } from "../src/drivers/github.ts";
+import { BoothDriver } from "../src/drivers/booth";
+import { GitHubDriver } from "../src/drivers/github";
 import { PoissonScheduler } from "../src/utils/poisson_scheduler.ts";
 import path from "path";
 import fs from "fs";

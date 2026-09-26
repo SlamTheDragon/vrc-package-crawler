@@ -1,30 +1,12 @@
-import { CONFIG } from "../config.ts";
-import { logger } from "../logger.ts";
-import { db, type EntityRecord, type CrawlerDB } from "../db.ts";
-import { RelevanceFilter, CREATOR_ALIASES } from "../filter.ts";
-import { IanaRegistry } from "../utils/iana.ts";
-import { cleanTitle, cleanAuthorName, cleanDescription, extractReadmeDescription } from "../utils/sanitizer.ts";
+import { CONFIG } from "../../config.ts";
+import { logger } from "../../logger.ts";
+import { db, type EntityRecord, type CrawlerDB } from "../../db.ts";
+import { RelevanceFilter, CREATOR_ALIASES } from "../../filter.ts";
+import { IanaRegistry } from "../../utils/iana.ts";
+import { cleanTitle, cleanAuthorName, cleanDescription, extractReadmeDescription } from "../../utils/sanitizer.ts";
+import type { DriverRuntime } from "./runtime.ts";
 
-export class GitHubDriver {
-  private static isAborted = false;
-
-  public static abort() {
-    this.isAborted = true;
-  }
-
-  public static reset() {
-    this.isAborted = false;
-  }
-
-  private static async sleep(ms: number) {
-    const end = Date.now() + ms;
-    while (!this.isAborted && Date.now() < end) {
-      const wait = Math.min(100, end - Date.now());
-      await new Promise((resolve) => setTimeout(resolve, wait));
-    }
-  }
-
-  private static getHeaders(): Record<string, string> {
+export function getHeaders(runtime: DriverRuntime): Record<string, string> {
     const headers: Record<string, string> = {
       "User-Agent": CONFIG.userAgent,
       "Accept": "application/vnd.github.v3+json"
@@ -35,124 +17,10 @@ export class GitHubDriver {
     return headers;
   }
 
-  // Searches repositories with multi-page pagination
-  static async searchRepos(query: string, maxPages: number = 3): Promise<string[]> {
-    if (this.isAborted || db.isClosed) return [];
-    logger.info(`[GitHub] Executing paginated search: "${query}" (up to ${maxPages} pages)`);
-    const allRepoUrls: string[] = [];
+const harvestedCreators = new Set<string>();
 
-    for (let page = 1; page <= maxPages; page++) {
-      if (this.isAborted || db.isClosed) break;
-      try {
-        await this.sleep(CONFIG.githubSearchDelayMs);
-
-        const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&per_page=30&page=${page}`;
-        const resp = await fetch(url, { headers: this.getHeaders() });
-
-        const remaining = resp.headers.get("x-ratelimit-remaining") || "unknown";
-        const reset = resp.headers.get("x-ratelimit-reset") || "unknown";
-
-        if (resp.status === 403 || resp.status === 429) {
-          const resetTimestamp = parseInt(reset, 10);
-          const waitMs = resetTimestamp ? Math.max(1000, resetTimestamp * 1000 - Date.now() + 2000) : 60000;
-          logger.rateLimit("GitHub", remaining, reset, waitMs);
-          await this.sleep(Math.min(waitMs, 120000)); // Cap wait at 2 mins before moving on
-          break;
-        }
-
-        if (!resp.ok) {
-          logger.warn(`[GitHub] Search HTTP ${resp.status} on page ${page} for: ${query}`);
-          break;
-        }
-
-        const data = (await resp.json()) as any;
-        const repos = data.items || [];
-        if (repos.length === 0) break;
-
-        let vetted = 0;
-        for (const r of repos) {
-          allRepoUrls.push(r.html_url);
-
-          const originCreated = r.created_at || null;
-          const originUpdated = r.updated_at || r.pushed_at || null;
-
-          const entity: EntityRecord = {
-            id: `github:${r.full_name}`,
-            platform: "github",
-            url: r.html_url,
-            title: cleanTitle(r.name),
-            author: cleanAuthorName(r.owner?.login || "Unknown"),
-            description: r.description || "",
-            tags_json: JSON.stringify(r.topics || []),
-            external_links_json: JSON.stringify([r.homepage].filter(Boolean)),
-            origin_created_at: originCreated,
-            origin_updated_at: originUpdated,
-            raw_json: JSON.stringify({
-              stargazers_count: r.stargazers_count,
-              forks_count: r.forks_count,
-              default_branch: r.default_branch,
-              license: r.license?.spdx_id,
-              originCreatedAt: originCreated,
-              originUpdatedAt: originUpdated,
-              // Social preview image (GitHub OpenGraph card — public URL, no binary)
-              thumbnail_url: r.owner?.avatar_url || null,
-              // GitHub repo social preview card: https://opengraph.githubassets.com/1/{full_name}
-              media_urls: r.full_name ? [`https://opengraph.githubassets.com/1/${r.full_name}`] : [],
-              youtube_urls: []
-            })
-          };
-
-          const evalRes = RelevanceFilter.evaluate(entity);
-          if (evalRes.isRelevant) {
-            db.saveEntity(entity);
-            vetted++;
-
-            // Proactive VPM manifest discovery ONLY if repository context indicates VPM
-            const repoLower = `${r.name} ${r.description || ""}`.toLowerCase();
-            const topicsLower = (r.topics || []).join(" ").toLowerCase();
-            const isVpmCandidate =
-              repoLower.includes("vpm") ||
-              repoLower.includes("vcc") ||
-              repoLower.includes("listing") ||
-              topicsLower.includes("vpm") ||
-              topicsLower.includes("vcc");
-
-            if (isVpmCandidate) {
-              if (r.has_pages) {
-                db.queueUrl(`https://${r.owner.login}.github.io/${r.name}/index.json`, "vpm");
-                db.queueUrl(`https://${r.owner.login}.github.io/${r.name}/vpm.json`, "vpm");
-                db.queueUrl(`https://${r.owner.login}.github.io/vpm/index.json`, "vpm");
-              }
-              if (r.homepage && typeof r.homepage === "string" && r.homepage.startsWith("http")) {
-                const cleanHome = r.homepage.replace(/\/$/, "");
-                if (cleanHome.endsWith(".json")) {
-                  db.queueUrl(cleanHome, "vpm");
-                } else if (cleanHome.includes("vpm")) {
-                  db.queueUrl(`${cleanHome}/index.json`, "vpm");
-                  db.queueUrl(`${cleanHome}/vpm.json`, "vpm");
-                }
-              }
-              db.queueUrl(`https://raw.githubusercontent.com/${r.full_name}/HEAD/index.json`, "vpm");
-            }
-          } else {
-            db.quarantineEntity(entity.id, entity.platform, entity.url, entity.title, entity.author, evalRes.reasons, entity);
-          }
-
-        }
-
-        logger.info(`[GitHub] Page ${page}/${maxPages}: Ingested ${vetted}/${repos.length} vetted repos for "${query}"`);
-        if (repos.length < 30) break; // Reached last page
-      } catch (e) {
-        logger.error(`[GitHub] Error on search page ${page} for: ${query}`, e);
-        break;
-      }
-    }
-
-    return allRepoUrls;
-  }
-
-  // Crawls repository details using API or robust raw fallback
-  static async crawlRepoDetail(
+// Crawls repository details using API or robust raw fallback
+  export async function crawlRepoDetail(runtime: DriverRuntime, 
     repoUrl: string,
     customDb?: CrawlerDB,
     etag?: string | null,
@@ -317,17 +185,18 @@ export class GitHubDriver {
             }
           } else if (htmlResp.status === 404) {
             // 404 repository fallback: check if repo was moved or transferred
+            // FIXME: i dont think exact search keyword is enough, perhaps use fuzzy terms?
             logger.info(`[GitHub] Repository 404 on ${repoUrl}. Probing alternative path via search for "${repo}"...`);
             try {
               const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(repo + " " + owner)}&per_page=3`;
-              const searchResp = await fetch(searchUrl, { headers: this.getHeaders() });
+              const searchResp = await fetch(searchUrl, { headers: getHeaders() });
               if (searchResp.ok) {
                 const sData = (await searchResp.json()) as any;
                 const matchItem = (sData.items || []).find((it: any) => it.name.toLowerCase() === repo.toLowerCase());
                 if (matchItem && matchItem.html_url !== repoUrl) {
                   logger.info(`[GitHub] Alternative repository path resolved: ${matchItem.html_url}`);
                   db.queueUrl(matchItem.html_url, "github");
-                  return this.crawlRepoDetail(matchItem.html_url);
+                  return crawlRepoDetail(runtime, matchItem.html_url);
                 }
               }
             } catch (_) {}
@@ -365,7 +234,7 @@ export class GitHubDriver {
       if (CONFIG.githubToken) {
         try {
           const apiResp = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-            headers: this.getHeaders()
+            headers: getHeaders()
           });
           if (apiResp.ok) {
             const apiData = (await apiResp.json()) as any;
@@ -478,16 +347,14 @@ export class GitHubDriver {
     }
   }
 
-  private static harvestedCreators = new Set<string>();
-
-  // Harvests full repository portfolios for prominent VRChat creator accounts with multi-tier fallback
-  static async harvestCreatorRepos(creators: string[]): Promise<number> {
-    if (this.isAborted || db.isClosed) return 0;
+// FIXME: should we try checking forks of the current repository too?
+  export async function harvestCreatorRepos(runtime: DriverRuntime, creators: string[]): Promise<number> {
+    if (runtime.isAborted || db.isClosed) return 0;
     logger.info(`[GitHub] Harvesting repository portfolios for ${creators.length} creators...`);
     let totalHarvested = 0;
 
     for (const rawCreator of creators) {
-      if (this.isAborted || db.isClosed) break;
+      if (runtime.isAborted || db.isClosed) break;
       if (!rawCreator || typeof rawCreator !== "string") continue;
       const cleanHandle = rawCreator.trim().replace(/^@/, "");
 
@@ -503,26 +370,26 @@ export class GitHubDriver {
       }
 
       const creator = CREATOR_ALIASES[cleanHandle.toLowerCase()] || cleanHandle;
-      if (this.harvestedCreators.has(creator.toLowerCase())) continue;
+      if (harvestedCreators.has(creator.toLowerCase())) continue;
 
       const existing = db.prepare(
         "SELECT COUNT(*) as c FROM entities WHERE is_quarantined = 0 AND platform = 'github' AND (LOWER(author) = LOWER(?) OR LOWER(author) = LOWER(?));"
       ).get(creator, rawCreator) as any;
       if (existing && existing.c >= 3) {
-        this.harvestedCreators.add(creator.toLowerCase());
-        this.harvestedCreators.add(rawCreator.toLowerCase());
+        harvestedCreators.add(creator.toLowerCase());
+        harvestedCreators.add(rawCreator.toLowerCase());
         continue;
       }
 
       try {
-        await this.sleep(CONFIG.githubSearchDelayMs);
+        await runtime.sleep(CONFIG.githubSearchDelayMs);
         
         let repos: any[] | null = null;
         let resolvedPath = "user";
         
         // Tier 1: Try user profile repos endpoint
         const userUrl = `https://api.github.com/users/${creator}/repos?per_page=100&type=owner`;
-        let resp = await fetch(userUrl, { headers: this.getHeaders() });
+        let resp = await fetch(userUrl, { headers: getHeaders() });
 
         if (resp.status === 403 || resp.status === 429) {
           const reset = resp.headers.get("x-ratelimit-reset") || "0";
@@ -536,9 +403,9 @@ export class GitHubDriver {
         } else if (resp.status === 404) {
           // Tier 2: Organization repos endpoint (alternative path)
           logger.info(`[GitHub] Creator @${creator} returned 404 under /users/. Probing alternative path: /orgs/${creator}/repos...`);
-          await this.sleep(CONFIG.githubSearchDelayMs);
+          await runtime.sleep(CONFIG.githubSearchDelayMs);
           const orgUrl = `https://api.github.com/orgs/${creator}/repos?per_page=100`;
-          const orgResp = await fetch(orgUrl, { headers: this.getHeaders() });
+          const orgResp = await fetch(orgUrl, { headers: getHeaders() });
           if (orgResp.ok) {
             repos = (await orgResp.json()) as any[];
             resolvedPath = "organization";
@@ -546,9 +413,9 @@ export class GitHubDriver {
           } else if (orgResp.status === 404) {
             // Tier 3: Targeted Search API query with creator user/org scope
             logger.info(`[GitHub] Creator @${creator} 404 under /users/ and /orgs/. Probing alternative path via targeted search API...`);
-            await this.sleep(CONFIG.githubSearchDelayMs);
+            await runtime.sleep(CONFIG.githubSearchDelayMs);
             const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent("user:" + creator + " vrchat")}&per_page=10`;
-            const searchResp = await fetch(searchUrl, { headers: this.getHeaders() });
+            const searchResp = await fetch(searchUrl, { headers: getHeaders() });
             if (searchResp.ok) {
               const searchData = (await searchResp.json()) as any;
               if (searchData.items && searchData.items.length > 0) {
@@ -562,8 +429,8 @@ export class GitHubDriver {
 
         if (!repos || !Array.isArray(repos) || repos.length === 0) {
           logger.warn(`[GitHub] All alternative paths failed for creator @${creator} (query: ${rawCreator})`);
-          this.harvestedCreators.add(creator.toLowerCase());
-          this.harvestedCreators.add(rawCreator.toLowerCase());
+          harvestedCreators.add(creator.toLowerCase());
+          harvestedCreators.add(rawCreator.toLowerCase());
           continue;
         }
 
@@ -608,8 +475,8 @@ export class GitHubDriver {
           db.queueUrl(repoUrl, "github", 10);
         }
 
-        this.harvestedCreators.add(creator.toLowerCase());
-        this.harvestedCreators.add(rawCreator.toLowerCase());
+        harvestedCreators.add(creator.toLowerCase());
+        harvestedCreators.add(rawCreator.toLowerCase());
         logger.info(`[GitHub] Creator @${creator} [${resolvedPath}]: Ingested ${creatorVetted}/${repos.length} vetted repositories.`);
       } catch (e) {
         logger.error(`[GitHub] Error harvesting repos for @${creator}`, e);
@@ -620,9 +487,9 @@ export class GitHubDriver {
     return totalHarvested;
   }
 
-  // Harvests portfolios for dynamically discovered creators from database truth sources (VPM manifests, cross-references, GitHub repos)
-  static async harvestDiscoveredCreators(maxCreators: number = 150): Promise<number> {
-    if (this.isAborted || db.isClosed) return 0;
+// Harvests portfolios for dynamically discovered creators from database truth sources (VPM manifests, cross-references, GitHub repos)
+  export async function harvestDiscoveredCreators(runtime: DriverRuntime, maxCreators: number = 150): Promise<number> {
+    if (runtime.isAborted || db.isClosed) return 0;
     logger.info("[GitHub] Deriving dynamic creator list from database entities truth source...");
     const discovered = new Set<string>();
 
@@ -656,7 +523,5 @@ export class GitHubDriver {
 
     const creatorList = Array.from(discovered);
     logger.info(`[GitHub] Harvesting dynamically discovered portfolios for ${creatorList.length} creators derived from truth sources...`);
-    return this.harvestCreatorRepos(creatorList);
+    return harvestCreatorRepos(runtime, creatorList);
   }
-}
-

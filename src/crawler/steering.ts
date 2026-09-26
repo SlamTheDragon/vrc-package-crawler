@@ -33,6 +33,7 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
   }
 
   logger.info(`[Steering] Processing ${pendingReports.length} pending user reports...`);
+  // FIXME: shouldn't the code be more careful due to arch proposal regarding these end points?
 
   let applied = 0;
   let failed = 0;
@@ -51,6 +52,7 @@ export async function processPendingReports(customDb?: CrawlerDB): Promise<{ pro
       const now = new Date().toISOString();
 
       // Resolve canonical_id if target_package_id was raw entity ID (OVERLOOKED-5)
+      // FIXME: verify terminology
       const resolved = targetDb.rawDb.prepare(`
         SELECT canonical_id FROM canonical_packages WHERE canonical_id = ? OR id = ? LIMIT 1;
       `).get(report.target_package_id, report.target_package_id) as any;

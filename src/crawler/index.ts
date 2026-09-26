@@ -1,13 +1,13 @@
 import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
 import { db } from "../db.ts";
-import { BoothDriver } from "../drivers/booth.ts";
-import { GitHubDriver } from "../drivers/github.ts";
-import { VpmIndexDriver } from "../drivers/vpm_index.ts";
-import { GumroadDriver } from "../drivers/gumroad.ts";
-import { JinxxyDriver } from "../drivers/jinxxy.ts";
-import { ItchDriver } from "../drivers/itch.ts";
-import { CuratedDriver } from "../drivers/curated.ts";
+import { BoothDriver, buildBoothSeedPages } from "../drivers/booth";
+import { GitHubDriver, GITHUB_SEARCH_QUERIES, toGitHubSearchUrl } from "../drivers/github";
+import { VpmIndexDriver, CORE_VPM_FEEDS, VPM_RESEED_INTERVAL_MS } from "../drivers/vpm_index";
+import { GumroadDriver, GUMROAD_SEARCH_QUERIES, GUMROAD_STOREFRONT_SEEDS } from "../drivers/gumroad";
+import { JinxxyDriver, buildJinxxySeedUrls } from "../drivers/jinxxy";
+import { ItchDriver, buildItchSeedUrls } from "../drivers/itch";
+import { CuratedDriver } from "../drivers/curated";
 import { rateLimiter, circuitBreaker } from "../ratelimit.ts";
 import { ProcessLock } from "../utils/lock.ts";
 import { runPipelineSanitize, abortPipelineSanitize } from "./projection.ts";
@@ -19,7 +19,6 @@ import type { FrontierItem } from "../db.ts";
 
 let isRunning = true;
 let lastVpmSeedAt = 0;
-const VPM_RESEED_INTERVAL_MS = 7 * 86400 * 1000; // 7-day temporal staleness window (Task 1.5)
 
 function markCrawlSuccess(item: FrontierItem, isModified: boolean = true, etag?: string | null, lastModified?: string | null) {
   poissonScheduler.adjustAfterFetch(item.url, isModified, etag || item.etag, lastModified || item.last_modified);
@@ -36,52 +35,6 @@ async function sleepOrInterrupt(ms: number, stepMs: number = 150): Promise<void>
   }
 }
 
-// High-signal search queries for Gumroad internal discover engine (empirically derived from VRChat tool ecosystem tags)
-const GUMROAD_SEARCH_QUERIES = [
-  "vrchat tool",
-  "vrchat system",
-  "vrchat script",
-  "vrchat udon",
-  "vrchat unity",
-  "vrcfury",
-  "modular avatar",
-  "vrchat shader",
-  "vpm",
-  "unitypackage vrchat",
-  "vrchat osc",
-  "vrchat editor",
-  "vrchat camera",
-  "vrchat physics",
-  "vrchat world",
-  "vrchat prefab",
-  "vrchat gimmick",
-  "vrchat locomotion",
-  "vrchat toggle",
-  "vrchat constraint",
-  "vrchat audio",
-  "vrchat flight",
-  "vrchat menu",
-  "vrchat setup",
-  "vrchat prop system",
-  "vrchat physbone",
-  "avatar dynamics vrchat",
-  "vrchat ragdoll",
-  "vrchat facetracking"
-];
-
-// Curated Jinxxy tags and categories
-const JINXXY_TAGS = [
-  "tool", "tools", "script", "scripts", "system", "systems", "udon", "udonsharp",
-  "vrcfury", "modular-avatar", "shader", "shaders", "editor", "osc", "camera", "unity",
-  "physics", "preset", "animation", "constraint", "gimmick", "flight", "avatar-dynamics"
-];
-
-const JINXXY_CATEGORIES = [
-  "https://jinxxy.com/market/scripts-tools",
-  "https://jinxxy.com/market/particles-shaders",
-  "https://jinxxy.com/market/world-assets"
-];
-
 export async function seedAllDomains() {
   const metrics = db.getMetrics();
   logger.info("Checking domain seed status and initializing fast frontier queues...");
@@ -89,147 +42,43 @@ export async function seedAllDomains() {
   // 1. Ingest decentralized VPM repositories (with 7-day temporal staleness window per Task 1.5)
   if (metrics.platformStats["vpm"].pending < 10 && (!lastVpmSeedAt || Date.now() - lastVpmSeedAt > VPM_RESEED_INTERVAL_MS)) {
     lastVpmSeedAt = Date.now();
-    const coreFeeds = [
-      "https://vpm.anatawa12.com/vpm.json",
-      "https://vpm.nadena.dev/vpm.json",
-      "https://vcc.vrcfury.com",
-      "https://hai-vr.github.io/vpm-listing/index.json",
-      "https://kurotu.github.io/vpm-repos/index.json",
-      "https://vrchat-community.github.io/curated-packages/index.json",
-      "https://cyanlaser.github.io/CyanTrigger/index.json",
-      "https://rurre.github.io/vpm/index.json",
-      "https://vpm.razgriz.one/index.json"
-    ];
-    for (const feed of coreFeeds) {
+    for (const feed of CORE_VPM_FEEDS) {
       db.queueUrl(feed, "vpm");
     }
   }
 
   // 2. Queue high-signal GitHub queries into frontier
   if (metrics.platformStats["github"].pending < 50) {
-    const githubQueries = [
-      "topic:vrchat",
-      "topic:vpm",
-      "topic:udonsharp",
-      "topic:modular-avatar",
-      "topic:vrcfury",
-      "topic:ndmf",
-      "topic:vrc-osc",
-      "topic:vrchat-tools",
-      "topic:vrchat-tool",
-      "topic:vrchat-shader",
-      "topic:vpm-repository",
-      "vrchat-tools in:name,description",
-      "vpm-package in:name,description",
-      "vrchat-unitypackage in:name,description",
-      "udon in:name,description",
-      "vrc-avatar in:name,description",
-      "\"vpmDependencies\" filename:package.json",
-      "\"com.vrchat.avatars\" filename:package.json",
-      "\"com.vrchat.worlds\" filename:package.json",
-      "\"ModularAvatar\" in:name,description",
-      "\"VRCFury\" in:name,description",
-      "\"AvatarOptimizer\" in:name,description",
-      "\"CyanTrigger\" in:name,description"
-    ];
-    for (const q of githubQueries) {
-      db.queueUrl(`https://api.github.com/search/repositories?q=${encodeURIComponent(q)}`, "github");
+    for (const query of GITHUB_SEARCH_QUERIES) {
+      db.queueUrl(toGitHubSearchUrl(query), "github");
     }
   }
 
   // 3. Queue BOOTH browse pages and high-signal multi-tag searches
-  const boothPages: { url: string; platform: "booth" }[] = [];
   if (metrics.platformStats["booth"].pending < 50) {
     logger.info("Seeding BOOTH category browse pages and expanded high-signal tag searches...");
-    for (let p = 1; p <= 88; p++) {
-      boothPages.push({
-        url: `https://booth.pm/ja/browse/3D%E3%83%84%E3%83%BC%E3%83%AB%E3%83%BB%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0?page=${p}`,
-        platform: "booth"
-      });
-    }
-
-    const BOOTH_TAGS = [
-      "エディタ拡張", "AAO", "VRCFury", "NDMF", "FaceEmo", "GoGoLoco",
-      "SaccFlight", "VirtualLens", "QvPen", "改変ツール", "シェーダー",
-      "PhysBone", "UdonSharp", "Udon", "ModularAvatar", "AvatarOptimizer",
-      "lilToon", "Poiyomi", "Kisekae", "VRChatツール", "アバター改変",
-      "ワールドギミック", "ギミック", "OSC", "CyanTrigger", "MA対応",
-      "VRCFury対応", "AAO対応", "NDMF対応", "便利ツール", "アバター改変ツール",
-      "表情設定", "ポーズ", "追従", "アニメーション", "パーティクル",
-      "ライト", "時計", "マーカー", "フライト", "コライダー",
-      "コンストレイント", "オーディオ", "揺れもの", "ワールド制作", "テクスチャ改変",
-      "TexTransTool", "AvatarAssembler", "Mochie", "DynamicBone", "USharpVideo",
-      "VRCSDK3", "FaceTracking", "EyeTracking", "SlimeVR", "EasySetup",
-      "ギミック付き", "カメラ", "メニュー", "衣装改変"
-    ];
-    for (const bt of BOOTH_TAGS) {
-      for (let p = 1; p <= 15; p++) {
-        boothPages.push({
-          url: `https://booth.pm/ja/items?query=${encodeURIComponent(bt)}&page=${p}`,
-          platform: "booth"
-        });
-      }
-    }
+    const boothPages = buildBoothSeedPages();
     if (boothPages.length > 0) {
       db.queueBatchUrls(boothPages);
     }
   }
 
   // 4. Queue Western creator tool storefronts on Gumroad
-  const gumroadHubs = [
-    "https://vrlabs.gumroad.com",
-    "https://dreadrith.gumroad.com",
-    "https://architechvr.gumroad.com",
-    "https://aleasevr.gumroad.com",
-    "https://markcreator.gumroad.com",
-    "https://rollthered.gumroad.com",
-    "https://hfcred.gumroad.com",
-    "https://phasedragon.gumroad.com",
-    "https://hai-vr.gumroad.com",
-    "https://lyuma.gumroad.com",
-    "https://jessycat92.gumroad.com",
-    "https://boopdoodle.gumroad.com",
-    "https://zenithvr.gumroad.com",
-    "https://raicovr.gumroad.com",
-    "https://vrfluff.gumroad.com",
-    "https://liindy.gumroad.com",
-    "https://ktecharms.gumroad.com",
-    "https://heartmarksman.gumroad.com",
-    "https://anmeire.gumroad.com",
-    "https://aparche.gumroad.com",
-    "https://legacytwotails.gumroad.com",
-    "https://rezilloryker.gumroad.com",
-    "https://mcardellje.gumroad.com"
-  ];
-  for (const hub of gumroadHubs) {
+  for (const hub of GUMROAD_STOREFRONT_SEEDS) {
     db.queueUrl(hub, "gumroad");
   }
 
   // 5. Seed Jinxxy marketplace categories and tags
   if (!metrics.platformStats["jinxxy"] || metrics.platformStats["jinxxy"].pending < 30) {
-    for (const catUrl of JINXXY_CATEGORIES) {
-      db.queueUrl(catUrl, "jinxxy");
-    }
-    for (const tag of JINXXY_TAGS) {
-      db.queueUrl(`https://jinxxy.com/market/browse?tags=${encodeURIComponent(tag)}`, "jinxxy");
+    for (const url of buildJinxxySeedUrls()) {
+      db.queueUrl(url, "jinxxy");
     }
   }
 
   // 6. Seed Itch.io tool browse feeds and searches
   if (!metrics.platformStats["itch"] || metrics.platformStats["itch"].pending < 10) {
-    const itchFeeds = [
-      ...Array.from({ length: 15 }, (_, i) => `https://itch.io/tools/tag-vrchat?page=${i + 1}`),
-      ...Array.from({ length: 10 }, (_, i) => `https://itch.io/tools/tag-udon?page=${i + 1}`),
-      ...Array.from({ length: 10 }, (_, i) => `https://itch.io/tools/tag-vrchat-avatar?page=${i + 1}`),
-      "https://itch.io/search?q=vrchat+tool",
-      "https://itch.io/search?q=vrchat+shader",
-      "https://itch.io/search?q=vrchat+osc",
-      "https://itch.io/search?q=vrchat+udon",
-      "https://itch.io/search?q=vrcfury",
-      "https://itch.io/search?q=modular+avatar"
-    ];
-    for (const f of itchFeeds) {
-      db.queueUrl(f, "itch");
+    for (const url of buildItchSeedUrls()) {
+      db.queueUrl(url, "itch");
     }
   }
 }
@@ -841,6 +690,7 @@ async function runCreatorHarvestWorker() {
       try {
         logger.info("[Worker:CreatorHarvest] Harvesting creator portfolios dynamically derived from truth sources...");
         await GitHubDriver.harvestDiscoveredCreators(75);
+        // FIXME: is there a reason why github is only beimg used
         lastRun = Date.now();
       } catch (err) {
         logger.error("[Worker:CreatorHarvest] Error harvesting creator portfolios", err);
@@ -882,6 +732,7 @@ async function runMonitor() {
       } else if (cycle % 4 === 0) {
         // Replenish domain discovery queries when queues are calm
         try {
+          // FIXME: but what about deriving from gathered data?
           await seedAllDomains();
         } catch (err) {
           logger.error("[Monitor] Error during background seedAllDomains", err);

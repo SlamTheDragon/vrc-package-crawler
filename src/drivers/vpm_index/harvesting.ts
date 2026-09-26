@@ -1,77 +1,20 @@
-import { CONFIG } from "../config.ts";
-import { logger } from "../logger.ts";
-import { db, type EntityRecord } from "../db.ts";
-import { RelevanceFilter } from "../filter.ts";
-import { cleanTitle, cleanAuthorName } from "../utils/sanitizer.ts";
+import { CONFIG } from "../../config.ts";
+import { logger } from "../../logger.ts";
+import { db, type EntityRecord } from "../../db.ts";
+import { RelevanceFilter } from "../../filter.ts";
+import { cleanTitle, cleanAuthorName } from "../../utils/sanitizer.ts";
+import type { DriverRuntime } from "./runtime.ts";
+import { getUrlCandidates } from "./discovery.ts";
 
-export class VpmIndexDriver {
-  private static isAborted = false;
-
-  public static abort() {
-    this.isAborted = true;
-  }
-
-  public static reset() {
-    this.isAborted = false;
-  }
-
-  private static async sleep(ms: number) {
-    const end = Date.now() + ms;
-    while (!this.isAborted && Date.now() < end) {
-      const wait = Math.min(100, end - Date.now());
-      await new Promise((resolve) => setTimeout(resolve, wait));
-    }
-  }
-
-  // Generates rich candidate URLs based on Claude skill pattern recognition
-  public static getUrlCandidates(rawUrl: string): string[] {
-    const candidates = [rawUrl];
-
-    // Handle GitHub repository links and raw endpoints -> convert to Pages, raw manifests, and package.json
-    const ghMatch = rawUrl.match(/https:\/\/(?:raw\.githubusercontent\.com|github\.com)\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/);
-    if (ghMatch) {
-      const [, owner, repo] = ghMatch;
-      const cleanRepo = repo.replace(/\.git$/, "");
-      candidates.push(`https://${owner}.github.io/${cleanRepo}/index.json`);
-      candidates.push(`https://${owner}.github.io/${cleanRepo}/vpm.json`);
-      candidates.push(`https://${owner}.github.io/vpm/index.json`);
-      candidates.push(`https://${owner}.github.io/index.json`);
-      candidates.push(`https://vpm.${owner.toLowerCase()}.dev/index.json`);
-      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/HEAD/index.json`);
-      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/HEAD/vpm.json`);
-      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/main/index.json`);
-      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/master/index.json`);
-      // Single package.json endpoints for direct package repos
-      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/HEAD/package.json`);
-      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/main/package.json`);
-      candidates.push(`https://raw.githubusercontent.com/${owner}/${cleanRepo}/master/package.json`);
-    }
-
-    if (rawUrl.endsWith("/index.json")) {
-      candidates.push(rawUrl.replace(/\/index\.json$/, "/vpm.json"));
-      candidates.push(rawUrl.replace(/\/index\.json$/, ""));
-    } else if (rawUrl.endsWith("/vpm.json")) {
-      candidates.push(rawUrl.replace(/\/vpm\.json$/, "/index.json"));
-      candidates.push(rawUrl.replace(/\/vpm\.json$/, ""));
-    } else {
-      const cleanBase = rawUrl.replace(/\/$/, "");
-      candidates.push(`${cleanBase}/index.json`);
-      candidates.push(`${cleanBase}/vpm.json`);
-      candidates.push(`${cleanBase}/vpm/index.json`);
-    }
-
-    return Array.from(new Set(candidates));
-  }
-
-  // Ingests a VPM index.json / vpm.json repository manifest or direct package.json with fallback probing
-  static async crawlManifest(manifestUrl: string): Promise<boolean> {
-    if (this.isAborted || db.isClosed) return false;
-    const candidates = this.getUrlCandidates(manifestUrl);
+// Ingests a VPM index.json / vpm.json repository manifest or direct package.json with fallback probing
+  export async function crawlManifest(runtime: DriverRuntime, manifestUrl: string): Promise<boolean> {
+    if (runtime.isAborted || db.isClosed) return false;
+    const candidates = getUrlCandidates(runtime, manifestUrl);
 
     for (const testUrl of candidates) {
-      if (this.isAborted || db.isClosed) break;
+      if (runtime.isAborted || db.isClosed) break;
       try {
-        await this.sleep(CONFIG.vpmIndexDelayMs);
+        await runtime.sleep(CONFIG.vpmIndexDelayMs);
 
         const resp = await fetch(testUrl, {
           headers: {
@@ -147,7 +90,7 @@ export class VpmIndexDriver {
               logger.info(`[VPM] Ingested direct VPM package ${pkgId} from ${testUrl}`);
               if (originRepoUrl) db.queueUrl(originRepoUrl, "github");
               if (owner) {
-                import("./github.ts").then(({ GitHubDriver }) => {
+                import("../github").then(({ GitHubDriver }) => {
                   GitHubDriver.harvestCreatorRepos([owner]).catch(() => {});
                 });
               }
@@ -355,14 +298,14 @@ export class VpmIndexDriver {
       // If repository is a known community template (e.g. VPM-Package-Template), search GitHub for active packages using it!
       if (cleanRepo.toLowerCase().includes("vpm-package-template") || cleanRepo.toLowerCase().includes("vpm-template")) {
         logger.info(`[VPM] Detected VPM Template (${owner}/${cleanRepo}). Discovering community repositories using this template...`);
-        import("./github.ts").then(({ GitHubDriver }) => {
+        import("../github").then(({ GitHubDriver }) => {
           GitHubDriver.searchRepos(`"${cleanRepo}" in:name,description`, 2).then(urls => {
             for (const u of urls) db.queueUrl(u, "github");
           }).catch(() => {});
         });
       }
 
-      import("./github.ts").then(({ GitHubDriver }) => {
+      import("../github").then(({ GitHubDriver }) => {
         GitHubDriver.harvestCreatorRepos([owner]).catch(() => {});
       });
       return true;
@@ -378,7 +321,7 @@ export class VpmIndexDriver {
         db.queueUrl(repoUrl, "github");
         logger.info(`[VPM] GitHub Pages manifest failed, routed to GitHub repository: ${repoUrl}`);
       }
-      import("./github.ts").then(({ GitHubDriver }) => {
+      import("../github").then(({ GitHubDriver }) => {
         GitHubDriver.harvestCreatorRepos([owner]).catch(() => {});
       });
       return true;
@@ -402,7 +345,7 @@ export class VpmIndexDriver {
             if (decodedVpmUrl && decodedVpmUrl !== manifestUrl && !candidates.includes(decodedVpmUrl)) {
               logger.info(`[VPM] Discovered alternative manifest URL via vcc:// link: ${decodedVpmUrl}`);
               db.queueUrl(decodedVpmUrl, "vpm");
-              return this.crawlManifest(decodedVpmUrl);
+              return crawlManifest(runtime, decodedVpmUrl);
             }
           }
           // Match direct index.json or vpm.json links in HTML
@@ -413,7 +356,7 @@ export class VpmIndexDriver {
             if (jsonUrl !== manifestUrl && !candidates.includes(jsonUrl)) {
               logger.info(`[VPM] Discovered alternative manifest URL via HTML link: ${jsonUrl}`);
               db.queueUrl(jsonUrl, "vpm");
-              return this.crawlManifest(jsonUrl);
+              return crawlManifest(runtime, jsonUrl);
             }
           }
         }
@@ -423,97 +366,3 @@ export class VpmIndexDriver {
     logger.warn(`[VPM] All alternative paths failed for manifest ${manifestUrl}`);
     return false;
   }
-
-  /**
-   * Executes high-signal VPM discovery across multi-maintainer registries, GitHub searches, and probed endpoints
-   */
-  public static async discoverVpmRepositories(): Promise<{ discoveredFeeds: number; totalVpm: number }> {
-    const { CuratedDriver } = await import("./curated.ts");
-    const { GitHubDriver } = await import("./github.ts");
-
-    logger.info("[VPM Driver] Ingesting multi-maintainer community registries & live catalogs...");
-    await CuratedDriver.ingestAllCuratedSources();
-
-    if (this.isAborted) return { discoveredFeeds: 0, totalVpm: 0 };
-
-    const VPM_DISCOVERY_QUERIES = [
-      "vpm vrchat sort:updated",
-      "vpm package listing vrchat sort:updated",
-      "vpm-listing vrchat sort:updated",
-      "VCC listing vrchat sort:updated",
-      "ALCOM vrchat sort:updated",
-      "\"index.json\" \"packages\" vrchat",
-      "\"vpm\" \"index.json\" vrchat"
-    ];
-
-    const candidateUrls = new Set<string>();
-
-    logger.info("[VPM Driver] Executing high-signal GitHub API searches for VPM repositories...");
-    for (const q of VPM_DISCOVERY_QUERIES) {
-      if (this.isAborted) break;
-      try {
-        const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&per_page=30&sort=updated&order=desc`;
-        const resp = await fetch(searchUrl, {
-          headers: {
-            "User-Agent": CONFIG.userAgent,
-            ...(CONFIG.githubToken ? { Authorization: `token ${CONFIG.githubToken}` } : {})
-          }
-        });
-
-        if (!resp.ok) continue;
-
-        const data = await resp.json() as any;
-        const items = data.items || [];
-
-        for (const repo of items) {
-          if (this.isAborted) break;
-          const defaultBranch = repo.default_branch || "main";
-          const rawBase = `https://raw.githubusercontent.com/${repo.full_name}/${defaultBranch}`;
-          const ghPagesBase = `https://${repo.owner.login.toLowerCase()}.github.io/${repo.name}`;
-
-          const probeUrls = [
-            `${rawBase}/index.json`,
-            `${rawBase}/vpm.json`,
-            `${rawBase}/packages.json`,
-            `${ghPagesBase}/index.json`,
-            `${ghPagesBase}/vpm.json`
-          ];
-
-          for (const u of probeUrls) {
-            candidateUrls.add(u);
-          }
-        }
-
-        await this.sleep(1200);
-      } catch (err) {
-        logger.warn(`[VPM Driver] Error searching query "${q}":`, err);
-      }
-    }
-
-    if (this.isAborted) return { discoveredFeeds: 0, totalVpm: 0 };
-
-    let successfulFeeds = 0;
-    logger.info(`[VPM Driver] Probing and crawling ${candidateUrls.size} candidate endpoints...`);
-    for (const url of candidateUrls) {
-      if (this.isAborted) break;
-      try {
-        const ok = await this.crawlManifest(url);
-        if (ok) {
-          successfulFeeds++;
-          db.markStatus(url, "done");
-        }
-      } catch (_) {}
-    }
-
-    if (!this.isAborted) {
-      logger.info("[VPM Driver] Ingesting creator portfolios dynamically derived from live truth sources...");
-      await GitHubDriver.harvestDiscoveredCreators();
-    }
-
-    const totalVpm = (db.query("SELECT count(*) as c FROM entities WHERE platform = 'vpm' AND is_quarantined = 0").get() as any)?.c || 0;
-    logger.info(`[VPM Driver] Discovery pass complete. Total active VPM packages in DB: ${totalVpm}`);
-    return { discoveredFeeds: successfulFeeds, totalVpm };
-  }
-}
-
-

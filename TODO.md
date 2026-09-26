@@ -32,8 +32,8 @@ The 6 canonical tasks introduced in commit `09e9dc8` define the core ecosystem q
 | Canonical ID | Original Specification (`09e9dc8`) | `LEGAL.md` Guardrail & Verdict | Phased Task Mapping |
 | :--- | :--- | :--- | :--- |
 | **CANON-1** | `[INFO] discover_vpm.ts might need to expand its search outside github, on a general world wide web discovery` | **Guardrail**: §11.3 forbids open-web unindexed spiders. Expansion must strictly use federated registry seeds, community manifests (ALCOM), and verified creator documentation. Aggregator front adapters deferred to Post-v1.0 research. | **Task 5.1** (Phase 5, Very High) |
-| **CANON-2** | `[ENHANCEMENT] reconsider avatar cosmetic items discovery other than tool chains and such` | **Guardrail**: §11.4 mandates cosmetics isolation into a separate taxonomy tier with base avatar associations (Kikyo, Manuka, Shinano, Selestia) to prevent SimHash false merges against toolchains. | **Task 5.3** (Phase 5, Very High / Hardest) |
-| **CANON-3** | `[QUESTION] Should VRCArena be added into the pool of discoveries and other platforms?` | **Guardrail**: §5.2(f) strictly rejects automated HTML DOM scraping. Permits only bilateral API federation or polite querying within robots.txt limits with toolchain whitelisting. | **Task 5.2** (Phase 5, Very High) |
+| **CANON-2** | `[ENHANCEMENT] reconsider avatar cosmetic items discovery other than tool chains and such` | **Guardrail**: §11.4 mandates cosmetics isolation into a separate taxonomy tier with base avatar associations (Kikyo, Manuka, Shinano, Selestia) to prevent SimHash false merges against toolchains. | **Task 5.2** (Phase 5, Very High / Hardest) |
+| **CANON-3** | `[QUESTION] Should VRCArena be added into the pool of discoveries and other platforms?` | **Guardrail**: §5.2(f) strictly rejects automated HTML DOM scraping. VRCArena integration **removed from active roadmap** (operator decision, 2026-09-25). Community catalog sources are not authoritative and introduce legal/compliance risk; no adapter will be implemented. | **Removed from scope** |
 | **CANON-4** | `[MAINTAINABILITY] Column deduplication might be needed, or a proper database tables and columns need to be written` | **Guardrail**: §2.3 & §10.7 require clean provenance and export metadata. Eliminates redundant URLs, coalesces overrides, adds `catalog_metadata`. Elevates to Critical High-Priority Architectural Anchor; existing DBs in `dist/` marked stale and live migrations dropped. | **Task 4.1** (Phase 4, Critical / High Priority) |
 | **CANON-5** | `[SUGGESTION] A new documentation for API endpoints and internal reporting schemas and such is needed [Seeding]` | **Guardrail**: §8.5 & §10.6 permit Schema 5 interaction telemetry only with zero PII, anonymous aggregation, and no user session tracking. | **Task 4.3** (Phase 4, High) |
 | **CANON-6** | `[QUESTION] Should external interfacing platforms handle user accounts, authentication, and recommendation engines?` | **Guardrail**: §8.5, §9.8, §10.5 mandate strict air-gapped separation. The crawler backend MUST remain stateless and unauthenticated; accounts belong downstream. Multi-node contributor features deferred to Post-v1.0. | **Task 4.2** (Phase 4, High) & **Task 5.4** (Post-v1.0 Milestone) |
@@ -51,9 +51,9 @@ Per task instructions, clarifying multiple-choice questions regarding user imple
      - *Rationale*: High-volume avatar apparel and hair listings share generic vocabulary ("PhysBones", "PB", "Modular Avatar"), causing severe SimHash-64 ($k \le 3$) false merges against developer toolchains. Tagging with base avatar mesh guarantees taxonomic separation.
      - *Legal Guardrail*: `LEGAL.md` §11.4 mandates strict isolation; apparel and hair never mingle directly with developer toolchains, and downstream tools must preserve this separation.
   3. **CANON-3 (VRCArena Integration)**:
-     - *User Decision*: Retain Option 1: Query VRCArena within `robots.txt` limits, strictly avoiding automated HTML DOM scraping, applying developer toolchain whitelisting per `LEGAL.md` §5.2(f).
-     - *Rationale*: Static dataset import is currently out of reach; polite querying/API within `robots.txt` boundaries is authorized, strictly filtered to developer toolchains, shaders, and scripts.
-     - *Legal Guardrail*: `LEGAL.md` §5.2(f) strictly rejects automated HTML DOM scraping of volunteer community platforms; non-toolchain assets (unverified avatar re-textures) are filtered out at the adapter layer.
+     - *Operator Decision (2026-09-25)*: **Removed from scope entirely.** VRCArena will no longer be considered for any phase of the roadmap.
+     - *Rationale*: Community catalog sources are not authoritative sources of truth. Treating them as evidence providers introduces legal and compliance risk without offsetting benefit. The evidence-based provenance architecture (Task 5.3) addresses the underlying need — deriving temporal history from independently sourced observations — without relying on any community aggregator.
+     - *Legal Guardrail*: `LEGAL.md` §5.2(f) strictly rejects automated HTML DOM scraping of volunteer community platforms. No adapter (`src/drivers/vrcarena.ts`) will be created.
   4. **CANON-6 & Decentralized Indexer Network (Architecture & Governance)**:
      - *User Decision*: Retain Option 1: Maintain a strictly air-gapped, stateless crawler backend; user accounts, authentication, private lists, and bookmarks belong exclusively in downstream client applications per `LEGAL.md` §8.5, §9.8, and §10.5.
      - *Decentralized Contributor Nodes & Cloudflare Security*: Postpone decentralized node contributor features entirely to a dedicated Post-v1.0 milestone. Keep the crawler strictly single-node/maintainer-operated for v1.0.
@@ -87,7 +87,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 │ Phase 2: Security Hardening & Defect Remediation (Medium: CLI guards, auth, retry/queues)│
 │ Phase 3: Legal Compliance & Pure Media Pointer Migration (Med-High: Hybrid proxy, opt-out)│
 │ Phase 4: Schema Normalization & Pipeline Scalability (High: Air-gap, dedup, DSU scale)   │
-│ Phase 5: Canonical Ecosystem Expansion & Governance (Hardest: VPM feeds, VRCArena, mesh) │
+│ Phase 5: Canonical Ecosystem Expansion & Governance (Hardest: VPM feeds, evidence, mesh) │
 │ Post-v1.0 Milestone: Decentralized Edge Node Ingestion & Provenance Architecture        │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -320,15 +320,16 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`LEGAL.md`](LEGAL.md): Section 10.6 ("Downstream Reporting Invariants") & Section 9.4 ("Takedown Protocols") — explicitly distinguish administrative curation auth from unauthenticated rights-holder proof-based delisting.
 - **Acceptance Criteria**: Anonymous `POST /v1/reports` returns `401 Unauthorized`; authenticated delisting reports enter `'needs_review'` buffer. *(Verified: test passes in `tests/phase2_auth_quarantine.test.ts`)*.
 
-#### Task 2.3: Cloudflare Turnstile Detection & Poisson Acceleration Guard [COMPLETED]
-- **Priority**: Bot Perimeter Defense | **Complexity**: Medium (45 mins) | **Traceability**: CR-15, G-3, G-23, LEGAL §5.1(c), §6.4 | **Status**: Verified & Completed
+#### Task 2.3: Cloudflare Turnstile Detection & Poisson Acceleration Guard [FIXME]
+- **Priority**: Bot Perimeter Defense | **Complexity**: Medium (45 mins) | **Traceability**: CR-15, G-3, G-23, LEGAL §5.1(c), §6.4 | **Status**: Erroneous
+- `To bypass Cloudflare Turnstile as a polite, legitimate web scraper or crawler, your goal is not to hack or "solve" the CAPTCHA using automated solver APIs. Instead, you need to prove your legitimacy and structure your scraper so that Cloudflare recognizes it as a friendly bot.Cloudflare Turnstile generally lets automated traffic pass if the bot is transparent, slow, and behaves like a well-intentioned search engine or data aggregator.`
 - **Files**: [`src/drivers/gumroad.ts`](src/drivers/gumroad.ts#L80-L120), [`src/drivers/jinxxy.ts`](src/drivers/jinxxy.ts#L75-L115)
 - **Problem**: Cloudflare Managed Challenges serve `HTTP 200` with Turnstile HTML challenge scripts. The crawler treats this as a document update, accelerates the Poisson crawl rate ($\lambda \times 1.4$), and triggers an IP ban.
 - **Remediation**: Before parsing HTML DOM, inspect payload:
   ```typescript
   if (html.includes("challenges.cloudflare.com/turnstile") || html.includes("cf-mitigated: challenge")) {
     logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${url}. Halting domain crawl.`);
-    await db.markStatus(url, "blocked", 86400 * 3); // 3-day backoff
+    await db.markStatus(url, "blocked", 86400 * 3); // 3-day backoff FIXME: too much, use the same exponential back offs
     return null;
   }
   ```
@@ -626,21 +627,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`AGENT.md`](AGENT.md): Document VPM federated discovery operational parameters.
 - **Acceptance Criteria**: Federated VPM discovery ingests external manifests and enqueues valid package targets without unindexed web crawling or secondary aggregator scraping.
 
-#### Task 5.2: VRCArena Bilateral Federation Adapter (Canonical Task 3)
-- **Priority**: Ecosystem Integration | **Complexity**: Very High (3.5 hours) | **Traceability**: CANON-3, G-6, LEGAL §5.2(f), PLATFORM-MATRIX §2.6
-- **Files**: `src/drivers/vrcarena.ts` (future adapter), [`src/crawler/index.ts`](src/crawler/index.ts)
-- **Problem**: Evaluating VRCArena for discovery. Direct HTML DOM scraping is fragile, strains community volunteer infrastructure, and introduces noise.
-- **Remediation**:
-  1. Reject automated HTML DOM scraping.
-  2. Implement an open-source adapter querying VRCArena's open GraphQL/REST API or static dataset dumps within `robots.txt` limits and polite pacing.
-  3. Apply strict category whitelisting to ingest only developer toolchains, shaders, and scripts, filtering out unverified avatar re-textures.
-- **Cascading Documentation Changes**:
-  - [`docs/PLATFORM-MATRIX.md`](docs/PLATFORM-MATRIX.md): Update Section 2.6 status from planned to active federated adapter.
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Document VRCArena bilateral federation rules in Section 2.
-  - [`AGENT.md`](AGENT.md): Add VRCArena federation driver specification.
-- **Acceptance Criteria**: Adapter successfully parses VRCArena feed within robots.txt limits, extracts toolchains with source attribution, and ignores non-toolchain assets without scraping HTML pages.
-
-#### Task 5.3: Avatar Cosmetics Taxonomy Isolation & Base-Avatar Association (Canonical Task 2)
+#### Task 5.2: Avatar Cosmetics Taxonomy Isolation & Base-Avatar Association (Canonical Task 2)
 - **Priority**: Catalog Expansion | **Complexity**: Very High (4 hours) | **Traceability**: CANON-2, G-2, LEGAL §11.4, DISCOVERY_RULES §2, §3.3
 - **Files**: [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/db.ts`](src/db.ts), [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md)
 - **Problem**: Reconsidering avatar cosmetics (clothing, hair) discovery introduces explosive dimensionality and boilerplate vocabulary, causing severe SimHash-64 ($k \le 3$) false merges against toolchains.
@@ -653,6 +640,135 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Add Section 3.7 defining base avatar extraction regexes and cosmetics taxonomy isolation.
   - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Document decoupled cosmetics catalog projection.
 - **Acceptance Criteria**: Cosmetics listings are tagged with target avatar mesh and isolated from toolchains; SimHash false merges between distinct clothing assets are eliminated.
+
+#### Task 5.3: Evidence-Based Temporal & Provenance Architecture
+- **Priority**: Data Integrity & Ecosystem Scalability | **Complexity**: Very High (4–5 hours) | **Traceability**: Phase 5 Reviewer Delegation, LEGAL §2.4, DISCOVERY_RULES §4.2, existing `frontier`/`entities`/`canonical_packages`/`package_fronts` schema
+- **Files**: [`src/db.ts`](src/db.ts), [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/sync/exporter.ts`](src/sync/exporter.ts), `src/drivers/` (all existing + future adapters)
+- **Architectural Principle**:
+  > *«Facts belong to observations; claims belong to derived projections; provenance belongs to the evidence connecting them.»*
+  >
+  > A package's temporal history must be reconstructed from independently sourced observations and evidence rather than assuming a single `release_date` field exists or that any single source is authoritative.
+- **Problem**:
+  Canonical storefronts frequently do not expose an official product publication date. The existing schema stores temporal information in a proliferation of flat columns (`origin_created_at`, `origin_updated_at`, `created_at`, `updated_at`, `observed_at`, `last_fetched_at`) with no unified provenance chain. Adding evidence from additional sources (GitHub release metadata, YouTube publication time, creator announcements, linked external resources) would naturally produce more ad-hoc columns per platform (`youtube_published_at`, `github_release_date`, …), contradicting the CQRS observation/projection architecture and the 2-URL column principle.
+  The current `frontier` already tracks `etag`, `last_modified`, `last_fetched_at`, `change_rate_lambda`, and `next_fetch_at` — but the semantic distinction between:
+  - *representation unchanged (same ETag)* vs.
+  - *product not updated* vs.
+  - *product stale / unverified*
+
+  is not first-class, risking incorrect "product staleness" inferences from an unchanged ETag.
+- **Specific Evidence-Type Examples** *(non-authoritative; evidence does not imply official release)*:
+  - Storefront first observation timestamp
+  - Storefront representation change (new ETag / new `Last-Modified`)
+  - HTTP ETag / Last-Modified validation (content unchanged)
+  - VPM manifest publication or version event
+  - GitHub release tag / commit timestamp
+  - YouTube video publication time for an already-linked associated video
+  - Creator-linked external resource (announcement page, changelog)
+  - Future platform-specific adapter evidence
+
+  > **Scope constraint**: External evidence providers must be bounded by available APIs/interfaces, terms of service, cost, and rate limits. No broad social-media discovery. YouTube evidence is only collected when a storefront listing already exposes a specific linked video — the crawler does not search YouTube.
+- **Remediation**:
+
+  **Step 1 — Schema Analysis (Pre-Implementation)**
+  Before any code changes, audit the current schema against these three design options:
+
+  | Option | Description | Trade-offs |
+  | :--- | :--- | :--- |
+  | **A** | Normalized `package_evidence` table (one row per evidence item per package) | Best queryability, deduplication, immutability; most migration complexity |
+  | **B** | Structured JSON column on existing `entities`/`package_fronts` rows | Minimal migration; lower queryability; risks schema explosion in JSON |
+  | **C** | Hybrid: normalized evidence for indexed queries + compact derived JSON on `canonical_packages` | Balances queryability with API export simplicity |
+
+  Evaluate against: storage cost, queryability, SQLite performance, deduplication, immutability, projection complexity, migration complexity, API/export simplicity, provenance integrity, and future adapter extensibility. Document conclusion in `DISAGREEMENTS.md` before implementation.
+
+  **Step 2 — Evidence Record Structure**
+  Adopt a single generic evidence representation regardless of source. Each evidence record captures:
+  ```json
+  {
+    "type": "storefront_observation | representation_change | http_validation | vpm_release | github_release | youtube_publication | creator_announcement | external_resource",
+    "source_type": "storefront | vpm | github | youtube | creator_site | inferred",
+    "source_platform": "booth | gumroad | jinxxy | itch | vpm | github | youtube | ...",
+    "resource_url": "stable identifier or URL of the source",
+    "published_at": "ISO 8601 — what the source claims (nullable)",
+    "observed_at": "ISO 8601 — when the crawler collected this",
+    "relationship": "is_storefront_listing | is_associated_video | is_release_event | ...",
+    "confidence": "source_published | source_modified | crawler_inferred | unverified",
+    "adapter": "booth_driver | github_driver | youtube_evidence_adapter | ...",
+    "publicly_exposable": true
+  }
+  ```
+
+  **Step 3 — Derived Temporal Claims on `canonical_packages`**
+  Replace or supplement the existing flat temporal columns with evidence-derived claims:
+  - `first_known_date` — earliest `published_at` across all evidence records (nullable; not assumed to equal release date)
+  - `first_observed` — earliest `observed_at` for storefront_observation evidence (crawler-local fact)
+  - `last_observed` — most recent storefront observation timestamp
+  - `last_verified` — most recent HTTP validation (304 or 200) timestamp
+  - `last_representation_change` — most recent timestamp where ETag/Last-Modified actually changed
+
+  > **Invariants**:
+  > - `first_observed` MUST NEVER be promoted to `release_date`
+  > - An unchanged ETag means `last_verified` updated, NOT `last_representation_change` updated
+  > - `first_known_date` is "earliest known public evidence" — not an official release date claim
+  > - Evidence confidence is always preserved; no evidence silently becomes an authoritative date
+
+  **Step 4 — ETag / Last-Modified / Poisson Mapping**
+  Map the existing `frontier` fields into the evidence model:
+  - `HTTP 304` response → creates/updates an `http_validation` evidence record; advances `last_verified`; does NOT advance `last_representation_change`
+  - `HTTP 200` with new ETag → creates `representation_change` evidence record; advances `last_representation_change`
+  - `first_fetched_at` (derived from `frontier.discovered_at` + first `done`) → `storefront_observation` evidence record; populates `first_observed`
+  - Poisson `change_rate_lambda` continues to govern `next_fetch_at` scheduling; evidence records provide the observable facts that feed into downstream freshness reasoning
+
+  **Step 5 — YouTube Evidence Adapter (Bounded)**
+  When a `canonical_package.youtube_urls_json` already contains a linked video URL (collected by existing drivers), a lightweight YouTube evidence adapter may:
+  1. Fetch the video's oEmbed or public metadata endpoint (no API key required for basic oEmbed)
+  2. Extract `published_at` (video publication timestamp)
+  3. Store a `youtube_publication` evidence record with `confidence: "source_published"` and `relationship: "is_associated_video"`
+  4. This timestamp does NOT become `release_date`; it becomes "associated YouTube resource published at X"
+
+  > No YouTube search or discovery. The adapter is only invoked when a URL is already known from a storefront listing.
+
+  **Step 6 — Future Adapter Extensibility**
+  The evidence table/structure must support new source types without schema changes. Adding a new platform adapter (GitHub Releases, creator site announcements, future platforms) requires only:
+  - A new `type` and `source_platform` value (enumerated string)
+  - A new adapter module in `src/drivers/` or `src/evidence/`
+  - No new columns in `canonical_packages` or `entities`
+
+  **Step 7 — Downstream Feed Contract**
+  The API and export schema must allow downstream applications to ask:
+  - *When was this package first observed?* → `first_observed`
+  - *When was it last verified?* → `last_verified`
+  - *When did its source representation last change?* → `last_representation_change`
+  - *What is the earliest known public evidence?* → `first_known_date` + evidence array
+  - *Is the date official, source-published, observed, or inferred?* → `evidence[].confidence`
+  - *What sources support a claim?* → `evidence[].source_platform` + `evidence[].resource_url`
+
+  Downstream feed and recommendation systems derive freshness categories (new, recently updated, recently verified, unchanged for a long time) from these fields; the crawler does not encode recommendation rankings.
+
+- **Non-Goals** *(explicit)*:
+  - Do NOT add per-platform date columns (`youtube_published_at`, `github_release_date`, etc.)
+  - Do NOT invent or assert an "official release date"
+  - Do NOT treat `first_observed` as `release_date`
+  - Do NOT treat an unchanged ETag as product staleness
+  - Do NOT scrape social media broadly to find associated content
+  - Do NOT store social media posts, video descriptions, or third-party catalog entries to obtain dates
+  - Do NOT make VRCArena or any community catalog an authoritative source
+  - Do NOT build recommendation ranking logic into the crawler
+
+- **Cascading Documentation Changes**:
+  - [`src/db.ts`](src/db.ts): Add `package_evidence` table (or equivalent structure per Option A/B/C decision); add derived temporal columns to `canonical_packages`; document invariants in TypeScript JSDoc.
+  - [`src/crawler/projection.ts`](src/crawler/projection.ts): Update projection to populate derived temporal fields from evidence; enforce ETag/Last-Modified distinction invariants.
+  - [`src/sync/exporter.ts`](src/sync/exporter.ts): Export evidence records (or compact derived JSON) in `vrc_catalog.db` for offline consumers.
+  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Document evidence model, derived temporal field semantics, and adapter extensibility pattern.
+  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Update Section 4.2 (Timestamp Confidence Rubric) to cover evidence types and confidence levels.
+  - [`AGENT.md`](AGENT.md): Document evidence record structure and invariants.
+  - [`LEGAL.md`](LEGAL.md): Section 2.4 — affirm that evidence provenance tracks source, adapter, and observability for legal traceability.
+
+- **Acceptance Criteria**:
+  - A package with no storefront publication date, a linked YouTube video, and a GitHub release can express distinct `first_observed`, `first_known_date` (YouTube or GitHub), and `last_verified` without claiming an official release date.
+  - An `HTTP 304` response advances `last_verified` but NOT `last_representation_change`.
+  - Adding a new evidence adapter requires zero schema changes to `canonical_packages` or `entities`.
+  - Downstream API response includes enough evidence metadata for a consumer to answer all seven temporal questions listed in Step 7.
+  - All evidence records preserve `adapter`, `confidence`, `source_type`, and `publicly_exposable` fields.
 
 ---
 
@@ -772,7 +888,7 @@ Whenever any task above is addressed or merged, the following documentation file
 | **[`DELEGATES.md`](DELEGATES.md)** | Tasks 1.1, 2.1, 2.2, 2.5, 2.6, 2.7, 3.4, 4.1, Post-v1.0 Milestone | Section 4 ("Environment & Secret Configuration Template") — `API_SECRET_TOKEN` CSPRNG generation; Section 2 (CLI redirection); Section 3 ("Database Topography & Stale DB Policy"); Section 5 ("Testing, CI/CD & Testbed Isolation"); Section 8 ("Fault Recovery Runbook & Elimination of Manual Batch Scripts"); Section 5 (watermark recovery). |
 | **[`README.md`](README.md)** | Tasks 1.1, 1.2, 1.3, 2.1, 4.2 | Section "API Gateway Surface" (add `GET /` and terms headers); Section "Downstream Developer Integration & Terms of Use"; Section "System Architecture & Air-Gapped Boundaries" (Task 4.2). |
 | **[`docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md)** | Tasks 1.2, 2.2, 2.7, 3.1, 3.2, 4.1 | Section 1 & Section 3 (in-band terms notice `VRC-Packages-Terms-Of-Use`, hybrid media streaming proxy `/v1/media/stream`, storefront bio-token delisting, driver circuit breaker autonomy, and clean canonical ground-truth schema). |
-| **[`docs/PLATFORM-MATRIX.md`](docs/PLATFORM-MATRIX.md)** | Tasks 2.3, 3.3, 5.2 | Section 2.2 & 2.4 (Gumroad/Jinxxy perimeter defense, Turnstile detection); Section 2 (conditional requests ETag/If-Modified-Since); Section 2.6 (VRCArena bilateral federation). |
+| **[`docs/PLATFORM-MATRIX.md`](docs/PLATFORM-MATRIX.md)** | Tasks 2.3, 3.3, 5.2 | Section 2.2 & 2.4 (Gumroad/Jinxxy perimeter defense, Turnstile detection); Section 2 (conditional requests ETag/If-Modified-Since); Section 4 (cosmetics taxonomy isolation per base-avatar mesh). |
 | **[`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md)** | Tasks 1.4, 1.5, 1.6, 2.3, 2.4, 5.1, 5.3 | Section 4.2 (timestamp extraction NULL rules); Section 2 (VPM 7-day re-seeding staleness); Section 7.1 (YouTube embed filters); Section 3.6 (Turnstile halt rules); Section 3.5 (NFKC/CJK bracket normalization); Section 3.7 (cosmetics mesh tagging). |
 | **[`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md)** | Tasks 1.2, 1.4, 2.4, 2.7, 3.1, 3.2, 4.1, 4.4, 5.3 | Section 2.1 ("Canonical Ground-Truth Database Schema & Dist Stale DB Policy", `catalog_metadata`); Section 2.2 (incremental DSU clustering & SimHash); Section 3.4 ("Fault Tolerance, Autonomous Circuit Breakers & Dead-Letter Queue Architecture"); Section 3.2 (creator opt-out workflow). |
 | **[`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md)** | Tasks 1.2, 1.3, 2.2, 3.1, 3.2, 4.3 | Section 1 ("Root Discovery Route & HTTP Header Invariants `VRC-Packages-Terms-Of-Use`"); Section 5 ("Security, Bearer Token Specification & Quarantined Processing"); Section 4 (`POST /v1/opt-out` bio-token schema); Section 6 (active Schema 5 `POST /v1/telemetry` route). |
