@@ -342,7 +342,7 @@ Per-origin rate state managed by the coordinator:
 origin_rate_state:
   origin               TEXT
   concurrent_requests  INTEGER  DEFAULT 1  -- maximum simultaneous requests to this origin
-  min_delay_ms         INTEGER             -- derived from robots.txt Crawl-delay or platform default
+  min_delay_ms         INTEGER             -- operator/source-profile floor; optional Crawl-delay can only raise it
   backoff_enabled      BOOLEAN
   last_request_at      INTEGER             -- Unix epoch ms (shared across ALL nodes)
   backoff_until        INTEGER             -- Unix epoch ms; set on 429 / 5xx signals
@@ -354,7 +354,7 @@ origin_rate_state:
 
 2. **Failing-Closed Safety Property**: If the Crawl Coordinator is unreachable, crawler nodes **must wait** — they must not fall back to local crawling schedules or self-assign targets. An unreachable coordinator is treated as a full crawl stop. This prevents uncoordinated traffic spikes against third-party origins during coordinator outages.
 
-3. **`robots.txt` Crawl-Delay as Scheduler Input**: RFC 9309 `Crawl-delay` values and `Disallow` paths feed directly into the centralized origin rate state. A crawler node cannot override source-level crawling restrictions; the coordinator enforces them as non-negotiable scheduler inputs.
+3. **Origin Pacing and Optional `Crawl-delay`**: RFC 9309 defines `Allow`/`Disallow`, not `Crawl-delay`; [§2.2.4](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.4) permits separate interpretation of other records. The coordinator enforces an operator/source-profile minimum delay. A supported, unambiguous extension may raise that floor, never lower it; crawler nodes cannot override centralized restrictions.
 
 4. **Shared Backoff State**: HTTP 429 and persistent 5xx responses from an origin become **platform-level signals**, not node-level signals. All nodes back off from that origin simultaneously until the coordinator's `backoff_until` timestamp clears.
 

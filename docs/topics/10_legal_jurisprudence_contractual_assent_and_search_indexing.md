@@ -131,7 +131,7 @@ Storefronts like BOOTH.pm operate under Japanese jurisdiction. The Japanese Copy
 - **Article 30-4 (Data Analysis Exception)**: Allows processing of works for machine data analysis where there is no intent to enjoy creative expression.
 - **Article 47-5 (Information Retrieval Exception)**: Allows minor exploitation of works for computerized information retrieval and search engines.
 - **The Economic Prejudice Proviso**: Article 47-5 does not apply if exploitation unreasonably prejudices the economic interests of the copyright holder.
-- **Contract Separation**: Statutory copyright exceptions do not create affirmative contractual licenses. Pixiv Master Terms Article 14 restricts automated collection under Japanese Civil Code Article 548-2.
+- **Contract Separation**: Statutory copyright exceptions do not create affirmative contractual licenses. [BOOTH's July 2026 guidelines](https://booth.pm/guidelines) conditionally permit information-analysis scraping, while reserving restrictions for load, rights harm, or other damage; common/specific terms and republication still need source-specific review.
 
 The crawler respects this balance:
 - It routes all checkout traffic to the original creator on BOOTH.pm.
@@ -173,10 +173,10 @@ Matching records change immediately to `lifecycle = 'delisted'` and leave canoni
 
 | Platform | Primary Terms Clause | Search Engine Status | Required Pacing | Project Compliance Posture |
 | :--- | :--- | :--- | :--- | :--- |
-| **BOOTH.pm (pixiv Inc.)** | Master Terms Art. 14 (commercial extraction and load ban) | Art. 47-5 / 30-4 statutory exceptions (contractual position unresolved) | 1.5s baseline (0.8s to 5.0s adaptive) | Logged-out access, binary package exclusion, direct store redirection. |
+| **BOOTH.pm (pixiv Inc.)** | July 2026 guideline conditionally permits information-analysis scraping; other terms/retention unresolved | Art. 47-5 / 30-4 may be relevant, not blanket authorization | 1.5s baseline (0.8s to 5.0s adaptive) | No live seed approved; review source profile, robots, and field-level publication. |
 | **Gumroad, Inc.** | Terms Section 14(e) | **Search engine exception**: Permits spiders creating searchable indices, excluding caches | 3.0s baseline (2.5s to 12.0s adaptive) | Relies on search index exception, subject to periodic terms review. Excludes binary caches. |
 | **Jinxxy Technologies** | Terms Section 8.2 & 23 (unauthorized scraper ban) | No written exception | 1.2s baseline (0.8s to 6.0s adaptive) | **Unresolved Contractual Risk**: Logged-out access, polite pacing, immediate opt-out target. |
-| **itch.io (itch corp.)** | Terms Section 3 (harvesting and server degradation ban) | Developer friendly | 1.5s baseline pacing | Prefers official developer APIs; routes 100% of traffic to origin store. |
+| **itch.io (itch corp.)** | Terms Section 3 restricts collecting information about others; robots disallow `/search` | No general catalog access conclusion | 1.5s baseline pacing | No live seed approved; authenticated account API is not an open cross-publisher catalog API. |
 | **GitHub, Inc.** | Acceptable Use Policy | API-first policy with archival and research allowances | Token bucket rate limits | Uses official REST and GraphQL APIs; planned conditional ETag validation. |
 | **VRCArena** | Open-source community directory; `robots.txt Allow: /` | Directory indexing permitted | API federation only | **Zero HTML DOM scraping**; uses bilateral API or static catalog dumps. |
 
@@ -256,4 +256,3 @@ graph TD
 - IETF RFC 9309, *Robots Exclusion Protocol*, September 2022.
 - A. C. Tricco et al., "PRISMA Extension for Scoping Reviews (PRISMA-ScR): Checklist and Explanation," *Annals of Internal Medicine*, vol. 169, no. 7, pp. 467-473, Oct. 2018.
 - General Legal Templates, *Website Terms of Use (CC0 1.0 Universal)*, github.com/General-Legal/legal-templates, 2024.
-

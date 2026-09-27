@@ -283,6 +283,11 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
         .replace(/^-+|-+$/g, "");
     }
 
+    function hasKnownAuthor(author: string): boolean {
+      const normalized = normalizeSlug(author);
+      return normalized.length > 0 && normalized !== "unknown";
+    }
+
     interface PackageCluster {
       id: string;
       name: string;
@@ -554,11 +559,11 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
         }
 
         // B. Check Author + Title normalized match
-        if (!matchedCluster) {
+        if (!matchedCluster && hasKnownAuthor(e.author)) {
           const normAuth = normalizeSlug(e.author);
           const normTitle = normalizeSlug(normalizeListingTitle(e.title));
           const atKey = `${normAuth}::${normTitle}`;
-          if (clusterByAuthorTitle.has(atKey)) {
+          if (normTitle && clusterByAuthorTitle.has(atKey)) {
             matchedCluster = clusterByAuthorTitle.get(atKey)!;
           }
         }
@@ -586,11 +591,13 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
                   const normAuthE = normalizeSlug(e.author);
                   const normAuthC = normalizeSlug(candidate.author);
                   if (
+                    hasKnownAuthor(e.author) &&
+                    hasKnownAuthor(candidate.author) &&
+                    (
                     normAuthE === normAuthC ||
                     normAuthE.includes(normAuthC) ||
-                    normAuthC.includes(normAuthE) ||
-                    candidate.author === "Unknown" ||
-                    e.author === "Unknown"
+                    normAuthC.includes(normAuthE)
+                    )
                   ) {
                     matchedCluster = candidate;
                     break;
@@ -1064,6 +1071,13 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
 
             const rawEntityId = matchingEnt.id;
             const platformItemId = matchingEnt.id.replace(/^[^:]+:/, "");
+            // A front is an observed listing, not a copy of aggregate canonical
+            // metadata. In particular, one store's price must not overwrite a
+            // different store's currency and price when their items are merged.
+            const frontTitle = matchingEnt.title;
+            const frontAuthor = matchingEnt.author;
+            const frontPriceCurrency = matchingEnt.price_currency || (sf.p === "booth" ? "JPY" : "USD");
+            const frontPriceAmount = matchingEnt.price_amount ?? 0;
 
             if (!existingFront) {
               insertFront.run(
@@ -1072,10 +1086,10 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
                 sf.p,
                 platformItemId,
                 sf.u,
-                c.name,
-                c.author,
-                c.price_currency,
-                c.price_amount,
+                frontTitle,
+                frontAuthor,
+                frontPriceCurrency,
+                frontPriceAmount,
                 frontOriginCreated,
                 frontOriginUpdated,
                 rawEntityId,
@@ -1090,10 +1104,10 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
                 platform: sf.p,
                 platform_item_id: platformItemId,
                 url: sf.u,
-                title: c.name,
-                author: c.author,
-                price_currency: c.price_currency,
-                price_amount: c.price_amount,
+                title: frontTitle,
+                author: frontAuthor,
+                price_currency: frontPriceCurrency,
+                price_amount: frontPriceAmount,
                 origin_created_at: frontOriginCreated,
                 origin_updated_at: frontOriginUpdated,
                 raw_entity_id: rawEntityId,
@@ -1106,10 +1120,10 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
               const isFrontUnchanged =
                 existingFront.platform_item_id === platformItemId &&
                 existingFront.url === sf.u &&
-                existingFront.title === c.name &&
-                existingFront.author === c.author &&
-                (existingFront.price_currency || null) === (c.price_currency || null) &&
-                (existingFront.price_amount ?? null) === (c.price_amount ?? null) &&
+                existingFront.title === frontTitle &&
+                existingFront.author === frontAuthor &&
+                (existingFront.price_currency || null) === frontPriceCurrency &&
+                (existingFront.price_amount ?? null) === frontPriceAmount &&
                 (existingFront.origin_created_at || null) === (frontOriginCreated || null) &&
                 (existingFront.origin_updated_at || null) === (frontOriginUpdated || null) &&
                 existingFront.raw_entity_id === rawEntityId &&
@@ -1120,10 +1134,10 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
                 updateFront.run(
                   platformItemId,
                   sf.u,
-                  c.name,
-                  c.author,
-                  c.price_currency,
-                  c.price_amount,
+                  frontTitle,
+                  frontAuthor,
+                  frontPriceCurrency,
+                  frontPriceAmount,
                   frontOriginCreated,
                   frontOriginUpdated,
                   rawEntityId,

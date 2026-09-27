@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import type { CrawlJob, DiscoveryLead, Observation, ResultRequest, VpmListingIssue } from "../shared/node_protocol.ts";
 import { classifyAccessFailure, retryAfterSeconds } from "../shared/access_outcome.ts";
 import { githubApiRepositoryIdentity } from "../shared/source_targets.ts";
+import { CRAWLER_USER_AGENT } from "../shared/crawler_identity.ts";
 import { UnsafeMetadataTarget } from "./public_metadata_fetch.ts";
 
 type Outcome = ResultRequest["outcome"];
@@ -210,11 +211,17 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
       if (!data || typeof data !== "object" || Array.isArray(data)) return null;
       const item = data as Record<string, any>;
       if (job.platform === "vpm" && typeof item.name === "string" && typeof item.version === "string") {
+        // Identity fields are evidence, not display text. Truncating either can merge
+        // distinct upstream packages or turn one release into a different version.
+        const name = string(item.name);
+        const version = string(item.version);
+        if (!name || name !== item.name || name.length > 200 ||
+            !version || version !== item.version || version.length > 100) return null;
         const author = typeof item.author === "string" ? item.author : item.author?.name;
-        const release = releaseEvidence(item.version.slice(0, 100), item);
+        const release = releaseEvidence(version, item);
         if (!release) return null;
         return {
-          sourceItemKey: item.name.slice(0, 200), title: String(item.displayName || item.name).slice(0, 500),
+          sourceItemKey: name, title: String(item.displayName || name).slice(0, 500),
           author: String(author || "Unknown").slice(0, 300), summary: String(item.description || "").slice(0, 1024),
           outboundLinks: httpsLinks([item.url, item.author?.url]),
           originUpdatedAt: normalizedDate(item.updated_at),
@@ -259,7 +266,9 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
   };
 }
 
-export async function fetchJobOutcome(job: CrawlJob, fetcher: (input: string | URL | Request, init?: RequestInit) => Promise<Response> = fetch): Promise<Outcome> {
+export async function fetchJobOutcome(job: CrawlJob,
+  fetcher: (input: string | URL | Request, init?: RequestInit) => Promise<Response> = fetch,
+  authoritySignal?: AbortSignal): Promise<Outcome> {
   if ((job.platform === "github" || new URL(job.url).hostname === "api.github.com") &&
       (job.platform !== "github" || !githubApiRepositoryIdentity(job.url))) {
     return { kind: "blocked", reason: "GitHub jobs require a public REST repository metadata endpoint" };
@@ -267,13 +276,14 @@ export async function fetchJobOutcome(job: CrawlJob, fetcher: (input: string | U
   try {
     const response = await fetcher(job.url, {
       headers: {
-        "user-agent": "vrc-package-crawler/1.0 (+local node simulation)",
+        "user-agent": CRAWLER_USER_AGENT,
         "accept": job.platform === "github" ? "application/vnd.github+json" : "application/json,text/html;q=0.9,*/*;q=0.5",
         ...(job.platform === "github" ? { "x-github-api-version": "2026-03-10" } : {}),
         ...(job.etag ? { "if-none-match": job.etag } : {}),
         ...(job.lastModified ? { "if-modified-since": job.lastModified } : {})
       },
-      signal: AbortSignal.timeout(25_000), redirect: "error"
+      signal: authoritySignal ? AbortSignal.any([authoritySignal, AbortSignal.timeout(25_000)]) :
+        AbortSignal.timeout(25_000), redirect: "error"
     });
     const headerFailure = classifyAccessFailure(response);
     if (headerFailure === "challenge") return { kind: "blocked", reason: "Challenge response" };
@@ -315,6 +325,7 @@ export async function fetchJobOutcome(job: CrawlJob, fetcher: (input: string | U
     const observation = parseObservation(job, body, response.headers.get("content-type") || "");
     return observation ? { kind: "changed", observation } : { kind: "temporary_failure", reason: "No item observation in response" };
   } catch (error) {
+    if (authoritySignal?.aborted) throw new Error("Fetch cancelled because coordinator authority was lost");
     if (error instanceof UnsafeMetadataTarget) return { kind: "blocked", reason: error.message.slice(0, 300) };
     return { kind: "temporary_failure", reason: String(error).slice(0, 300) };
   }

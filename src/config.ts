@@ -1,4 +1,5 @@
 import path from "path";
+import { CRAWLER_USER_AGENT } from "./shared/crawler_identity.ts";
 
 // Grounded working-directory path resolution (no hardcoded absolute system paths)
 const isBunRuntime = process.execPath.endsWith("bun.exe") || process.execPath.endsWith("bun");
@@ -18,7 +19,7 @@ export const CONFIG = {
   dbPath: DB_PATH,
   logsDir: LOGS_DIR,
   lockPath: path.resolve(CANONICAL_DIR, "crawler.lock"),
-  userAgent: "VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)",
+  userAgent: CRAWLER_USER_AGENT,
   
   // Protected routes fail closed when no administrative token is configured.
   apiSecretToken: process.env.API_SECRET_TOKEN?.trim() || "",

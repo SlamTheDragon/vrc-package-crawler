@@ -3,6 +3,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { unusedLoopbackPort } from "./loopback_port.ts";
+import { LocalCoordinatorStore } from "../src/worker/local_sqlite.ts";
 
 const smokeDir = mkdtempSync(join(tmpdir(), "vrc-multi-coordinator-"));
 const resolvedSmokeDir = realpathSync(smokeDir);
@@ -46,6 +47,9 @@ try {
   const bToken = (JSON.parse(coordinatorCommand(["register", "node-b", "vpm"])) as { token: string }).token;
   coordinatorCommand(["seed", "vpm", "https://same-origin.example.org/a", "1000"]);
   coordinatorCommand(["seed", "vpm", "https://same-origin.example.org/b", "1000"]);
+  const fixtures = new LocalCoordinatorStore(dbPath);
+  try { fixtures.recordRobotsSnapshot("https://same-origin.example.org", 404); }
+  finally { fixtures.close(); }
   const aPort = await startCoordinator();
   const bPort = await startCoordinator();
   const claimCalls = Array.from({ length: 24 }, (_, index) => {
@@ -78,6 +82,9 @@ try {
   const boothToken = (JSON.parse(coordinatorCommand(["register", "booth-node", "booth"])) as { token: string }).token;
   const suppressedUrl = "https://suppressed.example.org/item";
   coordinatorCommand(["seed", "booth", suppressedUrl, "1000"]);
+  const boothFixture = new LocalCoordinatorStore(dbPath);
+  try { boothFixture.recordRobotsSnapshot("https://suppressed.example.org", 404); }
+  finally { boothFixture.close(); }
   const boothClaim = await post(aPort, "/v1/node/jobs/claim", boothToken,
     { schemaVersion: 1, nodeId: "booth-node", capabilities: ["booth"] });
   if (boothClaim.status !== 200 || boothClaim.body.status !== "leased") throw new Error("Could not lease suppression test job");
@@ -91,14 +98,64 @@ try {
   const blockedClaim = await post(bPort, "/v1/node/jobs/claim", boothToken,
     { schemaVersion: 1, nodeId: "booth-node", capabilities: ["booth"] });
   if (blockedClaim.status !== 200 || blockedClaim.body.status !== "empty") throw new Error("Suppressed URL was re-leased");
+
+  // Simulate an abrupt coordinator death while a node job is leased. The
+  // surviving process must recover it after expiry and reject the stale owner.
+  const recoveryUrl = "https://recovery.example.org/item";
+  coordinatorCommand(["seed", "vpm", recoveryUrl, "1000"]);
+  const recoveryFixture = new LocalCoordinatorStore(dbPath);
+  try {
+    recoveryFixture.recordRobotsSnapshot("https://recovery.example.org", 404);
+    recoveryFixture.db.prepare("UPDATE crawl_jobs SET next_fetch_at=? WHERE origin=?")
+      .run("2099-01-01T00:00:00.000Z", "https://same-origin.example.org");
+  }
+  finally { recoveryFixture.close(); }
+  const crashedClaim = await post(aPort, "/v1/node/jobs/claim", aToken,
+    { schemaVersion: 1, nodeId: "node-a", capabilities: ["vpm"] });
+  if (crashedClaim.status !== 200 || crashedClaim.body.status !== "leased" ||
+      crashedClaim.body.job.url !== recoveryUrl) {
+    throw new Error(`Could not lease recovery test job: ${JSON.stringify(crashedClaim)}`);
+  }
+  servers[0].kill("SIGKILL");
+  await servers[0].exited;
+  const expiredLease = "1970-01-01T00:00:00.000Z";
+  const recoveryStore = new LocalCoordinatorStore(dbPath);
+  try {
+    recoveryStore.db.prepare("UPDATE crawl_jobs SET lease_expires_at=? WHERE job_id=?")
+      .run(expiredLease, crashedClaim.body.job.jobId);
+    recoveryStore.db.prepare("UPDATE origin_leases SET lease_expires_at=?,next_allowed_at=? WHERE origin=?")
+      .run(expiredLease, expiredLease, "https://recovery.example.org");
+  } finally { recoveryStore.close(); }
+  const recoveredClaim = await post(bPort, "/v1/node/jobs/claim", bToken,
+    { schemaVersion: 1, nodeId: "node-b", capabilities: ["vpm"] });
+  if (recoveredClaim.status !== 200 || recoveredClaim.body.status !== "leased" ||
+      recoveredClaim.body.job.jobId !== crashedClaim.body.job.jobId ||
+      recoveredClaim.body.job.leaseId === crashedClaim.body.job.leaseId) {
+    throw new Error(`Surviving coordinator did not replace the crashed lease: ${JSON.stringify(recoveredClaim)}`);
+  }
+  const staleResult = await post(bPort, "/v1/node/jobs/result", aToken, {
+    schemaVersion: 1, nodeId: "node-a", jobId: crashedClaim.body.job.jobId,
+    leaseId: crashedClaim.body.job.leaseId, idempotencyKey: "crashed-old-lease",
+    outcome: { kind: "unchanged" }
+  });
+  if (staleResult.status !== 403) throw new Error(`Crashed node's stale result was accepted: ${staleResult.status}`);
+  const recoveredResult = await post(bPort, "/v1/node/jobs/result", bToken, {
+    schemaVersion: 1, nodeId: "node-b", jobId: recoveredClaim.body.job.jobId,
+    leaseId: recoveredClaim.body.job.leaseId, idempotencyKey: "surviving-recovery-result",
+    outcome: { kind: "unchanged" }
+  });
+  if (recoveredResult.status !== 200 || recoveredResult.body.duplicate !== false) {
+    throw new Error(`Recovered lease result was not accepted: ${JSON.stringify(recoveredResult)}`);
+  }
   const db = new Database(dbPath, { readonly: true });
   try {
     const jobResults = (db.prepare("SELECT count(*) AS n FROM job_results").get() as { n: number }).n;
     const events = (db.prepare("SELECT count(*) AS n FROM source_events").get() as { n: number }).n;
-    if (jobResults !== 1 || events !== 2) throw new Error(`Expected one result and two events, got ${jobResults}/${events}`);
+    if (jobResults !== 2 || events !== 3) throw new Error(`Expected two results and three events, got ${jobResults}/${events}`);
     console.log(JSON.stringify({ coordinatorProcesses: 2, concurrentClaims: claims.length,
       sameOriginLeases: leased.length, acceptedSubmissions: submissions.length, duplicateSubmissions: 1,
-      crossProcessSuppressedSubmitStatus: blockedResult.status, persistedResults: jobResults, persistedEvents: events }));
+      crossProcessSuppressedSubmitStatus: blockedResult.status, staleCrashSubmitStatus: staleResult.status,
+      recoveredSubmissionStatus: recoveredResult.status, persistedResults: jobResults, persistedEvents: events }));
   } finally { db.close(true); }
 } finally {
   for (const server of servers) { server.kill(); await server.exited; }

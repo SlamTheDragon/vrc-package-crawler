@@ -424,6 +424,20 @@ describe("Phase 4 - Blocker Remediation & Verification Suite", () => {
       expect(res.notModified).toBe(true);
     });
 
+    it("ItchDriver does not fetch disallowed search pages or probe again after a product 404", async () => {
+      const requested: string[] = [];
+      globalThis.fetch = (async (url: string) => {
+        requested.push(url);
+        return new Response(null, { status: 404 });
+      }) as any;
+
+      expect(await ItchDriver.crawlBrowsePage("https://itch.io/search?q=vrchat")).toEqual([]);
+      expect(requested).toEqual([]);
+
+      expect(await ItchDriver.crawlProduct("https://author.itch.io/missing-tool", testDb)).toBe(false);
+      expect(requested).toEqual(["https://author.itch.io/missing-tool"]);
+    });
+
     it("runEdgeSync local backup includes package_fronts and catalog_metadata (OVERLOOKED-10)", async () => {
       globalThis.fetch = originalFetch;
       const res = await runEdgeSync({ isDryRun: false, batchSize: 50, resetWatermark: true }, testDb);
@@ -476,6 +490,10 @@ describe("Phase 4 - Blocker Remediation & Verification Suite", () => {
         );
       `);
 
+      const internalDescription = "A".repeat(255) + "😀" + "B".repeat(200);
+      testDb.rawDb.prepare("UPDATE canonical_packages SET description=? WHERE canonical_id=?")
+        .run(internalDescription, "media-export-tool");
+
       const exportRes = await exportCatalog(exportPath, testDb.rawDb);
 
       expect(fs.existsSync(exportPath)).toBe(true);
@@ -486,6 +504,12 @@ describe("Phase 4 - Blocker Remediation & Verification Suite", () => {
       expect(mediaRow).toBeDefined();
       expect(mediaRow.source_url).toBe("https://booth.pximg.net/test.jpg");
       expect(mediaRow.blurhash).toBe("L6PZfSi_.AyE_3t7t7R**0o#DgR4");
+      const publicDescription = (expDb.prepare("SELECT description FROM canonical_packages WHERE canonical_id=?")
+        .get("media-export-tool") as { description: string }).description;
+      expect([...publicDescription].length).toBe(256);
+      expect(publicDescription.endsWith("😀")).toBe(true);
+      expect((testDb.rawDb.prepare("SELECT description FROM canonical_packages WHERE canonical_id=?")
+        .get("media-export-tool") as { description: string }).description).toBe(internalDescription);
 
       // Verify PRAGMA foreign_key_check passes without violation
       const fkViolations = expDb.prepare("PRAGMA foreign_key_check;").all();

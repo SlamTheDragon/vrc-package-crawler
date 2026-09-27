@@ -38,7 +38,8 @@ export const HeartbeatRequestSchema = z.discriminatedUnion("state", [
   z.strictObject({ schemaVersion: z.literal(PROTOCOL_VERSION), nodeId: NodeIdSchema,
     capabilities: z.array(PlatformSchema).min(1).max(7), state: z.literal("idle") }),
   z.strictObject({ schemaVersion: z.literal(PROTOCOL_VERSION), nodeId: NodeIdSchema,
-    capabilities: z.array(PlatformSchema).min(1).max(7), state: z.literal("fetching"), activeJobId: JobIdSchema })
+    capabilities: z.array(PlatformSchema).min(1).max(7), state: z.literal("fetching"),
+    activeJobId: JobIdSchema, activeLeaseId: z.uuid() })
 ]);
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequestSchema>;
 
@@ -77,8 +78,10 @@ export const ObservationSchema = z.strictObject({
 export type Observation = z.infer<typeof ObservationSchema>;
 
 export const DiscoveryLeadSchema = z.strictObject({
-  kind: z.enum(["vpm_listing", "github_repository", "release_zip"]),
+  kind: z.enum(["vpm_listing", "github_repository", "release_zip",
+    "creator_profile", "publisher_site", "storefront_product"]),
   url: HttpsUrlSchema,
+  discoveredFromItemKey: z.string().min(1).max(200).optional(),
   claimedPackageId: z.string().min(1).max(200).optional()
 });
 export type DiscoveryLead = z.infer<typeof DiscoveryLeadSchema>;

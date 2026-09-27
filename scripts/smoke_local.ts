@@ -9,7 +9,8 @@ if (!resolvedSmokeDir.startsWith(resolve(tmpdir()) + sep)) throw new Error("Smok
 const dbPath = join(resolvedSmokeDir, "coordinator.db");
 const binary = resolve("dist/vrc-coordinator.exe");
 const nodeBinary = resolve("dist/vrc-node.exe");
-const env = { ...process.env, COORDINATOR_DB_PATH: dbPath };
+const operatorToken = "b".repeat(64); // Isolated smoke fixture, never a deployment credential.
+const env = { ...process.env, COORDINATOR_DB_PATH: dbPath, COORDINATOR_OPERATOR_TOKEN: operatorToken };
 let server: ReturnType<typeof Bun.spawn> | undefined;
 const nodes: Array<ReturnType<typeof Bun.spawn>> = [];
 
@@ -34,7 +35,26 @@ try {
     await Bun.sleep(100);
   }
   if (!ready) throw new Error("Compiled coordinator did not accept a claim over loopback HTTP");
-  const { COORDINATOR_DB_PATH: _coordinatorDbPath, ...nodeBaseEnv } = env;
+  const operatorDenied = await fetch(`http://127.0.0.1:${port}/v1/operator/leads`,
+    { headers: { authorization: `Bearer ${tokens[0]}` } });
+  const operatorAllowed = await fetch(`http://127.0.0.1:${port}/v1/operator/leads`,
+    { headers: { authorization: `Bearer ${operatorToken}` } });
+  if (operatorDenied.status !== 401 || operatorAllowed.status !== 200 ||
+      (await operatorAllowed.json() as { schemaVersion: number }).schemaVersion !== 1) {
+    throw new Error("Compiled operator API did not separate node and operator credentials");
+  }
+  const ruleResponse = await fetch(`http://127.0.0.1:${port}/v1/operator/autoqueue-rules`, {
+    method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${operatorToken}` },
+    body: JSON.stringify({ schemaVersion: 1, leadKind: "vpm_listing", origin: "https://example.org",
+      pathScope: "/index.json", minDelayMs: 1000,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      reviewReference: "isolated-smoke-fixture", reason: "Compiled operator contract smoke" })
+  });
+  if (ruleResponse.status !== 201 || !(await ruleResponse.json() as { rule?: { ruleId?: string } }).rule?.ruleId) {
+    throw new Error("Compiled operator API did not create a scoped rule");
+  }
+  const { COORDINATOR_DB_PATH: _coordinatorDbPath,
+    COORDINATOR_OPERATOR_TOKEN: _coordinatorOperatorToken, ...nodeBaseEnv } = env;
   for (const [index, nodeId] of nodeIds.entries()) {
     nodes.push(Bun.spawn([nodeBinary, "--once"], { env: {
       ...nodeBaseEnv, NODE_ID: nodeId, NODE_TOKEN: tokens[index], NODE_CAPABILITIES: "vpm",

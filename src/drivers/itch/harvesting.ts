@@ -5,7 +5,6 @@ import { rateLimiter } from "../../ratelimit.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";
 import type { DriverRuntime } from "../../node/driver_runtime.ts";
-import { crawlBrowsePage } from "./discovery.ts";
 
 // Scrapes an individual Itch product page
   export async function crawlProduct(runtime: DriverRuntime, 
@@ -53,42 +52,8 @@ import { crawlBrowsePage } from "./discovery.ts";
         };
       }
 
-      // 404 alternative path fallback: probe creator profile or Itch search
-      if (resp.status === 404) {
-        const m = currentUrl.match(/https?:\/\/([^.]+)\.itch\.io\/([^/?#]+)/);
-        const creator = m ? m[1] : "";
-        const slug = m ? m[2] : "";
-
-        if (creator && slug) {
-          logger.info(`[Itch:Product] Product 404 on ${currentUrl}. Probing creator storefront: https://${creator}.itch.io...`);
-          await runtime.sleep(1000);
-          try {
-            const authorResp = await fetch(`https://${creator}.itch.io`, {
-              headers: { "User-Agent": CONFIG.userAgent }
-            });
-            if (authorResp.ok) {
-              const authorHtml = await authorResp.text();
-              const foundLinks = authorHtml.match(new RegExp(`https://${creator}\\.itch\\.io/[a-zA-Z0-9_-]+`, "g")) || [];
-              const similar = foundLinks.find((l) => l.toLowerCase().includes(slug.toLowerCase().slice(0, 5)));
-              if (similar && similar !== currentUrl) {
-                logger.info(`[Itch:Product] Alternative path resolved on creator profile: ${similar}`);
-                return crawlProduct(runtime, similar);
-              }
-            }
-          } catch (_) {}
-
-          // Search fallback
-          logger.info(`[Itch:Product] Probing alternative path via search for "${slug}"...`);
-          const searchUrls = await crawlBrowsePage(runtime, `https://itch.io/search?q=${encodeURIComponent(slug.replace(/[-_]/g, " "))}`);
-          if (searchUrls.length > 0) {
-            logger.info(`[Itch:Product] Discovered ${searchUrls.length} alternative paths via search`);
-            return crawlProduct(runtime, searchUrls[0]);
-          }
-        }
-      }
-
       if (!resp.ok) {
-        logger.warn(`[Itch:Product] HTTP ${resp.status} for ${currentUrl} (all alternative paths failed)`);
+        logger.warn(`[Itch:Product] HTTP ${resp.status} for ${currentUrl}`);
         return false;
       }
 

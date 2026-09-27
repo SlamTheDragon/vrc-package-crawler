@@ -36,7 +36,7 @@ function failure(status: number, code: string, message: string): Response {
 }
 
 /** Bound bytes before parsing, regardless of Content-Length accuracy. */
-async function readJson(request: Request): Promise<unknown> {
+export async function readJson(request: Request): Promise<unknown> {
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     throw new CoordinatorConflict("Content-Type must be application/json", 403);
   }

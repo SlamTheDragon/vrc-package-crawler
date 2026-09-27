@@ -1,6 +1,7 @@
 import dns from "node:dns/promises";
 import https from "node:https";
 import { isPrivateOrReservedIp } from "../shared/ip_policy.ts";
+import { isItchSearchUrl } from "../shared/source_path_policy.ts";
 
 const MAX_METADATA_BYTES = 2_000_000;
 
@@ -16,7 +17,9 @@ export async function fetchPublicMetadata(
   resolveAddresses: ResolveAddresses = (hostname) => dns.lookup(hostname, { all: true }),
   requestHttps: typeof https.request = https.request
 ): Promise<Response> {
+  init.signal?.throwIfAborted();
   const target = new URL(input instanceof Request ? input.url : String(input));
+  if (isItchSearchUrl(target.href)) throw new UnsafeMetadataTarget("itch.io /search is disallowed by published robots rules");
   if (target.protocol !== "https:" || target.username || target.password || target.hash ||
       (target.port && target.port !== "443")) {
     throw new UnsafeMetadataTarget("Metadata target must be credential-free HTTPS on port 443");
@@ -25,6 +28,8 @@ export async function fetchPublicMetadata(
   const hostname = target.hostname.replace(/^\[|\]$/g, "");
   if (hostname.endsWith(".")) throw new UnsafeMetadataTarget("Metadata target must use a canonical hostname");
   const addresses = await resolveAddresses(hostname);
+  // DNS resolution can outlive a revoked lease. Never open a socket afterward.
+  init.signal?.throwIfAborted();
   if (addresses.length === 0 || addresses.some(({ address }) => isPrivateOrReservedIp(address))) {
     throw new UnsafeMetadataTarget("Metadata target resolves to a private or reserved address");
   }

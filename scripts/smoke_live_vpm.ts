@@ -35,6 +35,7 @@ try {
     (JSON.parse(command(coordinatorBinary, ["register", nodeId, "vpm"])) as { token: string }).token);
   command(coordinatorBinary, ["seed", "vpm", listingUrl, "1000"]);
   command(coordinatorBinary, ["seed", "vpm", recipeUrl, "1000"]);
+  const expectedOrigins = [new URL(listingUrl).origin, new URL(recipeUrl).origin];
   const port = await unusedLoopbackPort();
   server = Bun.spawn([coordinatorBinary, "serve", String(port)], { env, stdout: "pipe", stderr: "pipe" });
   let ready = false;
@@ -52,7 +53,21 @@ try {
       await new Response(server.stderr).text() : "no stderr pipe";
     throw new Error(`Compiled coordinator did not start: ${stderr.slice(0, 1000)}`);
   }
-  const { COORDINATOR_DB_PATH: _coordinatorDbPath, ...nodeBaseEnv } = env;
+  let robots: Array<{ origin: string; status_code: number }> = [];
+  for (let i = 0; i < 200; i++) {
+    const inspection = JSON.parse(command(coordinatorBinary, ["inspect"])) as {
+      robots: Array<{ origin: string; status_code: number }>
+    };
+    robots = inspection.robots;
+    if (expectedOrigins.every((origin) => robots.some((result) => result.origin === origin))) break;
+    await Bun.sleep(250);
+  }
+  if (expectedOrigins.some((origin) => !robots.some((result) => result.origin === origin &&
+      (result.status_code >= 200 && result.status_code < 300 || result.status_code === 404 || result.status_code === 410)))) {
+    throw new Error(`Compiled serve did not automatically refresh both VPM robots origins: ${JSON.stringify(robots)}`);
+  }
+  const { COORDINATOR_DB_PATH: _coordinatorDbPath,
+    COORDINATOR_OPERATOR_TOKEN: _coordinatorOperatorToken, ...nodeBaseEnv } = env;
   for (const [index, nodeId] of nodeIds.entries()) {
     nodes.push(Bun.spawn([nodeBinary, "--once"], { env: {
       ...nodeBaseEnv, NODE_ID: nodeId, NODE_TOKEN: tokens[index], NODE_CAPABILITIES: "vpm",

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { parseGitHubRepository, parseObservation, parseVpmListingRecipe, parseVpmRepository, fetchJobOutcome } from "../src/node/observation_adapter.ts";
 import { CrawlJobSchema } from "../src/shared/node_protocol.ts";
+import { CRAWLER_USER_AGENT, CRAWLER_ROBOTS_TOKEN } from "../src/shared/crawler_identity.ts";
+import { CONFIG } from "../src/config.ts";
 
 const job = CrawlJobSchema.parse({
   jobId: "test", leaseId: "c2dd6562-6fa4-4cd2-84ae-0c090ba29733", platform: "vpm",
@@ -9,6 +11,17 @@ const job = CrawlJobSchema.parse({
 });
 
 describe("standalone node observation adapter", () => {
+  test("uses the same declared identity as the legacy crawler and robots matcher", async () => {
+    const suppliedHeaders: Headers[] = [];
+    await fetchJobOutcome(job, async (_input, init) => {
+      suppliedHeaders.push(new Headers(init?.headers));
+      return new Response("{}", { headers: { "content-type": "application/json" } });
+    });
+    expect(suppliedHeaders[0]?.get("user-agent")).toBe(CRAWLER_USER_AGENT);
+    expect(CONFIG.userAgent).toBe(CRAWLER_USER_AGENT);
+    expect(CRAWLER_USER_AGENT.startsWith(`${CRAWLER_ROBOTS_TOKEN}/`)).toBe(true);
+  });
+
   test("extracts one direct VPM package and its actual release version", () => {
     expect(parseObservation(job, JSON.stringify({ name: "com.example.tool", version: "1.2.3",
       displayName: "Useful Tool", author: { name: "Creator" }, description: "A tool",
@@ -17,6 +30,25 @@ describe("standalone node observation adapter", () => {
       summary: "A tool", outboundLinks: ["https://example.org/tool"], originUpdatedAt: null,
       release: { version: "1.2.3", dependencyRanges: {}, downloadUrl: "https://example.org/tool" }
     });
+  });
+
+  test("rejects malformed direct VPM identities instead of truncating them into different evidence", async () => {
+    const prefix = "com.example." + "x".repeat(188);
+    const malformedManifests = [
+      { name: `${prefix}a`, version: "1.0.0" },
+      { name: `${prefix}b`, version: "1.0.0" },
+      { name: "com.example.tool", version: "v".repeat(101) },
+      { name: "", version: "1.0.0" },
+      { name: "com.example.tool", version: " " },
+      { name: " com.example.tool", version: "1.0.0" }
+    ];
+    for (const manifest of malformedManifests) {
+      const body = JSON.stringify(manifest);
+      expect(parseObservation(job, body, "application/json")).toBeNull();
+      expect(await fetchJobOutcome(job, async () => new Response(body,
+        { headers: { "content-type": "application/json" } })))
+        .toEqual({ kind: "temporary_failure", reason: "No item observation in response" });
+    }
   });
 
   test("extracts a VCC repository as bounded distinct source items with real version keys", async () => {

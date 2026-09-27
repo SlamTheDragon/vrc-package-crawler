@@ -1,5 +1,5 @@
 import { CoordinatorClient } from "./coordinator_client.ts";
-import { fetchJobOutcome } from "./observation_adapter.ts";
+import { runLeasedJob } from "./lease_runner.ts";
 import { fetchPublicMetadata } from "./public_metadata_fetch.ts";
 import { PlatformSchema, type Platform } from "../shared/node_protocol.ts";
 
@@ -17,13 +17,13 @@ if (!token || !nodeId) {
 const client = new CoordinatorClient(baseUrl, token, nodeId, capabilities);
 console.log(`Crawler node ${nodeId} connected to ${baseUrl}; capabilities: ${capabilities.join(",")}`);
 let lastHeartbeatAt = 0;
-async function heartbeat(state: "idle" | "fetching", activeJobId?: string): Promise<void> {
-  await client.heartbeat(state, activeJobId);
+async function heartbeat(): Promise<void> {
+  await client.heartbeat("idle");
   lastHeartbeatAt = Date.now();
 }
-await heartbeat("idle");
+await heartbeat();
 for (;;) {
-  if (Date.now() - lastHeartbeatAt >= 30_000) await heartbeat("idle");
+  if (Date.now() - lastHeartbeatAt >= 30_000) await heartbeat();
   const claim = await client.claim();
   if (claim.status === "empty") {
     if (runOnce) break;
@@ -31,13 +31,10 @@ for (;;) {
     continue;
   }
   const { job } = claim;
-  await heartbeat("fetching", job.jobId);
   console.log(`Fetching ${job.platform} ${job.url}`);
-  const outcome = await fetchJobOutcome(job, fetchPublicMetadata);
-  const result = await client.submit({ jobId: job.jobId, leaseId: job.leaseId,
-    idempotencyKey: crypto.randomUUID(), outcome });
+  const { outcome, result } = await runLeasedJob(job, client, fetchPublicMetadata);
   console.log(JSON.stringify({ jobId: job.jobId, outcome: outcome.kind, accepted: result.status,
     sourceVersionCreated: result.sourceVersionCreated }));
-  await heartbeat("idle");
+  await heartbeat();
   if (runOnce) break;
 }

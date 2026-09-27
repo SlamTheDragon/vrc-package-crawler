@@ -5,10 +5,15 @@ import { rateLimiter } from "../../ratelimit.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";
 import type { DriverRuntime } from "../../node/driver_runtime.ts";
+import { isItchSearchUrl } from "../../shared/source_path_policy.ts";
 
 // Crawls an Itch browse or search results page
   export async function crawlBrowsePage(runtime: DriverRuntime, browseUrl: string): Promise<string[]> {
     if (runtime.isAborted || db.isClosed) return [];
+    if (isItchSearchUrl(browseUrl)) {
+      logger.warn(`[Itch:Browse] Skipping robots-disallowed search path: ${browseUrl}`);
+      return [];
+    }
     const key = "itch";
     await rateLimiter.waitIfBackoff(key);
 

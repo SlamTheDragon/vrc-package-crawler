@@ -159,7 +159,7 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
     for (const p of packages) {
       insertPkg.run(
         p.id, p.canonical_id, p.name, p.author, p.authors_json, p.category, p.subcategory, p.type,
-        p.description, p.primary_platform, p.platforms_json, p.url, p.vcc_url,
+        [...String(p.description || "")].slice(0, 256).join(""), p.primary_platform, p.platforms_json, p.url, p.vcc_url,
         p.price_currency || "USD", p.price_amount || 0,
         p.is_vcc || 0, p.tags_json || "[]", p.dependencies_json || "{}", p.source_ids_json, p.media_id,
         p.media_urls_json || "[]", p.youtube_urls_json || "[]", p.origin_created_at, p.origin_updated_at,

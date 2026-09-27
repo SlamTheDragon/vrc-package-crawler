@@ -41,6 +41,15 @@ describe("standalone node public metadata transport", () => {
     expect(lookups).toBe(0);
   });
 
+  test("rejects a known robots-disallowed itch search path before DNS", async () => {
+    let lookups = 0;
+    await expect(fetchPublicMetadata("https://itch.io/search?q=vrchat", {}, async () => {
+      lookups++;
+      return [{ address: "1.1.1.1", family: 4 }];
+    })).rejects.toBeInstanceOf(UnsafeMetadataTarget);
+    expect(lookups).toBe(0);
+  });
+
   test("unsafe destination becomes a blocked outcome rather than a retry loop", async () => {
     const outcome = await fetchJobOutcome(job, (input, init) =>
       fetchPublicMetadata(input, init, async () => [{ address: "192.168.1.1", family: 4 }]));
@@ -85,5 +94,48 @@ describe("standalone node public metadata transport", () => {
     }) as unknown as typeof https.request;
     await expect(fetchPublicMetadata("https://example.org/index.json", {},
       async () => [{ address: "1.1.1.1", family: 4 }], requestHttps)).rejects.toThrow("exceeds 2 MB");
+  });
+
+  test("rejects streamed oversize even when Content-Length is absent", async () => {
+    let destroyed = false;
+    const requestHttps = ((_options: any, callback: (response: any) => void) => {
+      const response = Object.assign(new PassThrough(), { statusCode: 200, headers: {} });
+      const req = Object.assign(new EventEmitter(), {
+        end() {
+          callback(response);
+          response.write(Buffer.alloc(1_000_000));
+          response.write(Buffer.alloc(1_000_001));
+        },
+        destroy(error: Error) {
+          destroyed = true;
+          response.destroy(error);
+          req.emit("error", error);
+        }
+      });
+      return req;
+    }) as unknown as typeof https.request;
+    await expect(fetchPublicMetadata(job.url, {}, async () => [{ address: "1.1.1.1", family: 4 }], requestHttps))
+      .rejects.toThrow("exceeds 2 MB");
+    expect(destroyed).toBe(true);
+  });
+
+  test("an aborted lease cannot open a socket after DNS resolution", async () => {
+    const controller = new AbortController();
+    let sockets = 0;
+    const requestHttps = (() => {
+      sockets++;
+      throw new Error("socket must not open");
+    }) as unknown as typeof https.request;
+    await expect(fetchPublicMetadata(job.url, { signal: controller.signal }, async () => {
+      controller.abort();
+      return [{ address: "1.1.1.1", family: 4 }];
+    }, requestHttps)).rejects.toThrow();
+    expect(sockets).toBe(0);
+    let lookups = 0;
+    await expect(fetchPublicMetadata(job.url, { signal: controller.signal }, async () => {
+      lookups++;
+      return [{ address: "1.1.1.1", family: 4 }];
+    }, requestHttps)).rejects.toThrow();
+    expect(lookups).toBe(0);
   });
 });

@@ -22,11 +22,11 @@ export class CoordinatorClient {
     ClaimRequestSchema.parse({ schemaVersion: PROTOCOL_VERSION, nodeId, capabilities });
   }
 
-  private async post(path: string, payload: unknown): Promise<unknown> {
+  private async post(path: string, payload: unknown, timeoutMs = 30_000): Promise<unknown> {
     const response = await fetch(new URL(path, this.baseUrl), {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${this.token}` },
-      body: JSON.stringify(payload), signal: AbortSignal.timeout(30_000)
+      body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs)
     });
     const json: unknown = await response.json();
     if (!response.ok) throw new Error(`Coordinator ${response.status}: ${JSON.stringify(json)}`);
@@ -39,11 +39,11 @@ export class CoordinatorClient {
     }));
   }
 
-  async heartbeat(state: HeartbeatRequest["state"], activeJobId?: string): Promise<HeartbeatResponse> {
+  async heartbeat(state: HeartbeatRequest["state"], activeJobId?: string, activeLeaseId?: string): Promise<HeartbeatResponse> {
     const payload = HeartbeatRequestSchema.parse({ schemaVersion: PROTOCOL_VERSION,
       nodeId: this.nodeId, capabilities: this.capabilities, state,
-      ...(activeJobId ? { activeJobId } : {}) });
-    return HeartbeatResponseSchema.parse(await this.post("/v1/node/heartbeat", payload));
+      ...(activeJobId ? { activeJobId } : {}), ...(activeLeaseId ? { activeLeaseId } : {}) });
+    return HeartbeatResponseSchema.parse(await this.post("/v1/node/heartbeat", payload, 5_000));
   }
 
   async submit(request: Omit<ResultRequest, "schemaVersion" | "nodeId">): Promise<ResultResponse> {

@@ -28,6 +28,11 @@ function command(binary: string, args: string[]): string {
 try {
   const token = (JSON.parse(command(coordinatorBinary, ["register", "live-github-node", "github"])) as { token: string }).token;
   command(coordinatorBinary, ["seed", "github", sourceUrl]);
+  const robots = JSON.parse(command(coordinatorBinary, ["refresh-queued-robots", "1"])) as {
+    refreshed: Array<{ origin: string; usable: boolean; statusCode: number; error?: string }>
+  };
+  if (robots.refreshed.length !== 1 || robots.refreshed[0].origin !== new URL(sourceUrl).origin ||
+      !robots.refreshed[0].usable) throw new Error(`GitHub API robots status is not usable: ${JSON.stringify(robots)}`);
   const port = await unusedLoopbackPort();
   server = Bun.spawn([coordinatorBinary, "serve", String(port)], { env, stdout: "pipe", stderr: "pipe" });
   let ready = false;
@@ -39,7 +44,8 @@ try {
     await Bun.sleep(100);
   }
   if (!ready) throw new Error("Compiled coordinator did not start");
-  const { COORDINATOR_DB_PATH: _coordinatorDbPath, ...nodeBaseEnv } = env;
+  const { COORDINATOR_DB_PATH: _coordinatorDbPath,
+    COORDINATOR_OPERATOR_TOKEN: _coordinatorOperatorToken, ...nodeBaseEnv } = env;
   const node = Bun.spawnSync([nodeBinary, "--once"], { env: {
     ...nodeBaseEnv, NODE_ID: "live-github-node", NODE_TOKEN: token, NODE_CAPABILITIES: "github",
     COORDINATOR_URL: `http://127.0.0.1:${port}`
