@@ -265,6 +265,8 @@ export class AdaptiveRateLimiter {
    */
   recordSuccess(host: string, latencyMs: number = 0): void {
     const { state, config } = this.getOrCreateHost(host);
+    // An older in-flight request must not erase a newer origin-wide 429 hold.
+    if (Date.now() < state.backoffUntil) return;
 
     state.consecutive429 = 0;
 
@@ -338,7 +340,7 @@ export class AdaptiveRateLimiter {
     // 2. Exponential backoff with full jitter
     let backoffMs: number;
     if (retryAfterSec > 0) {
-      backoffMs = (retryAfterSec + 2) * 1000;
+      backoffMs = Math.min(this.maxBackoffMs, (retryAfterSec + 2) * 1000);
     } else {
       const expFactor = Math.pow(2, Math.min(state.consecutive429 - 1, 5));
       const rawBackoff = Math.min(this.maxBackoffMs, this.baseBackoffMs * expFactor);

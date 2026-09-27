@@ -5,7 +5,7 @@ import { rateLimiter } from "../../ratelimit.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { CuratedDriver } from "../curated";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
 
 // Scrapes an individual item page and extracts Schema.org JSON-LD with 404 alternative path fallback
   export async function crawlItemDetail(runtime: DriverRuntime, 

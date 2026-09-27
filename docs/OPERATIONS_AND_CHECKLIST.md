@@ -200,7 +200,7 @@ bun run server [options]
 - `GET /`: API discovery index returning public endpoints, version, documentation, and licensing terms.
 - `GET /v1/health`: Server uptime, memory metrics, catalog counts, and sync status.
 - `GET /v1/catalog/delta`: Schema 1 cursor-paginated delta stream with SHA-256 validation digest and origin CDN media URLs.
-- `GET /v1/vpm/index.json`: Schema 2 VCC/ALCOM community repository manifest.
+- `GET /v1/vpm/index.json`: retired with HTTP 410; use verified upstream repository URLs in the catalog, not a synthetic installable manifest.
 - `GET /v1/media/stream?url=<origin_url>`: Ephemeral in-memory streaming proxy for downstream clients facing storefront CDN `Referer`/hotlink blocks (zero disk storage, SSRF protected).
 - `POST /v1/opt-out`: Automated non-scraping rights-holder delisting endpoint supporting `storefront_bio_token`, `dns_txt`, and `signed_commit` with SSRF defense and rate limits.
 - `POST /v1/reports`: Ingests Schema 4 community steering reports into a `'needs_review'` quarantine buffer. Mandatory `Authorization: Bearer <API_SECRET_TOKEN>` required. Rate limited to 10 reports/min per IP.

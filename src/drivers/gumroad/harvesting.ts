@@ -5,7 +5,8 @@ import { rateLimiter, circuitBreaker } from "../../ratelimit.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { CuratedDriver } from "../curated";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
+import { applyAccessFailure } from "../../node/fetch_outcome.ts";
 import { crawlDiscoverQuery } from "./discovery.ts";
 
 // Crawls an individual product page
@@ -46,9 +47,7 @@ import { crawlDiscoverQuery } from "./discovery.ts";
         headers: reqHeaders
       });
 
-      if (resp.status === 429 || resp.status === 403) {
-        rateLimiter.handleRateLimit(key, resp);
-        circuitBreaker.recordFailure("gumroad.com", resp.status, "Rate limit / forbidden");
+      if (applyAccessFailure(resp, currentUrl, "gumroad.com", key, targetDb)) {
         return false;
       }
 
@@ -107,10 +106,7 @@ import { crawlDiscoverQuery } from "./discovery.ts";
       const html = await resp.text();
 
       // Cloudflare Managed Challenge & Turnstile detection (Task 2.3)
-      if (html.includes("challenges.cloudflare.com/turnstile") || html.includes("cf-mitigated: challenge")) {
-        logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${currentUrl}. Halting domain crawl.`);
-        targetDb.markStatus(currentUrl, "blocked", "Cloudflare Turnstile challenge detected", undefined, undefined, 86400 * 3, 403, "Cloudflare Turnstile challenge detected");
-        circuitBreaker.trip("gumroad.com", 403, "Cloudflare Turnstile Challenge", 86400 * 3 * 1000);
+      if (applyAccessFailure(resp, currentUrl, "gumroad.com", key, targetDb, html)) {
         return false;
       }
 
@@ -338,9 +334,7 @@ import { crawlDiscoverQuery } from "./discovery.ts";
         }
       });
 
-      if (resp.status === 429 || resp.status === 403) {
-        rateLimiter.handleRateLimit(key, resp);
-        circuitBreaker.recordFailure("gumroad.com", resp.status, "Rate limit / forbidden");
+      if (applyAccessFailure(resp, currentStore, "gumroad.com", key, targetDb)) {
         return false;
       }
 
@@ -382,10 +376,7 @@ import { crawlDiscoverQuery } from "./discovery.ts";
       const htmlText = await resp.text();
 
       // Cloudflare Managed Challenge & Turnstile detection (Task 2.3)
-      if (htmlText.includes("challenges.cloudflare.com/turnstile") || htmlText.includes("cf-mitigated: challenge")) {
-        logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${currentStore}. Halting domain crawl.`);
-        targetDb.markStatus(currentStore, "blocked", "Cloudflare Turnstile challenge detected", undefined, undefined, 86400 * 3, 403, "Cloudflare Turnstile challenge detected");
-        circuitBreaker.trip("gumroad.com", 403, "Cloudflare Turnstile Challenge", 86400 * 3 * 1000);
+      if (applyAccessFailure(resp, currentStore, "gumroad.com", key, targetDb, htmlText)) {
         return false;
       }
 

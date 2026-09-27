@@ -6,6 +6,10 @@ import http from "node:http";
 import { logger } from "../logger.ts";
 import { db, type CrawlerDB } from "../db.ts";
 import { CONFIG } from "../config.ts";
+import { validateSchema4Payload } from "../shared/report_validation.ts";
+export { validateSchema4Payload } from "../shared/report_validation.ts";
+import { isPrivateOrReservedIp } from "../shared/ip_policy.ts";
+export { isPrivateOrReservedIp } from "../shared/ip_policy.ts";
 
 export interface ServerConfig {
   port?: number;
@@ -36,7 +40,8 @@ export async function fetchWithPinnedIp(
   if (globalThis.fetch !== originalFetch) {
     const resp = await globalThis.fetch(targetUrl, {
       signal: options.signal,
-      headers: options.headers
+      headers: options.headers,
+      redirect: "manual"
     });
     const ab = await resp.arrayBuffer();
     if (options.maxBytes && ab.byteLength > options.maxBytes) {
@@ -110,6 +115,27 @@ export async function fetchWithPinnedIp(
   });
 }
 
+/** Follow only same-origin HTTPS storefront redirects, re-resolving and pinning every hop. */
+export async function fetchStorefrontProofWithRedirects(
+  storefrontUrl: string,
+  options: { signal?: AbortSignal; headers?: Record<string, string>; maxBytes?: number } = {}
+): ReturnType<typeof fetchWithPinnedIp> {
+  const origin = new URL(storefrontUrl).origin;
+  let currentUrl = storefrontUrl;
+  for (let redirects = 0; redirects <= 3; redirects++) {
+    const response = await fetchWithPinnedIp(currentUrl, options);
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get("location");
+    if (!location || redirects === 3) throw new Error("Storefront redirect missing location or exceeded three hops");
+    const next = new URL(location, currentUrl);
+    if (next.protocol !== "https:" || next.origin !== origin || next.username || next.password) {
+      throw new Error("Storefront redirect must remain on the original HTTPS origin");
+    }
+    currentUrl = next.href;
+  }
+  throw new Error("Storefront redirect limit reached");
+}
+
 // In-memory sliding window rate limiter
 class RateLimiter {
   private requests: Map<string, number[]> = new Map();
@@ -130,181 +156,6 @@ class RateLimiter {
     this.requests.set(fingerprint, recent);
     return true;
   }
-}
-
-function isPrivateOrReservedIpv4(ip: string): boolean {
-  const parts = ip.split(".").map(Number);
-  if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) return true;
-  const [a, b, c] = parts;
-  if (a === 0) return true; // 0.0.0.0/8
-  if (a === 10) return true; // 10.0.0.0/8
-  if (a === 127) return true; // 127.0.0.0/8
-  if (a === 169 && b === 254) return true; // 169.254.0.0/16
-  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-  if (a === 192 && b === 168) return true; // 192.168.0.0/16
-  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10
-  if (a === 192 && b === 0 && c === 0) return true; // 192.0.0.0/24
-  if (a === 192 && b === 0 && c === 2) return true; // 192.0.2.0/24 (TEST-NET-1)
-  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15
-  if (a === 198 && b === 51 && c === 100) return true; // 198.51.100.0/24 (TEST-NET-2)
-  if (a === 203 && b === 0 && c === 113) return true; // 203.0.113.0/24 (TEST-NET-3)
-  if (a >= 224) return true; // 224.0.0.0/4 Multicast & 240.0.0.0/4 Reserved
-  return false;
-}
-
-export function isPrivateOrReservedIp(ip: string): boolean {
-  if (!ip) return true;
-  const cleanIp = ip.trim().replace(/^\[|\]$/g, "");
-  if (cleanIp === "localhost") return true;
-
-  // Check IPv4
-  if (cleanIp.includes(".") && !cleanIp.includes(":")) {
-    return isPrivateOrReservedIpv4(cleanIp);
-  }
-
-  // Parse IPv6
-  let norm = cleanIp.toLowerCase();
-  // Check for embedded IPv4 in IPv6 (e.g. ::ffff:127.0.0.1)
-  const lastColon = norm.lastIndexOf(":");
-  if (lastColon !== -1) {
-    const tail = norm.slice(lastColon + 1);
-    if (tail.includes(".")) {
-      const parts = tail.split(".").map(Number);
-      if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
-        if (isPrivateOrReservedIpv4(tail)) return true;
-        const hexTail = ((parts[0] << 8) | parts[1]).toString(16) + ":" + ((parts[2] << 8) | parts[3]).toString(16);
-        norm = norm.slice(0, lastColon) + ":" + hexTail;
-      } else {
-        return true;
-      }
-    }
-  }
-
-  const parts = norm.split("::");
-  let groups: number[] = [];
-  if (parts.length === 1) {
-    groups = norm.split(":").map(h => parseInt(h || "0", 16));
-  } else if (parts.length === 2) {
-    const left = parts[0] ? parts[0].split(":").map(h => parseInt(h, 16)) : [];
-    const right = parts[1] ? parts[1].split(":").map(h => parseInt(h, 16)) : [];
-    const missing = 8 - (left.length + right.length);
-    const middle = new Array(Math.max(0, missing)).fill(0);
-    groups = [...left, ...middle, ...right];
-  } else {
-    return true; // Malformed IPv6
-  }
-
-  if (groups.length !== 8 || groups.some(g => isNaN(g) || g < 0 || g > 0xffff)) {
-    return true;
-  }
-
-  // All zeros ::/128
-  if (groups.every(g => g === 0)) return true;
-  // Loopback ::1/128
-  if (groups.slice(0, 7).every(g => g === 0) && groups[7] === 1) return true;
-
-  // IPv4-mapped IPv6 (::ffff:0:0/96) e.g. ::ffff:7f00:1
-  if (groups.slice(0, 5).every(g => g === 0) && groups[5] === 0xffff) {
-    const ipv4Octets = [
-      (groups[6] >> 8) & 0xff,
-      groups[6] & 0xff,
-      (groups[7] >> 8) & 0xff,
-      groups[7] & 0xff
-    ];
-    return isPrivateOrReservedIpv4(ipv4Octets.join("."));
-  }
-
-  // IPv4-compatible IPv6 (::0:0/96 deprecated)
-  if (groups.slice(0, 6).every(g => g === 0) && !(groups[6] === 0 && groups[7] === 1)) {
-    const ipv4Octets = [
-      (groups[6] >> 8) & 0xff,
-      groups[6] & 0xff,
-      (groups[7] >> 8) & 0xff,
-      groups[7] & 0xff
-    ];
-    return isPrivateOrReservedIpv4(ipv4Octets.join("."));
-  }
-
-  const g0 = groups[0];
-  // Unique Local Address fc00::/7 (fc00 - fdff)
-  if ((g0 & 0xfe00) === 0xfc00) return true;
-  // Link-Local Unicast fe80::/10 (fe80 - febf)
-  if ((g0 & 0xffc0) === 0xfe80) return true;
-  // Site-Local Unicast fec0::/10 (fec0 - feff)
-  if ((g0 & 0xffc0) === 0xfec0) return true;
-  // Multicast ff00::/8
-  if ((g0 & 0xff00) === 0xff00) return true;
-  // Documentation 2001:db8::/32
-  if (g0 === 0x2001 && groups[1] === 0x0db8) return true;
-  // Discard prefix 100::/64
-  if (g0 === 0x0100 && (groups[1] & 0xff00) === 0) return true;
-
-  return false;
-}
-
-export function validateSchema4Payload(body: any): { valid: boolean; errors?: string[] } {
-  const errors: string[] = [];
-
-  if (!body || typeof body !== "object") {
-    return { valid: false, errors: ["Request body must be a valid JSON object."] };
-  }
-
-  if (!body.reportId || typeof body.reportId !== "string") {
-    errors.push("Field 'reportId' is required and must be a string.");
-  }
-  if (!body.targetPackageId || typeof body.targetPackageId !== "string") {
-    errors.push("Field 'targetPackageId' is required and must be a string.");
-  }
-  if (!body.targetPackageName || typeof body.targetPackageName !== "string") {
-    errors.push("Field 'targetPackageName' is required and must be a string.");
-  }
-
-  const validBranches = ["categorization", "irrelevance", "listing", "tags", "discovery_query"];
-  if (!body.branch || !validBranches.includes(body.branch)) {
-    errors.push(`Field 'branch' is required and must be one of: ${validBranches.join(", ")}.`);
-  }
-
-  if (!body.submittedAt || isNaN(Date.parse(body.submittedAt))) {
-    errors.push("Field 'submittedAt' is required and must be an ISO 8601 date string.");
-  }
-
-  if (!body.branchPayload || typeof body.branchPayload !== "object") {
-    errors.push("Field 'branchPayload' is required and must be an object.");
-  } else {
-    // Branch-specific validations
-    switch (body.branch) {
-      case "categorization":
-        if (!body.branchPayload.suggestedClass) {
-          errors.push("Branch 'categorization' requires 'branchPayload.suggestedClass'.");
-        }
-        break;
-      case "irrelevance":
-        if (!body.branchPayload.irrelevanceReason) {
-          errors.push("Branch 'irrelevance' requires 'branchPayload.irrelevanceReason'.");
-        }
-        break;
-      case "listing":
-        if (!body.branchPayload.nameOverride && !body.branchPayload.correctedTitle && !body.branchPayload.correctedUrl && !body.branchPayload.correctedDescription) {
-          errors.push("Branch 'listing' requires at least one of nameOverride, correctedTitle, correctedUrl, or correctedDescription.");
-        }
-        break;
-      case "tags":
-        if (!Array.isArray(body.branchPayload.addTags) && !Array.isArray(body.branchPayload.removeTags)) {
-          errors.push("Branch 'tags' requires at least one array of 'addTags' or 'removeTags'.");
-        }
-        break;
-      case "discovery_query":
-        if (!body.branchPayload.searchQuery) {
-          errors.push("Branch 'discovery_query' requires 'branchPayload.searchQuery'.");
-        }
-        break;
-    }
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors: errors.length > 0 ? errors : undefined
-  };
 }
 
 export function parseServerArgs(argv: string[] = process.argv.slice(2)): Partial<ServerConfig> {
@@ -339,7 +190,8 @@ Options:
 export function startServer(config: ServerConfig = {}) {
   const port = config.port || parseInt(process.env.PORT || process.env.API_PORT || "8080", 10);
   const host = config.host || process.env.HOST || process.env.API_HOST || "0.0.0.0";
-  const apiToken = config.apiToken || process.env.API_SECRET_TOKEN || CONFIG.apiSecretToken;
+  // An explicitly empty token disables protected routes, even if the environment has one.
+  const apiToken = (config.apiToken ?? process.env.API_SECRET_TOKEN ?? CONFIG.apiSecretToken).trim();
   const targetDb = config.db || db;
 
   const reportRateLimiter = new RateLimiter(10, 60 * 1000);
@@ -392,7 +244,7 @@ export function startServer(config: ServerConfig = {}) {
           endpoints: {
             health: "/v1/health",
             packages_stream: "/v1/packages/stream",
-            vpm_index: "/v1/vpm/index.json",
+            catalog_delta: "/v1/catalog/delta",
             reports: "/v1/reports",
             opt_out: "/v1/opt-out",
             telemetry: "/v1/telemetry",
@@ -723,7 +575,7 @@ export function startServer(config: ServerConfig = {}) {
 
           let foundToken = false;
           try {
-            const probeResp = await fetchWithPinnedIp(parsedStorefront.href, {
+            const probeResp = await fetchStorefrontProofWithRedirects(parsedStorefront.href, {
               signal: abortController.signal,
               headers: {
                 "User-Agent": "VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com; verification-probe)",
@@ -828,7 +680,7 @@ export function startServer(config: ServerConfig = {}) {
           } catch (_) {}
 
           let mediaObj: any = undefined;
-          if (pkg.media_id && pkg.media_id !== "none") {
+          if (pkg.media_id) {
             const mRow = targetDb.rawDb.prepare("SELECT source_url, blurhash FROM media_cache WHERE id = ?;").get(pkg.media_id) as any;
             mediaObj = {
               thumbnailUrl: mRow?.source_url || `${url.origin}/v1/media/${pkg.media_id}.webp`,
@@ -884,50 +736,12 @@ export function startServer(config: ServerConfig = {}) {
         return new Response(JSON.stringify(responsePayload), { status: 200, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
-      // --- GET /v1/vpm/index.json (Schema 2 VCC/ALCOM Repository Manifest) ---
+      // A catalog of external VPM repositories is not itself an installable VPM
+      // repository. Until verified upstream release evidence exists, do not mint
+      // synthetic package versions or package URLs here.
       if (method === "GET" && (path === "/v1/vpm/index.json" || path === "/index.json")) {
-        const vpmPackages = targetDb.getVpmPackages();
-
-        const packagesObj: Record<string, any> = {};
-
-        for (const p of vpmPackages) {
-          const pkgId = p.id;
-          let deps = {};
-          try {
-            deps = JSON.parse(p.dependencies_json || "{}");
-          } catch (_) {}
-
-          const defaultVersion = "1.0.0";
-
-          packagesObj[pkgId] = {
-            versions: {
-              [defaultVersion]: {
-                name: pkgId,
-                version: defaultVersion,
-                displayName: p.name,
-                description: p.description || "",
-                author: {
-                  name: p.author,
-                  url: p.url
-                },
-                url: p.vcc_url || p.url,
-                vpmDependencies: deps
-              }
-            }
-          };
-        }
-
-        const manifest = {
-          $schema: "https://json-schema.org/draft/2020-12/schema",
-          name: "VRChat Community Asset Catalog",
-          id: "net.vrc-catalog.community",
-          url: `${url.origin}/v1/vpm/index.json`,
-          author: "VRChat Community Indexers",
-          description: "Decentralized VPM repository aggregating community tools and packages",
-          packages: packagesObj
-        };
-
-        return new Response(JSON.stringify(manifest), { status: 200, headers: { ...baseHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ error: "This catalog does not publish installable VPM packages. Follow verified upstream repository links in the catalog instead.", catalog: "/v1/catalog/delta" }),
+          { status: 410, headers: { ...baseHeaders, "Content-Type": "application/json" } });
       }
 
       // --- POST /v1/telemetry (Schema 5 Interaction & Search Telemetry - CANON-5, Task 4.3) ---

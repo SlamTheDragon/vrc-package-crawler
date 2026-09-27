@@ -740,10 +740,10 @@ async function runMonitor() {
       }
     }
 
-    // Task 2.7: Autonomous Dead-Letter Queue & Circuit Breaker Backoff Drainage
+    // Timed retry recovery; blocked and dead-letter work stays held for review.
     if (cycle % 3 === 0) {
       try {
-        const drained = db.drainDeadLetterQueue(20);
+        const drained = db.drainExpiredRetryQueue(20);
         if (drained > 0) {
           logger.info(`[Monitor:FaultTolerance] Drained ${drained} expired backoff / circuit-broken tasks to 'pending'.`);
         }

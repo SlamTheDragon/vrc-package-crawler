@@ -20,8 +20,8 @@ export const CONFIG = {
   lockPath: path.resolve(CANONICAL_DIR, "crawler.lock"),
   userAgent: "VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)",
   
-  // Administrative secret token for Schema 5 telemetry ingestion
-  apiSecretToken: process.env.API_SECRET_TOKEN || "vrc-secret-telemetry-token",
+  // Protected routes fail closed when no administrative token is configured.
+  apiSecretToken: process.env.API_SECRET_TOKEN?.trim() || "",
 
   // GitHub Token for 5,000 req/hr API limit (supports GITHUB_TOKEN or GH_TOKEN env vars)
   githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "",
@@ -41,4 +41,3 @@ export const CONFIG = {
   // Batch size for SQLite transaction chunks
   batchSize: 20
 };
-

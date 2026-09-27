@@ -7,7 +7,9 @@ export class IanaRegistry {
   static async init(): Promise<void> {
     if (this.isInitialized && this.tlds.size > 0) return;
 
-    try {
+    // Projection is deterministic and offline by default. An operator may explicitly
+    // refresh this advisory root-zone list; failure still falls back to bootstrap.
+    if (process.env.IANA_REFRESH === "1") try {
       logger.info("[IANA] Fetching official Root Zone Database from data.iana.org...");
       const resp = await fetch("https://data.iana.org/TLD/tlds-alpha-by-domain.txt", {
         headers: { "User-Agent": "VRCPackageCrawler/2.0 (IANA Root Zone Synchronizer)" }

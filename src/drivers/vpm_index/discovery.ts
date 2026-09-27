@@ -3,7 +3,7 @@ import { logger } from "../../logger.ts";
 import { db, type EntityRecord } from "../../db.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { cleanTitle, cleanAuthorName } from "../../utils/sanitizer.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
 import { crawlManifest } from "./harvesting.ts";
 
 // Generates rich candidate URLs based on Claude skill pattern recognition

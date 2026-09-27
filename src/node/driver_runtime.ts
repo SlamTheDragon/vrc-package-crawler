@@ -1,3 +1,4 @@
+/** Node crawler adapter cancellation and pacing hook. Each adapter owns its own instance. */
 export interface DriverRuntime {
   readonly isAborted: boolean;
   sleep(ms: number): Promise<void>;

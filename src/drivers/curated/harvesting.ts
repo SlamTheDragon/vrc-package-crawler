@@ -1,8 +1,9 @@
 import { CONFIG } from "../../config.ts";
 import { logger } from "../../logger.ts";
 import { db } from "../../db.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
 import { COMMUNITY_REGISTRY_SEEDS } from "./seeding.ts";
+import { discoverRegistriesOnGitHub } from "./discovery.ts";
 
 // Autonomously extracts any VPM feeds, scoped registries, and repositories from arbitrary text/HTML/markdown
   export function extractAndQueueRegistries(runtime: DriverRuntime, text: string): number {

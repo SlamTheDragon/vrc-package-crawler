@@ -3,7 +3,7 @@
 **Repository:** `F:\.repo\.main\vrc-package-crawler`  
 **Revision:** Phase 4 Complete (Autonomous Coding Agent Contract & Engineering Reality Baseline)  
 **Binary Distribution:** Standalone Single-File Native Executables (`dist/`)  
-**Test Suite Baseline:** 84 passing tests across 17 files (551 assertions, `bun test`)  
+**Historical Test Suite Baseline:** 84 passing tests across 17 files at Phase 4 sign-off. Current counts must be measured with `bun test`; they are not a conformance claim.
 
 ---
 
@@ -74,7 +74,7 @@ Every subsystem in the codebase attaches directly to one of these pipeline stage
 - **Delta Sync & In-Memory Media Streaming**: Governs `API` and `Consumer`.
 
 **Agent Invariants**:
-- Agents must not invent new speculative architectural layers to solve problems introduced by earlier layers. When completing `TODO.md` items, adhere strictly to the task scope. Do not treat `DISAGREEMENTS.md` as an alternative architectural specification; it is strictly an active defect and gap registry. Following completion of `TODO.md`, the codebase enters a hard Code Freeze for manual archaeological review, simplification, and code deletion.
+- Agents must not invent speculative layers to solve problems introduced by earlier layers. `IMPLEMENTATION_PLAN.md` is the current gate order; `TODO.md` retains historical tasks, and `DISAGREEMENTS.md` remains a defect/gap registry rather than a second architecture. Simplification and code deletion are part of each boundary migration, not deferred to an automatic hard freeze.
 - **Failing-Closed (Post-v1.0 Crawl Coordinator)**: If the Crawl Coordinator is unreachable, crawler nodes must wait and must NOT self-assign targets or fall back to a local schedule. An unreachable coordinator is a full crawl stop.
 - **Anti-Amplification Invariant**: No crawler node may increase the request rate toward any origin merely because additional crawler capacity becomes available. Additional nodes expand parallel origin *coverage*, not per-origin *frequency*. Rate-limit state is a property of the destination origin and is stored centrally on the Canonical Platform.
 
@@ -94,17 +94,19 @@ To eliminate terminological confusion where the Cloudflare layer is colloquially
 | **Crawler Credential** | Credential identifying an authorized crawler node (`Bearer <token>` / Ed25519) | Revocable without exposing or rotating Cloudflare master credentials |
 | **Application Credential** | Credential identifying an authorized consumer application | Authorizes application API access without exposing end-user identities |
 
-### 1.3 Planned Post-Phase 5 Source Code Organization Blueprint
-Per reviewer recommendations, following Phase 5 completion and during the scheduled Code Freeze & Simplification milestone, the codebase will be cleanly partitioned into domain-specific packages:
+### 1.3 Current staged source-code separation
+The owner superseded the old post-Phase-5-only move rule. Boundary extraction begins during the capability gates in `IMPLEMENTATION_PLAN.md`, while current entry points remain runnable until their replacements have parity tests. The current and intended transitional layout is:
 ```
 vrc-package-crawler/
-├── packages/
-│   ├── crawler/        # Standalone crawler node engine (vrc-crawler, storefront drivers, projection)
-│   ├── server/         # Canonical Platform Cloudflare edge Worker APIs (Ingestion API, Catalog API, D1 sync)
-│   ├── web/            # Control Plane Web Frontend (Public documentation portal + Operator dashboard)
-│   └── shared/         # Common TypeScript types, protocol contracts, and validation schemas
+├── src/
+│   ├── node/           # Standalone crawler-node runtime, then source drivers and fetch execution
+│   ├── worker/         # Runtime-neutral coordinator core and local/Worker adapters
+│   ├── shared/         # Wire contracts and pure validation
+│   ├── drivers/        # Transitional legacy drivers until moved behind node contracts
+│   └── ...             # Transitional existing entry points
 ```
-**Phase 5 Boundary Guard**: Agents must not execute this physical directory move during Phase 5. Phase 5 tasks (VPM manifest parsing, VRCArena adapter, avatar cosmetics taxonomy) build on the stable `src/` layout. Monorepo folder splitting is strictly reserved for the Post-Phase 5 Code Freeze milestone.
+The current milestone runs the coordinator locally with real-source node ingestion and no Cloudflare account. Keep a compiled crawler-node binary for VPS/desktop use. Do not move modules wholesale merely to satisfy a tree shape: extract each boundary with production-path tests and a rollback-compatible entry point. `docs/CODE_PATH_INVENTORY.md` tracks the current seams.
+Local simulation is protocol-faithful: even in-process node/coordinator calls must serialize and validate the same versioned API payload schemas as HTTP. The standalone node uses the same routes over loopback HTTP. Tests must compare valid and invalid payload behavior across both transports; direct calls into coordinator repositories are not a substitute for boundary tests.
 
 ---
 

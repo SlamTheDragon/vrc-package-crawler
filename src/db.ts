@@ -91,6 +91,8 @@ export interface CanonicalPackage {
   dependencies_json: string;
   source_ids_json: string;
   media_id?: string | null;
+  /** Internal media indexing attempt time; null means newly eligible for inspection. */
+  media_checked_at?: string | null;
   /** JSON array of deduplicated preview image/GIF URLs (quality-filtered, ≥200px, no icons/logos) */
   media_urls_json?: string;
   /** JSON array of deduplicated YouTube video URLs found on the storefront listing */
@@ -326,6 +328,7 @@ export class CrawlerDB {
         dependencies_json TEXT DEFAULT '{}',
         source_ids_json TEXT NOT NULL,
         media_id TEXT,
+        media_checked_at TEXT,
         media_urls_json TEXT DEFAULT '[]',
         youtube_urls_json TEXT DEFAULT '[]',
         origin_created_at TEXT,
@@ -350,6 +353,9 @@ export class CrawlerDB {
     try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN created_at_confidence TEXT DEFAULT 'unknown';"); } catch (_) {}
     try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN lifecycle TEXT DEFAULT 'published';"); } catch (_) {}
     try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN lifecycle_updated_at TEXT;"); } catch (_) {}
+    try { this.db.run("ALTER TABLE canonical_packages ADD COLUMN media_checked_at TEXT;"); } catch (_) {}
+    // Legacy 'none' was not a media_cache key. Preserve the attempted-check state as metadata.
+    this.db.run("UPDATE canonical_packages SET media_id = NULL, media_checked_at = COALESCE(media_checked_at, datetime('now')) WHERE media_id = 'none';");
     // 5. Package Fronts (Decoupled store fronts per package)
     this.db.run(`
       CREATE TABLE IF NOT EXISTS package_fronts (
@@ -490,8 +496,8 @@ export class CrawlerDB {
   }
 
   /**
-   * Resets all frontier URLs to 'pending' with attempts = 0 and next_fetch_at = now
-   * for a full clean recrawl pass. Preserves 'discarded' entries.
+   * Requeues eligible completed/pending work for a manual recrawl pass.
+   * Active fetches, policy blocks, dead letters, and timed backoff remain untouched.
    */
   public resetFrontierForRecrawl(): number {
     if (this.isClosed) return 0;
@@ -505,7 +511,7 @@ export class CrawlerDB {
             last_modified = NULL,
             next_fetch_at = ?,
             updated_at = ?
-        WHERE status != 'discarded';
+        WHERE status IN ('pending', 'done', 'failed');
       `, [now, now]);
       return result.changes;
     } catch {
@@ -782,7 +788,7 @@ export class CrawlerDB {
                 last_fetched_at = ?,
                 next_fetch_at = datetime('now', '+' || ? || ' seconds'),
                 updated_at = ?
-            WHERE url = ?;
+            WHERE url = ? AND status NOT IN ('blocked', 'dead_letter', 'backoff', 'circuit_broken');
           `, [etag ?? null, lastModified ?? null, nextIntervalSec, now, nextIntervalSec, now, url]);
         } else {
           this.db.run(`
@@ -795,13 +801,13 @@ export class CrawlerDB {
                 last_fetched_at = ?,
                 next_fetch_at = datetime('now', '+' || fetch_interval_sec || ' seconds'),
                 updated_at = ?
-            WHERE url = ?;
+            WHERE url = ? AND status NOT IN ('blocked', 'dead_letter', 'backoff', 'circuit_broken');
           `, [etag ?? null, lastModified ?? null, now, now, url]);
         }
       } else if (status === "failed") {
         const item = this.db.prepare("SELECT status, failure_count FROM frontier WHERE url = ?;").get(url) as any;
-        // Never overwrite an active 'blocked' status (e.g. 3-day Cloudflare challenge backoff) with 'failed'
-        if (item?.status === "blocked") {
+        // A late worker failure must not reopen a policy block or terminal dead letter.
+        if (["blocked", "dead_letter", "backoff", "circuit_broken"].includes(item?.status)) {
           return;
         }
         const currentFailures = (item?.failure_count || 0) + 1;
@@ -816,7 +822,7 @@ export class CrawlerDB {
               last_failure_reason = COALESCE(?, last_failure_reason),
               next_fetch_at = datetime('now', '+' || ? || ' seconds'),
               updated_at = ?
-          WHERE url = ?;
+          WHERE url = ? AND status NOT IN ('blocked', 'dead_letter', 'backoff', 'circuit_broken');
         `, [newStatus, currentFailures, failureCode ?? null, failureReason ?? notes ?? null, delay, now, url]);
       } else if (status === "blocked") {
         this.db.run(`
@@ -837,20 +843,21 @@ export class CrawlerDB {
               last_failure_reason = COALESCE(?, last_failure_reason),
               next_fetch_at = datetime('now', '+' || ? || ' seconds'),
               updated_at = ?
-          WHERE url = ?;
+          WHERE url = ? AND status NOT IN ('blocked', 'dead_letter');
         `, [status, failureCode ?? null, failureReason ?? notes ?? null, backoffSec, now, url]);
       } else {
         this.db.run(`
           UPDATE frontier
           SET status = ?,
               updated_at = ?
-          WHERE url = ?;
+          WHERE url = ? AND status NOT IN ('blocked', 'dead_letter', 'backoff', 'circuit_broken');
         `, [status, now, url]);
       }
     } catch (_) {}
   }
 
-  public drainDeadLetterQueue(limit: number = 20): number {
+  /** Requeue expired timed retries only. Blocked and dead-letter rows need explicit review. */
+  public drainExpiredRetryQueue(limit: number = 20): number {
     if (this._isClosed) return 0;
     const now = new Date().toISOString();
     try {
@@ -858,7 +865,7 @@ export class CrawlerDB {
         UPDATE frontier
         SET status = 'pending',
             updated_at = ?
-        WHERE status IN ('backoff', 'circuit_broken', 'dead_letter', 'blocked')
+        WHERE status IN ('backoff', 'circuit_broken')
           AND next_fetch_at <= ?
         LIMIT ?;
       `, [now, now, limit]);
@@ -866,6 +873,11 @@ export class CrawlerDB {
     } catch {
       return 0;
     }
+  }
+
+  /** @deprecated Use drainExpiredRetryQueue; retained for existing callers during migration. */
+  public drainDeadLetterQueue(limit: number = 20): number {
+    return this.drainExpiredRetryQueue(limit);
   }
 
   public discardFailedUrl(url: string, platform: string, reason: string): boolean {
@@ -946,7 +958,8 @@ export class CrawlerDB {
         priority = 10,
         status = 'pending',
         next_fetch_at = excluded.next_fetch_at,
-        updated_at = excluded.updated_at;
+        updated_at = excluded.updated_at
+      WHERE frontier.status NOT IN ('blocked', 'dead_letter', 'fetching', 'circuit_broken', 'backoff');
     `);
 
     this.db.transaction(() => {
@@ -962,8 +975,8 @@ export class CrawlerDB {
         if (isShallow && r.url) {
           const cleanUrl = this.sanitizeUrl(r.url);
           if (cleanUrl) {
-            updateStmt.run(cleanUrl, now, now, now);
-            promoted++;
+            const result = updateStmt.run(cleanUrl, now, now, now);
+            promoted += result.changes;
           }
         }
       }

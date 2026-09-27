@@ -114,7 +114,7 @@ CRAWLER_LOGS_DIR=dist/logs
 ```
 
 > [!IMPORTANT]
-> The server will read `API_SECRET_TOKEN` from the environment. Do not use the legacy name `CRAWLER_API_TOKEN`. If `API_SECRET_TOKEN` is unset, the authentication check will be bypassed. Always set a strong secret in production.
+> The server reads `API_SECRET_TOKEN` from the environment. Do not use the legacy name `CRAWLER_API_TOKEN`. If `API_SECRET_TOKEN` is unset, protected write routes return `401`; they do not fall back to a built-in token. Set a strong secret in production. This administrative token is transitional until scoped node and application credentials are implemented.
 
 ---
 

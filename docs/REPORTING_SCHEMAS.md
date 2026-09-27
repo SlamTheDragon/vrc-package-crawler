@@ -9,7 +9,7 @@ This document defines standardized JSON schemas for downstream clients, package 
 | Schema Name | Target Consumer | Primary Format | Update Frequency | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
 | **Schema 1: Feed Delta Report** | Desktop Clients, RSS | JSON Stream / SSE | Continuous | Ingest new, modified, and delisted tools (`/v1/catalog/delta` / `/v1/packages/stream`) |
-| **Schema 2: VCC Community Manifest** | VCC, ALCOM | Standard `index.json` | Daily Snapshot | Install packages in Unity projects (`/v1/vpm/index.json`) |
+| **Schema 2: VCC Community Manifest (retired local route)** | VCC, ALCOM | Upstream `index.json` only | Source-defined | The local `/v1/vpm/index.json` returns 410 because the catalog lacks verified release evidence; consumers follow authoritative repository links instead. |
 | **Schema 3: Project Dependency Audit** | Unity Editor, CI/CD | JSON Report | On-Demand | Detect missing dependencies and vulnerabilities (Internal Diagnostics) |
 | **Schema 4: Branched Steering Report** | Web Catalog, Desktop UI | Branched JSON Payload | User-Driven | Submit closed-loop query steering, negative tokens, and overrides (`/v1/reports`) |
 | **Schema 5: Interaction & Search Telemetry** | Downstream Clients, Portals | Aggregated JSON Payload | Periodic / Batch | Ingest anonymous click rates, queries, and bookmarks to seed discovery (`/v1/telemetry`) |
@@ -108,9 +108,9 @@ Downstream tools sync tool changes incrementally. This schema gives cursor-based
 
 ---
 
-## 3. Schema 2: Native VCC and ALCOM Ingestion Manifest
+## 3. Schema 2: Retired Catalog-Hosted VPM Manifest Draft
 
-This schema follows the official VPM repository manifest specification (`index.json`). Users can add the catalog directly into the VRChat Creator Companion and ALCOM.
+This is a historical draft of a VPM repository listing shape, **not a currently served schema**. The catalog does not publish an installable VPM repository; `/v1/vpm/index.json` returns 410 until independently verified release evidence and a separate publication decision exist. Users should follow publisher-hosted listing links to add a repository in VCC or ALCOM. See `docs/VRC_GET_ECOSYSTEM_RESEARCH.md` for the distinction between published listings and project-local manifests.
 
 ### Specification
 ```json
@@ -488,4 +488,3 @@ On-demand streaming conduit for downstream clients encountering origin CDN hotli
   X-Content-Type-Options: nosniff
   VRC-Packages-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md
   ```
-

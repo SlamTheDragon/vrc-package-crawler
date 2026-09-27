@@ -1,4 +1,4 @@
-import { AbortableDriverRuntime } from "./runtime.ts";
+import { AbortableDriverRuntime } from "../../node/driver_runtime.ts";
 import { discoverRegistriesOnGitHub as discovery_discoverRegistriesOnGitHub } from "./discovery.ts";
 import { extractAndQueueRegistries as harvesting_extractAndQueueRegistries, ingestCommunityRepo as harvesting_ingestCommunityRepo, ingestVpmRepositoriesList as harvesting_ingestVpmRepositoriesList, ingestAwesomeVRChat as harvesting_ingestAwesomeVRChat, ingestAllCuratedSources as harvesting_ingestAllCuratedSources } from "./harvesting.ts";
 
@@ -39,4 +39,3 @@ export class CuratedDriver {
     return harvesting_ingestAllCuratedSources(runtime, ...args) as ReturnType<typeof harvesting_ingestAllCuratedSources>;
   }
 }
-

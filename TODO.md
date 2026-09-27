@@ -43,8 +43,8 @@ Per task instructions, clarifying multiple-choice questions regarding user imple
 - **Default Resolution Policy**: In the absence of an explicit user override, all guardrails established by `LEGAL.md` are upheld as binding engineering constraints.
 - **Explicit User Decisions & Architectural Calibrations**:
   1. **CANON-1 (VPM Package Discovery Expansion)**:
-     - *User Decision*: Retain Option 1: Expand discovery via federated registries and community manifests (e.g., ALCOM community repository listings, GitLab/Codeberg verified indices) under `LEGAL.md` §11.3 guardrails.
-     - *Scoping & Deferral*: Community directory aggregator front adapters (such as `vpm-catalog.vercel.app` or secondary aggregator scrapers) are explicitly deferred to a Post-v1.0 research milestone; Phase 5 focuses solely on raw repository manifests (`index.json`, `vpm-manifest.json`).
+     - *User Decision*: Retain Option 1: Expand discovery via approved public repository listings and verified publisher links (including GitLab/Codeberg-hosted listings) under `LEGAL.md` §11.3 guardrails. ALCOM is a VPM client, not a listing registry.
+     - *Scoping & Deferral*: Community directory aggregator front adapters (such as `vpm-catalog.vercel.app` or secondary aggregator scrapers) are explicitly deferred to a Post-v1.0 research milestone; Phase 5 focuses on approved public repository listings and package manifests, not project-local `vpm-manifest.json`.
      - *Legal Guardrail*: `LEGAL.md` §11.3 strictly prohibits open-web unindexed spiders. Direct manifest ingestion guarantees provenance and respects publisher boundaries.
   2. **CANON-2 (Avatar Cosmetics Taxonomy Isolation)**:
      - *User Decision*: Retain Option 1: Implement an isolated cosmetics taxonomy tier with base-avatar tagging (e.g., Kikyo, Manuka, Shinano, Selestia) to prevent SimHash collisions with toolchains per `LEGAL.md` §11.4.
@@ -613,13 +613,20 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 ### Phase 5: Canonical Ecosystem Expansion & Governance (Hardest)
 
+> **Current execution order:** This historical Phase 5 task list is now mapped into capability gates G0–G6 in `IMPLEMENTATION_PLAN.md`. The owner selected a fully local coordinator simulation with real-source crawler-node ingestion and a standalone node binary; actual Cloudflare setup/deployment is deferred. Boundary extraction under `src/node/`, `src/worker/`, and `src/shared/` begins during the gates, superseding the old post-Phase-5-only split rule in prior runbooks. Do not interpret task-hour estimates or prior completion percentages as conformance evidence. See `docs/CODE_PATH_INVENTORY.md` for current code paths.
+
+> **2026-09-27 gate checkpoint:** G1 safety regressions have tests; the G5 protocol has a working local claim/result slice with Zod schemas, node/coordinator binaries, SQLite leases and idempotent submissions. This is not a G5 exit: the legacy drivers still write the legacy DB, and multi-process, policy, delisting and recovery tests remain. G2–G4 accepted catalog identity, fronts, taxonomy, real-source evidence and delta publication are not integrated. G6 has a browser-target handler build only. `CONFORMANCE.md` is the evidence ledger; no gate should be called complete from a successful compile alone.
+
+> **VPM/prototype checkpoint:** A bounded VPM listing and the official template `source.json` have passed an opt-in, two-request real-data smoke through compiled local node/coordinator binaries. Recipe links remain pending leads until an operator approves a published listing; ZIPs are not fetched. The read-only audit of `bin/crawler_state.db` found 2,691 fabricated fronts without raw-entity witnesses, 363 repeated platform-item identity groups, and 4,686 old `media_id='none'` sentinels. The legacy projection now avoids creating a new front from a link alone, but the snapshot is unchanged. See `docs/VPM_TEMPLATE_RESEARCH.md` and `docs/PROTOTYPE_DB_AUDIT.md`; neither G2–G5 nor full preproduction operation is complete.
+
 #### Task 5.1: Federated Registry & Community Manifest VPM Seeding (Canonical Task 1)
 - **Priority**: Ecosystem Discovery | **Complexity**: Very High (3.5 hours) | **Traceability**: CANON-1, G-10, LEGAL §11.3, DISCOVERY_RULES §2
 - **Files**: `src/crawler/vpm_discovery.ts` (future driver), [`src/crawler/index.ts`](src/crawler/index.ts)
 - **Problem**: VPM package discovery is currently tethered to GitHub search APIs. Open-web unindexed spiders violate politeness and hit bot walls (§11.3).
 - **Remediation**: Implement federated registry expansion in `src/crawler/vpm_discovery.ts` or crawler loop:
-  1. **Strict Raw Repository Manifest Scoping**: Ingest authoritative package registries and community manifests (e.g., ALCOM community repository listings, direct `index.json`, and `vpm-manifest.json` feeds from verified creator documentation and Git hosting providers like GitLab and Codeberg).
-  2. **Validated Manifest Schemas**: Restrict parser strictly to authoritative VRChat Community Package (VCC) repository manifests (`index.json` adhering to VPM v1/v2 schemas with `packages: { [packageId]: { versions: { [semver]: { name, url, ... } } } }`) and repository-root `vpm-manifest.json`.
+  1. **Strict Public-Source Scoping**: Ingest approved public repository listings (`index.json` or another publisher-declared listing URL) found through verified creator documentation and Git hosting providers such as GitLab and Codeberg. ALCOM/vrc-get are clients and compatibility references, not public feed registries. Do not read client settings, private subscriptions, user-package folders, or Unity project state.
+  2. **Validated Manifest Roles**: Parse published VPM repository listings with `packages: { [packageId]: { versions: { [version]: { name, url, ... } } } }` separately from individual package manifests and listing build recipes. `Packages/vpm-manifest.json` is a Unity project's dependency state, not a repository-root discovery feed. Preserve exact version and dependency-range evidence; validate IDs/versions before publication without inventing releases or assuming map order is latest. See `docs/VRC_GET_ECOSYSTEM_RESEARCH.md`.
+     The official listing template's `source.json` is a build recipe, not this manifest. Its `githubRepos` and `packages[].releases` entries are discovery leads only; the generated `index.json` embeds versioned package manifests. See `docs/VPM_TEMPLATE_RESEARCH.md` before implementing this step. Do not infer versions from ZIP names/tags or download release ZIPs merely to build this metadata catalog.
   3. **Explicit Deferral of Aggregator Adapters**: Community directory aggregator front adapters (such as `vpm-catalog.vercel.app`, `vpm.site`, or secondary aggregator scrapers) are explicitly deferred to a Post-v1.0 research milestone to avoid "aggregator-of-aggregators" instability, cache staleness, attribution dilution, and legal friction.
   4. Validate VPM reverse-DNS identifiers (`com.author.tool`) and semantic versions (SemVer 2.0.0) prior to enqueueing into the `frontier`.
 - **Cascading Documentation Changes**:
@@ -855,9 +862,10 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 - **Cascading Documentation Changes**:
   - [`LEGAL.md`](LEGAL.md): Retains Section 1.4 and Section 2.3 decentralized network ownership model, adding the Tri-Domain separation, credential isolation invariant, and Section 10.9 tri-party responsibility breakdown.
   - [`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md): Update Section 6 with Tri-Domain architecture, Control Plane Web Frontend, Crawler Ingestion API protocol, and credential isolation.
-  - [`DELEGATES.md`](DELEGATES.md): Clarify that v1.0 operations are strictly single-node maintainer runs.
+  - [`DELEGATES.md`](DELEGATES.md): Clarify that local v1.0 development permits multiple maintainer-registered crawler nodes, while open third-party ingestion remains deferred.
 
 ### Post-Phase 5 Milestone: Code Freeze, Archaeological Manual Review & Simplification Pass
+- **Status clarification (2026-09-27):** This is a historical proposed sequencing, not an active prohibition on the gate work above. The owner advanced the node/coordinator/shared split into G1–G6. The later freeze and simplification review still matter, but must audit the actual replacement paths before retiring legacy binaries.
 - **Purpose**: Following the completion of Phase 5, the codebase enters a hard **Code Freeze**.
 - **Scope & Protocol**:
   1. **Strict Freeze Boundary**: Halt all new feature additions and speculative abstractions.
@@ -873,7 +881,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
        - `packages/server` (or `apps/server` / `workers/`): Canonical Platform Cloudflare edge Worker APIs (`Crawler Ingestion API`, `Catalog API`, D1/R2 sync engine).
        - `packages/web` (or `apps/web`): Control Plane Web Frontend (Public informational portal + Authenticated operator/developer dashboard).
        - `packages/shared`: Shared TypeScript types, protocol contracts, and validation schemas.
-     - *Execution Note*: Directory restructuring is strictly deferred to this post-Phase 5 milestone to protect current Phase 5 development (VPM manifest parsing, VRCArena adapter, avatar cosmetics taxonomy) from disruptive import breaking changes.
+    - *Current execution note*: The initial `src/node/`, `src/worker/`, and `src/shared/` separation is underway now. This larger package-layout proposal remains optional and requires an import/build migration check; it must not be read as forbidding the current split.
 
 ---
 
@@ -944,7 +952,7 @@ The application is engineered to achieve the functional equivalent of a speciali
 2. **Target Open Graph `<head>` Metadata**: Query social preview tags (`og:title`, `og:image`, `og:description`) rather than deep internal DOM layouts.
 3. **Aggressive Caching & Conditional Requests**: Send `If-None-Match` and `If-Modified-Since` headers to leverage lightweight `HTTP 304 Not Modified` responses.
 4. **Transparent Bot Identity**: Declare `User-Agent: VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler)` with contact info and automated opt-out.
-5. **API-First Fallbacks**: Prioritize official APIs (GitHub API, itch.io API, ALCOM VPM manifests) before HTML scraping fallbacks.
+5. **API-First Fallbacks**: Prioritize supported APIs and publisher-declared public VPM listings before HTML scraping fallbacks; ALCOM is a client, not a manifest publisher.
 
 ---
 

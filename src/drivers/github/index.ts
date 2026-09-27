@@ -1,4 +1,4 @@
-import { AbortableDriverRuntime } from "./runtime.ts";
+import { AbortableDriverRuntime } from "../../node/driver_runtime.ts";
 import { searchRepos as discovery_searchRepos } from "./discovery.ts";
 import { crawlRepoDetail as harvesting_crawlRepoDetail, harvestCreatorRepos as harvesting_harvestCreatorRepos, harvestDiscoveredCreators as harvesting_harvestDiscoveredCreators } from "./harvesting.ts";
 
@@ -31,4 +31,3 @@ export class GitHubDriver {
     return harvesting_harvestDiscoveredCreators(runtime, ...args) as ReturnType<typeof harvesting_harvestDiscoveredCreators>;
   }
 }
-

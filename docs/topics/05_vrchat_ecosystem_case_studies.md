@@ -124,10 +124,10 @@ The VPM standard relies on three machine-readable JSON documents:
 Community tools like `vrc-get` show that parsing federated `index.json` manifests gives faster and more reliable discovery than HTML web scraping[^8].
 
 ### The Open-Web Discovery Fallacy Versus Federated Seeding
-Crawling the unindexed open web for arbitrary `index.json` or `vpm-manifest.json` files without domain-level seed constraints is computationally infeasible. Unbounded web spiders produce astronomical noise, hit bot-walls, and risk infinite spider loops.
+Crawling the unindexed open web for arbitrary `index.json` files without domain-level seed constraints is computationally infeasible. `vpm-manifest.json` is project-local state, not a public feed target. Unbounded web spiders produce astronomical noise, hit bot-walls, and risk infinite spider loops.
 
 The engine will reject open-ended web crawling. Discovery will expand strictly through federated registry seeding:
-- Parsing verified community package lists (e.g., ALCOM community listings).
+- Parsing approved publisher-hosted community repository listings; ALCOM is a client, not a listing source.
 - Extracting VPM repository URLs from verified creator documentation.
 - Polling federated index endpoints with conditional HTTP caching.
 

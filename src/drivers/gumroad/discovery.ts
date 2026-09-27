@@ -5,7 +5,8 @@ import { rateLimiter, circuitBreaker } from "../../ratelimit.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { CuratedDriver } from "../curated";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
+import { applyAccessFailure } from "../../node/fetch_outcome.ts";
 
 // Crawls a Gumroad Discover search query page with exponential backoff & dynamic pacing
   export async function crawlDiscoverQuery(runtime: DriverRuntime, query: string, page: number = 1, customDb?: CrawlerDB): Promise<{ productsCount: number; sellersFound: string[]; savedCount?: number }> {
@@ -43,9 +44,7 @@ import type { DriverRuntime } from "./runtime.ts";
         }
       });
 
-      if (resp.status === 429 || resp.status === 403) {
-        rateLimiter.handleRateLimit(key, resp);
-        circuitBreaker.recordFailure("gumroad.com", resp.status, "Rate limit / forbidden");
+      if (applyAccessFailure(resp, url, "gumroad.com", key, targetDb)) {
         return { productsCount: 0, sellersFound: [] };
       }
 
@@ -58,11 +57,7 @@ import type { DriverRuntime } from "./runtime.ts";
       const html = await resp.text();
 
       // Cloudflare Managed Challenge & Turnstile detection (Task 2.3)
-      // FIXME: relation to TODO 2.3
-      if (html.includes("challenges.cloudflare.com/turnstile") || html.includes("cf-mitigated: challenge")) {
-        logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${url}. Halting domain crawl.`);
-        targetDb.markStatus(url, "blocked", "Cloudflare Turnstile challenge detected", undefined, undefined, 86400 * 3, 403, "Cloudflare Turnstile challenge detected");
-        circuitBreaker.trip("gumroad.com", 403, "Cloudflare Turnstile Challenge", 86400 * 3 * 1000);
+      if (applyAccessFailure(resp, url, "gumroad.com", key, targetDb, html)) {
         return { productsCount: 0, sellersFound: [] };
       }
 

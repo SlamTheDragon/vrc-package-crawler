@@ -61,6 +61,7 @@ This document formally records:
 ## 1. Critical Breaking Points, Fragile Edge Behaviors & What Is Missing
 
 ### 1.1 [OVERLOOKED-11] [CRITICAL STALE / CPU WASTE] Redundant WebP Transcoding & IPC Overhead in `image_proxy.ts` / `sharp_worker.ts`
+**Resolution (2026-09-27):** The unused WebP conversion and base64 return value were removed from both in-process and Sharp subprocess paths. The subprocess remains necessary in compiled mode to calculate BlurHash and pHash; removing all IPC would lose those active metadata fields. Source dimensions and content type are now stored, with an in-process image fixture in `tests/gate1_safety_baseline.test.ts`. Compiled Sharp subprocess parity still needs a separate smoke test.
 - **Subsystem**: `src/utils/image_proxy.ts` & `src/utils/sharp_worker.ts` vs `src/server/index.ts`
 - **The Edging Failure**:
   1. In Phase 3 (Task 3.2), `webp_data` BLOB storage was completely eliminated from SQLite `media_cache` to comply with the Ninth Circuit Server Test (*Perfect 10 v. Amazon*) and purge 350 MB of database bloat.
@@ -70,6 +71,7 @@ This document formally records:
 - **Consequence**: Substantial CPU cycles, memory allocations, and subprocess IPC roundtrips are wasted on every crawled image generating WebP buffers that are instantly garbage-collected without ever being stored or served.
 
 ### 1.2 [OVERLOOKED-12] [CRITICAL STALE / INVARIANT VIOLATION] Stale Status Filter in `resetFrontierForRecrawl()` Resets Dead-Letter & Blocked Queues
+**Resolution (2026-09-27):** The manual reset now requeues only `pending`, `done`, and `failed`. `fetching`, `blocked`, `dead_letter`, `circuit_broken`, and `backoff` remain unchanged; `tests/gate1_safety_baseline.test.ts` covers the state matrix. The description below preserves the original failure evidence and no longer describes current behavior.
 - **Subsystem**: `src/db.ts#L492-L510` (`resetFrontierForRecrawl`)
 - **The Edging Failure**:
   - `resetFrontierForRecrawl()` executes:
@@ -99,6 +101,7 @@ This document formally records:
 - **Consequence**: Downstream client desktop caches believe they are 100% up to date while missing the entire reconstructed catalog, suffering permanent delta synchronization amnesia.
 
 ### 1.4 [OVERLOOKED-14] [SECURITY / COMPLIANCE EDGING] Storefront Bio-Token Opt-Out Probe Unhandled HTTP Redirects (301/302)
+**Resolution (2026-09-27):** Opt-out proof fetches now follow up to three same-origin HTTPS redirects. Each hop goes through fresh DNS resolution and pinned-IP validation; cross-origin and downgrade redirects are rejected. `tests/gate1_safety_baseline.test.ts` exercises safe language redirects, private-IP rebinding and cross-origin rejection. Creator custom-domain redirects remain unsupported; the creator must provide a final approved storefront URL or another proof method.
 - **Subsystem**: `src/server/index.ts` (`POST /v1/opt-out`, `fetchWithPinnedIp`)
 - **The Edging Failure**:
   - `fetchWithPinnedIp` enforces cryptographic IP pinning by resolving the domain IP via `dns.lookup`, validating against private IP ranges, and opening a direct socket connection to the pinned IP with `Host` and TLS SNI headers.

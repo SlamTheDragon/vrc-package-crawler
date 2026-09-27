@@ -128,6 +128,9 @@ export class DomainCircuitBreaker {
   }
 
   recordFailure(domain: string, code?: number, reason?: string): void {
+    // A late failure from an already in-flight request must not replace a deliberate
+    // long challenge/objection hold with the shorter generic breaker backoff.
+    if (this.getState(domain) === "OPEN") return;
     const { entry } = this.getEntry(domain);
     entry.consecutiveFailures++;
     entry.consecutiveSuccesses = 0;
@@ -140,7 +143,10 @@ export class DomainCircuitBreaker {
   }
 
   recordSuccess(domain: string): void {
+    const state = this.getState(domain);
     const { entry } = this.getEntry(domain);
+    // A concurrent request cannot cancel an active origin-wide stop decision.
+    if (state === "OPEN" || (state === "HALF_OPEN" && !entry.halfOpenInFlight)) return;
     entry.consecutiveSuccesses++;
     if (entry.state === "HALF_OPEN" || entry.consecutiveSuccesses >= 2) {
       entry.state = "CLOSED";

@@ -381,7 +381,6 @@ class SharpSubprocess {
   public async process(imageBuffer: Buffer): Promise<{
     ok: boolean;
     rejected?: boolean;
-    webp_b64?: string;
     rgb_b64?: string;
     gray_b64?: string;
     srcW?: number;
@@ -523,9 +522,8 @@ export class ImageProxyService {
   }
 
   /**
-   * Processes an image into WebP (480x270, quality 75), BlurHash, and 64-bit pHash.
-   * If the image exceeds payload thresholds or contains unsupported formats, the
-   * source URL is still indexed with null webp_data to avoid HOL blocking.
+   * Extracts source-image dimensions, BlurHash and 64-bit pHash without persisting
+   * or generating a converted image. Oversized/unsupported sources retain a URL pointer.
    */
   public static async processAndCacheImage(imageUrl: string, customDb?: CrawlerDB): Promise<MediaCacheRecord | null> {
     const targetDb = customDb || db;
@@ -568,11 +566,10 @@ export class ImageProxyService {
       }
     }
 
-    let webpData: Buffer | null = null;
     let blurhash: string | null = null;
     let phash64: string | null = null;
-    const width = 480;
-    const height = 270;
+    let width = 0;
+    let height = 0;
 
     try {
       // Attempt 1: direct import (works in dev / bun run mode)
@@ -586,15 +583,12 @@ export class ImageProxyService {
         const meta = await sharpModule(fetched.buffer).metadata();
         const srcW = meta.width || 0;
         const srcH = meta.height || 0;
+        width = srcW;
+        height = srcH;
         if (srcW > 0 && srcH > 0 && Math.min(srcW, srcH) < 200) {
           logger.debug(`[ImageProxy] Rejecting icon-sized image (${srcW}x${srcH}): ${cleanUrl}`);
           return null;
         }
-
-        webpData = await sharpModule(fetched.buffer)
-          .resize(480, 270, { fit: "cover" })
-          .webp({ quality: 75 })
-          .toBuffer();
 
         const { data: rawRgb } = await sharpModule(fetched.buffer)
           .resize(32, 32, { fit: "fill" })
@@ -648,12 +642,13 @@ export class ImageProxyService {
           `, [record.id, record.source_url, record.content_type, record.last_processed_at]);
           return record;
         }
-        if (!result.ok || !result.webp_b64 || !result.rgb_b64 || !result.gray_b64) {
+        if (!result.ok || !result.rgb_b64 || !result.gray_b64) {
           logger.warn(`[ImageProxy] SharpWorker returned incomplete result for: ${cleanUrl}`);
           return null;
         }
 
-        webpData  = Buffer.from(result.webp_b64,  "base64");
+        width = result.srcW || 0;
+        height = result.srcH || 0;
         const rawRgb  = Buffer.from(result.rgb_b64,  "base64");
         const rawGray = Buffer.from(result.gray_b64, "base64");
         blurhash = computeBlurHash(rawRgb, 32, 32, 4, 3);
@@ -692,7 +687,7 @@ export class ImageProxyService {
       phash_64: phash64,
       width,
       height,
-      content_type: "image/webp",
+      content_type: fetched.contentType || "image/*",
       last_processed_at: now
     };
 
@@ -719,8 +714,8 @@ export class ImageProxyService {
    *
    * Systematically queries packages where media_id IS NULL, inspects package media_urls_json
    * and constituent entities for valid image candidates, processes and caches the image,
-   * and updates canonical_packages. If a package has no candidate images, media_id is
-   * set to 'none' to permanently prevent head-of-line blocking.
+   * and updates canonical_packages. No-image results retain NULL media_id and record
+   * media_checked_at so they can be retried after a day or when source evidence changes.
    */
   public static async indexPendingMedia(limit: number = 25, customDb?: CrawlerDB): Promise<number> {
     const targetDb = customDb || db;
@@ -729,6 +724,7 @@ export class ImageProxyService {
         SELECT canonical_id, source_ids_json, media_urls_json
         FROM canonical_packages
         WHERE media_id IS NULL
+          AND (media_checked_at IS NULL OR media_checked_at <= datetime('now', '-1 day'))
         ORDER BY rowid ASC
         LIMIT ?;
       `).all(limit * 2) as any[];
@@ -799,10 +795,10 @@ export class ImageProxyService {
           .filter((u) => !skipPatterns.some((p) => p.test(u)));
 
         if (validUrls.length === 0) {
-          // No media candidate exists for this package — mark as 'none' to prevent HOL blocking
+          // No candidate: keep the nullable relationship valid and defer another check.
           targetDb.run(`
             UPDATE canonical_packages
-            SET media_id = 'none'
+            SET media_checked_at = datetime('now')
             WHERE canonical_id = ?;
           `, [pkg.canonical_id]);
           continue;
@@ -830,10 +826,13 @@ export class ImageProxyService {
         if (assignedMediaId) {
           targetDb.run(`
             UPDATE canonical_packages
-            SET media_id = ?
+            SET media_id = ?, media_checked_at = datetime('now')
             WHERE canonical_id = ?;
           `, [assignedMediaId, pkg.canonical_id]);
           indexedCount++;
+        } else {
+          // A candidate failed to process; let later packages progress, then retry tomorrow.
+          targetDb.run("UPDATE canonical_packages SET media_checked_at = datetime('now') WHERE canonical_id = ?;", [pkg.canonical_id]);
         }
       }
 
@@ -851,4 +850,3 @@ export class ImageProxyService {
     SharpSubprocess.shutdown();
   }
 }
-

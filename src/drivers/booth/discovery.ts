@@ -5,7 +5,7 @@ import { rateLimiter } from "../../ratelimit.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { CuratedDriver } from "../curated";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
 
 // Parses listing card URLs from a category browse page
   export async function crawlCategoryPage(runtime: DriverRuntime, pageUrl: string): Promise<string[]> {

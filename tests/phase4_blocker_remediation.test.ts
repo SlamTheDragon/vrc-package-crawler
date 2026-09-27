@@ -8,11 +8,11 @@ import { runEdgeSync } from "../src/sync/index.ts";
 import { GumroadDriver } from "../src/drivers/gumroad";
 import { JinxxyDriver } from "../src/drivers/jinxxy";
 import { ItchDriver } from "../src/drivers/itch";
-import { CONFIG } from "../src/config.ts";
 import path from "path";
 import fs from "fs";
 
 describe("Phase 4 - Blocker Remediation & Verification Suite", () => {
+  const TEST_SECRET = "phase4_test_secret_not_a_runtime_default";
   const fixturePath = path.resolve(__dirname, `../dist/test_phase4_${Date.now()}.db`);
   let testDb: CrawlerDB;
   let serverInstance: any;
@@ -26,6 +26,7 @@ describe("Phase 4 - Blocker Remediation & Verification Suite", () => {
     serverInstance = startServer({
       port,
       host: "127.0.0.1",
+      apiToken: TEST_SECRET,
       db: testDb
     });
     baseUrl = `http://127.0.0.1:${port}`;
@@ -97,7 +98,7 @@ describe("Phase 4 - Blocker Remediation & Verification Suite", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${CONFIG.apiSecretToken}`
+          "Authorization": `Bearer ${TEST_SECRET}`
         },
         body: JSON.stringify({
           batchId: "b-pii",
@@ -119,7 +120,7 @@ describe("Phase 4 - Blocker Remediation & Verification Suite", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${CONFIG.apiSecretToken}`
+          "Authorization": `Bearer ${TEST_SECRET}`
         },
         body: JSON.stringify({
           batchId: "b-valid",

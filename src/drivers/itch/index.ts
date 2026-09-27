@@ -1,4 +1,4 @@
-import { AbortableDriverRuntime } from "./runtime.ts";
+import { AbortableDriverRuntime } from "../../node/driver_runtime.ts";
 import { crawlBrowsePage as discovery_crawlBrowsePage } from "./discovery.ts";
 import { crawlProduct as harvesting_crawlProduct } from "./harvesting.ts";
 
@@ -23,4 +23,3 @@ export class ItchDriver {
     return harvesting_crawlProduct(runtime, ...args) as ReturnType<typeof harvesting_crawlProduct>;
   }
 }
-

@@ -8,7 +8,7 @@
  *
  * Protocol:
  *   IN  (one JSON line):  { "id": string, "buffer_b64": string }
- *   OUT (one JSON line):  { "id": string, "ok": true, "webp_b64": string, "rgb_b64": string, "gray_b64": string, "srcW": number, "srcH": number }
+ *   OUT (one JSON line):  { "id": string, "ok": true, "rgb_b64": string, "gray_b64": string, "srcW": number, "srcH": number }
  *               OR:  { "id": string, "rejected": true }
  *               OR:  { "id": string, "error": string }
  *   READY signal: { "ready": true }
@@ -56,11 +56,6 @@ process.stdin.on("data", async (chunk: string) => {
         continue;
       }
 
-      const webpBuf: Buffer = await sharpFn(imgBuf)
-        .resize(480, 270, { fit: "cover" })
-        .webp({ quality: 75 })
-        .toBuffer();
-
       const rgbResult = await sharpFn(imgBuf)
         .resize(32, 32, { fit: "fill" })
         .removeAlpha()
@@ -76,7 +71,6 @@ process.stdin.on("data", async (chunk: string) => {
       process.stdout.write(JSON.stringify({
         id,
         ok: true,
-        webp_b64: webpBuf.toString("base64"),
         rgb_b64:  rgbResult.data.toString("base64"),
         gray_b64: grayResult.data.toString("base64"),
         srcW,

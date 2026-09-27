@@ -96,6 +96,7 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
         dependencies_json TEXT DEFAULT '{}',
         source_ids_json TEXT NOT NULL,
         media_id TEXT,
+        media_checked_at TEXT,
         media_urls_json TEXT DEFAULT '[]',
         youtube_urls_json TEXT DEFAULT '[]',
         origin_created_at TEXT,
@@ -116,6 +117,7 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
     try { db.run("ALTER TABLE canonical_packages ADD COLUMN lifecycle_updated_at TEXT;"); } catch (_) {}
     try { db.run("ALTER TABLE canonical_packages ADD COLUMN media_urls_json TEXT DEFAULT '[]';"); } catch (_) {}
     try { db.run("ALTER TABLE canonical_packages ADD COLUMN youtube_urls_json TEXT DEFAULT '[]';"); } catch (_) {}
+    try { db.run("ALTER TABLE canonical_packages ADD COLUMN media_checked_at TEXT;"); } catch (_) {}
 
     db.run(`
       CREATE TABLE IF NOT EXISTS package_fronts (
@@ -993,6 +995,10 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
               lifecycle, lifecycleUpdatedAt, timestampNow,
               c.canonical_id
             );
+            if (existingPkg.media_urls_json !== canonicalMediaUrlsJson || existingPkg.source_ids_json !== sourceIdsJson) {
+              db.prepare("UPDATE canonical_packages SET media_checked_at = NULL WHERE canonical_id = ? AND media_id IS NULL;")
+                .run(c.canonical_id);
+            }
           }
         }
 
@@ -1013,6 +1019,9 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
             const matchingEnt = c.source_ids
               .map((sid: string) => entityMap.get(sid))
               .find((e: any) => e && e.platform === sf.p);
+            // A linked URL is a discovery lead, not a witnessed storefront. Without
+            // a raw observation there is no valid raw_entity_id or platform item ID.
+            if (!matchingEnt) continue;
 
             let frontOriginCreated = matchingEnt?.origin_created_at || null;
             let frontOriginUpdated = matchingEnt?.origin_updated_at || null;
@@ -1053,8 +1062,8 @@ export async function runProjection(options?: { targetDb?: Database | { rawDb: D
               } catch (_) {}
             }
 
-            const rawEntityId = matchingEnt?.id || c.id;
-            const platformItemId = matchingEnt ? matchingEnt.id.replace(/^[^:]+:/, "") : sf.u;
+            const rawEntityId = matchingEnt.id;
+            const platformItemId = matchingEnt.id.replace(/^[^:]+:/, "");
 
             if (!existingFront) {
               insertFront.run(

@@ -1,4 +1,4 @@
-import { AbortableDriverRuntime } from "./runtime.ts";
+import { AbortableDriverRuntime } from "../../node/driver_runtime.ts";
 import { getUrlCandidates as discovery_getUrlCandidates, discoverVpmRepositories as discovery_discoverVpmRepositories } from "./discovery.ts";
 import { crawlManifest as harvesting_crawlManifest } from "./harvesting.ts";
 
@@ -27,4 +27,3 @@ export class VpmIndexDriver {
     return harvesting_crawlManifest(runtime, ...args) as ReturnType<typeof harvesting_crawlManifest>;
   }
 }
-

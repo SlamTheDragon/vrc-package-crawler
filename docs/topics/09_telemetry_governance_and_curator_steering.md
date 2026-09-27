@@ -45,7 +45,7 @@ Schema 1 will distribute sanitized package records to downstream desktop applica
 - Direct outbound creator storefront deep links.
 
 ### Schema 2: VPM Repository Package Ingestion
-Schema 2 will parse machine-readable repository manifests (`index.json` and `vpm-manifest.json`):
+Schema 2 research distinguishes published repository listings (`index.json` or another declared listing URL) from package manifests (`package.json`). A project's `Packages/vpm-manifest.json` is not a public repository feed:
 - Package manifests matching official VRChat Creator Companion standards.
 - Dependency trees declared in `vpmDependencies`.
 - Upstream Git release tags and package archive URLs.

@@ -1,9 +1,9 @@
 import { CONFIG } from "../../config.ts";
 import { logger } from "../../logger.ts";
 import { db } from "../../db.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
 
-export function getHeaders(runtime: DriverRuntime): Record<string, string> {
+export function getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       "User-Agent": CONFIG.userAgent,
       "Accept": "application/vnd.github.v3+json"

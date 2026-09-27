@@ -162,6 +162,21 @@ describe("Phase 1 / Task 4.1: Database Schema Deduplication & 2 URL Columns Rule
     expect(boothFront.platform_item_id).toBe("123456");
   });
 
+  it("does not manufacture a storefront front for a linked but unobserved repository", async () => {
+    const now = new Date().toISOString();
+    crawlerDb.saveEntity({
+      id: "vpm:com.example.lead-only", platform: "vpm",
+      url: "https://vpm.example.org/index.json", title: "Lead Only Tool", author: "ExampleDev",
+      price_currency: "USD", price_amount: 0, description: "A VRChat package",
+      tags_json: '["vpm"]', external_links_json: '["https://github.com/example/lead-only"]',
+      raw_json: JSON.stringify({ manifest_url: "https://vpm.example.org/index.json",
+        repo_url: "https://github.com/example/lead-only" }), observed_at: now
+    });
+    await runProjection({ targetDb: crawlerDb });
+    const fronts = crawlerDb.rawDb.query("SELECT platform,raw_entity_id FROM package_fronts").all() as any[];
+    expect(fronts).toEqual([{ platform: "vpm", raw_entity_id: "vpm:com.example.lead-only" }]);
+  });
+
   it("verifies exported SQLite catalog (vrc_catalog.db) contains 2 URL columns, zero WebP BLOBs, and in-band terms metadata", async () => {
     const fs = await import("fs");
     const path = await import("path");

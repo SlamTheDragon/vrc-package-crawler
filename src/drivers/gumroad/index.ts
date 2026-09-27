@@ -1,4 +1,4 @@
-import { AbortableDriverRuntime } from "./runtime.ts";
+import { AbortableDriverRuntime } from "../../node/driver_runtime.ts";
 import { crawlDiscoverQuery as discovery_crawlDiscoverQuery } from "./discovery.ts";
 import { crawlProduct as harvesting_crawlProduct, crawlStorefront as harvesting_crawlStorefront, harvestCrossLinks as harvesting_harvestCrossLinks } from "./harvesting.ts";
 
@@ -32,4 +32,3 @@ export class GumroadDriver {
     return harvesting_harvestCrossLinks(runtime, ...args) as ReturnType<typeof harvesting_harvestCrossLinks>;
   }
 }
-

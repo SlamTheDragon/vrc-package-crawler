@@ -4,7 +4,7 @@ import { db, type EntityRecord, type CrawlerDB } from "../../db.ts";
 import { rateLimiter } from "../../ratelimit.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
 import { crawlBrowsePage } from "./discovery.ts";
 
 // Scrapes an individual Itch product page

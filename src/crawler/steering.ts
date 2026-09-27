@@ -4,7 +4,7 @@ import { CONFIG } from "../config.ts";
 import { logger } from "../logger.ts";
 import { db, type CrawlerDB, type UserReport, type PlatformType } from "../db.ts";
 import { sanitizeOutboundUrl } from "../utils/image_proxy.ts";
-import { validateSchema4Payload } from "../server/index.ts";
+import { validateSchema4Payload } from "../shared/report_validation.ts";
 
 
 
@@ -375,4 +375,3 @@ export async function pullReportsFromDirectory(dirPath?: string, customDb?: Craw
   }
   return totalPulled;
 }
-

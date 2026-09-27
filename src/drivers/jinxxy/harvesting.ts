@@ -4,7 +4,8 @@ import { db, CrawlerDB, type EntityRecord } from "../../db.ts";
 import { rateLimiter, circuitBreaker } from "../../ratelimit.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
+import { applyAccessFailure } from "../../node/fetch_outcome.ts";
 import { crawlBrowsePage } from "./discovery.ts";
 
 // Crawls an individual Jinxxy product page
@@ -45,9 +46,7 @@ import { crawlBrowsePage } from "./discovery.ts";
         headers: reqHeaders
       });
 
-      if (resp.status === 429 || resp.status === 403) {
-        rateLimiter.handleRateLimit(key, resp);
-        circuitBreaker.recordFailure("jinxxy.com", resp.status, "Rate limit / forbidden");
+      if (applyAccessFailure(resp, currentUrl, "jinxxy.com", key, targetDb)) {
         return false;
       }
 
@@ -107,8 +106,6 @@ import { crawlBrowsePage } from "./discovery.ts";
         return false;
       }
 
-      rateLimiter.handleSuccess(key, CONFIG.jinxxyDelayMs);
-
       if (resp.url && resp.url !== currentUrl) {
         currentUrl = resp.url;
       }
@@ -116,14 +113,12 @@ import { crawlBrowsePage } from "./discovery.ts";
       const html = await resp.text();
 
       // Cloudflare Managed Challenge & Turnstile detection (Task 2.3)
-      if (html.includes("challenges.cloudflare.com/turnstile") || html.includes("cf-mitigated: challenge")) {
-        logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${currentUrl}. Halting domain crawl.`);
-        targetDb.markStatus(currentUrl, "blocked", "Cloudflare Turnstile challenge detected", undefined, undefined, 86400 * 3, 403, "Cloudflare Turnstile challenge detected");
-        circuitBreaker.trip("jinxxy.com", 403, "Cloudflare Turnstile Challenge", 86400 * 3 * 1000);
+      if (applyAccessFailure(resp, currentUrl, "jinxxy.com", key, targetDb, html)) {
         return false;
       }
 
       circuitBreaker.recordSuccess("jinxxy.com");
+      rateLimiter.handleSuccess(key, CONFIG.jinxxyDelayMs);
 
       // Extract title
       const titleMatch = html.match(/<title>(.*?)<\/title>/i);

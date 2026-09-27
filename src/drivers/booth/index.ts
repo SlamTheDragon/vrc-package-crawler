@@ -1,4 +1,4 @@
-import { AbortableDriverRuntime } from "./runtime.ts";
+import { AbortableDriverRuntime } from "../../node/driver_runtime.ts";
 import { crawlCategoryPage as discovery_crawlCategoryPage } from "./discovery.ts";
 import { crawlItemDetail as harvesting_crawlItemDetail } from "./harvesting.ts";
 
@@ -23,4 +23,3 @@ export class BoothDriver {
     return harvesting_crawlItemDetail(runtime, ...args) as ReturnType<typeof harvesting_crawlItemDetail>;
   }
 }
-

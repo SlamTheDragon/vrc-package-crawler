@@ -3,7 +3,7 @@ import { logger } from "../../logger.ts";
 import { db, type EntityRecord } from "../../db.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { cleanTitle, cleanAuthorName } from "../../utils/sanitizer.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
 import { getUrlCandidates } from "./discovery.ts";
 
 // Ingests a VPM index.json / vpm.json repository manifest or direct package.json with fallback probing

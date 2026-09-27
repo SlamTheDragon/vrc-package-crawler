@@ -4,7 +4,8 @@ import { db, CrawlerDB, type EntityRecord } from "../../db.ts";
 import { rateLimiter, circuitBreaker } from "../../ratelimit.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";
-import type { DriverRuntime } from "./runtime.ts";
+import type { DriverRuntime } from "../../node/driver_runtime.ts";
+import { applyAccessFailure } from "../../node/fetch_outcome.ts";
 
 // Crawls a curated marketplace category or tag URL
   export async function crawlBrowsePage(runtime: DriverRuntime, browseUrl: string, customDb?: CrawlerDB): Promise<string[]> {
@@ -34,9 +35,7 @@ import type { DriverRuntime } from "./runtime.ts";
         }
       });
 
-      if (resp.status === 429 || resp.status === 403) {
-        rateLimiter.handleRateLimit(key, resp);
-        circuitBreaker.recordFailure("jinxxy.com", resp.status, "Rate limit / forbidden");
+      if (applyAccessFailure(resp, browseUrl, "jinxxy.com", key, targetDb)) {
         return [];
       }
 
@@ -49,10 +48,7 @@ import type { DriverRuntime } from "./runtime.ts";
       const html = await resp.text();
 
       // Cloudflare Managed Challenge & Turnstile detection (Task 2.3)
-      if (html.includes("challenges.cloudflare.com/turnstile") || html.includes("cf-mitigated: challenge")) {
-        logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${browseUrl}. Halting domain crawl.`);
-        targetDb.markStatus(browseUrl, "blocked", "Cloudflare Turnstile challenge detected", undefined, undefined, 86400 * 3, 403, "Cloudflare Turnstile challenge detected");
-        circuitBreaker.trip("jinxxy.com", 403, "Cloudflare Turnstile Challenge", 86400 * 3 * 1000);
+      if (applyAccessFailure(resp, browseUrl, "jinxxy.com", key, targetDb, html)) {
         return [];
       }
 

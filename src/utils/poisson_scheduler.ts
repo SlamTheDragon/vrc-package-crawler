@@ -28,7 +28,7 @@ export class PoissonScheduler {
       const updateStmt = targetDb.prepare(`
         UPDATE frontier
         SET status = 'pending', updated_at = ?
-        WHERE url = ?;
+        WHERE url = ? AND status NOT IN ('blocked', 'dead_letter', 'backoff', 'circuit_broken');
       `);
       targetDb.rawDb.transaction(() => {
         for (const r of rows) {
@@ -82,7 +82,7 @@ export class PoissonScheduler {
             last_fetched_at = ?,
             next_fetch_at = ?,
             updated_at = ?
-        WHERE url = ?;
+        WHERE url = ? AND status NOT IN ('blocked', 'dead_letter', 'backoff', 'circuit_broken');
       `, [etag, lastModifiedHeader, nextInterval, now, nextFetchAt, now, url]);
       return nextInterval;
     } catch (err) {

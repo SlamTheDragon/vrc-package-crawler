@@ -1,14 +1,36 @@
 # VRC Package Crawler
 
-The VRC Package Crawler will run as a continuous 24/7 background service. It will discover, crawl, and index unlisted VRChat tools and packages. Supported sources will include BOOTH, GitHub, Gumroad, Jinxxy, Itch.io, and decentralized VPM registries. The service will maintain a local SQLite database. It will also export a lightweight single-file catalog for external applications.
+This repository is evolving from a single-process VRChat package crawler into a local coordinator plus standalone crawler nodes. The intended catalog covers Tools, Assets, and Avatars. The existing Phase 1–4 crawler/export/server path still runs, while the new coordinator path is a limited, isolated simulation; the two databases and catalog projections are not yet unified. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the gates and [CONFORMANCE.md](CONFORMANCE.md) for what has actually been demonstrated.
 
-This system will not download or redistribute binary assets. It will index only factual public metadata: titles, descriptions, pricing, storefront URLs, and low-resolution thumbnails. The system will route all commercial checkout traffic directly to original creator storefronts.
+The system links back to original creator sources and does not download or redistribute binary assets. Descriptions and thumbnails are third-party material, not automatically “factual metadata”; source-specific access, retention, and publication rules remain under review. See [LEGAL.md](LEGAL.md) for the intended terms and their implementation-status notice.
 
-See [docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md) for the legal and compliance specification.
+## Local coordinator slice
+
+The local coordinator uses a fresh SQLite file at `bin/local_coordinator.db` by default; it does not import `bin/crawler_state.db`. These commands exercise the versioned node API over loopback HTTP:
+
+```powershell
+bun run coordinator -- register my-node
+bun run coordinator -- seed vpm https://example.org/package.json
+bun run coordinator -- serve 8787
+# In a second terminal, set NODE_ID=my-node and NODE_TOKEN to the registration token:
+bun run node -- --once
+```
+
+Registration defaults to all seven platform capabilities. Jobs are seeded explicitly; default selection is not a claim that every platform permits live automated access. The current node adapter supports direct VPM package JSON, bounded published listings, template recipe leads, and limited product-page metadata—not broad discovery or arbitrarily large feeds. Keep the legacy crawler path separate until the remaining gates pass.
+
+For a no-network process-topology check, build the coordinator and node binaries and run `bun run smoke:local`. It launches one coordinator and two standalone node processes, asserts distinct PIDs, and verifies each node's heartbeat through the loopback API. The nodes do not receive the coordinator's SQLite path. This checks separation and protocol wiring, not concurrent live fetches.
+
+The standalone node uses a bounded, DNS-pinned HTTPS metadata transport; non-public destinations, redirects, embedded credentials, fragments, and nonstandard ports are rejected. Remote coordinator endpoints also require HTTPS so node tokens are not sent over cleartext. These are network safety controls, not permission to crawl a source. See [node fetch safety](docs/NODE_FETCH_SAFETY.md) and [source access review](docs/SOURCE_ACCESS_REVIEW.md).
+
+The VPM adapter also accepts bounded published `index.json` listings as multi-package evidence. A malformed release creates a partial result with persisted diagnostics rather than silently deleting missing versions; inspect recent entries with `bun run coordinator -- issues` or grouped counts with `bun run coordinator -- inspect`. `bun run coordinator -- vpm-evidence` shows the latest **complete** source observation per VPM item for operator review, excluding suppressed listing URLs. This is source evidence, not an installable index or public catalog. A template `source.json` instead yields pending discovery leads. Review them with `bun run coordinator -- leads`; after checking a listing host's access policy, `bun run coordinator -- approve-lead <lead-key>` can seed that **listing** URL. GitHub repository and ZIP leads cannot be approved as VPM listing jobs. For an isolated, metadata-only real-source check against VRChat's public example listing and template recipe, build the node/coordinator binaries and run `LIVE_VPM_SMOKE=1 bun run smoke:vpm:live` (PowerShell: set `$env:LIVE_VPM_SMOKE='1'` first). The script queues both sources and runs two compiled nodes concurrently against a temporary database; it never downloads release ZIPs. See [VPM template research](docs/VPM_TEMPLATE_RESEARCH.md), [client-ecosystem research](docs/VRC_GET_ECOSYSTEM_RESEARCH.md), and the [read-only prototype DB audit](docs/PROTOTYPE_DB_AUDIT.md).
+
+The new GitHub node path accepts only public `https://api.github.com/repos/{owner}/{repo}` metadata jobs; it does not scrape GitHub HTML, search repositories, or archive README/content. Unauthenticated jobs share a 60-second minimum origin delay, and API reset headers drive backoff. To repeat the one-request compiled-binary check against the public vrc-get repository, set `LIVE_GITHUB_SMOKE=1` and run `bun run smoke:github:live`. It uses a temporary database. This narrow test is not approval for broad collection; see the [source access review](docs/SOURCE_ACCESS_REVIEW.md).
+
+For a no-network two-process coordinator check, run `bun run build:coordinator` and `bun run smoke:multi`. It checks cross-process same-origin leasing, duplicate submission, and suppression against an isolated temporary SQLite file. The scope and remaining concurrency limits are in [the lease spike](docs/MULTIPROCESS_LEASE_SPIKE.md).
 
 ---
 
-## Architecture
+## Legacy Phase 1–4 architecture
 
 ```
 dist/vrc-crawler.exe          -- 24/7 background daemon (headless, no console window)
@@ -55,6 +77,9 @@ The primary database will reside at `dist/crawler_state.db`. The system will cre
 ```
 vrc-package-crawler/
   src/                        Core crawler engine and foundation
+    node/                     New standalone node, API client, observation adapter, driver runtime
+    worker/                   Worker-portable request handler and local SQLite/CLI adapters
+    shared/                   Versioned API schemas and cross-boundary validation
     crawler/                  Autonomous 24/7 crawler daemon (vrc-crawler.exe / linux)
       index.ts                Main harvesting daemon & DLQ idle draining loop
       projection.ts           Canonical projection, SimHash clustering, and umbrella tagging
@@ -80,7 +105,7 @@ vrc-package-crawler/
     EDGE_SYNC_AND_SCALE_GUIDE.md Cloudflare edge synchronization guide
     OPERATIONS_AND_CHECKLIST.md Operational checklists and verification
     topics/                   Technical deep-dive topics
-  tests/                      Bun test suites (84 passing tests across 17 files)
+  tests/                      Bun test suites; run `bun test` and `bun run typecheck`
   dist/                       Isolated runtime environment (gitignored)
     vrc-crawler.exe           Background daemon binary (Windows)
     vrc-monitor.exe           Console monitor & CLI binary (Windows)
@@ -190,7 +215,7 @@ Primary Gateway Endpoints:
 - `GET /v1/health`: Server uptime, memory metrics, and catalog counts.
 - `GET /v1/catalog/delta`: Schema 1 cursor-paginated delta stream with direct origin media pointers.
 - `GET /v1/packages/stream`: Route alias for `/v1/catalog/delta` ensuring spec compatibility.
-- `GET /v1/vpm/index.json`: Schema 2 native VCC / ALCOM community repository manifest.
+- `GET /v1/vpm/index.json` (and `/index.json`): retired with HTTP 410. The catalog links to authoritative upstream VPM repositories; it does not invent installable releases.
 - `POST /v1/reports`: Ingests Schema 4 community steering reports (requires `API_SECRET_TOKEN` bearer auth).
 - `POST /v1/opt-out`: Schema 6 automated creator opt-out (supports storefront bio tokens, DNS TXT, and signed commits).
 - `POST /v1/telemetry`: Ingests Schema 5 anonymous query/click telemetry with strict anti-PII filtering.
@@ -302,4 +327,3 @@ See [LEGAL.md](LEGAL.md) and [docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md](docs/AR
 ## License
 
 This project is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0) — see the [LICENSE.md](LICENSE.md) file for details.
-
