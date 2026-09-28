@@ -1,18 +1,23 @@
 import { CoordinatorClient } from "./coordinator_client.ts";
 import { runLeasedJob } from "./lease_runner.ts";
 import { fetchPublicMetadata } from "./public_metadata_fetch.ts";
+import { initializeNodeConfig, loadNodeRuntimeConfig } from "./runtime_config.ts";
 import { PlatformSchema, type Platform } from "../shared/node_protocol.ts";
 
-const baseUrl = process.env.COORDINATOR_URL || "http://127.0.0.1:8787";
-const token = process.env.NODE_TOKEN || "";
-const nodeId = process.env.NODE_ID || "";
-const capabilities = (process.env.NODE_CAPABILITIES || PlatformSchema.options.join(",")).split(",") as Platform[];
-const runOnce = Bun.argv.includes("--once");
-
-if (!token || !nodeId) {
-  console.error("Set NODE_ID and NODE_TOKEN from local-coordinator register before starting this node.");
-  process.exit(2);
+const args = Bun.argv.slice(2);
+if (args[0] === "init") {
+  if (!args[1] || args.length > 4) {
+    console.error("Usage: vrc-node init <node-id> [coordinator-url] [comma-separated-capabilities]");
+    process.exit(2);
+  }
+  const capabilities = args[3] ? args[3].split(",") as Platform[] : [...PlatformSchema.options];
+  const path = initializeNodeConfig(process.cwd(), args[1], args[2], capabilities);
+  console.log(`Created non-secret node config at ${path}; set NODE_TOKEN separately before running.`);
+  process.exit(0);
 }
+
+const { baseUrl, token, nodeId, capabilities } = loadNodeRuntimeConfig(process.cwd(), process.env);
+const runOnce = Bun.argv.includes("--once");
 
 const client = new CoordinatorClient(baseUrl, token, nodeId, capabilities);
 console.log(`Crawler node ${nodeId} connected to ${baseUrl}; capabilities: ${capabilities.join(",")}`);

@@ -6,22 +6,35 @@ import { LeadStatusSchema, decodeLeadCursor } from "../shared/operator_protocol.
 import { CreateSourceAccessProfileSchema, SourcePurposeSchema,
   decodeProfileCursor } from "../shared/source_access_profile.ts";
 import { fetchPublicMetadata } from "../node/public_metadata_fetch.ts";
-import { refreshDueRobots, refreshRobotsWithLease, ROBOTS_REFRESH_POLL_MS } from "./robots_refresh_service.ts";
+import { refreshDueRobots, refreshRobotsWithLease, ROBOTS_REFRESH_POLL_MS } from
+  "./robots_refresh_service.ts";
+import { initializeCoordinatorConfig, loadCoordinatorRuntimeConfig } from
+  "./runtime_config.ts";
 
 const [command = "help", ...args] = Bun.argv.slice(2);
-const databasePath = process.env.COORDINATOR_DB_PATH || "bin/local_coordinator.db";
+if (command === "init") {
+  const listenPort = args[0] === undefined ? 8787 : Number(args[0]);
+  if (args.length > 1 || !Number.isInteger(listenPort) || listenPort < 1 || listenPort > 65535) {
+    console.error("Usage: vrc-coordinator init [listen-port]");
+    process.exit(2);
+  }
+  const path = initializeCoordinatorConfig(process.cwd(), listenPort);
+  console.log(`Created non-secret coordinator config at ${path}; set COORDINATOR_OPERATOR_TOKEN separately.`);
+  process.exit(0);
+}
+const { databasePath, listenPort } = loadCoordinatorRuntimeConfig(process.cwd(), process.env);
 const store = new LocalCoordinatorStore(databasePath);
 
 function usage(): never {
-  console.error("Usage: local-coordinator serve [port] | register <node-id> [platforms] | revoke <node-id> | seed <platform> <https-url> [min-delay-ms] [metadata|discovery] | profile-create <json> | profile-disable <profile-id> <reason> | profiles [limit] [cursor] | refresh-robots <https-origin> | refresh-queued-robots [limit] | leads [status] [limit] [cursor] | approve-lead <lead-key> [min-delay-ms] | suppress <https-url> <reason> | inspect | node-evidence <node-id> | issues | vpm-evidence");
+  console.error("Usage: vrc-coordinator init [listen-port] | serve [port] | register <node-id> [platforms] | revoke <node-id> | seed <platform> <https-url> [min-delay-ms] [metadata|discovery] | profile-create <json> | profile-disable <profile-id> <reason> | profiles [limit] [cursor] | refresh-robots <https-origin> | refresh-queued-robots [limit] | leads [status] [limit] [cursor] | approve-lead <lead-key> [min-delay-ms] | suppress <https-url> <reason> | inspect | node-evidence <node-id> | issues | vpm-evidence");
   store.close();
   process.exit(2);
 }
 
 switch (command) {
   case "serve": {
-    const port = Number(args[0] || 8787);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) usage();
+    const port = args[0] === undefined ? listenPort : Number(args[0]);
+    if (args.length > 1 || !Number.isInteger(port) || port < 1 || port > 65535) usage();
     const operatorToken = process.env.COORDINATOR_OPERATOR_TOKEN || "";
     const server = Bun.serve({ hostname: "127.0.0.1", port, fetch: (request) =>
       new URL(request.url).pathname.startsWith("/v1/operator/") ?

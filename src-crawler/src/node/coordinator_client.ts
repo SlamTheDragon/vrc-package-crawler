@@ -12,10 +12,7 @@ export class CoordinatorClient {
     readonly nodeId: string,
     readonly capabilities: Platform[]
   ) {
-    const endpoint = new URL(baseUrl);
-    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname.toLowerCase());
-    if ((endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) ||
-        endpoint.username || endpoint.password || endpoint.hash) {
+    if (!coordinatorEndpointAllowed(baseUrl)) {
       throw new Error("Coordinator URL must be HTTPS, or HTTP on loopback without credentials");
     }
     if (!token) throw new Error("Node credential is required");
@@ -50,4 +47,14 @@ export class CoordinatorClient {
     const payload = ResultRequestSchema.parse({ ...request, schemaVersion: PROTOCOL_VERSION, nodeId: this.nodeId });
     return ResultResponseSchema.parse(await this.post("/v1/node/jobs/result", payload));
   }
+}
+
+/** Shared by runtime config and the client so local and remote endpoint rules cannot drift. */
+export function coordinatorEndpointAllowed(baseUrl: string): boolean {
+  try {
+    const endpoint = new URL(baseUrl);
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname.toLowerCase());
+    return (endpoint.protocol === "https:" || (endpoint.protocol === "http:" && loopback)) &&
+      !endpoint.username && !endpoint.password && !endpoint.hash;
+  } catch { return false; }
 }

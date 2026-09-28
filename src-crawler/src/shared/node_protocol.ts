@@ -4,19 +4,19 @@ import { isVpmVersion } from "./vpm_version.ts";
 
 export const PROTOCOL_VERSION = 1 as const;
 
-export const PlatformSchema = z.enum(["booth", "github", "vpm", "gumroad", "jinxxy", "itch", "curated"]);
+export const PlatformSchema = z.enum(["booth", "github", "vpm", "gumroad", "jinxxy", "itch", "curated", "shopify"]);
 export type Platform = z.infer<typeof PlatformSchema>;
 export const JobPurposeSchema = z.enum(["discovery", "metadata"]);
 export type JobPurpose = z.infer<typeof JobPurposeSchema>;
 
-const NodeIdSchema = z.string().min(1).max(100).regex(/^[A-Za-z0-9._-]+$/);
+export const NodeIdSchema = z.string().min(1).max(100).regex(/^[A-Za-z0-9._-]+$/);
 const JobIdSchema = z.string().min(1).max(120);
 const HttpsUrlSchema = z.url().refine((value) => new URL(value).protocol === "https:", "HTTPS URL required");
 
 export const ClaimRequestSchema = z.strictObject({
   schemaVersion: z.literal(PROTOCOL_VERSION),
   nodeId: NodeIdSchema,
-  capabilities: z.array(PlatformSchema).min(1).max(7)
+  capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length)
 });
 export type ClaimRequest = z.infer<typeof ClaimRequestSchema>;
 
@@ -42,9 +42,9 @@ export type ClaimResponse = z.infer<typeof ClaimResponseSchema>;
 
 export const HeartbeatRequestSchema = z.discriminatedUnion("state", [
   z.strictObject({ schemaVersion: z.literal(PROTOCOL_VERSION), nodeId: NodeIdSchema,
-    capabilities: z.array(PlatformSchema).min(1).max(7), state: z.literal("idle") }),
+    capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length), state: z.literal("idle") }),
   z.strictObject({ schemaVersion: z.literal(PROTOCOL_VERSION), nodeId: NodeIdSchema,
-    capabilities: z.array(PlatformSchema).min(1).max(7), state: z.literal("fetching"),
+    capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length), state: z.literal("fetching"),
     activeJobId: JobIdSchema, activeLeaseId: z.uuid() })
 ]);
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequestSchema>;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NodeIdSchema, PlatformSchema } from "./node_protocol.ts";
 
 export const OPERATOR_PROTOCOL_VERSION = 1 as const;
 export const LeadStatusSchema = z.enum(["pending_review", "approved", "rejected"]);
@@ -32,6 +33,17 @@ export const ApproveLeadSchema = z.strictObject({ schemaVersion: z.literal(OPERA
   reason: z.string().trim().min(3).max(300), minDelayMs: z.number().int().min(0).max(86_400_000).optional() });
 export const RejectLeadSchema = z.strictObject({ schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
   reason: z.string().trim().min(3).max(300) });
+export const IssueNodeCredentialSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), nodeId: NodeIdSchema,
+  capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length),
+  reason: z.string().trim().min(3).max(300)
+});
+export type IssueNodeCredential = z.infer<typeof IssueNodeCredentialSchema>;
+export const NodeCredentialResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), nodeId: NodeIdSchema,
+  capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length),
+  token: z.string().regex(/^[a-f0-9]{64}$/)
+});
 const RuleOriginSchema = z.url().refine((value) => {
   const url = new URL(value);
   return url.protocol === "https:" && url.origin === value && !url.username && !url.password;
@@ -91,5 +103,7 @@ export const OPERATOR_API_JSON_SCHEMAS = {
   createAutoQueueRule: z.toJSONSchema(CreateAutoQueueRuleSchema),
   disableAutoQueueRule: z.toJSONSchema(DisableAutoQueueRuleSchema),
   autoQueueRuleListResponse: z.toJSONSchema(AutoQueueRuleListResponseSchema),
-  autoQueueRuleResponse: z.toJSONSchema(AutoQueueRuleResponseSchema)
+  autoQueueRuleResponse: z.toJSONSchema(AutoQueueRuleResponseSchema),
+  issueNodeCredential: z.toJSONSchema(IssueNodeCredentialSchema),
+  nodeCredentialResponse: z.toJSONSchema(NodeCredentialResponseSchema)
 };

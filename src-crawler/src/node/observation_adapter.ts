@@ -2,9 +2,11 @@ import * as cheerio from "cheerio";
 import type { CrawlJob, DiscoveryLead, Observation, ResultRequest, VpmListingIssue } from "../shared/node_protocol.ts";
 import { isVpmVersion } from "../shared/vpm_version.ts";
 import { classifyAccessFailure, retryAfterSeconds } from "../shared/access_outcome.ts";
-import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity } from "../shared/source_targets.ts";
+import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
+  isShopifyProductSitemapTarget } from "../shared/source_targets.ts";
 import { CRAWLER_USER_AGENT } from "../shared/crawler_identity.ts";
 import { UnsafeMetadataTarget } from "./public_metadata_fetch.ts";
+import { parseShopifyProductSitemapLeads } from "../drivers/shopify/discovery.ts";
 
 type Outcome = ResultRequest["outcome"];
 
@@ -319,11 +321,17 @@ export async function fetchJobOutcome(job: CrawlJob,
       return { kind: "blocked", reason: "BOOTH metadata requires an item URL" };
     }
   }
+  if (job.platform === "shopify" && (job.purpose !== "discovery" ||
+      !isShopifyProductSitemapTarget(job.url))) {
+    return { kind: "blocked", reason: "Shopify discovery requires a product sitemap URL" };
+  }
   try {
     const response = await fetcher(job.url, {
       headers: {
         "user-agent": CRAWLER_USER_AGENT,
-        "accept": job.platform === "github" ? "application/vnd.github+json" : "application/json,text/html;q=0.9,*/*;q=0.5",
+        "accept": job.platform === "github" ? "application/vnd.github+json" :
+          job.platform === "shopify" ? "application/xml,text/xml;q=0.9,*/*;q=0.5" :
+          "application/json,text/html;q=0.9,*/*;q=0.5",
         ...(job.platform === "github" ? { "x-github-api-version": "2026-03-10" } : {}),
         ...(job.etag ? { "if-none-match": job.etag } : {}),
         ...(job.lastModified ? { "if-modified-since": job.lastModified } : {})
@@ -359,6 +367,14 @@ export async function fetchJobOutcome(job: CrawlJob,
       const leads = parseBoothBrowseLeads(job, body);
       return leads ? { kind: "discovery", leads } :
         { kind: "temporary_failure", reason: "BOOTH browse exceeds one bounded lead batch" };
+    }
+    if (job.platform === "shopify") {
+      if (!/^(?:application|text)\/xml\b/i.test(response.headers.get("content-type") || "")) {
+        return { kind: "temporary_failure", reason: "Shopify sitemap response was not XML" };
+      }
+      const leads = parseShopifyProductSitemapLeads(job, body);
+      return leads ? { kind: "discovery", leads } :
+        { kind: "temporary_failure", reason: "Shopify product sitemap was malformed or exceeds one bounded lead batch" };
     }
     if (job.platform === "vpm") {
       const parsed = parseVpmRepositoryEvidence(job, body);

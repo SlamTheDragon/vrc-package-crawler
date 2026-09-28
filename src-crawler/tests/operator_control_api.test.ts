@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { LocalCoordinatorStore } from "../src/worker/local_sqlite.ts";
 import { handleOperatorRequest } from "../src/worker/operator_handler.ts";
+import { handleNodeRequest } from "../src/worker/handler.ts";
 import { OPERATOR_API_JSON_SCHEMAS } from "../src/shared/operator_protocol.ts";
 import { approveFixtureSource, seedApprovedFixtureJob } from "./helpers/source_access_fixture.ts";
 
@@ -21,6 +22,69 @@ describe("separate operator control API", () => {
     expect(OPERATOR_API_JSON_SCHEMAS.createAutoQueueRule.type).toBe("object");
     expect(OPERATOR_API_JSON_SCHEMAS.disableAutoQueueRule.type).toBe("object");
     expect(OPERATOR_API_JSON_SCHEMAS.autoQueueRuleResponse.type).toBe("object");
+    expect(OPERATOR_API_JSON_SCHEMAS.issueNodeCredential.type).toBe("object");
+    expect(OPERATOR_API_JSON_SCHEMAS.nodeCredentialResponse.type).toBe("object");
+  });
+
+  test("only the operator can issue an audited node key; rotation invalidates the old key", async () => {
+    const store = new LocalCoordinatorStore();
+    const path = "/v1/operator/nodes";
+    const input = { schemaVersion: 1, nodeId: "desktop-1", capabilities: ["vpm"],
+      reason: "Approve this local desktop node" };
+    const claim = (token: string) => handleNodeRequest(new Request("http://localhost/v1/node/jobs/claim", {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ schemaVersion: 1, nodeId: input.nodeId, capabilities: input.capabilities })
+    }), store);
+    try {
+      expect((await handleOperatorRequest(operatorRequest(path, "POST", input), store, "")).status).toBe(401);
+      expect((await handleOperatorRequest(operatorRequest(path, "POST", input, "b".repeat(64)),
+        store, operatorToken)).status).toBe(401);
+      expect((await handleOperatorRequest(operatorRequest(path, "POST", { ...input, extra: true }),
+        store, operatorToken)).status).toBe(400);
+      expect(store.db.prepare("SELECT COUNT(*) AS count FROM node_credentials").get()).toEqual({ count: 0 });
+      const first = await handleOperatorRequest(operatorRequest(path, "POST", input), store, operatorToken);
+      expect(first.status).toBe(201);
+      expect(first.headers.get("cache-control")).toBe("no-store");
+      const firstBody = await first.json() as { token: string; nodeId: string };
+      expect(firstBody.nodeId).toBe(input.nodeId);
+      expect(firstBody.token).toMatch(/^[a-f0-9]{64}$/);
+      expect((await claim(firstBody.token)).status).toBe(200);
+      expect((await handleOperatorRequest(operatorRequest(path, "POST", input, firstBody.token),
+        store, operatorToken)).status).toBe(401);
+      const second = await handleOperatorRequest(operatorRequest(path, "POST", input), store, operatorToken);
+      expect(second.status).toBe(201);
+      const secondBody = await second.json() as { token: string };
+      expect(secondBody.token).not.toBe(firstBody.token);
+      expect((await claim(firstBody.token)).status).toBe(401);
+      expect((await claim(secondBody.token)).status).toBe(200);
+      const actions = store.db.prepare("SELECT node_id,actor,action,reason FROM node_credential_actions ORDER BY action_id")
+        .all() as Array<{ node_id: string; actor: string; action: string; reason: string }>;
+      expect(actions).toEqual([1, 2].map(() => ({ node_id: input.nodeId, actor: "operator-api",
+        action: "issue", reason: input.reason })));
+      expect(JSON.stringify(actions)).not.toContain(secondBody.token);
+    } finally { store.close(); }
+  });
+
+  test("node issuance has the same validation over loopback HTTP", async () => {
+    const store = new LocalCoordinatorStore();
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
+      fetch: (request) => handleOperatorRequest(request, store, operatorToken) });
+    const path = "/v1/operator/nodes";
+    const invalid = { schemaVersion: 2, nodeId: "unknown", capabilities: ["vpm"], reason: "Local approval" };
+    try {
+      const local = await handleOperatorRequest(operatorRequest(path, "POST", invalid), store, operatorToken);
+      const remote = await fetch(`http://127.0.0.1:${server.port}${path}`,
+        operatorRequest(path, "POST", invalid));
+      expect(remote.status).toBe(400);
+      expect(remote.status).toBe(local.status);
+      expect(await remote.json()).toEqual(await local.json());
+      expect(store.db.prepare("SELECT COUNT(*) AS count FROM node_credentials").get()).toEqual({ count: 0 });
+      const valid = { ...invalid, schemaVersion: 1 };
+      const issued = await fetch(`http://127.0.0.1:${server.port}${path}`,
+        operatorRequest(path, "POST", valid));
+      expect(issued.status).toBe(201);
+      expect((await issued.json() as { token: string }).token).toMatch(/^[a-f0-9]{64}$/);
+    } finally { server.stop(true); store.close(); }
   });
 
   test("fails closed without a configured operator token and never accepts node credentials", async () => {

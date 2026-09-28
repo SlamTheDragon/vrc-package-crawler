@@ -2,6 +2,7 @@ import { CoordinatorConflict, readJson } from "./handler.ts";
 import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, LeadStatusSchema,
   OPERATOR_PROTOCOL_VERSION, RejectLeadSchema, AutoQueueRuleListResponseSchema, AutoQueueRuleResponseSchema,
   CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, decodeLeadCursor, decodeRuleCursor,
+  IssueNodeCredentialSchema, NodeCredentialResponseSchema, type IssueNodeCredential,
   type AutoQueueRule, type CreateAutoQueueRule, type LeadCursor, type LeadRow,
   type RuleCursor } from "../shared/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
@@ -11,6 +12,7 @@ import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
 
 /** Runtime-neutral boundary for local SQLite now and a future Worker storage adapter. */
 export interface OperatorStore {
+  issueNodeCredential(input: IssueNodeCredential, actor: string): Promise<string> | string;
   listLeadsPage(status: "pending_review" | "approved" | "rejected", limit: number,
     cursor: LeadCursor | null): Promise<{ leads: LeadRow[]; nextCursor: string | null }> |
       { leads: LeadRow[]; nextCursor: string | null };
@@ -68,9 +70,10 @@ export async function handleOperatorRequest(
     /^\/v1\/operator\/autoqueue-rules\/([a-f0-9-]{36})\/disable$/.exec(url.pathname);
   const profileListing = request.method === "GET" && url.pathname === "/v1/operator/source-profiles";
   const profileCreate = request.method === "POST" && url.pathname === "/v1/operator/source-profiles";
+  const nodeIssue = request.method === "POST" && url.pathname === "/v1/operator/nodes";
   const profileDisable = request.method === "POST" &&
     /^\/v1\/operator\/source-profiles\/([a-f0-9-]{36})\/disable$/.exec(url.pathname);
-  if (!listing && !ruleListing && !ruleCreate && !ruleDisable && !profileListing && !profileCreate &&
+  if (!listing && !ruleListing && !ruleCreate && !ruleDisable && !profileListing && !profileCreate && !nodeIssue &&
       !profileDisable && !(request.method === "POST" && leadAction)) {
     return failure(404, "not_found", "Route not found");
   }
@@ -125,6 +128,13 @@ export async function handleOperatorRequest(
     return failure(400, "bad_json", "Request body must be bounded valid JSON");
   }
   try {
+    if (nodeIssue) {
+      const parsed = IssueNodeCredentialSchema.safeParse(body);
+      if (!parsed.success) return failure(400, "invalid_payload", "Node credential body is invalid");
+      const token = await store.issueNodeCredential(parsed.data, "operator-api");
+      return json(NodeCredentialResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
+        nodeId: parsed.data.nodeId, capabilities: parsed.data.capabilities, token }), 201);
+    }
     if (profileCreate) {
       const parsed = CreateSourceAccessProfileSchema.safeParse(body);
       if (!parsed.success) return failure(400, "invalid_payload", "Source profile body is invalid");

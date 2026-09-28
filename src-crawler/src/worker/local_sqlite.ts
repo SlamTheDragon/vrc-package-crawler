@@ -8,12 +8,14 @@ import {
 } from "../shared/node_protocol.ts";
 import { CoordinatorConflict, type CoordinatorStore, type NodePrincipal } from "./handler.ts";
 import { isPrivateOrReservedIp } from "../shared/ip_policy.ts";
-import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity } from "../shared/source_targets.ts";
+import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
+  isShopifyProductSitemapTarget, shopifyProductLead } from "../shared/source_targets.ts";
 import { isItchSearchUrl } from "../shared/source_path_policy.ts";
 import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, type OriginRobotsSnapshot } from "../shared/robots_snapshot.ts";
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
 import { CRAWLER_ROBOTS_TOKEN } from "../shared/crawler_identity.ts";
 import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
+  IssueNodeCredentialSchema, type IssueNodeCredential,
   encodeLeadCursor, encodeRuleCursor, type AutoQueueRule, type CreateAutoQueueRule,
   type LeadCursor, type LeadRow, type RuleCursor } from "../shared/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, SourceAccessProfileSchema, encodeProfileCursor,
@@ -53,6 +55,12 @@ export class LocalCoordinatorStore implements CoordinatorStore {
       CREATE TABLE IF NOT EXISTS node_credentials (
         node_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, capabilities_json TEXT NOT NULL,
         revoked_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS node_credential_actions (
+        action_id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT NOT NULL,
+        actor TEXT NOT NULL, action TEXT NOT NULL, reason TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        FOREIGN KEY(node_id) REFERENCES node_credentials(node_id)
       );
       CREATE TABLE IF NOT EXISTS node_heartbeats (
         node_id TEXT PRIMARY KEY, last_seen_at TEXT NOT NULL,
@@ -429,6 +437,18 @@ export class LocalCoordinatorStore implements CoordinatorStore {
     return token;
   }
 
+  /** Authenticated operator issuance; the cleartext token is returned once and never audited. */
+  issueNodeCredential(input: IssueNodeCredential, actor: string): string {
+    const parsed = IssueNodeCredentialSchema.parse(input);
+    if (!actor.trim()) throw new Error("Operator actor required");
+    return this.db.transaction(() => {
+      const token = this.createNodeCredential(parsed.nodeId, parsed.capabilities);
+      this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
+        VALUES (?,?,'issue',?,?)`).run(parsed.nodeId, actor, parsed.reason, new Date(this.now()).toISOString());
+      return token;
+    }).immediate();
+  }
+
   revokeNode(nodeId: string): void {
     this.db.prepare("UPDATE node_credentials SET revoked_at = ? WHERE node_id = ?")
       .run(new Date(this.now()).toISOString(), nodeId);
@@ -515,6 +535,9 @@ export class LocalCoordinatorStore implements CoordinatorStore {
     if ((platform === "github" || parsed.hostname === "api.github.com") &&
         (platform !== "github" || !githubApiRepositoryIdentity(parsed.href))) {
       throw new Error("GitHub jobs require a public REST repository metadata endpoint");
+    }
+    if (platform === "shopify" && (purpose !== "discovery" || !isShopifyProductSitemapTarget(parsed.href))) {
+      throw new Error("Shopify jobs require an exact product-sitemap discovery URL");
     }
     if (!Number.isInteger(minDelayMs) || minDelayMs < 0 || minDelayMs > 86_400_000) throw new Error("Invalid origin delay");
     // The standalone node is unauthenticated; GitHub's public API budget is 60 requests/hour per IP.
@@ -944,6 +967,17 @@ export class LocalCoordinatorStore implements CoordinatorStore {
             lead.discoveredFromItemKey !== undefined || lead.claimedPackageId !== undefined;
         })) {
           throw new CoordinatorConflict("BOOTH browse leads require canonical BOOTH product URLs");
+        }
+      }
+      if (job.platform === "shopify") {
+        if (job.job_purpose !== "discovery" || !isShopifyProductSitemapTarget(job.url) ||
+            outcome.kind === "changed" || outcome.kind === "batch" || outcome.kind === "partial_batch") {
+          throw new CoordinatorConflict("Shopify product sitemap jobs can report leads, not product observations");
+        }
+        if (outcome.kind === "discovery" && outcome.leads.some(lead =>
+          lead.kind !== "storefront_product" || !shopifyProductLead(lead.url, job.origin) ||
+          lead.discoveredFromItemKey !== undefined || lead.claimedPackageId !== undefined)) {
+          throw new CoordinatorConflict("Shopify sitemap leads require same-origin product URLs");
         }
       }
       const observations = outcome.kind === "changed" ? [outcome.observation] :

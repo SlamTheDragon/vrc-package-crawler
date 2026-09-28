@@ -24,12 +24,14 @@ logs/*.log
 .env
 .env.*
 !.env.example
+node.config.json
+coordinator.config.json
 
 # TypeScript incremental build cache
 tsconfig.tsbuildinfo
 
-# Scratch and temporary files
-scratch/
+# Root scratch and temporary files; src-crawler/scratch contains reproducible smoke scripts
+/scratch/
 !docs/scratch
 
 # Legacy archive folders

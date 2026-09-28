@@ -4,6 +4,8 @@
 >
 > **Release rule:** A gate closes only when its observable acceptance conditions pass on production code paths. The historic completion of Phases 1–4 remains recorded, while any new defect is tracked against a current capability gate.
 
+**Current G3/G5 checkpoint (2026-09-28):** The seven original capabilities remain selected by default, and an eighth `shopify` capability now has only a coordinator-leased, bounded product-sitemap discovery path. It creates pending same-origin product leads under a separate scoped profile and robots/lease checks; it has no approved merchant, product metadata parser, auto-queue promotion or live smoke. This does not change the earlier owner decision that selecting a capability grants no fetch authority.
+
 ## 1. Product decisions now driving the work
 
 | Decision | Implementation consequence | Remaining qualification |
@@ -156,7 +158,7 @@ The gates are ordered by dependency. Research tasks may run while earlier implem
 
 The present process lock remains useful while a node runs as a local single instance. Gate 5 should verify that the lock protects local duplicate starts, while leases protect the distributed origin from excess requests. These mechanisms solve different problems.
 
-The owner's updated local pre-production exit target further requires **two binaries, two process-specific configs, two local databases, and loopback API communication** while ingesting reviewed real sources. The present coordinator/node smoke proves separate processes and schema-validated loopback traffic, not the full artifact topology: the node database and coordinator-issued registration credential flow are still unimplemented. Keep Cloudflare deployment and its account keys outside this gate. Migrate the desired `src-crawler/`, `worker/`, and `node/` layout by import/build/test slices rather than a single repository move; defer `src-web/` until coordinator and node contracts are stable. See `../decisions/DIRECTION.md` §1.5 and the owner questions in `docs/decisions/DEFERRED_OWNER_DECISIONS.md`.
+The owner's updated local pre-production exit target further requires **two binaries, two process-specific configs, two local databases, and loopback API communication** while ingesting reviewed real sources. The current coordinator/node smoke proves separate processes, two versioned non-secret launch-directory configs, and schema-validated loopback traffic, not the full artifact topology. Top-level `node/main.ts` and `worker/main.ts` initialize/load their own configs, but node database ownership and implementation remain open. Authenticated operator API issuance is only a local credential-bootstrap slice, not a settled remote registration trust flow. Keep Cloudflare deployment and its account keys outside this gate. Migrate the desired `src-crawler/`, `worker/`, and `node/` layout by import/build/test slices rather than a single repository move; defer `src-web/` until coordinator and node contracts are stable. See `../decisions/DIRECTION.md` §1.5 and the owner questions in `docs/decisions/DEFERRED_OWNER_DECISIONS.md`.
 
 ### 3.1 Clarifications from the owner's comments
 
