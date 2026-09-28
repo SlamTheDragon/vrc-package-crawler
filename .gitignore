@@ -5,6 +5,7 @@ node_modules/
 # Build output (use dist/ for distribution binaries)
 dist/
 bin/
+.bun-tmp/
 
 # Database files - only crawler_state.db is canonical; never commit DB data
 *.db
@@ -29,6 +30,7 @@ tsconfig.tsbuildinfo
 
 # Scratch and temporary files
 scratch/
+!docs/scratch
 
 # Legacy archive folders
 crawler-cache-archive-2.unclean/

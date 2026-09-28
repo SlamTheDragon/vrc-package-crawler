@@ -5,7 +5,7 @@
 **Governing Law:** Substantive Laws of the Republic of the Philippines  
 **Judicial Forum:** Courts of the Republic of the Philippines  
 
-> **Implementation status (2026-09-27):** This document states the intended terms and safeguards for Project-controlled public catalog services. The new multi-node coordinator is currently a local simulation, not a deployed Cloudflare service or an open contributor network. Technical conformance is tracked separately in [CONFORMANCE.md](CONFORMANCE.md); a covenant here is not evidence that every corresponding code path has been implemented or independently reviewed. Source-platform permissions, retention, and public text rules remain subject to source-specific research and legal review before a public launch.
+> **Implementation status (2026-09-27):** This document states the intended terms and safeguards for Project-controlled public catalog services. The new multi-node coordinator is currently a local simulation, not a deployed Cloudflare service or an open contributor network. Technical conformance is tracked separately in [docs/decisions/current/status/CONFORMANCE.md](docs/decisions/current/status/CONFORMANCE.md); a covenant here is not evidence that every corresponding code path has been implemented or independently reviewed. Source-platform permissions, retention, and public text rules remain subject to source-specific research and legal review before a public launch.
 
 The software, tools, APIs, catalogs, and documentation in this repository (collectively, the "**Project**") are developed by SlamTheDragon, an individual open-source developer ("**Maintainer**"). The Maintainer resides in the Republic of the Philippines. The Maintainer does not operate as a commercial entity.
 
@@ -128,7 +128,7 @@ The Project indexes public metadata using standard web discovery practices:
 - **(f) VRCArena:** The Project avoids HTML DOM scraping against VRCArena servers to minimize infrastructure burden. It uses bilateral API federation or curated static dataset dumps.
 
 5.3. **Platform Matrix.**  
-Detailed platform access terms, robot directives, and risk classifications appear in [PLATFORM-MATRIX.md](docs/PLATFORM-MATRIX.md).
+Detailed platform access terms, robot directives, and risk classifications appear in [PLATFORM-MATRIX.md](docs/research/markets/PLATFORM-MATRIX.md).
 
 5.4. **Disclaimer of Corporate Affiliation.**  
 The Project has no corporate or contractual relationship with any indexed platform. References to platforms serve compatibility and attribution purposes only.

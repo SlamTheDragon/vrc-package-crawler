@@ -2,7 +2,7 @@
 
 > **Document Status**: Authoritative Engineering Roadmap, Compliance Audit & Systems Specification  
 > **Target Repository**: `F:\.repo\.main\vrc-package-crawler`  
-> **Precedence Invariant**: **`LEGAL.md` takes absolute precedence**. This document is semi-behind `LEGAL.md`. Technical documentation (`docs/`, `AGENT.md`, `DELEGATES.md`, `README.md`) and codebase implementations (`src/`, `tests/`) come last.  
+> **Current authority note (2026-09-28):** Owner decisions in [`docs/decisions/DIRECTION.md`](docs/decisions/DIRECTION.md), applicable external constraints, and target `LEGAL.md` govern this engineering roadmap. Code and reproducible tests describe current behavior; [`docs/decisions/current/status/CONFORMANCE.md`](docs/decisions/current/status/CONFORMANCE.md) records measured exits. Historical phase text below may express older precedence assumptions.  
 > **Canonical TODO Baseline**: Commit `09e9dc8` (6 canonical foundation items)  
 > **Ground Truth Test Suite**: **Decoupled / Clean-Slate Baseline** (All 12 legacy test files in `tests/` deleted by operator to eliminate false-positive test results, mock-reality drift, and codebase dislocation against stale databases; Task 2.6 establishes a deterministic, in-memory isolated testbed).  
 > **Integrity Mandate**: Strictly **ZERO context loss** across canonical tasks, platform ToS contractual analyses, judicial precedents, PRISMA-ScR systematic review audits, code-reality gap analyses, and adversarial calibration matrices.
@@ -12,19 +12,19 @@
 ## 1. Architectural Precedence & Canonical Baseline
 
 ### 1.1 The Precedence Hierarchy of Truth
-In all architectural decisions, bug remediations, and roadmap specifications, the following order of authority controls:
-1. **[LEGAL.md](LEGAL.md)**: Absolute authority. Establishes legal boundaries, Three Legal Layers (A: AGPLv3 Code, B: Project Compilations, C: Third-Party Origin Data), unauthenticated guest status, RFC 9309 robots.txt signals, direct origin media pointers, 256-character functional summaries, anti-AI covenants, and Philippine substantive jurisdiction.
-2. **[TODO.md](TODO.md) (This Document)**: Semi-behind `LEGAL.md`. Compacts all actionable engineering tasks, defect remediations, and feature roadmap items aligned strictly to `LEGAL.md` guardrails.
-3. **Operational Documentation (`docs/`, `AGENT.md`, `DELEGATES.md`, `README.md`)**: Subservient to `TODO.md` and `LEGAL.md`. Must cascade updates whenever tasks change systems invariants.
-4. **Codebase Implementation (`src/`, `tests/`)**: Physical realization. Must be brought into full alignment with the higher layers.
-5. **[DISAGREEMENTS.md](DISAGREEMENTS.md) (Audit & Defect Registry)**: Active verification gating artifact. Documents code-reality gap analyses, implementation failures, security blockers, and factual discrepancies.
+This section retains historical Phase 1–4 framing. The current two-axis authority model in [`docs/decisions/DIRECTION.md`](docs/decisions/DIRECTION.md) §1.1 supersedes it: owner decisions and applicable external constraints define intended behavior, while runtime observation, tests and code establish what exists. The documents below have distinct jobs, not one absolute ranking:
+1. **[docs/decisions/DIRECTION.md](docs/decisions/DIRECTION.md)**: Owner intent, accepted decisions and unresolved arguments.
+2. **[LEGAL.md](LEGAL.md)**: Target legal/operational covenants, subject to external law and source-specific review; not proof that all safeguards run today.
+3. **[TODO.md](TODO.md) (This Document)**: Work, dependencies, acceptance criteria and historical phase record.
+4. **[docs/decisions/current/status/CONFORMANCE.md](docs/decisions/current/status/CONFORMANCE.md)** and **[docs/decisions/current/audits/DISAGREEMENTS.md](docs/decisions/current/audits/DISAGREEMENTS.md)**: Measured exits and evidence-backed gaps, respectively.
+5. **[AGENTS.md](AGENTS.md)**, **[DELEGATES.md](DELEGATES.md)**, `docs/`, `src/`, and `tests/`: Working instructions, operations, explanations, code and executable checks with their own scopes. Archived Phase-4 instructions are in [`docs/scratch/history/AGENT_PHASE4.md`](docs/scratch/history/AGENT_PHASE4.md).
 
 ### The Authoritative Verification Chain
 The project enforces a strict, unbroken verification chain to prevent mock-reality drift and false compliance claims:
 ```
-LEGAL.md ──► TODO.md ──► Implementation ──► Deterministic Tests ──► DISAGREEMENTS.md ──► Resolve/Defer ──► Production Readiness
+LEGAL.md ──► TODO.md ──► Implementation ──► Deterministic Tests ──► docs/decisions/current/audits/DISAGREEMENTS.md ──► Resolve/Defer ──► Production Readiness
 ```
-No phase is considered production-ready merely because planned code was committed; it must be audited against `DISAGREEMENTS.md` and have all documented Tier 1 blockers resolved.
+No phase is considered production-ready merely because planned code was committed; it must be audited against `docs/decisions/current/audits/DISAGREEMENTS.md` and have all documented Tier 1 blockers resolved.
 
 ### 1.2 Canonical Foundation Items (Commit `09e9dc8`) Traceability
 The 6 canonical tasks introduced in commit `09e9dc8` define the core ecosystem questions. Each has been evaluated against `LEGAL.md` and synthesized into the roadmap:
@@ -98,7 +98,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 1.1: Declare `API_SECRET_TOKEN` in `.env.example` and Purge `CRAWLER_API_TOKEN` [COMPLETED]
 - **Priority**: Critical Security Config | **Complexity**: Very Low (5 mins) | **Traceability**: CR-2, CR-19, G-19, LEGAL §10.6 | **Status**: Verified & Completed
-- **Files**: [`.env.example`](.env.example), [`src/server/index.ts`](src/server/index.ts#L130)
+- **Files**: [`.env.example`](.env.example), [`src/server/index.ts`](src-crawler/src/server/index.ts#L130)
 - **Functional Scope & Variable Purpose**:
   - `API_SECRET_TOKEN` is the master administrative bearer authentication token (`Authorization: Bearer <API_SECRET_TOKEN>`) guarding mutating and administrative endpoints on `vrc-server.exe`.
   - Specifically protects:
@@ -114,15 +114,15 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      const apiToken = process.env.API_SECRET_TOKEN || process.env.CRAWLER_API_TOKEN;
      ```
 - **Cascading Documentation Changes (Targeted Sections)**:
-  - [`AGENT.md`](AGENT.md): Section 1 ("Environment Variables & Configuration", Line 310) — replace `CRAWLER_API_TOKEN` with `API_SECRET_TOKEN` and define bearer authentication invariants.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Section 1 ("Environment Variables & Configuration", Line 310) — replace `CRAWLER_API_TOKEN` with `API_SECRET_TOKEN` and define bearer authentication invariants.
   - [`DELEGATES.md`](DELEGATES.md): Section 4 ("Environment & Secret Configuration Template") — add `API_SECRET_TOKEN` to the deployment `.env` template and Section 7 ("Administrative Verification Runbook").
-  - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 1 ("Pre-Flight Operational Checklist") & Section 2 ("Administrative API Verification") — update curl examples to supply `Authorization: Bearer <API_SECRET_TOKEN>`.
-  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 5 ("Security, Bearer Authentication & Administrative Access") — document bearer token header requirements.
+  - [`docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md`](docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md): Section 1 ("Pre-Flight Operational Checklist") & Section 2 ("Administrative API Verification") — update curl examples to supply `Authorization: Bearer <API_SECRET_TOKEN>`.
+  - [`docs/scratch/legacy-targets/REPORTING_SCHEMAS.md`](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md): Section 5 ("Security, Bearer Authentication & Administrative Access") — document bearer token header requirements.
 - **Acceptance Criteria**: Running `grep -rn "CRAWLER_API_TOKEN" .` yields zero unexplained matches; `.env.example` contains `API_SECRET_TOKEN` with administrative security comments. *(Verified: test passes in `tests/phase1_server_headers.test.ts`)*.
 
 #### Task 1.2: Inject Downstream Terms Notice Header (`VRC-Packages-Terms-Of-Use`) & Export Metadata [COMPLETED]
 - **Priority**: Legal Invariant | **Complexity**: Low (15 mins) | **Traceability**: CR-14, CR-22, G-21, LEGAL §10.1, §10.7 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src/server/index.ts#L135-L160), [`src/sync/exporter.ts`](src/sync/exporter.ts)
+- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts#L135-L160), [`src/sync/exporter.ts`](src-crawler/src/sync/exporter.ts)
 - **Header Standards & Naming Rationale**:
   - Per **IETF RFC 6648** ("Deprecating the 'X-' Prefix and Similar Constructs in Application Protocols"), the `X-` prefix was formally deprecated for custom application protocols in June 2012 to avoid technical debt and migration churn when headers become standardized.
   - Accordingly, the header standard uses the clean, un-prefixed project domain identifier `VRC-Packages-Terms-Of-Use` (and RFC 8288 standard web linking).
@@ -148,20 +148,20 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
        ('export_epoch', strftime('%s', 'now'));
      ```
 - **Cascading Documentation Changes (Targeted Sections)**:
-  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 1 ("HTTP Header Invariants & Downstream Contract Notice") — document `VRC-Packages-Terms-Of-Use` and `Link` rel="terms-of-service" across Schemas 1, 2, and 5.
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 ("Catalog Export Specification & In-Band Contractual Notice") — document `catalog_metadata` schema and exact key definitions.
-  - [`docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md): Section 3 ("Downstream Covenants, Browsewrap Enforceability (*Register.com v. Verio*) & Header Injection") — detail in-band contractual notice requirements.
+  - [`docs/scratch/legacy-targets/REPORTING_SCHEMAS.md`](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md): Section 1 ("HTTP Header Invariants & Downstream Contract Notice") — document `VRC-Packages-Terms-Of-Use` and `Link` rel="terms-of-service" across Schemas 1, 2, and 5.
+  - [`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 ("Catalog Export Specification & In-Band Contractual Notice") — document `catalog_metadata` schema and exact key definitions.
+  - [`docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md): Section 3 ("Downstream Covenants, Browsewrap Enforceability (*Register.com v. Verio*) & Header Injection") — detail in-band contractual notice requirements.
   - [`LEGAL.md`](LEGAL.md): Section 10.1 ("Downstream Recipient Notice Invariant") & Section 10.7 ("Database Export Provenance & In-Band Metadata") — affirm technical enforcement.
   - [`README.md`](README.md): Section "Downstream Developer Integration & Terms of Use" — document terms header and license layer definitions.
 - **Acceptance Criteria**: `curl -I http://localhost:8080/v1/health` returns `VRC-Packages-Terms-Of-Use` and `Link: <...>; rel="terms-of-service"`; exported `vrc_catalog.db` contains populated `catalog_metadata` table with zero placeholder text. *(Verified: test passes in `tests/phase1_server_headers.test.ts`)*.
 
 #### Task 1.3: Expose Root API Discovery Route (`GET /`) [COMPLETED]
 - **Priority**: Usability & Discoverability | **Complexity**: Low (15 mins) | **Traceability**: CR-23, G-31 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src/server/index.ts#L140-L150)
+- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts#L140-L150)
 - **Canonical Proof & Standards Grounding**:
   - Grounded in **IETF RFC 9110 Section 3.4 & Section 8.6** (HTTP Semantics: Service discovery and root entrypoint resources).
   - Adheres to **IETF RFC 8288** (Web Linking) and **W3C API Home Documents / RFC 7231 discoverability standards**.
-  - Aligned with project specifications in [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md) Section 1 and [`README.md`](README.md) API directory.
+  - Aligned with project specifications in [`docs/scratch/legacy-targets/REPORTING_SCHEMAS.md`](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md) Section 1 and [`README.md`](README.md) API directory.
 - **Problem**: Requesting `GET /` returns `404 Not Found`, lacking an in-band discovery document declaring capabilities, endpoint directories, and legal terms.
 - **Remediation**: Implement `GET /` returning concrete, canonical JSON payload:
   ```json
@@ -184,14 +184,14 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   ```
 - **Cascading Documentation Changes (Targeted Sections)**:
   - [`README.md`](README.md): Section "API Gateway Surface" — add `GET /` to primary endpoint catalog table.
-  - [`AGENT.md`](AGENT.md): Section "API Gateway Surface & Gateway Invariants" — specify mandatory root route response contract.
-  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 1 ("Root Discovery Route & Machine-Readable Capabilities Contract") — formalize JSON schema.
-  - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 2 ("Health and Discovery Verification") — include `GET /` curl verification.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Section "API Gateway Surface & Gateway Invariants" — specify mandatory root route response contract.
+  - [`docs/scratch/legacy-targets/REPORTING_SCHEMAS.md`](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md): Section 1 ("Root Discovery Route & Machine-Readable Capabilities Contract") — formalize JSON schema.
+  - [`docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md`](docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md): Section 2 ("Health and Discovery Verification") — include `GET /` curl verification.
 - **Acceptance Criteria**: `GET /` returns `200 OK` with valid JSON discovery payload including terms link, repository URL, and all active routes. *(Verified: test passes in `tests/phase1_server_headers.test.ts`)*.
 
 #### Task 1.4: Canonical Modified Strategy: Disallow Crawl Fetch Time for Missing Dates, Dissolve External Tools, Front-Stage Sanitation & 2-URL Column Standard [COMPLETED]
 - **Priority**: Data Integrity & Pipeline Logistics | **Complexity**: Low-Med (30 mins) | **Traceability**: CR-5, G-14, LEGAL §2.4, DISCOVERY_RULES §4.2 | **Status**: Verified & Completed
-- **Files**: [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/db.ts`](src/db.ts), [`src/utils/sanitizer.ts`](src/utils/sanitizer.ts), Ingestion Drivers (`src/drivers/`)
+- **Files**: [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts), [`src/db.ts`](src-crawler/src/db.ts), [`src/utils/sanitizer.ts`](src-crawler/src/utils/sanitizer.ts), Ingestion Drivers (`src/drivers/`)
 - **Schema Proof & Architectural Rationale**:
   - In `src/db.ts`, table `canonical_packages` specifies `origin_created_at TEXT` (nullable ISO 8601), `created_at_confidence TEXT` (`'confirmed' | 'inferred' | 'unknown'`), and `created_at TEXT NOT NULL`. Table `entities` specifies `observed_at TEXT NOT NULL` and `raw_payload JSON`. Table `package_fronts` specifies `created_at TEXT NOT NULL`.
   - Conflating local crawler observation time with upstream publication time (`originCreatedAt`) directly violates `LEGAL.md` §2.4 (Factual Provenance Faithfulness) and `DISCOVERY_RULES.md` §4.2. When upstream platform metadata lacks a verifiable publication date, `origin_created_at` MUST be `NULL` with `created_at_confidence = 'unknown'`.
@@ -215,15 +215,15 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   }
   ```
 - **Cascading Documentation Changes (Targeted Sections)**:
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Section 4.2 ("Timestamp Extraction, Normalization & Confidence Rubric") — ensure rules mandate NULL for missing upstream publication dates without fallback.
-  - [`AGENT.md`](AGENT.md): Section "Data Integrity & Timestamp Confidence Contracts" — codify three-state confidence rubric and dissolved tools architecture.
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 ("Schema Definition for canonical_packages & package_fronts") — clarify semantic separation between origin publication date and crawler first-seen date, 2 URL columns, and front-stage sanitization.
+  - [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md): Section 4.2 ("Timestamp Extraction, Normalization & Confidence Rubric") — ensure rules mandate NULL for missing upstream publication dates without fallback.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Section "Data Integrity & Timestamp Confidence Contracts" — codify three-state confidence rubric and dissolved tools architecture.
+  - [`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 ("Schema Definition for canonical_packages & package_fronts") — clarify semantic separation between origin publication date and crawler first-seen date, 2 URL columns, and front-stage sanitization.
   - [`LEGAL.md`](LEGAL.md): Section 2.4 ("Data Accuracy, Factual Origin Provenance & Timestamp Faithfulness") — verify timestamp accuracy guarantees.
 - **Acceptance Criteria**: Entities with no upstream date project `origin_created_at = NULL` and `created_at_confidence = 'unknown'`; local observation date remains captured in `created_at`; obsolete `src/tools/` scripts and `entity_matcher.ts` are fully purged; zero uncalled methods across active files; tests pass in `tests/phase1_timestamps.test.ts`, `tests/phase1_schema_dedup.test.ts`, and `tests/phase1_sanitizer.test.ts`.
 
 #### Task 1.5: Fix VPM Re-Seeding Permanent Gate Lockout Bug [COMPLETED]
 - **Priority**: Crawler Loop Integrity | **Complexity**: Low (20 mins) | **Traceability**: CR-4, G-13 | **Status**: Verified & Completed
-- **Files**: [`src/crawler/index.ts`](src/crawler/index.ts#L82)
+- **Files**: [`src/crawler/index.ts`](src-crawler/src/crawler/index.ts#L82)
 - **Problem**: Gate condition `if (metrics.platformStats["vpm"].pending < 10 && metrics.platformStats["vpm"].done < 50)` permanently halts VPM re-seeding once lifetime `done >= 50`.
 - **Remediation**: Replace monotonic `done < 50` check with a temporal staleness check:
   ```typescript
@@ -234,13 +234,13 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   }
   ```
 - **Cascading Documentation Changes**:
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Document 7-day temporal staleness window for VPM re-seeding in Section 2.
-  - [`AGENT.md`](AGENT.md): Document VPM seeding interval invariant.
+  - [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md): Document 7-day temporal staleness window for VPM re-seeding in Section 2.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Document VPM seeding interval invariant.
 - **Acceptance Criteria**: Continuous daemon runs successfully trigger VPM re-seeding after staleness interval regardless of lifetime `done` counter. *(Verified: test passes in `tests/phase1_vpm_reseed.test.ts`)*.
 
 #### Task 1.6: Filter YouTube Embeds at Frontier and Image Proxy [COMPLETED]
 - **Priority**: Operational Defect | **Complexity**: Low (30 mins) | **Traceability**: CR-6, G-1, DISCOVERY_RULES §7.1 | **Status**: Verified & Completed
-- **Files**: [`src/drivers/jinxxy.ts`](src/drivers/jinxxy.ts#L214-L224), [`src/utils/image_proxy.ts`](src/utils/image_proxy.ts#L740-L745)
+- **Files**: [`src/drivers/jinxxy.ts`](src-crawler/src/drivers/jinxxy/index.ts), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts#L740-L745)
 - **Problem**: Jinxxy driver enqueues YouTube embed URLs into image queues, triggering Sharp worker parse failures on `text/html`.
 - **Remediation**:
   1. In `src/drivers/jinxxy.ts`, filter media arrays by MIME/type, routing `youtube.com/embed/` and `youtu.be/` directly to `youtube_urls` metadata array.
@@ -253,7 +253,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      ];
      ```
 - **Cascading Documentation Changes**:
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Re-verify rule in Section 7.1 ("Never store HTML embed URLs in image collections").
+  - [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md): Re-verify rule in Section 7.1 ("Never store HTML embed URLs in image collections").
 - **Acceptance Criteria**: `bun test` passes; YouTube embed URLs bypass image proxying completely and appear in `youtube_urls`. *(Verified: test passes in `tests/phase1_youtube_filter.test.ts`)*.
 
 ---
@@ -262,7 +262,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 2.1: Add Subcommand Guard on Crawler Daemon Binary [COMPLETED]
 - **Priority**: Maintainability / CLI Guard | **Complexity**: Medium (30 mins) | **Traceability**: CR-13, CR-18, G-18 | **Status**: Verified & Completed
-- **Files**: [`src/crawler/index.ts`](src/crawler/index.ts#L970-L1030)
+- **Files**: [`src/crawler/index.ts`](src-crawler/src/crawler/index.ts#L970-L1030)
 - **Problem**: Running `vrc-crawler.exe <subcommand>` spawns a second daemon that crashes with a `ProcessLock` collision instead of routing commands.
 - **Remediation**: Inspect `process.argv.slice(2)`. If arguments (e.g. `status`, `recrawl`, `stop`) are provided, print an instructional error message:
   ```typescript
@@ -279,7 +279,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 2.2: Enforce Mandatory `API_SECRET_TOKEN` Auth & Quarantine Delisting Reports [COMPLETED]
 - **Priority**: Critical Security Vulnerability | **Complexity**: Medium (45 mins) | **Traceability**: CR-2, G-4, LEGAL §10.6, §9.4 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src/server/index.ts#L130, #L196-L204), [`src/crawler/steering.ts`](src/crawler/steering.ts)
+- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts#L130, #L196-L204), [`src/crawler/steering.ts`](src-crawler/src/crawler/steering.ts)
 - **Token Generation Guidelines**:
   - The administrative secret must be generated using a Cryptographically Secure Pseudo-Random Number Generator (CSPRNG) with at least 256 bits of entropy:
     ```bash
@@ -313,17 +313,17 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      ```
   2. In `src/crawler/steering.ts`, reports with `branch: "irrelevance"` must update status to `'needs_review'` rather than executing immediate `UPDATE canonical_packages SET lifecycle = 'delisted'`.
 - **Cascading Documentation Changes (Targeted Sections)**:
-  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 5 ("Security, Bearer Token Specification & Quarantined Processing") — document bearer token header requirements and quarantine flow.
-  - [`AGENT.md`](AGENT.md): Section "Security Invariants & Administrative Access Control" — add invariant forbidding autonomous destructive lifecycle changes without human review.
+  - [`docs/scratch/legacy-targets/REPORTING_SCHEMAS.md`](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md): Section 5 ("Security, Bearer Token Specification & Quarantined Processing") — document bearer token header requirements and quarantine flow.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Section "Security Invariants & Administrative Access Control" — add invariant forbidding autonomous destructive lifecycle changes without human review.
   - [`DELEGATES.md`](DELEGATES.md): Section 4 ("Token Generation, Key Rotation & Secret Storage Runbook") — document CSPRNG token generation and rotation.
-  - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 3 ("Curator Report Ingestion & Quarantined Delisting Verification") — document curation queue triage.
+  - [`docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md`](docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md): Section 3 ("Curator Report Ingestion & Quarantined Delisting Verification") — document curation queue triage.
   - [`LEGAL.md`](LEGAL.md): Section 10.6 ("Downstream Reporting Invariants") & Section 9.4 ("Takedown Protocols") — explicitly distinguish administrative curation auth from unauthenticated rights-holder proof-based delisting.
 - **Acceptance Criteria**: Anonymous `POST /v1/reports` returns `401 Unauthorized`; authenticated delisting reports enter `'needs_review'` buffer. *(Verified: test passes in `tests/phase2_auth_quarantine.test.ts`)*.
 
 #### Task 2.3: Cloudflare Turnstile Detection & Poisson Acceleration Guard [FIXME]
 - **Priority**: Bot Perimeter Defense | **Complexity**: Medium (45 mins) | **Traceability**: CR-15, G-3, G-23, LEGAL §5.1(c), §6.4 | **Status**: Erroneous
 - `To bypass Cloudflare Turnstile as a polite, legitimate web scraper or crawler, your goal is not to hack or "solve" the CAPTCHA using automated solver APIs. Instead, you need to prove your legitimacy and structure your scraper so that Cloudflare recognizes it as a friendly bot.Cloudflare Turnstile generally lets automated traffic pass if the bot is transparent, slow, and behaves like a well-intentioned search engine or data aggregator.`
-- **Files**: [`src/drivers/gumroad.ts`](src/drivers/gumroad.ts#L80-L120), [`src/drivers/jinxxy.ts`](src/drivers/jinxxy.ts#L75-L115)
+- **Files**: [`src/drivers/gumroad.ts`](src-crawler/src/drivers/gumroad/index.ts), [`src/drivers/jinxxy.ts`](src-crawler/src/drivers/jinxxy/index.ts)
 - **Problem**: Cloudflare Managed Challenges serve `HTTP 200` with Turnstile HTML challenge scripts. The crawler treats this as a document update, accelerates the Poisson crawl rate ($\lambda \times 1.4$), and triggers an IP ban.
 - **Remediation**: Before parsing HTML DOM, inspect payload:
   ```typescript
@@ -334,13 +334,13 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   }
   ```
 - **Cascading Documentation Changes (Targeted Sections)**:
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Section 3.6 ("Turnstile Zero-Circumvention & Halt Invariants") — formalize detection signatures.
-  - [`docs/PLATFORM-MATRIX.md`](docs/PLATFORM-MATRIX.md): Section 2.2 & 2.4 — update perimeter defense notes for Gumroad and Jinxxy.
+  - [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md): Section 3.6 ("Turnstile Zero-Circumvention & Halt Invariants") — formalize detection signatures.
+  - [`docs/research/markets/PLATFORM-MATRIX.md`](docs/research/markets/PLATFORM-MATRIX.md): Section 2.2 & 2.4 — update perimeter defense notes for Gumroad and Jinxxy.
 - **Acceptance Criteria**: Simulated Turnstile HTML payload halts domain crawl and sets status `"blocked"` without accelerating crawl rate. *(Verified: test passes in `tests/phase2_turnstile_defense.test.ts`)*.
 
 #### Task 2.4: Implement CJK Text Normalization & SimHash Bracket Stripping [COMPLETED]
 - **Priority**: Search Convergence / Entity Resolution | **Complexity**: Medium (1 hour) | **Traceability**: CR-17, G-24 | **Status**: Verified & Completed
-- **Files**: [`src/utils/sanitizer.ts`](src/utils/sanitizer.ts), [`src/crawler/projection.ts`](src/crawler/projection.ts)
+- **Files**: [`src/utils/sanitizer.ts`](src-crawler/src/utils/sanitizer.ts), [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts)
 - **Problem**: Japanese BOOTH listings heavily use full-width decorative brackets (`【...】`, `［...］`, `（...）`). Unstripped boilerplate distorts character 2-grams, preventing SimHash-64 Hamming distance from converging with Western mirrors.
 - **Remediation**: Implement `normalizeListingTitle(title: string)`:
   ```typescript
@@ -355,23 +355,23 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   }
   ```
 - **Cascading Documentation Changes (Targeted Sections)**:
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Section 3.5 ("NFKC Normalization & CJK Bracket Stripping") — document title cleaning pipeline.
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.2 ("Entity Resolution & SimHash Pipeline") — update character shingling and bracket normalization description.
+  - [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md): Section 3.5 ("NFKC Normalization & CJK Bracket Stripping") — document title cleaning pipeline.
+  - [`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.2 ("Entity Resolution & SimHash Pipeline") — update character shingling and bracket normalization description.
 - **Acceptance Criteria**: Title `"【VRChat想定】Modular Avatar対応 ツール"` converges (Hamming distance $\le 3$) with mirror `"Modular Avatar Tool"`. *(Verified: test passes in `tests/phase2_cjk_simhash.test.ts`)*.
 
 #### Task 2.5: Implement Session-Prefixed Daily Rotating Log Streams [COMPLETED]
 - **Priority**: System Reliability / SRE | **Complexity**: Medium (1 hour) | **Traceability**: CR-12, G-8 | **Status**: Verified & Completed
-- **Files**: [`src/logger.ts`](src/logger.ts#L1-L92)
+- **Files**: [`src/logger.ts`](src-crawler/src/logger.ts#L1-L92)
 - **Problem**: Monolithic log files stream indefinitely without session prefixes or daily gzip compression, risking unbounded disk growth during 24/7 autonomous runs.
 - **Remediation**: Implement structured file logging with session prefixes (`session_<pid>_<timestamp>.log`), date-based rotation triggers, and asynchronous daily `.gz` compression during idle Poisson intervals.
 - **Cascading Documentation Changes (Targeted Sections)**:
   - [`DELEGATES.md`](DELEGATES.md): Section 8 ("Logging & Rotation Runbook") — document native session rotation.
-  - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 5 ("Log File Inspection & Rotation Paths") — update monitoring paths.
+  - [`docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md`](docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md): Section 5 ("Log File Inspection & Rotation Paths") — update monitoring paths.
 - **Acceptance Criteria**: Daemon writes to session-prefixed log files; simulated date change rotates and compresses prior logs. *(Verified: test passes in `tests/phase2_log_rotation.test.ts`)*.
 
 #### Task 2.6: Rebuild Deterministic Testbed with In-Memory Isolation (Ground Zero after Legacy Test Deletion) [COMPLETED]
 - **Priority**: CI/CD Reliability & Testbed Integrity | **Complexity**: Medium (1 hour) | **Traceability**: CR-9, G-17 | **Status**: Verified & Completed
-- **Files**: `tests/` directory, [`src/db.ts`](src/db.ts#L248)
+- **Files**: `tests/` directory, [`src/db.ts`](src-crawler/src/db.ts#L248)
 - **Testbed Deletion & Clean-Slate Reality**:
   - All 12 legacy test files in `tests/` (`compliance_and_sync.test.ts`, `exporter.test.ts`, `gumroad_driver.test.ts`, `image_proxy.test.ts`, `ipc.test.ts`, `poisson.test.ts`, `robots.test.ts`, `schema_unification.test.ts`, `server.test.ts`, `steering.test.ts`, `sync.test.ts`, `unified_schema.test.ts`) were deleted by the operator to eliminate false-positive test results, mock-reality drift, and codebase dislocation against stale production database files (`dist/crawler_state.db` [357 MB]).
   - With `tests/` cleared, a fresh, deterministic, decoupled testbed must be rebuilt from ground zero.
@@ -380,14 +380,14 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - Every test file must spin up an ephemeral in-memory SQLite database (`:memory:`) or a unique isolated temp fixture (`dist/test_fixture_<uuid>.db`) initialized with the new canonical ground-truth schema and cleaned up in `afterAll()`.
   - Implement mock HTTP transports (MSW / Bun mock fetch) for driver testing to decouple network tests from live storefronts and rate limits.
 - **Cascading Documentation Changes (Targeted Sections)**:
-  - [`AGENT.md`](AGENT.md): Section "Test Suite Isolation & Fixture Contracts" — mandate `:memory:` databases and document the purge of legacy tests.
-  - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 6 ("Test Suite Architecture & Verification Runbook") — update testbed run commands and fixture isolation invariants.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Section "Test Suite Isolation & Fixture Contracts" — mandate `:memory:` databases and document the purge of legacy tests.
+  - [`docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md`](docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md): Section 6 ("Test Suite Architecture & Verification Runbook") — update testbed run commands and fixture isolation invariants.
   - [`DELEGATES.md`](DELEGATES.md): Section 5 ("Testing, CI/CD and Verification Protocols") — specify isolated test execution rules.
 - **Acceptance Criteria**: `bun test` discovers new isolated tests; all tests execute deterministically against `:memory:` or temporary fixture DBs with zero access to `dist/crawler_state.db`. *(Verified: 39 tests across 12 files passed Phase 2; expanded to 65 tests across 16 files and 306 assertions in Phase 3 with zero failures and zero access to production DB)*.
 
 #### Task 2.7: Autonomous Fault Tolerance Subsystem: Domain Circuit Breakers, Exponential Backoff with Jitter & Persistent Dead-Letter Queue (Permanent Removal of manual requeue scripts) [COMPLETED]
 - **Priority**: System Reliability / Unattended Autonomy | **Complexity**: Medium (1 hour 15 mins) | **Traceability**: Operational Defect (HEAD Section 1), G-1, G-3, G-11 | **Status**: Verified & Completed
-- **Files**: [`src/crawler/index.ts`](src/crawler/index.ts), [`src/drivers/gumroad.ts`](src/drivers/gumroad.ts), [`src/utils/image_proxy.ts`](src/utils/image_proxy.ts), [`src/tools/requeue_gumroad.ts`](src/tools/requeue_gumroad.ts), [`src/tools/requeue_media.ts`](src/tools/requeue_media.ts), [`package.json`](package.json)
+- **Files**: [`src/crawler/index.ts`](src-crawler/src/crawler/index.ts), [`src/drivers/gumroad.ts`](src-crawler/src/drivers/gumroad/index.ts), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts), `src/tools/requeue_gumroad.ts` (historical removed script), `src/tools/requeue_media.ts` (historical removed script), [`package.json`](src-crawler/package.json)
 - **Problem**:
   - When encountering transient network errors, HTTP 429 rate limits, or CDN stalls, Gumroad and image proxy queues halt. Operators previously executed manual batch scripts (`src/tools/requeue_gumroad.ts`, `src/tools/requeue_media.ts`, `bun run requeue:gumroad`, `bun run requeue:media`) to reset failed/stalled frontier items. Relying on manual intervention violates 24/7 unattended autonomy and causes lock contention with the active daemon.
   - This requires a proper systematic integration into the system rather than a series of script patches.
@@ -407,11 +407,11 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      - Permanently delete `src/tools/requeue_gumroad.ts` and `src/tools/requeue_media.ts`.
      - Remove `requeue:gumroad` and `requeue:media` scripts from `package.json`.
 - **Cascading Documentation Changes (Targeted Sections)**:
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 3.4 ("Fault Tolerance, Autonomous Circuit Breakers & Dead-Letter Queue Architecture") — document state machine and backoff math.
-  - [`AGENT.md`](AGENT.md): Section "Crawler Loop Invariants & Autonomous Fault Recovery Contracts" — define circuit breaker and retry invariants.
+  - [`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 3.4 ("Fault Tolerance, Autonomous Circuit Breakers & Dead-Letter Queue Architecture") — document state machine and backoff math.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Section "Crawler Loop Invariants & Autonomous Fault Recovery Contracts" — define circuit breaker and retry invariants.
   - [`DELEGATES.md`](DELEGATES.md): Section 8 ("Fault Recovery Runbook & Elimination of Manual Batch Scripts") — document autonomous self-healing and purge manual requeue runbooks.
-  - [`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md): Section 4 ("Operational Self-Healing & Circuit Breaker Diagnostics") — document monitoring commands.
-  - [`package.json`](package.json): Permanently delete `requeue:gumroad` and `requeue:media` entries.
+  - [`docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md`](docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md): Section 4 ("Operational Self-Healing & Circuit Breaker Diagnostics") — document monitoring commands.
+  - [`package.json`](src-crawler/package.json): Permanently delete `requeue:gumroad` and `requeue:media` entries.
 - **Acceptance Criteria**: Crawler daemon autonomously pauses and recovers from simulated HTTP 429 and network timeouts without requiring manual script execution; dead-letter entries are reconciled during idle loops; manual requeue scripts and `package.json` entries are permanently removed. *(Verified: test passes in `tests/phase2_fault_tolerance.test.ts`)*.
 
 ---
@@ -420,7 +420,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 3.1: Expose Automated Non-Scraping Opt-Out Endpoint (`POST /v1/opt-out`) [COMPLETED]
 - **Priority**: Legal Invariant / Creator Rights | **Complexity**: Medium-High (1.5 hours) | **Traceability**: CR-8, CR-16, G-5, G-25, LEGAL §9.4-9.5 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts#L551-L578), [`src/crawler/projection.ts`](src/crawler/projection.ts)
+- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts), [`src/db.ts`](src-crawler/src/db.ts#L551-L578), [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts)
 - **Problem**: `db.registerOptOut()` exists but has zero API routes or CLI callers; creators (particularly non-domain shop owners on BOOTH, Gumroad, Jinxxy) have no automated, non-scraping method to request delisting.
 - **Remediation**:
   1. Add `POST /v1/opt-out` in `src/server/index.ts` accepting `{ vendorId, proofType: "dns_txt" | "storefront_bio_token" | "signed_commit", proofValue, storefrontUrl? }`.
@@ -440,14 +440,14 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      - Creators are instructed that the verification token is ephemeral and can be removed immediately once `200 OK` confirmation is received.
 - **Cascading Documentation Changes**:
   - [`LEGAL.md`](LEGAL.md): Update Section 9.4 and 9.5 to document `storefront_bio_token` alongside DNS TXT and signed commits, noting automated `POST /v1/opt-out` route.
-  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Document `POST /v1/opt-out` request/response schemas with `storefront_bio_token` payload.
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Add opt-out verification workflow diagram including bio-token validation.
-  - [`docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md): Document bio-token non-scraping verification guidelines.
+  - [`docs/scratch/legacy-targets/REPORTING_SCHEMAS.md`](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md): Document `POST /v1/opt-out` request/response schemas with `storefront_bio_token` payload.
+  - [`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Add opt-out verification workflow diagram including bio-token validation.
+  - [`docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md): Document bio-token non-scraping verification guidelines.
 - **Acceptance Criteria**: Automated test successfully verifies mock DNS TXT and storefront bio token records, rejects SSRF attempts against localhost/private IPs, enforces rate limits, registers opt-out in database, and delists matching packages. *(Verified: test passes in `tests/phase3_opt_out.test.ts`)*.
 
 #### Task 3.2: Pure Media Pointer Migration: Hybrid Delivery Architecture & Deprecate SQLite WebP BLOB Storage [COMPLETED]
 - **Priority**: Core Legal Compliance | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-19, CR-21, G-1, G-22, G-29, LEGAL §7.2(c) | **Status**: Verified & Completed
-- **Files**: [`src/db.ts`](src/db.ts#L180-L210), [`src/utils/image_proxy.ts`](src/utils/image_proxy.ts), [`src/server/index.ts`](src/server/index.ts#L173-L180), [`src/sync/exporter.ts`](src/sync/exporter.ts)
+- **Files**: [`src/db.ts`](src-crawler/src/db.ts#L180-L210), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts), [`src/server/index.ts`](src-crawler/src/server/index.ts#L173-L180), [`src/sync/exporter.ts`](src-crawler/src/sync/exporter.ts)
 - **Problem**: Code currently stores raw WebP buffers directly as BLOBs in SQLite `media_cache.webp_data` (`dist/crawler_state.db`), creating a 357 MB database and re-hosting copyrighted imagery in tension with the Server Test split (*Perfect 10* vs *Goldman v. Breitbart*). Furthermore, closed storefront CDNs enforce `Referer` headers and block direct hotlinking with `403 Forbidden` (G-1).
 - **Remediation**:
   1. **Direct Origin URLs by Default**: Modify `src/server/index.ts` and API catalog feeds to return direct origin CDN URLs in `media_urls` and `source_url`, aligning with the Ninth Circuit Server Test (*Perfect 10 v. Amazon*).
@@ -461,42 +461,42 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   4. **Legal Consultation Caveats**: Document that while ephemeral streaming proxying eliminates reproduction/storage liability under the Server Test, public display/transmission exposure under *Goldman v. Breitbart* and *Nicklen* remains an active circuit split. Direct origin URLs remain the canonical default; downstream client developers must be informed of both modes and advised to evaluate their local display posture under *Kelly v. Arriba Soft*.
 - **Cascading Documentation Changes**:
   - [`LEGAL.md`](LEGAL.md): Update Section 7.2(c) to reflect the Hybrid delivery model (direct origin pointers + ephemeral memory stream) and remove the WebP BLOB implementation lag asterisk once deployed.
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Update Section 2.1 media cache schema and document `/v1/media/stream` in-memory proxy architecture.
-  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Document `GET /v1/media/stream` endpoint schema and caching behavior.
-  - [`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md): Remove persistent R2 thumbnail synchronization; edge serves pure URLs.
-  - [`docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md): Update Section 1 & Section 3 to document hybrid streaming proxy architecture.
+  - [`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Update Section 2.1 media cache schema and document `/v1/media/stream` in-memory proxy architecture.
+  - [`docs/scratch/legacy-targets/REPORTING_SCHEMAS.md`](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md): Document `GET /v1/media/stream` endpoint schema and caching behavior.
+  - [`docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md): Remove persistent R2 thumbnail synchronization; edge serves pure URLs.
+  - [`docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md): Update Section 1 & Section 3 to document hybrid streaming proxy architecture.
 - **Acceptance Criteria**: SQLite database schema contains no `webp_data BLOB` column; database footprint drops drastically; API feeds return direct source CDN URLs; `/v1/media/stream` streams live origin media ephemerally without disk writes, rejects unwhitelisted domains with 403, and caches privately on client; all tests pass. *(Verified: test passes in `tests/phase3_media_stream.test.ts`)*.
 
 #### Task 3.3: Wire Conditional Request Headers (ETag / If-None-Match) & Reconnect Poisson Feedback [COMPLETED]
 - **Priority**: Bandwidth & Freshness Invariant | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-1, CR-7, CR-20, G-11, LEGAL §5.2(e) | **Status**: Verified & Completed
-- **Files**: [`src/drivers/github.ts`](src/drivers/github.ts#L174-L177), [`src/drivers/booth.ts`](src/drivers/booth.ts), [`src/utils/poisson_scheduler.ts`](src/utils/poisson_scheduler.ts#L49), [`src/crawler/index.ts`](src/crawler/index.ts), [`src/db.ts`](src/db.ts#L707-L728)
+- **Files**: [`src/drivers/github.ts`](src-crawler/src/drivers/github/index.ts), [`src/drivers/booth.ts`](src-crawler/src/drivers/booth/index.ts), [`src/utils/poisson_scheduler.ts`](src-crawler/src/utils/poisson_scheduler.ts#L49), [`src/crawler/index.ts`](src-crawler/src/crawler/index.ts), [`src/db.ts`](src-crawler/src/db.ts#L707-L728)
 - **Problem**: Crawlers never send `If-None-Match` or `If-Modified-Since`. `adjustAfterFetch(url, isModified, etag, lastModifiedHeader)` has zero callers; `db.markStatus` sets a rigid 24-hour constant.
 - **Remediation**:
   1. Pass stored `etag` and `last_modified` from `frontier`/`entities` as `If-None-Match` and `If-Modified-Since` in driver HTTP fetch requests.
   2. On `HTTP 304 Not Modified`, invoke `PoissonScheduler.adjustAfterFetch(url, false, etag, lastModified)`.
   3. In `db.markStatus()`, use the computed `nextInterval` from the scheduler instead of the rigid `+86400 seconds` constant.
 - **Cascading Documentation Changes**:
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Update Section 2 re-crawl policy with true conditional request header mechanics.
-  - [`AGENT.md`](AGENT.md): Document `adjustAfterFetch()` true signature and conditional header wiring.
+  - [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md): Update Section 2 re-crawl policy with true conditional request header mechanics.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Document `adjustAfterFetch()` true signature and conditional header wiring.
 - **Acceptance Criteria**: Mock server returning `HTTP 304` triggers `adjustAfterFetch(url, false)` without re-downloading or re-parsing payload; `next_fetch_at` adapts based on change frequency. *(Verified: test passes in `tests/phase3_conditional_requests.test.ts`)*.
 
 #### Task 3.4: Edge Sync Watermark Recovery & Data Loss Prevention [COMPLETED]
 - **Priority**: Critical Data Loss Prevention | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-3, G-12 | **Status**: Verified & Completed
-- **Files**: [`src/sync/index.ts`](src/sync/index.ts#L128-L133), [`src/crawler/projection.ts`](src/crawler/projection.ts)
+- **Files**: [`src/sync/index.ts`](src-crawler/src/sync/index.ts#L128-L133), [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts)
 - **Problem**: Periodic `DELETE FROM canonical_packages` resets SQLite rowids to 1. In `src/sync/index.ts`, watermark check `watermarkRowId > maxRowInDb` fails to reset if the rebuilt table has more rows, permanently skipping rows 1..watermark from Cloudflare D1.
 - **Remediation**: Track projection generation epochs via a deterministic UUID or timestamp in `sync_checkpoints`. If `canonical_packages` projection epoch changes, automatically trigger a safe watermark realignment sweep rather than comparing raw auto-incrementing rowids.
 - **Cascading Documentation Changes**:
-  - [`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md): Add Section 3 detailing watermark epoch alignment and recovery.
+  - [`docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md): Add Section 3 detailing watermark epoch alignment and recovery.
   - [`DELEGATES.md`](DELEGATES.md): Document the `--reset-watermark` recovery command in Section 5.
 - **Acceptance Criteria**: Running a simulated table wipe and rebuild with 16k rows correctly resynchronizes all rows without silent omission; `tests/sync.test.ts` passes. *(Verified: test passes in `tests/phase3_watermark_recovery.test.ts`)*.
 
-> **Phase 3 Completion & Sign-Off**: **100% Verified & Finished**. Deterministic testbed expanded to 65 passing tests across 16 files (306 assertions) with zero failures and zero access to production DB. Pre-review amendment specification `docs/legal/TARGETED_LEGAL_WORDING_CORRECTIONS.md` fully adopted into `LEGAL.md` and purged. Factual discrepancies, breaking points, and overlooked items formally documented in [`DISAGREEMENTS.md`](DISAGREEMENTS.md). Ready for Phase 4.
+> **Phase 3 Completion & Sign-Off**: **100% Verified & Finished**. Deterministic testbed expanded to 65 passing tests across 16 files (306 assertions) with zero failures and zero access to production DB. Pre-review amendment specification `docs/legal/TARGETED_LEGAL_WORDING_CORRECTIONS.md` fully adopted into `LEGAL.md` and purged. Factual discrepancies, breaking points, and overlooked items formally documented in [`docs/decisions/current/audits/DISAGREEMENTS.md`](docs/decisions/current/audits/DISAGREEMENTS.md). Ready for Phase 4.
 
 ---
 
 ### Phase 4: Schema Normalization, Security Hardening & Blocker Remediation (High) — [100% VERIFIED & COMPLETED]
 
-> **Phase 4 Precedence Mandate**: Phase 4 prioritizes the resolution of all **Tier 1 Pre-v1.0 Security & Legal Blockers** identified in [`DISAGREEMENTS.md`](DISAGREEMENTS.md) before canonical ecosystem expansion in Phase 5.
+> **Phase 4 Precedence Mandate**: Phase 4 prioritizes the resolution of all **Tier 1 Pre-v1.0 Security & Legal Blockers** identified in [`docs/decisions/current/audits/DISAGREEMENTS.md`](docs/decisions/current/audits/DISAGREEMENTS.md) before canonical ecosystem expansion in Phase 5.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
@@ -513,7 +513,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 4.1: Database Schema Normalization, Identifier Standardization & Clean Export Architecture (Canonical Task 4) [COMPLETED]
 - **Priority**: Critical / High Priority Architectural Anchor | **Complexity**: High (2.5 hours) | **Traceability**: CANON-4, CR-11, G-9, G-26, OVERLOOKED-4, OVERLOOKED-5, LEGAL §2.3, §10.7 | **Status**: Verified & Completed
-- **Files**: [`src/db.ts`](src/db.ts), [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/crawler/steering.ts`](src/crawler/steering.ts), [`src/sync/exporter.ts`](src/sync/exporter.ts)
+- **Files**: [`src/db.ts`](src-crawler/src/db.ts), [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts), [`src/crawler/steering.ts`](src-crawler/src/crawler/steering.ts), [`src/sync/exporter.ts`](src-crawler/src/sync/exporter.ts)
 - **Problem & Dist Stale Database Policy**:
   - Overlapping URL storage existed: flat columns alongside `platforms_json` in `canonical_packages`, plus individual rows in `package_fronts`. In `curator_overrides`, dual override fields (`name_override` vs `title_override`) caused coalescence conflicts.
   - **Identifier Misalignment (OVERLOOKED-5)**: `canonical_packages.id` (raw entity string e.g. `github:owner/repo`) differs from `canonical_id` (slug `owner-repo`). Schema 4 reports provide `target_package_id`, but `steering.ts` queries `WHERE canonical_id = ?`, causing reports using primary IDs to silently match 0 rows.
@@ -526,8 +526,8 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   4. Complete pure media pointer migration cleanly in `src/sync/exporter.ts`: populate `media_cache` with origin metadata records without BLOBs, eliminating dangling foreign keys.
   5. Define strict TypeScript DTOs in `src/db.ts` to enforce uniform schema access across all modules.
 - **Cascading Documentation Changes**:
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 — document clean schema definitions and formalize stale status of `dist/crawler_state.db`.
-  - [`AGENT.md`](AGENT.md): Section "Database Schema Invariants, Ground Truth Architecture & Stale DB Policy".
+  - [`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.1 — document clean schema definitions and formalize stale status of `dist/crawler_state.db`.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Section "Database Schema Invariants, Ground Truth Architecture & Stale DB Policy".
   - [`DELEGATES.md`](DELEGATES.md): Section 3 & 8 — document 2-URL rule and operational guidelines.
 - **Acceptance Criteria**: Schema definition executes cleanly without legacy redundant columns; TypeScript DTOs validate all reads/writes; exported catalog contains zero dangling foreign keys. *(Verified: test passes in `tests/phase4_blocker_remediation.test.ts`)*.
 
@@ -539,27 +539,27 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 - **Cascading Documentation Changes**:
   - [`README.md`](README.md): Section "System Architecture & Boundaries" — explicitly state that user authentication is air-gapped downstream.
   - [`LEGAL.md`](LEGAL.md): Section 9.8 ("Air-Gapped Client Architecture") & Section 10.5 ("Non-Commercial Metadata Service").
-  - [`AGENT.md`](AGENT.md): Section 1 ("Architectural Boundary Invariants").
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Section 1 ("Architectural Boundary Invariants").
 - **Acceptance Criteria**: Architectural audit confirms zero session cookies, password hashes, or user account models exist in `src/`. *(Verified: architectural audit confirms stateless unauthenticated perimeter)*.
 
 #### Task 4.3: Implement Schema 5 Telemetry Ingestion Route & Gateway Route Aliasing (Canonical Task 5) [COMPLETED]
 - **Priority**: Feedback Loop & Discoverability | **Complexity**: High (2.5 hours) | **Traceability**: CANON-5, G-8, OVERLOOKED-6, OVERLOOKED-7, LEGAL §8.5, §10.1, REPORTING_SCHEMAS §1, §6 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts), [`src/crawler/steering.ts`](src/crawler/steering.ts)
+- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts), [`src/db.ts`](src-crawler/src/db.ts), [`src/crawler/steering.ts`](src-crawler/src/crawler/steering.ts)
 - **Problem**:
-  - `docs/REPORTING_SCHEMAS.md` defines Schema 5 for anonymous click rates and queries, but `src/server/index.ts` has zero ingestion endpoints (`POST /v1/telemetry` returns 404).
+  - `docs/scratch/legacy-targets/REPORTING_SCHEMAS.md` defines Schema 5 for anonymous click rates and queries, but `src/server/index.ts` has zero ingestion endpoints (`POST /v1/telemetry` returns 404).
   - `GET /` and `LEGAL.md` advertise `/v1/packages/stream`, but the server implements `/v1/catalog/delta` (OVERLOOKED-6).
 - **Remediation**:
   1. Add `POST /v1/telemetry` route in `src/server/index.ts` accepting Schema 5 payloads (`batchId`, `collectedAt`, `metrics: { searchQueries, packageInteractions }`). Validate payload; strictly reject PII or session trackers via regex scanner.
   2. Implement route aliasing in `src/server/index.ts` so `GET /v1/packages/stream` routes cleanly to `GET /v1/catalog/delta`.
   3. Aggregate search queries into `search_patterns` to boost popular keywords and seed new crawl targets.
 - **Cascading Documentation Changes**:
-  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 1 & Section 6 — mark ingestion route as active and formalize route aliasing.
-  - [`AGENT.md`](AGENT.md): Document `POST /v1/telemetry` and `/v1/packages/stream` alias contracts.
+  - [`docs/scratch/legacy-targets/REPORTING_SCHEMAS.md`](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md): Section 1 & Section 6 — mark ingestion route as active and formalize route aliasing.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Document `POST /v1/telemetry` and `/v1/packages/stream` alias contracts.
 - **Acceptance Criteria**: `POST /v1/telemetry` accepts valid Schema 5 payloads; `GET /v1/packages/stream` returns identical delta responses as `/v1/catalog/delta`. *(Verified: test passes in `tests/phase4_blocker_remediation.test.ts`)*.
 
 #### Task 4.4: Incremental Projection Sanitizer, Delisting Tombstones & Delta Preservation (OVERLOOKED-1) [COMPLETED]
 - **Priority**: Critical Legal Control / Data Loss Prevention | **Complexity**: High (3 hours) | **Traceability**: OVERLOOKED-1, CR-3, G-12, LEGAL §9.5 | **Status**: Verified & Completed
-- **Files**: [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts)
+- **Files**: [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts), [`src/server/index.ts`](src-crawler/src/server/index.ts), [`src/db.ts`](src-crawler/src/db.ts)
 - **Problem (LEGAL CONTROL: IMPLEMENTATION FAILURE)**:
   - `runProjection()` executes `DELETE FROM canonical_packages` every 15 minutes and skips opted-out creators with `continue`.
   - The row vanishes completely from `canonical_packages`. Consequently, `GET /v1/catalog/delta` **never emits `{ action: "DELISTED" }`**, causing downstream desktop client caches to retain delisted packages indefinitely!
@@ -568,13 +568,13 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   2. Synthesize permanent delisting tombstones: when a creator opts out or an item is delisted, retain the package record with `lifecycle = 'delisted'` and updated timestamp.
   3. Ensure `GET /v1/catalog/delta` emits `{ action: "DELISTED", canonicalId: ... }` for all delisted packages across synchronization windows.
 - **Cascading Documentation Changes**:
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.2 — document tombstone delta preservation.
-  - [`AGENT.md`](AGENT.md): Codify invariant guaranteeing delisting tombstone retention.
+  - [`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Section 2.2 — document tombstone delta preservation.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Codify invariant guaranteeing delisting tombstone retention.
 - **Acceptance Criteria**: Re-running projection after a creator opt-out preserves tombstone row with `lifecycle = 'delisted'`; `GET /v1/catalog/delta` reliably emits `{ action: "DELISTED" }`. *(Verified: test passes in `tests/phase4_blocker_remediation.test.ts`)*.
 
 #### Task 4.5: Opt-Out Correctness & DNS Rebinding Security Hardening (OVERLOOKED-2, OVERLOOKED-3) [COMPLETED]
 - **Priority**: Critical Security Vulnerability & Compliance Blocker | **Complexity**: High (3 hours) | **Traceability**: OVERLOOKED-2, OVERLOOKED-3, LEGAL §9.4-9.5 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src/server/index.ts), [`src/db.ts`](src/db.ts)
+- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts), [`src/db.ts`](src-crawler/src/db.ts)
 - **Problem**:
   - **DNS Rebinding TOCTOU (OVERLOOKED-2)**: `dns.lookup` resolves the hostname once to check private IP ranges, but `fetch()` initiates an independent resolution without IP pinning, leaving endpoints vulnerable to 0-second TTL DNS rebinding against `127.0.0.1` and `169.254.169.254`.
   - **False Compliance Signal (OVERLOOKED-3)**: `POST /v1/opt-out` returns `200 OK` while delisting 0 packages because `jinxxy.com` is omitted from SQL queries, standard BOOTH URLs (`booth.pm/ja/items/12345`) do not match `*.booth.pm`, and vendor IDs do not match UTF-8 shop display names.
@@ -586,21 +586,21 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      - Resolve creator vendor IDs against `package_fronts.author` and `canonical_packages.authors_json`.
 - **Cascading Documentation Changes**:
   - [`LEGAL.md`](LEGAL.md): Section 9.5 — document verified IP pinning and storefront front matching.
-  - [`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md): Section 8 — update opt-out verification guarantees.
+  - [`docs/scratch/legacy-targets/REPORTING_SCHEMAS.md`](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md): Section 8 — update opt-out verification guarantees.
 - **Acceptance Criteria**: Automated test confirms DNS rebinding attempts are blocked via IP pinning; opting out a BOOTH or Jinxxy store correctly delists all matching canonical packages. *(Verified: test passes in `tests/phase4_blocker_remediation.test.ts`)*.
 
 #### Task 4.6: Storefront Conditional Requests & Cloudflare D1 Front Sync (OVERLOOKED-9, OVERLOOKED-10) [COMPLETED]
 - **Priority**: Bandwidth Efficiency & Edge Completeness | **Complexity**: Medium-High (2.5 hours) | **Traceability**: OVERLOOKED-9, OVERLOOKED-10, LEGAL §5.2, DISCOVERY_RULES §2 | **Status**: Verified & Completed
-- **Files**: [`src/drivers/gumroad.ts`](src/drivers/gumroad.ts), [`src/drivers/jinxxy.ts`](src/drivers/jinxxy.ts), [`src/drivers/itch.ts`](src/drivers/itch.ts), [`src/sync/index.ts`](src/sync/index.ts)
+- **Files**: [`src/drivers/gumroad.ts`](src-crawler/src/drivers/gumroad/index.ts), [`src/drivers/jinxxy.ts`](src-crawler/src/drivers/jinxxy/index.ts), [`src/drivers/itch.ts`](src-crawler/src/drivers/itch/index.ts), [`src/sync/index.ts`](src-crawler/src/sync/index.ts)
 - **Problem**:
-  - Gumroad, Jinxxy, and Itch drivers lack conditional request headers (`If-None-Match`, `If-Modified-Since`), wasting bandwidth despite `docs/DISCOVERY_RULES.md` asserting universal driver coverage (OVERLOOKED-9).
+  - Gumroad, Jinxxy, and Itch drivers lack conditional request headers (`If-None-Match`, `If-Modified-Since`), wasting bandwidth despite `docs/scratch/legacy-targets/DISCOVERY_RULES.md` asserting universal driver coverage (OVERLOOKED-9).
   - `src/sync/index.ts` pushes only `canonical_packages` to Cloudflare D1, completely omitting `package_fronts` and `catalog_metadata` (OVERLOOKED-10).
 - **Remediation**:
   1. Wire stored `etag` and `last_modified` headers into `GumroadDriver`, `JinxxyDriver`, and `ItchDriver`, connecting `HTTP 304` responses to `poissonScheduler.adjustAfterFetch()`.
   2. Extend `src/sync/index.ts` to synchronize `package_fronts` and push `catalog_metadata` key-values to Cloudflare D1.
 - **Cascading Documentation Changes**:
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Re-verify universal conditional request mechanics across all drivers.
-  - [`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md): Document multi-table D1 synchronization.
+  - [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md): Re-verify universal conditional request mechanics across all drivers.
+  - [`docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md): Document multi-table D1 synchronization.
 - **Acceptance Criteria**: Mock 304 responses on Gumroad/Jinxxy/Itch trigger Poisson interval backoff; edge sync pushes both `canonical_packages` and `package_fronts` to D1. *(Verified: test passes in `tests/phase4_blocker_remediation.test.ts`)*.
 
 > **Phase 4 Completion & Sign-Off**: **100% Verified & Finished**. Deterministic testbed expanded to 84 passing tests across 17 files (551 assertions) with zero failures and zero access to production DB. All Tier 1 Pre-v1.0 Security & Legal Blockers (OVERLOOKED-1 through OVERLOOKED-5), Tier 2 Route Aliases (OVERLOOKED-6), and Tier 3 Pipeline Scalability (OVERLOOKED-9, OVERLOOKED-10) resolved and verified. Ready for Phase 5.
@@ -613,30 +613,40 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 ### Phase 5: Canonical Ecosystem Expansion & Governance (Hardest)
 
-> **Current execution order:** This historical Phase 5 task list is now mapped into capability gates G0–G6 in `IMPLEMENTATION_PLAN.md`. The owner selected a fully local coordinator simulation with real-source crawler-node ingestion and a standalone node binary; actual Cloudflare setup/deployment is deferred. Boundary extraction under `src/node/`, `src/worker/`, and `src/shared/` begins during the gates, superseding the old post-Phase-5-only split rule in prior runbooks. Do not interpret task-hour estimates or prior completion percentages as conformance evidence. See `docs/CODE_PATH_INVENTORY.md` for current code paths.
+> **Current execution order:** This historical Phase 5 task list is now mapped into capability gates G0–G6 in `docs/decisions/plans/IMPLEMENTATION_PLAN.md`. The owner selected a fully local coordinator simulation with real-source crawler-node ingestion and a standalone node binary; actual Cloudflare setup/deployment is deferred. Boundary extraction under `src/node/`, `src/worker/`, and `src/shared/` begins during the gates, superseding the old post-Phase-5-only split rule in prior runbooks. Do not interpret task-hour estimates or prior completion percentages as conformance evidence. See `docs/decisions/current/CODE_PATH_INVENTORY.md` for current code paths.
 
-> **2026-09-27 gate checkpoint:** G1 safety regressions have tests; the G5 protocol has local claim/result/heartbeat schemas, node/coordinator binaries, SQLite leases and idempotent submissions. Two compiled nodes ran through loopback, two coordinator processes passed a bounded same-origin lease test, and opt-in VPM/GitHub metadata smokes ingested limited real public evidence. This is not a G5 exit: the legacy drivers still write the legacy DB, and sustained multi-process load, source policy, delisting breadth, recovery and all-driver ingestion remain. G2–G4 accepted catalog identity, fronts, taxonomy and delta publication are not integrated; Task 5.5 adds desktop-tool coverage research. G6 has a browser-target handler build only. `CONFORMANCE.md` is the evidence ledger; no gate should be called complete from a successful compile alone.
+> **2026-09-27 gate checkpoint:** G1 safety regressions have tests; the G5 protocol has local claim/result/heartbeat schemas, node/coordinator binaries, SQLite leases and idempotent submissions. Two compiled nodes ran through loopback, two coordinator processes passed a bounded same-origin lease test, and opt-in VPM/GitHub metadata smokes ingested limited real public evidence. This is not a G5 exit: the legacy drivers still write the legacy DB, and sustained multi-process load, source policy, delisting breadth, recovery and all-driver ingestion remain. G2–G4 accepted catalog identity, fronts, taxonomy and delta publication are not integrated; Task 5.5 adds desktop-tool coverage research. G6 has a browser-target handler build only. `docs/decisions/current/status/CONFORMANCE.md` is the evidence ledger; no gate should be called complete from a successful compile alone.
 
-> **VPM/prototype checkpoint:** A bounded VPM listing and the official template `source.json` have passed an opt-in, two-request real-data smoke through compiled local node/coordinator binaries. Recipe links remain pending leads until an operator approves a published listing; ZIPs are not fetched. The read-only audit of `bin/crawler_state.db` found 2,691 fabricated fronts without raw-entity witnesses, 363 repeated platform-item identity groups, and 4,686 old `media_id='none'` sentinels. The legacy projection now avoids creating a new front from a link alone, but the snapshot is unchanged. See `docs/VPM_TEMPLATE_RESEARCH.md` and `docs/PROTOTYPE_DB_AUDIT.md`; neither G2–G5 nor full preproduction operation is complete.
+> **2026-09-28 source-access decision:** The owner chose a separate scoped source-access profile for *both* manual and auto-queued jobs. A bare seed and an auto-queue rule are not fetch approvals. The local coordinator now gates robots refresh, claim, fetching heartbeat and new submission on a matching active profile, with zero default grants. This does not approve a particular source or complete retention/publication, migration, legacy-driver and delisting obligations. See `docs/decisions/current/access/SOURCE_ACCESS_GATE_DESIGN.md` for acceptance scenarios and `docs/decisions/DEFERRED_OWNER_DECISIONS.md` for narrower unanswered questions; do not broaden live runs on the strength of code alone.
+
+> **Local profile-gate checkpoint:** A strict, versioned source-profile schema/matcher and authenticated create/list/disable operator routes exist with audit records and no default profiles. Overlapping active scopes for the same platform/origin/purpose are rejected. Jobs carry purpose; leases bind a profile; new evidence stores its ID. The node omits unapproved creator prose and the coordinator rejects out-of-scope submissions. An old-schema fixture proves pre-policy leases and origin locks are cleared without creating grants; an operational backup/rollback drill remains. This is **not** G3/G5 source-policy exit: source-specific approvals, historical retention, public publication and legacy direct-fetch mediation remain.
+
+> **2026-09-28 bounded real-data checkpoint:** After reviewing GitHub's current public-repository endpoint, API version and unauthenticated rate guidance, one compiled standalone node ingested `GET https://api.github.com/repos/vrc-get/vrc-get` through an exact-path temporary source profile with `normalized_facts` retention and no publication classes. The default sandbox blocked robots egress; a reviewed network-enabled retry succeeded. A second reviewed smoke used two separate exact-path profiles and compiled nodes to ingest the `template-package` published VPM listing and the distinct `template-package-listing` recipe; it retained one version and four pending leads with profile attribution, without fetching ZIPs. These prove narrow profile-gated metadata paths, not sustained or all-driver operation. See `docs/decisions/current/access/SOURCE_ACCESS_REVIEW.md` and `docs/decisions/current/status/CONFORMANCE.md` for limits.
+
+> **Robots/product origin pacing checkpoint:** The coordinator now treats robots preflight as a rate-limited origin request, excludes active same-origin refreshes from product claims, and waits the stricter source-profile delay before a product lease. A deterministic fixture covers this ordering; both live-smoke harnesses read the persisted next-allowed time before launching nodes. One-time reviewed GitHub and VPM regression retests passed under the new floor; GitHub waited 60 seconds after robots. Other support-origin requests and legacy direct drivers remain outside this shared floor.
+
+> **VPM/prototype checkpoint:** A bounded VPM listing from `template-package` and the separate `template-package-listing` recipe have passed an opt-in, two-request real-data smoke through compiled local node/coordinator binaries, first under the old seed path and now through scoped source profiles. They are not a witnessed recipe-output pair. Recipe links remain pending leads until an operator approves a published listing; ZIPs are not fetched. The read-only audit of `bin/crawler_state.db` found 2,691 fabricated fronts without raw-entity witnesses, 363 repeated platform-item identity groups, and 4,686 old `media_id='none'` sentinels. The legacy projection now avoids creating a new front from a link alone, but the snapshot is unchanged. See `docs/research/markets/VPM_TEMPLATE_RESEARCH.md` and `docs/decisions/current/audits/PROTOTYPE_DB_AUDIT.md`; neither G2–G5 nor full preproduction operation is complete.
 
 #### Task 5.1: Federated Registry & Community Manifest VPM Seeding (Canonical Task 1)
 - **Priority**: Ecosystem Discovery | **Complexity**: Very High (3.5 hours) | **Traceability**: CANON-1, G-10, LEGAL §11.3, DISCOVERY_RULES §2
-- **Files**: `src/crawler/vpm_discovery.ts` (future driver), [`src/crawler/index.ts`](src/crawler/index.ts)
+> **BOOTH discovery checkpoint (2026-09-28):** The local coordinator now includes job purpose in validated lease payloads. A standalone-node BOOTH category adapter turns one `?page=N` browse response into at most 100 canonical product leads; empty pages are represented without inventing product observations, and overflow fails visibly. The coordinator rejects product observations and off-site leads from that discovery lease. Offline synthetic HTML passed through the loopback lease runner and persisted pending leads without new jobs. The original BOOTH direct driver still fetches/writes outside this coordinator path; no live BOOTH browse source profile has been approved or run. Category pagination, query-tag seeds, storefront-product lead promotion, creator-front evidence and full migration remain G3/G5 work.
+
+- **Files**: `src/crawler/vpm_discovery.ts` (future driver), [`src/crawler/index.ts`](src-crawler/src/crawler/index.ts)
 - **Problem**: VPM package discovery is currently tethered to GitHub search APIs. Open-web unindexed spiders violate politeness and hit bot walls (§11.3).
 - **Remediation**: Implement federated registry expansion in `src/crawler/vpm_discovery.ts` or crawler loop:
   1. **Strict Public-Source Scoping**: Ingest approved public repository listings (`index.json` or another publisher-declared listing URL) found through verified creator documentation and Git hosting providers such as GitLab and Codeberg. ALCOM/vrc-get are clients and compatibility references, not public feed registries. Do not read client settings, private subscriptions, user-package folders, or Unity project state.
-  2. **Validated Manifest Roles**: Parse published VPM repository listings with `packages: { [packageId]: { versions: { [version]: { name, url, ... } } } }` separately from individual package manifests and listing build recipes. `Packages/vpm-manifest.json` is a Unity project's dependency state, not a repository-root discovery feed. Preserve exact version and dependency-range evidence; validate IDs/versions before publication without inventing releases or assuming map order is latest. See `docs/VRC_GET_ECOSYSTEM_RESEARCH.md`.
-     The official listing template's `source.json` is a build recipe, not this manifest. Its `githubRepos` and `packages[].releases` entries are discovery leads only; the generated `index.json` embeds versioned package manifests. See `docs/VPM_TEMPLATE_RESEARCH.md` before implementing this step. Do not infer versions from ZIP names/tags or download release ZIPs merely to build this metadata catalog.
+  2. **Validated Manifest Roles**: Parse published VPM repository listings with `packages: { [packageId]: { versions: { [version]: { name, url, ... } } } }` separately from individual package manifests and listing build recipes. `Packages/vpm-manifest.json` is a Unity project's dependency state, not a repository-root discovery feed. Preserve exact version and dependency-range evidence; validate IDs/versions before publication without inventing releases or assuming map order is latest. See `docs/research/markets/VRC_GET_ECOSYSTEM_RESEARCH.md`.
+     The official listing template's `source.json` is a build recipe, not this manifest. Its `githubRepos` and `packages[].releases` entries are discovery leads only; the generated `index.json` embeds versioned package manifests. See `docs/research/markets/VPM_TEMPLATE_RESEARCH.md` before implementing this step. Do not infer versions from ZIP names/tags or download release ZIPs merely to build this metadata catalog.
   3. **Explicit Deferral of Aggregator Adapters**: Community directory aggregator front adapters (such as `vpm-catalog.vercel.app`, `vpm.site`, or secondary aggregator scrapers) are explicitly deferred to a Post-v1.0 research milestone to avoid "aggregator-of-aggregators" instability, cache staleness, attribution dilution, and legal friction.
   4. Validate VPM reverse-DNS identifiers (`com.author.tool`) and semantic versions (SemVer 2.0.0) prior to enqueueing into the `frontier`.
 - **Cascading Documentation Changes**:
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Update Section 2 to detail federated VPM seed registries, schema validation invariants, and format requirements.
-  - [`AGENT.md`](AGENT.md): Document VPM federated discovery operational parameters.
+  - [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md): Update Section 2 to detail federated VPM seed registries, schema validation invariants, and format requirements.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Document VPM federated discovery operational parameters.
 - **Acceptance Criteria**: Federated VPM discovery ingests external manifests and enqueues valid package targets without unindexed web crawling or secondary aggregator scraping.
 
 #### Task 5.2: Avatar Cosmetics Taxonomy Isolation & Base-Avatar Association (Canonical Task 2)
 - **Priority**: Catalog Expansion | **Complexity**: Very High (4 hours) | **Traceability**: CANON-2, G-2, LEGAL §11.4, DISCOVERY_RULES §2, §3.3
-- **Files**: [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/db.ts`](src/db.ts), [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md)
+- **Files**: [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts), [`src/db.ts`](src-crawler/src/db.ts), [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md)
 - **Problem**: Reconsidering avatar cosmetics (clothing, hair) discovery introduces explosive dimensionality and boilerplate vocabulary, causing severe SimHash-64 ($k \le 3$) false merges against toolchains.
 - **Remediation**:
   1. Build an isolated `cosmetics` taxonomy tier in `canonical_packages` with mandatory base avatar tagging (`target_avatar`: e.g. Kikyo, Manuka, Shinano, Selestia).
@@ -644,13 +654,13 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   3. Require exact author and matching base-avatar constraints before evaluating Hamming distances for cosmetics.
 - **Cascading Documentation Changes**:
   - [`LEGAL.md`](LEGAL.md): Section 11.4 confirms implementation of isolated avatar cosmetics taxonomy.
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Add Section 3.7 defining base avatar extraction regexes and cosmetics taxonomy isolation.
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Document decoupled cosmetics catalog projection.
+  - [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md): Add Section 3.7 defining base avatar extraction regexes and cosmetics taxonomy isolation.
+  - [`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Document decoupled cosmetics catalog projection.
 - **Acceptance Criteria**: Cosmetics listings are tagged with target avatar mesh and isolated from toolchains; SimHash false merges between distinct clothing assets are eliminated.
 
 #### Task 5.3: Evidence-Based Temporal & Provenance Architecture
 - **Priority**: Data Integrity & Ecosystem Scalability | **Complexity**: Very High (4–5 hours) | **Traceability**: Phase 5 Reviewer Delegation, LEGAL §2.4, DISCOVERY_RULES §4.2, existing `frontier`/`entities`/`canonical_packages`/`package_fronts` schema
-- **Files**: [`src/db.ts`](src/db.ts), [`src/crawler/projection.ts`](src/crawler/projection.ts), [`src/sync/exporter.ts`](src/sync/exporter.ts), `src/drivers/` (all existing + future adapters)
+- **Files**: [`src/db.ts`](src-crawler/src/db.ts), [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts), [`src/sync/exporter.ts`](src-crawler/src/sync/exporter.ts), `src/drivers/` (all existing + future adapters)
 - **Architectural Principle**:
   > *«Facts belong to observations; claims belong to derived projections; provenance belongs to the evidence connecting them.»*
   >
@@ -685,7 +695,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   | **B** | Structured JSON column on existing `entities`/`package_fronts` rows | Minimal migration; lower queryability; risks schema explosion in JSON |
   | **C** | Hybrid: normalized evidence for indexed queries + compact derived JSON on `canonical_packages` | Balances queryability with API export simplicity |
 
-  Evaluate against: storage cost, queryability, SQLite performance, deduplication, immutability, projection complexity, migration complexity, API/export simplicity, provenance integrity, and future adapter extensibility. Document conclusion in `DISAGREEMENTS.md` before implementation.
+  Evaluate against: storage cost, queryability, SQLite performance, deduplication, immutability, projection complexity, migration complexity, API/export simplicity, provenance integrity, and future adapter extensibility. Document conclusion in `docs/decisions/current/audits/DISAGREEMENTS.md` before implementation.
 
   **Step 2 — Evidence Record Structure**
   Adopt a single generic evidence representation regardless of source. Each evidence record captures:
@@ -762,12 +772,12 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - Do NOT build recommendation ranking logic into the crawler
 
 - **Cascading Documentation Changes**:
-  - [`src/db.ts`](src/db.ts): Add `package_evidence` table (or equivalent structure per Option A/B/C decision); add derived temporal columns to `canonical_packages`; document invariants in TypeScript JSDoc.
-  - [`src/crawler/projection.ts`](src/crawler/projection.ts): Update projection to populate derived temporal fields from evidence; enforce ETag/Last-Modified distinction invariants.
-  - [`src/sync/exporter.ts`](src/sync/exporter.ts): Export evidence records (or compact derived JSON) in `vrc_catalog.db` for offline consumers.
-  - [`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Document evidence model, derived temporal field semantics, and adapter extensibility pattern.
-  - [`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md): Update Section 4.2 (Timestamp Confidence Rubric) to cover evidence types and confidence levels.
-  - [`AGENT.md`](AGENT.md): Document evidence record structure and invariants.
+  - [`src/db.ts`](src-crawler/src/db.ts): Add `package_evidence` table (or equivalent structure per Option A/B/C decision); add derived temporal columns to `canonical_packages`; document invariants in TypeScript JSDoc.
+  - [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts): Update projection to populate derived temporal fields from evidence; enforce ETag/Last-Modified distinction invariants.
+  - [`src/sync/exporter.ts`](src-crawler/src/sync/exporter.ts): Export evidence records (or compact derived JSON) in `vrc_catalog.db` for offline consumers.
+  - [`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Document evidence model, derived temporal field semantics, and adapter extensibility pattern.
+  - [`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md): Update Section 4.2 (Timestamp Confidence Rubric) to cover evidence types and confidence levels.
+  - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Document evidence record structure and invariants.
   - [`LEGAL.md`](LEGAL.md): Section 2.4 — affirm that evidence provenance tracks source, adapter, and observability for legal traceability.
 
 - **Acceptance Criteria**:
@@ -783,7 +793,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 5.4: Canonical Network Architecture: Tri-Domain Separation, Crawler Ingestion API & Delisting Propagation
 - **Priority**: Post-v1.0 Network Scaling & Decentralized Governance | **Complexity**: Architectural Milestone (6+ hours) | **Traceability**: CANON-6, CR-18, G-26, LEGAL §1.4, §9.6, §10.9
-- **Files**: [`src/db.ts`](src/db.ts), [`src/sync/index.ts`](src/sync/index.ts), [`src/server/index.ts`](src/server/index.ts), `workers/ingestion_gateway/` (future service)
+- **Files**: [`src/db.ts`](src-crawler/src/db.ts), [`src/sync/index.ts`](src-crawler/src/sync/index.ts), [`src/server/index.ts`](src-crawler/src/server/index.ts), `workers/ingestion_gateway/` (future service)
 - **Problem & Security Rationale for Deferral**:
   - In v1.0, the crawler operates strictly in a single-node, maintainer-operated mode. `src/sync/index.ts` pushes incremental deltas to Cloudflare D1/R2 using administrative master credentials (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`).
   - Distributing write access to external contributor nodes in v1.0 would require sharing master Cloudflare API keys or opening unrestricted D1 HTTP endpoints, exposing the canonical database to catastrophic security vulnerabilities (database wiping, credential leakage, and untrusted spam injection).
@@ -858,30 +868,31 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
        - **Shared Backoff State**: HTTP 429 and persistent 5xx responses from an origin are platform-level signals. All nodes simultaneously back off from that origin until the coordinator's `backoff_until` timestamp clears.
        - **Origin Pacing and Optional `Crawl-delay` Extension**: RFC 9309 defines `Allow`/`Disallow` matching but not `Crawl-delay` ([§2.2.4](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.4)). The coordinator centrally enforces an operator/source-profile minimum delay. If a documented, unambiguous `Crawl-delay` extension is supported, it can only raise that floor; crawler nodes cannot override it. Do not infer a delay from the strict RFC matcher package, which does not expose one.
        - **Current gap (2026-09-27)**: The local coordinator persists expiring per-origin robots results and denies claims for absent/stale/disallowed exact URLs; result submission rechecks policy. Its trusted retrieval follows up to five HTTPS redirects with a pinned-DNS check per hop. An operator-triggered bounded batch and the `serve` startup/minute loop refresh only already-seeded, nonblocked origins with due jobs and missing/stale snapshots under cross-process SQLite leases. A standalone node rechecks its exact job lease during metadata egress and aborts on denial or coordinator loss; an opt-in compiled VPM smoke exercised the startup refresh and current node protocol. This is not a general no-bypass proof: crawl-delay, source-specific terms/retention profiles, creator-wide delisting, and other direct legacy driver fetches remain before broad live runs. The legacy helper still denies on redirects/network failure, and known itch `/search` paths are rejected at legacy browse, coordinator seed, and node transport boundaries.
-       - **Hybrid lead-control checkpoint (2026-09-28)**: The owner selected automatic queuing only within reviewed source rules, with unfamiliar leads pending operator review. A separate, versioned `/v1/operator/*` API now lists leads, audits manual VPM-listing decisions, and creates/disables expiring, path-scoped VPM-listing auto-queue rules under a distinct fail-closed token. Matching new leads become jobs; unknown paths/hosts and unsupported kinds remain pending. Rule-backed claims, fetching heartbeats, robots refreshes, and result submissions stop when the rule expires or is disabled. This is not the hybrid/all-driver exit: full access/retention profiles, pre-existing-lead reconciliation, source-wide revocation and evidence removal, broader lead-to-job mappings, and future dashboard/account integration remain. See [`docs/OPERATOR_CONTROL_API.md`](docs/OPERATOR_CONTROL_API.md).
+       - **Hybrid lead-control checkpoint (2026-09-28)**: The owner selected automatic queuing only within reviewed source rules, with unfamiliar leads pending operator review. A separate, versioned `/v1/operator/*` API now lists leads, audits manual VPM-listing decisions, and creates/disables expiring, path-scoped VPM-listing auto-queue rules under a distinct fail-closed token. Matching new leads become jobs; unknown paths/hosts and unsupported kinds remain pending. Rule-backed claims, fetching heartbeats, robots refreshes, and result submissions stop when the rule expires or is disabled. This is not the hybrid/all-driver exit: full access/retention profiles, pre-existing-lead reconciliation, source-wide revocation and evidence removal, broader lead-to-job mappings, and future dashboard/account integration remain. See [`docs/decisions/current/api/OPERATOR_CONTROL_API.md`](docs/decisions/current/api/OPERATOR_CONTROL_API.md).
        - **Anti-Amplification Invariant** *(explicit architectural constraint)*: *"No crawler instance may independently increase the request rate toward an origin merely because additional crawler capacity becomes available."*
        - **Two-Plane Identity Split** *(structural, not a separate legal entity)*: The platform decouples into two product planes: *Crawler Network* (infrastructure plane — crawler operators, registration, scheduling, rate-limiting, ingestion) and *VPM Search / Public Catalog* (consumer plane — end users, search, package pages, consumer API). Umbrella identifier: **VPM Network** (optional future brand name). Two distinct Terms of Service documents can govern the two planes without requiring two legal entities; a single Philippine juridical entity can operate both under separate terms while maintaining distinct contractual relationships with crawler operators and end users.
 - **Cascading Documentation Changes**:
   - [`LEGAL.md`](LEGAL.md): Retains Section 1.4 and Section 2.3 decentralized network ownership model, adding the Tri-Domain separation, credential isolation invariant, and Section 10.9 tri-party responsibility breakdown.
-  - [`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md): Update Section 6 with Tri-Domain architecture, Control Plane Web Frontend, Crawler Ingestion API protocol, and credential isolation.
+  - [`docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md): Update Section 6 with Tri-Domain architecture, Control Plane Web Frontend, Crawler Ingestion API protocol, and credential isolation.
   - [`DELEGATES.md`](DELEGATES.md): Clarify that local v1.0 development permits multiple maintainer-registered crawler nodes, while open third-party ingestion remains deferred.
 
 #### Task 5.5: VRChat-Native and VR-Related Desktop Tool Discovery (Research Track)
-- **Priority**: Ecosystem coverage before claiming pre-production Tools completeness | **Traceability**: G3 discovery, G4 taxonomy/identity, representative G5 live evidence, `IMPLEMENTATION_PLAN.md` §5.
+- **Priority**: Ecosystem coverage before claiming pre-production Tools completeness | **Traceability**: G3 discovery, G4 taxonomy/identity, representative G5 live evidence, `docs/decisions/plans/IMPLEMENTATION_PLAN.md` §5.
 - **Status**: Owner chose a **new catalog category tag within Tools** for desktop/runtime tooling that particularly targets VRChat; the provisional slug is `vrchat-desktop-tool`. Research and design are still required; this is not an implemented eighth driver or an approved live crawl. “Desktop application” is an item/product kind; GitHub, a publisher website, or a storefront is the evidence source. Do not assume the item is distributed through VPM, Unity, or any one marketplace.
 - **Research tasks**:
   1. Build a small, dated, publisher-backed positive/negative corpus. Starting leads include [VRChat's OSC resources](https://docs.vrchat.com/docs/osc-resources), [VRCX](https://github.com/vrcx-team/VRCX) (companion), [VRCFaceTracking](https://github.com/benaclejames/VRCFaceTracking) (tracking bridge), and [VRCOSC](https://github.com/VolcanicArts/VRCOSC) (OSC application). These are examples to investigate, not endorsements, approved seeds, or an exhaustive directory. Sample generic OSC/VR utilities, Unity editor packages, VPM packages, plugins/modules, and abandoned or ambiguous projects as negatives/boundary cases.
   2. Require publisher-backed evidence that the product **particularly targets VRChat**, not keyword matches or generic VR/OSC compatibility alone. Record subtypes (companion/client, OSC control, tracking bridge, accessibility/streaming, other), desktop OS support, relationship to hardware/service accounts, and whether a separate plugin or VPM package accompanies the app. A generic utility merely linked by a VRChat page remains a lead, not an accepted tagged item.
   3. Define field authority and provenance: publisher-controlled product/repository page for identity and features; official release/API metadata for version and update claims where available; third-party lists only as leads. Preserve app-versus-module/install-channel relationships without merging distinct products or fabricating a VPM ID/release. Identify what may be retained or publicly excerpted under each source policy.
   4. Audit each proposed discovery host's access, rate, robots/terms, attribution, privacy and retention rules before live seeding. Metadata-only checks must not download or execute installers, read local VRChat/client state, log into VRChat accounts, probe private APIs, or infer compatibility from downloads/tags alone. Use scoped public publisher APIs/pages and explicit operator-approved seeds; no open-web spider or automatic expansion from community lists.
-  5. Add labeled adapter fixtures and false-merge tests, then an opt-in compiled node/coordinator smoke from at least one approved public metadata source. Record the precise coverage and remaining gaps in `CONFORMANCE.md`; a single smoke is not proof of full desktop-tool discovery.
-- **Decision/exit artifact**: Expand [`docs/DESKTOP_TOOL_DISCOVERY_RESEARCH.md`](docs/DESKTOP_TOOL_DISCOVERY_RESEARCH.md) into a dated matrix with candidate → publisher/source → item kind and subtype → evidence/authority → allowed access/retention → identity relation → adapter need → keep/research/defer decision. Apply the distinct Tools tag only when the publisher particularly targets VRChat; a merely compatible general VR utility stays a lead. Feed accepted cases into G3/G4 and a bounded G5 pre-production fixture/live check. If no source profile is approved, keep this coverage explicitly open rather than silently omitting desktop tools from the Tools umbrella.
+  5. Add labeled adapter fixtures and false-merge tests, then an opt-in compiled node/coordinator smoke from at least one approved public metadata source. Record the precise coverage and remaining gaps in `docs/decisions/current/status/CONFORMANCE.md`; a single smoke is not proof of full desktop-tool discovery.
+- **Decision/exit artifact**: Expand [`docs/research/markets/DESKTOP_TOOL_DISCOVERY_RESEARCH.md`](docs/research/markets/DESKTOP_TOOL_DISCOVERY_RESEARCH.md) into a dated matrix with candidate → publisher/source → item kind and subtype → evidence/authority → allowed access/retention → identity relation → adapter need → keep/research/defer decision. Apply the distinct Tools tag only when the publisher particularly targets VRChat; a merely compatible general VR utility stays a lead. Feed accepted cases into G3/G4 and a bounded G5 pre-production fixture/live check. If no source profile is approved, keep this coverage explicitly open rather than silently omitting desktop tools from the Tools umbrella.
 
 #### Task 5.6: Expand Market-Source Inventory Without Conflating Object Types
-- **Status (2026-09-28)**: New owner-supplied leads are recorded in [`docs/ADDITIONAL_MARKET_SOURCE_RESEARCH.md`](docs/ADDITIONAL_MARKET_SOURCE_RESEARCH.md). The node result schema now accepts pending `creator_profile`, `publisher_site`, and `storefront_product` leads, with an optional source-item anchor so two avatars linking one author site remain separate. Protocol tests confirm none becomes a fetch job. This is candidate typing and provenance, not a verified creator/product relation or live-source approval. The seven selected drivers describe present implementation, not complete ecosystem coverage.
-- **Research tracks**: Evaluate Nexyy as a lead-only cross-store index; Payhip as a first-party storefront candidate; Sellfy as an independently unverified storefront lead; and avtr.zip as a distinct public *in-game avatar* lead toward credited authors, self-hosted sites, and storefronts. The owner decided in-game avatars are leads, **not catalog items**; do not recursively expand third-party indexes as if they were publisher data. It is not assumed to be a Payhip/storefront directory. Preserve the prior VRCArena removal decision.
+- **Status (2026-09-28)**: New owner-supplied leads are recorded in [`docs/research/markets/ADDITIONAL_MARKET_SOURCE_RESEARCH.md`](docs/research/markets/ADDITIONAL_MARKET_SOURCE_RESEARCH.md). The node result schema now accepts pending `creator_profile`, `publisher_site`, and `storefront_product` leads, with an optional source-item anchor so two avatars linking one author site remain separate. Protocol tests confirm none becomes a fetch job. This is candidate typing and provenance, not a verified creator/product relation or live-source approval. The seven selected drivers describe present implementation, not complete ecosystem coverage.
+- **Research tracks**: Evaluate Nexyy as a lead-only cross-store index; Payhip as a first-party storefront candidate; Sellfy as an independently unverified storefront lead; and avtr.zip as a distinct public *in-game avatar* lead toward credited authors, self-hosted sites, and storefronts. Add the owner's Shopify storefront scope: Shopify-hosted merchant sites on platform or branded custom domains are first-party front candidates; independently operated custom-domain catalogs are leads until their publisher relationship is evidenced. A branded domain is not synonymous with a headless custom storefront. The owner decided in-game avatars are leads, **not catalog items**; do not recursively expand third-party indexes as if they were publisher data. Preserve the prior VRCArena removal decision.
 - **Required implementation evidence**: For each proposed host/endpoint, document applicable access and retention policy, robots/path/rate behavior, publisher attribution and removal, and a small labeled fixture set. Model the full discovery-link chain, self-hosted publisher domains, storefront fronts, publisher identity, in-game avatar IDs, and canonical catalog items separately. Test cross-store relations, missing-link cases, and false merges; do not infer product equivalence from names, images, tags, or matching avatars. Extend typed lead-to-job mappings and coordinator rules before any automatic promotion outside VPM.
-- **Exit**: An accepted source profile and bounded compiled node/coordinator metadata smoke for any added live platform, plus explicit coverage/remaining-gap record in `CONFORMANCE.md`. Research-only candidates remain pending, not silently counted as ingested sources.
+- **Shopify-specific slice**: Label at least one VRChat-targeted merchant on a Shopify-hosted custom domain and a contrasting multi-merchant/headless front. Review each exact origin's robots, terms, sitemap/product paths, redirects, retention and removal. Add bounded offline sitemap → product-lead → product-metadata fixtures through the node/coordinator protocol, with wrong-domain, alternate-locale, duplicate-front, missing-author and false-merge negatives. Preserve Shopify `vendor` as a merchant claim, not proof of the work's creator; prices are visitor-currency observations, not stable catalog identity. Add a live source profile and opt-in smoke only after that origin's review. Never assume Admin API access, a general Storefront API token, or that the Ajax theme endpoint works on headless sites.
+- **Exit**: An accepted source profile and bounded compiled node/coordinator metadata smoke for any added live platform, plus explicit coverage/remaining-gap record in `docs/decisions/current/status/CONFORMANCE.md`. Research-only candidates remain pending, not silently counted as ingested sources.
 
 ### Post-Phase 5 Milestone: Code Freeze, Archaeological Manual Review & Simplification Pass
 - **Status clarification (2026-09-27):** This is a historical proposed sequencing, not an active prohibition on the gate work above. The owner advanced the node/coordinator/shared split into G1–G6. The later freeze and simplification review still matter, but must audit the actual replacement paths before retiring legacy binaries.
@@ -892,7 +903,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      ```
      VPM Source ──► Discovery ──► Fetch ──► Parse ──► Normalize ──► Store ──► Index/Projection ──► API ──► Consumer
      ```
-  3. **Discrepancy Remediation**: Triage and resolve active items in `DISAGREEMENTS.md` (OVERLOOKED-11 through OVERLOOKED-19).
+  3. **Discrepancy Remediation**: Triage and resolve active items in `docs/decisions/current/audits/DISAGREEMENTS.md` (OVERLOOKED-11 through OVERLOOKED-19).
   4. **Aggressive Simplification & Deletion**: Evaluate every subsystem for genuine necessity. Purge accidental complexity, dead status enums, and redundant subprocesses (`sharp_worker.ts`).
   5. **Repository Modularization & Directory Layout Blueprint**:
      - Formally split monolithic source code into clean domain-isolated directories:
@@ -911,18 +922,18 @@ Whenever any task above is addressed or merged, the following documentation file
 | Documentation File | Triggering Tasks | Required Cascading Modifications (Targeted Sections) |
 | :--- | :--- | :--- |
 | **[`LEGAL.md`](LEGAL.md)** | Tasks 1.2, 2.2, 3.1, 3.2, 4.2, 5.3, Post-v1.0 Milestone | Section 10.1 & 10.7 (in-band notice via `VRC-Packages-Terms-Of-Use` and `catalog_metadata`); Section 10.6 & 9.4 (distinguish administrative curation bearer auth from unauthenticated proof-based opt-out); Section 7.2(c) (pure media pointers); Section 11.4 (cosmetics taxonomy isolation); Section 2.3 & 1.4 (node provenance and clean factual timestamps). |
-| **[`AGENT.md`](AGENT.md)** | Tasks 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.6, 2.7, 3.3, 4.1, 4.2, 4.3, 5.1, 5.2 | Section 1 ("Environment Variables & Configuration") — `API_SECRET_TOKEN`; Section "Security Invariants & Admin Access Control"; Section "Test Suite Isolation & Fixture Contracts" (`:memory:`); Section "Crawler Loop Invariants & Autonomous Fault Recovery"; Section "Database Schema Invariants, Ground Truth Architecture & Stale DB Policy" (Task 4.1); Section "API Gateway Surface". |
+| **[`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md)** | Tasks 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.6, 2.7, 3.3, 4.1, 4.2, 4.3, 5.1, 5.2 | Section 1 ("Environment Variables & Configuration") — `API_SECRET_TOKEN`; Section "Security Invariants & Admin Access Control"; Section "Test Suite Isolation & Fixture Contracts" (`:memory:`); Section "Crawler Loop Invariants & Autonomous Fault Recovery"; Section "Database Schema Invariants, Ground Truth Architecture & Stale DB Policy" (Task 4.1); Section "API Gateway Surface". |
 | **[`DELEGATES.md`](DELEGATES.md)** | Tasks 1.1, 2.1, 2.2, 2.5, 2.6, 2.7, 3.4, 4.1, Post-v1.0 Milestone | Section 4 ("Environment & Secret Configuration Template") — `API_SECRET_TOKEN` CSPRNG generation; Section 2 (CLI redirection); Section 3 ("Database Topography & Stale DB Policy"); Section 5 ("Testing, CI/CD & Testbed Isolation"); Section 8 ("Fault Recovery Runbook & Elimination of Manual Batch Scripts"); Section 5 (watermark recovery). |
 | **[`README.md`](README.md)** | Tasks 1.1, 1.2, 1.3, 2.1, 4.2 | Section "API Gateway Surface" (add `GET /` and terms headers); Section "Downstream Developer Integration & Terms of Use"; Section "System Architecture & Air-Gapped Boundaries" (Task 4.2). |
-| **[`docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md)** | Tasks 1.2, 2.2, 2.7, 3.1, 3.2, 4.1 | Section 1 & Section 3 (in-band terms notice `VRC-Packages-Terms-Of-Use`, hybrid media streaming proxy `/v1/media/stream`, storefront bio-token delisting, driver circuit breaker autonomy, and clean canonical ground-truth schema). |
-| **[`docs/PLATFORM-MATRIX.md`](docs/PLATFORM-MATRIX.md)** | Tasks 2.3, 3.3, 5.2 | Section 2.2 & 2.4 (Gumroad/Jinxxy perimeter defense, Turnstile detection); Section 2 (conditional requests ETag/If-Modified-Since); Section 4 (cosmetics taxonomy isolation per base-avatar mesh). |
-| **[`docs/DISCOVERY_RULES.md`](docs/DISCOVERY_RULES.md)** | Tasks 1.4, 1.5, 1.6, 2.3, 2.4, 5.1, 5.3 | Section 4.2 (timestamp extraction NULL rules); Section 2 (VPM 7-day re-seeding staleness); Section 7.1 (YouTube embed filters); Section 3.6 (Turnstile halt rules); Section 3.5 (NFKC/CJK bracket normalization); Section 3.7 (cosmetics mesh tagging). |
-| **[`docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md)** | Tasks 1.2, 1.4, 2.4, 2.7, 3.1, 3.2, 4.1, 4.4, 5.3 | Section 2.1 ("Canonical Ground-Truth Database Schema & Dist Stale DB Policy", `catalog_metadata`); Section 2.2 (incremental DSU clustering & SimHash); Section 3.4 ("Fault Tolerance, Autonomous Circuit Breakers & Dead-Letter Queue Architecture"); Section 3.2 (creator opt-out workflow). |
-| **[`docs/REPORTING_SCHEMAS.md`](docs/REPORTING_SCHEMAS.md)** | Tasks 1.2, 1.3, 2.2, 3.1, 3.2, 4.3 | Section 1 ("Root Discovery Route & HTTP Header Invariants `VRC-Packages-Terms-Of-Use`"); Section 5 ("Security, Bearer Token Specification & Quarantined Processing"); Section 4 (`POST /v1/opt-out` bio-token schema); Section 6 (active Schema 5 `POST /v1/telemetry` route). |
-| **[`docs/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/EDGE_SYNC_AND_SCALE_GUIDE.md)** | Tasks 3.2, 3.4, Post-v1.0 Milestone | Section 2 (pure media pointers); Section 3 (Cloudflare D1 watermark epoch recovery); Section 4 (future Worker Ingestion Gateway). |
-| **[`docs/OPERATIONS_AND_CHECKLIST.md`](docs/OPERATIONS_AND_CHECKLIST.md)** | Tasks 1.1, 1.3, 2.2, 2.5, 2.6, 2.7, 4.4 | Section 1 ("Pre-Flight Operational Checklist"); Section 2 ("Health and Discovery Verification"); Section 3 ("Curator Report Ingestion & Quarantined Verification"); Section 4 ("Operational Self-Healing & Circuit Breaker Diagnostics"); Section 5 ("Log Rotation"); Section 6 ("Test Suite Architecture & Isolated Verification"). |
-| **[`docs/topics/10_legal_jurisprudence_contractual_assent_and_search_indexing.md`](docs/topics/10_legal_jurisprudence_contractual_assent_and_search_indexing.md)** | Tasks 1.2, 3.1, 3.2 | Document in-band terms header notice under *Register.com v. Verio*, ephemeral storefront bio-token delisting under unauthenticated guidelines, and hybrid proxying under Server Test circuit split. |
-| **[`package.json`](package.json)** | Task 2.7 | Permanently remove obsolete manual batch recovery scripts (`requeue:gumroad` and `requeue:media`). |
+| **[`docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md`](docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md)** | Tasks 1.2, 2.2, 2.7, 3.1, 3.2, 4.1 | Section 1 & Section 3 (in-band terms notice `VRC-Packages-Terms-Of-Use`, hybrid media streaming proxy `/v1/media/stream`, storefront bio-token delisting, driver circuit breaker autonomy, and clean canonical ground-truth schema). |
+| **[`docs/research/markets/PLATFORM-MATRIX.md`](docs/research/markets/PLATFORM-MATRIX.md)** | Tasks 2.3, 3.3, 5.2 | Section 2.2 & 2.4 (Gumroad/Jinxxy perimeter defense, Turnstile detection); Section 2 (conditional requests ETag/If-Modified-Since); Section 4 (cosmetics taxonomy isolation per base-avatar mesh). |
+| **[`docs/scratch/legacy-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-targets/DISCOVERY_RULES.md)** | Tasks 1.4, 1.5, 1.6, 2.3, 2.4, 5.1, 5.3 | Section 4.2 (timestamp extraction NULL rules); Section 2 (VPM 7-day re-seeding staleness); Section 7.1 (YouTube embed filters); Section 3.6 (Turnstile halt rules); Section 3.5 (NFKC/CJK bracket normalization); Section 3.7 (cosmetics mesh tagging). |
+| **[`docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md)** | Tasks 1.2, 1.4, 2.4, 2.7, 3.1, 3.2, 4.1, 4.4, 5.3 | Section 2.1 ("Canonical Ground-Truth Database Schema & Dist Stale DB Policy", `catalog_metadata`); Section 2.2 (incremental DSU clustering & SimHash); Section 3.4 ("Fault Tolerance, Autonomous Circuit Breakers & Dead-Letter Queue Architecture"); Section 3.2 (creator opt-out workflow). |
+| **[`docs/scratch/legacy-targets/REPORTING_SCHEMAS.md`](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md)** | Tasks 1.2, 1.3, 2.2, 3.1, 3.2, 4.3 | Section 1 ("Root Discovery Route & HTTP Header Invariants `VRC-Packages-Terms-Of-Use`"); Section 5 ("Security, Bearer Token Specification & Quarantined Processing"); Section 4 (`POST /v1/opt-out` bio-token schema); Section 6 (active Schema 5 `POST /v1/telemetry` route). |
+| **[`docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md`](docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md)** | Tasks 3.2, 3.4, Post-v1.0 Milestone | Section 2 (pure media pointers); Section 3 (Cloudflare D1 watermark epoch recovery); Section 4 (future Worker Ingestion Gateway). |
+| **[`docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md`](docs/scratch/legacy-targets/OPERATIONS_AND_CHECKLIST.md)** | Tasks 1.1, 1.3, 2.2, 2.5, 2.6, 2.7, 4.4 | Section 1 ("Pre-Flight Operational Checklist"); Section 2 ("Health and Discovery Verification"); Section 3 ("Curator Report Ingestion & Quarantined Verification"); Section 4 ("Operational Self-Healing & Circuit Breaker Diagnostics"); Section 5 ("Log Rotation"); Section 6 ("Test Suite Architecture & Isolated Verification"). |
+| **[`docs/research/topics/10_legal_jurisprudence_contractual_assent_and_search_indexing.md`](docs/research/topics/10_legal_jurisprudence_contractual_assent_and_search_indexing.md)** | Tasks 1.2, 3.1, 3.2 | Document in-band terms header notice under *Register.com v. Verio*, ephemeral storefront bio-token delisting under unauthenticated guidelines, and hybrid proxying under Server Test circuit split. |
+| **[`package.json`](src-crawler/package.json)** | Task 2.7 | Permanently remove obsolete manual batch recovery scripts (`requeue:gumroad` and `requeue:media`). |
 
 ---
 

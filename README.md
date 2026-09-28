@@ -1,42 +1,49 @@
 # VRC Package Crawler
 
-This repository is evolving from a single-process VRChat package crawler into a local coordinator plus standalone crawler nodes. The intended catalog covers Tools, Assets, and Avatars. The existing Phase 1–4 crawler/export/server path still runs, while the new coordinator path is a limited, isolated simulation; the two databases and catalog projections are not yet unified. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the gates and [CONFORMANCE.md](CONFORMANCE.md) for what has actually been demonstrated.
+This repository is evolving from a single-process VRChat package crawler into a local coordinator plus standalone crawler nodes. The intended catalog covers Tools, Assets, and Avatars. The existing Phase 1–4 crawler/export/server path still runs, while the new coordinator path is a limited, isolated simulation; the two databases and catalog projections are not yet unified. See [docs/decisions/plans/IMPLEMENTATION_PLAN.md](docs/decisions/plans/IMPLEMENTATION_PLAN.md) for the gates and [docs/decisions/current/status/CONFORMANCE.md](docs/decisions/current/status/CONFORMANCE.md) for what has actually been demonstrated.
+
+**Current working directory:** run the Bun commands below from `src-crawler/`, which now owns `package.json`, `src/`, `scratch/`, and the compiled `dist/`. The required top-level `worker/` and `node/` delivery boundaries are not yet separated from `src-crawler/src/`; the current package move and passing local smokes are not the final topology. See the [documentation map](docs/decisions/DOCUMENT_MAP.md) for the four document categories and authority boundaries. Later Phase 1–4 binary/layout descriptions below are historical until they are reconciled with this split.
 
 The system links back to original creator sources and does not download or redistribute binary assets. Descriptions and thumbnails are third-party material, not automatically “factual metadata”; source-specific access, retention, and publication rules remain under review. See [LEGAL.md](LEGAL.md) for the intended terms and their implementation-status notice.
 
 ## Local coordinator slice
 
-The local coordinator uses a fresh SQLite file at `bin/local_coordinator.db` by default; it does not import `bin/crawler_state.db`. These operator commands prepare a job; the node then uses the versioned API over loopback HTTP:
+The local coordinator uses a fresh SQLite file at `bin/local_coordinator.db` by default; it does not import `bin/crawler_state.db`. A queued job is not permission to fetch. First record a separate, source-reviewed access profile with an exact origin/path, purpose, expiry, retention classes, and review reference. Then prepare the job; the node uses the versioned API over loopback HTTP:
 
 ```powershell
 bun run coordinator -- register my-node vpm
-# Bounded example; review each other source host before substituting its URL:
-bun run coordinator -- seed vpm https://vrchat-community.github.io/template-package/index.json
+# After source-specific review, create a scoped profile for the URL being tested.
+# See docs/decisions/current/access/SOURCE_ACCESS_GATE_DESIGN.md for the profile JSON contract.
+bun run coordinator -- profile-create '<reviewed-profile-json>'
+bun run coordinator -- seed vpm https://vrchat-community.github.io/template-package/index.json 1000 discovery
 bun run coordinator -- refresh-queued-robots
 bun run coordinator -- serve 8787
-# In a second terminal, set NODE_ID=my-node and NODE_TOKEN to the registration token:
+# After the profile's minimum post-robots delay, set NODE_ID=my-node and NODE_TOKEN
+# to the registration token in a second terminal:
 bun run node -- --once
 ```
 
-Registration defaults to all seven platform capabilities unless scoped as above. Jobs are seeded explicitly; default selection is not a claim that every platform permits live automated access. After source review and seeding, `serve` refreshes robots for up to ten already-seeded, due origins on startup and every minute. A cross-process lease prevents duplicate refreshes; each request has a 15-second timeout, safe HTTPS redirects, and a bounded response. Claims remain empty when robots is absent, stale, or disallowing. The explicit `refresh-queued-robots [limit]` command remains useful before a one-shot node run, as in the example above; `refresh-robots <https-origin>` forces a single-origin review refresh. None of these commands grants source permission. The current node adapter supports direct VPM package JSON, bounded published listings, template recipe leads, and limited product-page metadata—not broad discovery or arbitrarily large feeds. Keep the legacy crawler path separate until the remaining gates pass.
+Registration defaults to all seven platform capabilities unless scoped as above. Jobs are seeded explicitly; default selection is not a claim that every platform permits live automated access. A seed and an auto-queued lead both need a separate matching active source-access profile before robots refresh or a fetch lease. The `profile-create <json>`, `profiles`, and `profile-disable <id> <reason>` commands manage local, audited profiles; creating one records an operator judgment, not a legal finding. After a reviewed profile and matching job exist, `serve` refreshes robots for up to ten due origins on startup and every minute. A cross-process lease prevents duplicate refreshes; each request has a 15-second timeout, safe HTTPS redirects, and a bounded response. Claims remain empty when robots is absent, stale, or disallowing. The explicit `refresh-queued-robots [limit]` command remains useful before a one-shot node run, as in the example above; `refresh-robots <https-origin>` refreshes one origin only if it has a due job with a matching active profile. None of these commands alone grants source permission. The current node adapter supports direct VPM package JSON, bounded published listings, template recipe leads, and limited product-page metadata—not broad discovery or arbitrarily large feeds. Keep the legacy crawler path separate until the remaining gates pass.
 
-The compiled `serve` process also exposes a separate loopback `/v1/operator/*` control API when `COORDINATOR_OPERATOR_TOKEN` is configured as a CSPRNG-generated 64-character hex token. It lists leads, supports audited manual approval/rejection, and manages expiring VPM-listing auto-queue rules; node tokens cannot use it. New leads matching an active origin/path rule may become jobs, while unknown leads remain pending. This is a backend path for a future admin dashboard, not a dashboard or complete all-driver source-access policy. See [operator control API](docs/OPERATOR_CONTROL_API.md) for exact scopes and limits.
+Robots preflight and product fetches share the coordinator's per-origin pacing clock. A refresh holds its own origin lease, so a node claim waits for that refresh to finish **and** for the profile's minimum delay to elapse. One-shot live smoke scripts wait on the persisted due time rather than immediately claiming after robots.
+
+The compiled `serve` process also exposes a separate loopback `/v1/operator/*` control API when `COORDINATOR_OPERATOR_TOKEN` is configured as a CSPRNG-generated 64-character hex token. It lists leads, supports audited manual approval/rejection, manages expiring VPM-listing auto-queue rules, and creates/lists/disables source-access profiles; node tokens cannot use it. New leads matching an active origin/path auto-queue rule may become jobs, while unknown leads remain pending. That rule is not a fetch approval: the job still needs a matching source-access profile. This is a backend path for a future admin dashboard, not a dashboard or complete all-driver source-access policy. See [operator control API](docs/decisions/current/api/OPERATOR_CONTROL_API.md) for exact scopes and limits.
 
 For a no-network process-topology check, build the coordinator and node binaries and run `bun run smoke:local`. It launches one coordinator and two standalone node processes, asserts distinct PIDs, and verifies each node's heartbeat through the loopback API. The nodes do not receive the coordinator's SQLite path. This checks separation and protocol wiring, not concurrent live fetches.
 
-The standalone node uses a bounded, DNS-pinned HTTPS metadata transport; non-public destinations, redirects, embedded credentials, fragments, and nonstandard ports are rejected. Remote coordinator endpoints also require HTTPS so node tokens are not sent over cleartext. These are network safety controls, not permission to crawl a source. See [node fetch safety](docs/NODE_FETCH_SAFETY.md) and [source access review](docs/SOURCE_ACCESS_REVIEW.md).
+The standalone node uses a bounded, DNS-pinned HTTPS metadata transport; non-public destinations, redirects, embedded credentials, fragments, and nonstandard ports are rejected. Remote coordinator endpoints also require HTTPS so node tokens are not sent over cleartext. These are network safety controls, not permission to crawl a source. See [node fetch safety](docs/decisions/current/access/NODE_FETCH_SAFETY.md) and [source access review](docs/decisions/current/access/SOURCE_ACCESS_REVIEW.md).
 
 While fetching, a node rechecks its exact coordinator lease every five seconds and again before submission. If an operator suppresses the URL or the coordinator becomes unreachable, the node aborts the in-flight metadata request and does not submit an outcome. This is bounded polling, not instantaneous revocation.
 
-The VPM adapter also accepts bounded published `index.json` listings as multi-package evidence. A malformed release creates a partial result with persisted diagnostics rather than silently deleting missing versions; inspect recent entries with `bun run coordinator -- issues` or grouped counts with `bun run coordinator -- inspect`. `bun run coordinator -- vpm-evidence` shows the latest **complete**, not-gone source observation per VPM item for operator review, excluding suppressed listing URLs. This is source evidence, not an installable index or public catalog. A template `source.json` instead yields pending discovery leads. Review them with `bun run coordinator -- leads` or the operator API; after checking a listing host's access policy, `bun run coordinator -- approve-lead <lead-key>` can seed that **listing** URL. GitHub repository and ZIP leads cannot be approved as VPM listing jobs. For an isolated, metadata-only real-source check against VRChat's public example listing and template recipe, build the node/coordinator binaries and run `LIVE_VPM_SMOKE=1 bun run smoke:vpm:live` (PowerShell: set `$env:LIVE_VPM_SMOKE='1'` first). The script queues both sources and runs two compiled nodes concurrently against a temporary database; it never downloads release ZIPs. See [VPM template research](docs/VPM_TEMPLATE_RESEARCH.md), [client-ecosystem research](docs/VRC_GET_ECOSYSTEM_RESEARCH.md), and the [read-only prototype DB audit](docs/PROTOTYPE_DB_AUDIT.md).
+The VPM adapter also accepts bounded published `index.json` listings as multi-package evidence. A malformed release creates a partial result with persisted diagnostics rather than silently deleting missing versions; inspect recent entries with `bun run coordinator -- issues` or grouped counts with `bun run coordinator -- inspect`. `bun run coordinator -- vpm-evidence` shows the latest **complete**, not-gone source observation per VPM item for operator review, excluding suppressed listing URLs. This is source evidence, not an installable index or public catalog. A template `source.json` instead yields pending discovery leads. Review them with `bun run coordinator -- leads` or the operator API; after checking a listing host's access policy, `bun run coordinator -- approve-lead <lead-key>` can seed that **listing** URL. It does not create a source-access profile. GitHub repository and ZIP leads cannot be approved as VPM listing jobs. For an isolated, metadata-only real-source check against VRChat's public example listing and template recipe, build the node/coordinator binaries, set `LIVE_VPM_SMOKE=1`, `LIVE_SOURCE_REVIEW_REFERENCE` to the recorded source-specific review, and `LIVE_SOURCE_RETAIN_CLASSES` to the approved evidence classes, then run `bun run smoke:vpm:live`. The script creates short-lived exact-path profiles, queues both sources, and runs two compiled nodes concurrently against a temporary database; it never downloads release ZIPs. These environment values are operator attestations, not proof of permission. See [VPM template research](docs/research/markets/VPM_TEMPLATE_RESEARCH.md), [client-ecosystem research](docs/research/markets/VRC_GET_ECOSYSTEM_RESEARCH.md), and the [read-only prototype DB audit](docs/decisions/current/audits/PROTOTYPE_DB_AUDIT.md).
 
 The opt-in VPM smoke waits for the running coordinator's automatic robots refresh before starting either node; it is a narrow check of the compiled startup path, not a sustained crawl.
 
 `bun run coordinator -- node-evidence <node-id>` shows bounded submission counts and recent source versions, events, issues, and discovery leads attributed to that authenticated node and its job leases. Pre-migration records have null provenance; operator-created suppression events have no node. This supports local incident review but is not a signature or independent verification of the node's claims.
 
-The new GitHub node path accepts only public `https://api.github.com/repos/{owner}/{repo}` metadata jobs; it does not scrape GitHub HTML, search repositories, or archive README/content. Unauthenticated jobs share a 60-second minimum origin delay, and API reset headers drive backoff. To repeat the one-request compiled-binary check against the public vrc-get repository, set `LIVE_GITHUB_SMOKE=1` and run `bun run smoke:github:live`. It uses a temporary database. This narrow test is not approval for broad collection; see the [source access review](docs/SOURCE_ACCESS_REVIEW.md).
+The new GitHub node path accepts only public `https://api.github.com/repos/{owner}/{repo}` metadata jobs; it does not scrape GitHub HTML, search repositories, or archive README/content. Unauthenticated jobs share a 60-second minimum origin delay, and API reset headers drive backoff. To repeat the one-request compiled-binary check against the public vrc-get repository, set `LIVE_GITHUB_SMOKE=1`, `LIVE_SOURCE_REVIEW_REFERENCE` to the recorded source-specific review, and `LIVE_SOURCE_RETAIN_CLASSES` to the approved evidence classes, then run `bun run smoke:github:live`. It creates a short-lived exact-path profile in a temporary database. This narrow test is not approval for broad collection; see the [source access review](docs/decisions/current/access/SOURCE_ACCESS_REVIEW.md).
 
-For a no-network two-process coordinator check, run `bun run build:coordinator` and `bun run smoke:multi`. It checks cross-process same-origin leasing, duplicate submission, and suppression against an isolated temporary SQLite file. The scope and remaining concurrency limits are in [the lease spike](docs/MULTIPROCESS_LEASE_SPIKE.md).
+For a no-network two-process coordinator check, run `bun run build:coordinator` and `bun run smoke:multi`. It checks cross-process same-origin leasing, duplicate submission, and suppression against an isolated temporary SQLite file. The scope and remaining concurrency limits are in [the lease spike](docs/research/spikes/MULTIPROCESS_LEASE_SPIKE.md).
 
 ---
 
@@ -86,7 +93,7 @@ The primary database will reside at `dist/crawler_state.db`. The system will cre
 
 ```
 vrc-package-crawler/
-  src/                        Core crawler engine and foundation
+  src-crawler/src/                        Core crawler engine and foundation
     node/                     New standalone node, API client, observation adapter, driver runtime
     worker/                   Worker-portable request handler and local SQLite/CLI adapters
     shared/                   Versioned API schemas and cross-boundary validation
@@ -299,7 +306,7 @@ Output will write to `vrc_catalog.db` in the working directory.
 
 ## Reporting Schemas
 
-External applications will integrate with the crawler through standardized schemas. See [docs/REPORTING_SCHEMAS.md](docs/REPORTING_SCHEMAS.md):
+External applications will integrate with the crawler through standardized schemas. See [docs/scratch/legacy-targets/REPORTING_SCHEMAS.md](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md):
 
 - **Schema 1**: Downstream Feed Delta Ingestion Report (cursor-paginated, SHA-256 digest).
 - **Schema 2**: Native VCC / ALCOM Community Repository Manifest (`index.json`).
@@ -312,7 +319,7 @@ External applications will integrate with the crawler through standardized schem
 
 ## Cloudflare Edge Distribution
 
-See [docs/EDGE_SYNC_AND_SCALE_GUIDE.md](docs/EDGE_SYNC_AND_SCALE_GUIDE.md) for details:
+See [docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md](docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md) for details:
 
 - Cloudflare D1 and R2 provisioning and schema setup.
 - Incremental delta replication via `vrc-sync.exe` with high-watermark cursors.
@@ -330,7 +337,7 @@ The crawler will follow strict legal boundaries and community norms:
 - It will route all store links directly to original creators.
 - It will identify itself via `User-Agent: VRCDiscoveryBot/1.0`.
 - It will obey `robots.txt` with 24-hour caching per RFC 9309.
-See [LEGAL.md](LEGAL.md) and [docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md](docs/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md) for full compliance specifications.
+See [LEGAL.md](LEGAL.md) and [docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md](docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md) for full compliance specifications.
 
 ---
 
