@@ -1,8 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { CONFIG } from "../config.ts";
-import { db, type CrawlerDB } from "../db.ts";
-import { logger } from "../logger.ts";
+import { db, type CrawlerDB } from "../db/db.ts";
+import { logger } from "../utils/logger.ts";
 
 export interface SyncConfig {
   accountId?: string;

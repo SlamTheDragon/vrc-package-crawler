@@ -6,7 +6,7 @@
  * - RFC 9110: HTTP Semantics (Retry-After header handling)
  */
 
-import { logger } from "../logger.ts";
+import { logger } from "./logger.ts";
 
 export interface HostLimiterConfig {
   minDelayMs: number;

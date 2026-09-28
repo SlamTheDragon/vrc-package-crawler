@@ -36,7 +36,7 @@ export class ToolClassifier {
       has("openiris") || has("vrc-osc") || has("vrcosc") || has("oscbattery") ||
       has("osclock") || has("oscmooth") || has("vrct") || has("tastt") ||
       has("translator") || has("steamvr") || has("openvr") || has("ovr lighthouse") ||
-      has("heartrate") || has("pulsoid")
+      has("heartrate") || has("pulsoid") || has("babble")
     ) {
       return {
         category: "Tools & Utilities",
@@ -53,7 +53,7 @@ export class ToolClassifier {
     // A. Core Shader Engines & Frameworks
     if (
       has("liltoon") || has("poiyomi") || has("unlitwf") || has("arktoon") ||
-      has("sunao") || has("shader engine") || has("audiolink") || has("audio link")
+      has("sunao") || has("shader engine") || has("audiolink") || has("audio link") || has("light volume")
     ) {
       return {
         category: "Shaders & Visuals",

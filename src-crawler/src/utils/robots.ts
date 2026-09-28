@@ -1,6 +1,6 @@
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
 import { CONFIG } from "../config.ts";
-import { logger } from "../logger.ts";
+import { logger } from "./logger.ts";
 import { CRAWLER_ROBOTS_TOKEN } from "../shared/crawler_identity.ts";
 import { MAX_ROBOTS_BYTES } from "../shared/robots_snapshot.ts";
 

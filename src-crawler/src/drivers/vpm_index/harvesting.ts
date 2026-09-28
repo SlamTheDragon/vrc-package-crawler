@@ -1,6 +1,7 @@
 import { CONFIG } from "../../config.ts";
-import { logger } from "../../logger.ts";
-import { db, type EntityRecord } from "../../db.ts";
+import { logger } from "../../utils/logger.ts";
+import { db } from "../../db/db.ts";
+import { type EntityRecord } from "../../db/definitions.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { cleanTitle, cleanAuthorName } from "../../utils/sanitizer.ts";
 import type { DriverRuntime } from "../../node/driver_runtime.ts";

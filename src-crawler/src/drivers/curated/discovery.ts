@@ -1,6 +1,6 @@
 import { CONFIG } from "../../config.ts";
-import { logger } from "../../logger.ts";
-import { db } from "../../db.ts";
+import { logger } from "../../utils/logger.ts";
+import { db } from "../../db/db.ts";
 import type { DriverRuntime } from "../../node/driver_runtime.ts";
 
 export function getHeaders(): Record<string, string> {

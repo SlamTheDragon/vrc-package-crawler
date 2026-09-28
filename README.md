@@ -306,7 +306,7 @@ Output will write to `vrc_catalog.db` in the working directory.
 
 ## Reporting Schemas
 
-External applications will integrate with the crawler through standardized schemas. See [docs/scratch/legacy-targets/REPORTING_SCHEMAS.md](docs/scratch/legacy-targets/REPORTING_SCHEMAS.md):
+External applications will integrate with the crawler through standardized schemas. See [docs/scratch/legacy-prototype-targets/REPORTING_SCHEMAS.md](docs/scratch/legacy-prototype-targets/REPORTING_SCHEMAS.md):
 
 - **Schema 1**: Downstream Feed Delta Ingestion Report (cursor-paginated, SHA-256 digest).
 - **Schema 2**: Native VCC / ALCOM Community Repository Manifest (`index.json`).
@@ -319,7 +319,7 @@ External applications will integrate with the crawler through standardized schem
 
 ## Cloudflare Edge Distribution
 
-See [docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md](docs/scratch/legacy-targets/EDGE_SYNC_AND_SCALE_GUIDE.md) for details:
+See [docs/scratch/legacy-prototype-targets/EDGE_SYNC_AND_SCALE_GUIDE.md](docs/scratch/legacy-prototype-targets/EDGE_SYNC_AND_SCALE_GUIDE.md) for details:
 
 - Cloudflare D1 and R2 provisioning and schema setup.
 - Incremental delta replication via `vrc-sync.exe` with high-watermark cursors.
@@ -337,7 +337,7 @@ The crawler will follow strict legal boundaries and community norms:
 - It will route all store links directly to original creators.
 - It will identify itself via `User-Agent: VRCDiscoveryBot/1.0`.
 - It will obey `robots.txt` with 24-hour caching per RFC 9309.
-See [LEGAL.md](LEGAL.md) and [docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md](docs/scratch/legacy-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md) for full compliance specifications.
+See [LEGAL.md](LEGAL.md) and [docs/scratch/legacy-prototype-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md](docs/scratch/legacy-prototype-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md) for full compliance specifications.
 
 ---
 

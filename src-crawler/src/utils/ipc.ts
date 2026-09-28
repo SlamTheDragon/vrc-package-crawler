@@ -1,5 +1,5 @@
-import { logger } from "../logger.ts";
-import { db } from "../db.ts";
+import { logger } from "./logger.ts";
+import { db } from "../db/db.ts";
 
 export interface IpcServerCallbacks {
   onStop: () => void;

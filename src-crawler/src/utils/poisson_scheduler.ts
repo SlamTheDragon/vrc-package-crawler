@@ -1,5 +1,5 @@
-import { db, type CrawlerDB } from "../db.ts";
-import { logger } from "../logger.ts";
+import { db, type CrawlerDB } from "../db/db.ts";
+import { logger } from "./logger.ts";
 
 export class PoissonScheduler {
   private readonly MIN_INTERVAL_SEC = 6 * 3600;      // 6 hours minimum re-crawl

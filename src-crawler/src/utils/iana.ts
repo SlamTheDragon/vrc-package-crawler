@@ -1,4 +1,4 @@
-import { logger } from "../logger.ts";
+import { logger } from "./logger.ts";
 
 export class IanaRegistry {
   private static tlds: Set<string> = new Set();

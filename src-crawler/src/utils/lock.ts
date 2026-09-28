@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { CONFIG } from "../config.ts";
-import { logger } from "../logger.ts";
+import { logger } from "./logger.ts";
 
 export interface LockMetadata {
   pid: number;

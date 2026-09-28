@@ -1,6 +1,6 @@
 import { CONFIG } from "../../config.ts";
-import { logger } from "../../logger.ts";
-import { db } from "../../db.ts";
+import { logger } from "../../utils/logger.ts";
+import { db } from "../../db/db.ts";
 
 // Multi-maintainer decentralized community registries across the VRChat ecosystem
 // FIXME: are these true canonical seeds, can this be dynamically generated upon startup from fresh instance?

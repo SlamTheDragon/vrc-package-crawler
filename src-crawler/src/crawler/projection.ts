@@ -4,10 +4,10 @@ import fs from "fs";
 import { RelevanceFilter, type MinimalEntity, CREATOR_WHITELIST } from "../filter.ts";
 import { ToolClassifier } from "../classifier.ts";
 import { CONFIG } from "../config.ts";
-import { logger } from "../logger.ts";
+import { logger } from "../utils/logger.ts";
 import { IanaRegistry } from "../utils/iana.ts";
 import { SimHash64, SimHashIndex } from "../utils/simhash.ts";
-import { db as sharedDb } from "../db.ts";
+import { db as sharedDb } from "../db/db.ts";
 import { sanitizeOutboundUrl } from "../utils/image_proxy.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription, resolveAuthors, unescapeHtml, normalizeListingTitle } from "../utils/sanitizer.ts";
 

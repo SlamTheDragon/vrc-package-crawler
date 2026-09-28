@@ -1,7 +1,7 @@
 /** Detects an access challenge before the response can be treated as content. */
-import type { CrawlerDB } from "../db.ts";
+import type { CrawlerDB } from "../db/db.ts";
 import { circuitBreaker, rateLimiter } from "../ratelimit.ts";
-import { logger } from "../logger.ts";
+import { logger } from "../utils/logger.ts";
 import { classifyAccessFailure, type AccessFailure } from "../shared/access_outcome.ts";
 export { isChallengeResponse, classifyAccessFailure } from "../shared/access_outcome.ts";
 

@@ -1,6 +1,7 @@
 import { CONFIG } from "../../config.ts";
-import { logger } from "../../logger.ts";
-import { db, type EntityRecord, type CrawlerDB } from "../../db.ts";
+import { logger } from "../../utils/logger.ts";
+import { db, type CrawlerDB } from "../../db/db.ts";
+import { type EntityRecord } from "../../db/definitions.ts";
 import { RelevanceFilter, CREATOR_ALIASES } from "../../filter.ts";
 import { IanaRegistry } from "../../utils/iana.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription, extractReadmeDescription } from "../../utils/sanitizer.ts";

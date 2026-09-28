@@ -1,6 +1,7 @@
 import { CONFIG } from "../../config.ts";
-import { logger } from "../../logger.ts";
-import { db, type EntityRecord, type CrawlerDB } from "../../db.ts";
+import { logger } from "../../utils/logger.ts";
+import { db, type CrawlerDB } from "../../db/db.ts";
+import { type EntityRecord } from "../../db/definitions.ts";
 import { rateLimiter } from "../../ratelimit.ts";
 import { RelevanceFilter } from "../../filter.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../../utils/sanitizer.ts";

@@ -1,6 +1,6 @@
 import { CONFIG } from "../../config.ts";
-import { logger } from "../../logger.ts";
-import { db } from "../../db.ts";
+import { logger } from "../../utils/logger.ts";
+import { db } from "../../db/db.ts";
 import type { DriverRuntime } from "../../node/driver_runtime.ts";
 import { COMMUNITY_REGISTRY_SEEDS } from "./seeding.ts";
 import { discoverRegistriesOnGitHub } from "./discovery.ts";

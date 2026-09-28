@@ -2,8 +2,8 @@ import { Database } from "bun:sqlite";
 import fs from "fs";
 import path from "path";
 import { CONFIG } from "../config.ts";
-import { logger } from "../logger.ts";
-import { db } from "../db.ts";
+import { logger } from "../utils/logger.ts";
+import { db } from "../db/db.ts";
 
 export interface ExportOptions {
   mode: "catalog" | "lake";

@@ -1,4 +1,4 @@
-import type { FrontierItem } from "../../db.ts";
+import type { FrontierItem } from "../../db/definitions.ts";
 
 const BOOTH_TAGS = [
   "エディタ拡張", "AAO", "VRCFury", "NDMF", "FaceEmo", "GoGoLoco",

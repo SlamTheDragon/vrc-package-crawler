@@ -1,8 +1,9 @@
 import fs from "fs";
 import path from "path";
 import { CONFIG } from "../config.ts";
-import { logger } from "../logger.ts";
-import { db, type CrawlerDB, type UserReport, type PlatformType } from "../db.ts";
+import { logger } from "../utils/logger.ts";
+import { db, type CrawlerDB } from "../db/db.ts";
+import { type UserReport, type PlatformType } from "../db/definitions.ts";
 import { sanitizeOutboundUrl } from "../utils/image_proxy.ts";
 import { validateSchema4Payload } from "../shared/report_validation.ts";
 

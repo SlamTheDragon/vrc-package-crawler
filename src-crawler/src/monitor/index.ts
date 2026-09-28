@@ -1,4 +1,5 @@
-import { db, type PlatformMetrics } from "../db.ts";
+import { db } from "../db/db.ts";
+import { type PlatformMetrics } from "../db/definitions.ts";
 import { CONFIG } from "../config.ts";
 import { CrawlerIpcServer } from "../utils/ipc.ts";
 import { ProcessLock } from "../utils/lock.ts";

@@ -1,6 +1,6 @@
 import { CONFIG } from "../config.ts";
-import { logger } from "../logger.ts";
-import { db } from "../db.ts";
+import { logger } from "../utils/logger.ts";
+import { db } from "../db/db.ts";
 import { BoothDriver, buildBoothSeedPages } from "../drivers/booth/index.ts";
 import { GitHubDriver, GITHUB_SEARCH_QUERIES, toGitHubSearchUrl } from "../drivers/github/index.ts";
 import { VpmIndexDriver, CORE_VPM_FEEDS, VPM_RESEED_INTERVAL_MS } from "../drivers/vpm_index/index.ts";
@@ -15,7 +15,7 @@ import { CrawlerIpcServer } from "../utils/ipc.ts";
 import { poissonScheduler } from "../utils/poisson_scheduler.ts";
 import { robotsEnforcer } from "../utils/robots.ts";
 import { ImageProxyService } from "../utils/image_proxy.ts";
-import type { FrontierItem } from "../db.ts";
+import type { FrontierItem } from "../db/definitions.ts";
 
 let isRunning = true;
 let lastVpmSeedAt = 0;

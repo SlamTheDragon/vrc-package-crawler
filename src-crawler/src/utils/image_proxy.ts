@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
-import { db, type MediaCacheRecord, type CrawlerDB } from "../db.ts";
-import { logger } from "../logger.ts";
+import { db, type CrawlerDB } from "../db/db.ts";
+import { type MediaCacheRecord } from "../db/definitions.ts";
+import { logger } from "./logger.ts";
 import { CONFIG } from "../config.ts";
 
 // Base83 characters for BlurHash RFC specification
