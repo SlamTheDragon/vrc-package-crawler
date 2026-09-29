@@ -8,8 +8,10 @@ const resolvedSmokeDir = realpathSync(smokeDir);
 if (!resolvedSmokeDir.startsWith(resolve(tmpdir()) + sep)) throw new Error("Smoke directory escaped system temp");
 const coordinatorWorkDir = join(resolvedSmokeDir, "coordinator");
 const dbPath = join(coordinatorWorkDir, "coordinator.db");
-const binary = resolve("dist/vrc-coordinator.exe");
-const nodeBinary = resolve("dist/vrc-node.exe");
+const binary = resolve(existsSync("dist/local-coordinator/vrc-coordinator.exe") ?
+  "dist/local-coordinator/vrc-coordinator.exe" : "dist/vrc-coordinator.exe");
+const nodeBinary = resolve(existsSync("dist/local-node/vrc-node.exe") ?
+  "dist/local-node/vrc-node.exe" : "dist/vrc-node.exe");
 const operatorToken = "b".repeat(64); // Isolated smoke fixture, never a deployment credential.
 const { COORDINATOR_DB_PATH: _inheritedDbPath,
   COORDINATOR_CONFIG_PATH: _inheritedConfigPath, ...baseEnv } = process.env;

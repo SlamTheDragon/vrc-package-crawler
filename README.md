@@ -1,8 +1,8 @@
 # VRC Package Crawler
 
-This repository is evolving from a single-process VRChat package crawler into a local coordinator plus standalone crawler nodes. The intended catalog covers Tools, Assets, and Avatars. The Phase 1–4 crawler/export/server source paths remain for transition, but their former package scripts are no longer current entry points. The local coordinator/node path is a limited, isolated simulation; the legacy and coordinator stores are not unified, and the node database is not yet implemented. See [docs/decisions/plans/IMPLEMENTATION_PLAN.md](docs/decisions/plans/IMPLEMENTATION_PLAN.md) for the gates and [docs/decisions/current/status/CONFORMANCE.md](docs/decisions/current/status/CONFORMANCE.md) for what has actually been demonstrated.
+This repository is evolving from a single-process VRChat package crawler into a local coordinator plus standalone crawler nodes. The intended catalog covers Tools, Assets, and Avatars. The Phase 1–4 crawler/export/server source paths remain for transition, but their former package scripts are no longer current entry points. The local pre-production architecture provides two distinct processes, configurations, and SQLite databases (`coordinator.db` and `node.db` via `LocalNodeStore`) operating concurrently in the same launch directory or separate locations without collision. See [docs/decisions/plans/IMPLEMENTATION_PLAN.md](docs/decisions/plans/IMPLEMENTATION_PLAN.md) for the gates and [docs/decisions/current/status/CONFORMANCE.md](docs/decisions/current/status/CONFORMANCE.md) for what has actually been demonstrated.
 
-**Current working directory:** run the Bun commands below from `src-crawler/`, which owns `package.json`, shared crawler modules, `scratch/`, and compiled `dist/`. The standalone entry points now live under top-level `node/` and `worker/`; their local runtime adapters still live under `src-crawler/src/node/` and `src-crawler/src/worker/`. The node's second database and a Cloudflare Worker storage adapter do not exist yet. This partial move and the passing local smokes are not the final topology. See the [documentation map](docs/decisions/DOCUMENT_MAP.md) for the four document categories and authority boundaries. Later Phase 1–4 binary/layout descriptions below are historical until they are reconciled with this split.
+**Current working directory:** run the Bun commands below from `src-crawler/`, which owns `package.json`, shared crawler modules, `scratch/`, and compiled `dist/`. The standalone entry points and runtime adapters live under `src-crawler/src/node/` and `src-crawler/src/worker/`. The node persists its own execution and task receipts in `node.db`, while the coordinator manages leases and source evidence in `coordinator.db`. See the [documentation map](docs/decisions/DOCUMENT_MAP.md) for the four document categories and authority boundaries. Later Phase 1–4 binary/layout descriptions below are historical until they are reconciled with this split.
 
 The system links back to original creator sources and does not download or redistribute binary assets. Descriptions and thumbnails are third-party material, not automatically “factual metadata”; source-specific access, retention, and publication rules remain under review. See [LEGAL.md](LEGAL.md) for the intended terms and their implementation-status notice.
 
@@ -25,13 +25,13 @@ bun run node -- --once
 
 Registration defaults to all eight currently selectable coordinator capabilities unless scoped as above. Jobs are seeded explicitly; default selection is not a claim that every platform permits live automated access. A seed and an auto-queued lead both need a separate matching active source-access profile before robots refresh or a fetch lease. The `profile-create <json>`, `profiles`, and `profile-disable <id> <reason>` commands manage local, audited profiles; creating one records an operator judgment, not a legal finding. After a reviewed profile and matching job exist, `serve` refreshes robots for up to ten due origins on startup and every minute. A cross-process lease prevents duplicate refreshes; each request has a 15-second timeout, safe HTTPS redirects, and a bounded response. Claims remain empty when robots is absent, stale, or disallowing. The explicit `refresh-queued-robots [limit]` command remains useful before a one-shot node run, as in the example above; `refresh-robots <https-origin>` refreshes one origin only if it has a due job with a matching active profile. None of these commands alone grants source permission. The current node adapter supports direct VPM package JSON, bounded published listings, template recipe leads, limited product-page metadata, and a bounded Shopify product-sitemap lead path—not broad discovery or arbitrarily large feeds. Keep the legacy crawler path separate until the remaining gates pass.
 
-For a separate compiled-node launch directory, run `vrc-node.exe init <node-id> [coordinator-url] [comma-separated-capabilities]` **from that directory**. It creates `node.config.json` once with version, node ID, coordinator URL and capabilities, and refuses to overwrite it. Supply the coordinator-issued key separately through `NODE_TOKEN`; the config rejects embedded tokens. On startup the node loads that file from its working directory, or an explicit `NODE_CONFIG_PATH`; a present but invalid file fails closed. If neither file exists, the previous `NODE_ID`/`NODE_CAPABILITIES`/`COORDINATOR_URL` environment path still works. File permission mode is requested on creation but must be checked on the target operating system. This is not node-side durable state or a resolved secret-storage design.
+For a separate compiled-node launch directory, run `vrc-node.exe init <node-id> [coordinator-url] [comma-separated-capabilities]` **from that directory**. It creates `node.config.json` once with version, node ID, coordinator URL, capabilities, and databaseFile (`node.db`), and refuses to overwrite it. Supply the coordinator-issued key separately through `NODE_TOKEN`; the config rejects embedded tokens. On startup the node loads that file from its working directory, or an explicit `NODE_CONFIG_PATH`; a present but invalid file fails closed. When started, the node creates and maintains its local execution database `node.db` via `LocalNodeStore`. If neither file exists, the previous `NODE_ID`/`NODE_CAPABILITIES`/`COORDINATOR_URL` environment path still works.
 
 Robots preflight and product fetches share the coordinator's per-origin pacing clock. A refresh holds its own origin lease, so a node claim waits for that refresh to finish **and** for the profile's minimum delay to elapse. One-shot live smoke scripts wait on the persisted due time rather than immediately claiming after robots.
 
 The compiled `serve` process also exposes a separate loopback `/v1/operator/*` control API when `COORDINATOR_OPERATOR_TOKEN` is configured as a CSPRNG-generated 64-character hex token. It lists leads, supports audited manual approval/rejection, manages expiring VPM-listing auto-queue rules, creates/lists/disables source-access profiles, and issues node credentials under operator authority; node tokens cannot use it. New leads matching an active origin/path auto-queue rule may become jobs, while unknown leads remain pending. That rule is not a fetch approval: the job still needs a matching source-access profile. This is a backend path for a future admin dashboard, not a dashboard or complete all-driver source-access policy. See [operator control API](docs/decisions/current/api/OPERATOR_CONTROL_API.md) for exact scopes and limits.
 
-For a no-network process-topology check, build the coordinator and node binaries and run `bun run smoke:local`. It launches one coordinator and two standalone node processes, asserts distinct PIDs, and verifies each node's heartbeat through the loopback API. The nodes do not receive the coordinator's SQLite path. This checks separation and protocol wiring, not concurrent live fetches.
+For an end-to-end pre-production simulation in a shared working directory, run `bun run smoke:preprod`. It builds the binaries, initializes `coordinator.config.json` and `node.config.json`, starts the coordinator and node processes in the exact same directory, provisions scoped source-access profiles, fetches real public online data (VPM index and recipe), records durable results in `coordinator.db` and execution telemetry in `node.db`, and verifies zero database or lock collisions. For a no-network process-topology check, run `bun run smoke:local`. It launches one coordinator and two standalone node processes, asserts distinct PIDs, and verifies each node's heartbeat through the loopback API. The nodes do not receive the coordinator's SQLite path.
 
 The standalone node uses a bounded, DNS-pinned HTTPS metadata transport; non-public destinations, redirects, embedded credentials, fragments, and nonstandard ports are rejected. Remote coordinator endpoints also require HTTPS so node tokens are not sent over cleartext. These are network safety controls, not permission to crawl a source. See [node fetch safety](docs/decisions/current/access/NODE_FETCH_SAFETY.md) and [source access review](docs/decisions/current/access/SOURCE_ACCESS_REVIEW.md).
 
@@ -155,27 +155,25 @@ vrc-package-crawler/
 
 ## First-Time Setup
 
-1. Install project dependencies:
+1. Install project dependencies (from `src-crawler/`):
    ```powershell
    bun install
    ```
 
-2. Build standalone binaries into `dist/`:
+2. Build pre-production binaries:
    ```powershell
-   bun run build:all
+   bun run build:coordinator
+   bun run build:node
+   ```
+   Or build all artifacts including browser worker bundle:
+   ```powershell
+   bun run build
    ```
 
-3. Configure runtime environment variables:
+3. Run pre-production end-to-end simulation:
    ```powershell
-   copy .env.example dist\.env
+   bun run smoke:preprod
    ```
-   Open `dist\.env` and set `API_SECRET_TOKEN`, `GITHUB_TOKEN`, and Cloudflare variables.
-
-For development mode (runs via Bun, database emits to project root):
-```powershell
-copy .env.example .env
-bun run start
-```
 
 ---
 
@@ -299,11 +297,18 @@ Output will write to `vrc_catalog.db` in the working directory.
    ```powershell
    bun test
    ```
-   The ground-truth test suite contains 84 passing tests across 17 files (551 assertions).
+   The test suite contains 220 passing tests across 36 files (1,995 expect assertions) in `src-crawler`, plus 4 tests across 1 file in root `tests/`. Total: 224 passing tests across 37 files (2,025 assertions).
 
 2. Check TypeScript types without emitting:
    ```powershell
-   bun x tsc --noEmit
+   bun run typecheck
+   ```
+
+3. Run verification smokes:
+   ```powershell
+   bun run smoke:preprod   # Full pre-production dual-binary simulation in shared directory
+   bun run smoke:local     # Multi-process loopback topology & heartbeat check
+   bun run smoke:multi     # Multi-process coordinator lease & race check
    ```
 
 ---

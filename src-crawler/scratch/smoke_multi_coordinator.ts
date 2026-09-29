@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { unusedLoopbackPort } from "./loopback_port.ts";
@@ -9,7 +9,8 @@ const smokeDir = mkdtempSync(join(tmpdir(), "vrc-multi-coordinator-"));
 const resolvedSmokeDir = realpathSync(smokeDir);
 if (!resolvedSmokeDir.startsWith(resolve(tmpdir()) + sep)) throw new Error("Smoke directory escaped system temp");
 const dbPath = join(resolvedSmokeDir, "coordinator.db");
-const coordinatorBinary = resolve("dist/vrc-coordinator.exe");
+const coordinatorBinary = resolve(existsSync("dist/local-coordinator/vrc-coordinator.exe") ?
+  "dist/local-coordinator/vrc-coordinator.exe" : "dist/vrc-coordinator.exe");
 const env: Record<string, string | undefined> = { ...process.env, COORDINATOR_DB_PATH: dbPath };
 const servers: Array<ReturnType<typeof Bun.spawn>> = [];
 

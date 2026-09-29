@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { unusedLoopbackPort } from "./loopback_port.ts";
+import { loadScopedGitHubTokenFromEnvFile } from "../src/node/observation_adapter.ts";
 
 // One public REST repository metadata request; no search, README, or archive download.
 if (process.env.LIVE_GITHUB_SMOKE !== "1") {
@@ -19,9 +20,17 @@ const smokeDir = mkdtempSync(join(tmpdir(), "vrc-live-github-"));
 const resolvedSmokeDir = realpathSync(smokeDir);
 if (!resolvedSmokeDir.startsWith(resolve(tmpdir()) + sep)) throw new Error("Smoke directory escaped system temp");
 const dbPath = join(resolvedSmokeDir, "coordinator.db");
-const coordinatorBinary = resolve("dist/vrc-coordinator.exe");
-const nodeBinary = resolve("dist/vrc-node.exe");
+const coordinatorBinary = resolve(existsSync("dist/local-coordinator/vrc-coordinator.exe") ?
+  "dist/local-coordinator/vrc-coordinator.exe" : "dist/vrc-coordinator.exe");
+const nodeBinary = resolve(existsSync("dist/local-node/vrc-node.exe") ?
+  "dist/local-node/vrc-node.exe" : "dist/vrc-node.exe");
 const env: Record<string, string | undefined> = { ...process.env, COORDINATOR_DB_PATH: dbPath };
+if (!env.GITHUB_TOKEN && !env.GH_TOKEN) {
+  const fallbackToken = loadScopedGitHubTokenFromEnvFile(process.cwd());
+  if (fallbackToken) {
+    env.GITHUB_TOKEN = fallbackToken;
+  }
+}
 let server: ReturnType<typeof Bun.spawn> | undefined;
 
 function command(binary: string, args: string[]): string {

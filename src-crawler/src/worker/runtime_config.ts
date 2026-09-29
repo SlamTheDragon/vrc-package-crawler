@@ -36,5 +36,6 @@ export function loadCoordinatorRuntimeConfig(cwd: string, env: NodeJS.ProcessEnv
     if (!result.success) throw new Error("Coordinator config does not match the versioned schema");
     return { databasePath: join(cwd, result.data.databaseFile), listenPort: result.data.listenPort };
   }
-  return { databasePath: env.COORDINATOR_DB_PATH || "bin/local_coordinator.db", listenPort: 8787 };
+  const defaultDb = existsSync(join(cwd, "bin")) ? "bin/local_coordinator.db" : join(cwd, "coordinator.db");
+  return { databasePath: env.COORDINATOR_DB_PATH || defaultDb, listenPort: 8787 };
 }

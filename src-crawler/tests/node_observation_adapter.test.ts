@@ -198,8 +198,28 @@ describe("standalone node observation adapter", () => {
       expect(headers.get("x-github-api-version")).toBe("2026-03-10");
       expect(headers.has("authorization")).toBe(false);
       return new Response(body, { headers: { "content-type": "application/json" } });
-    });
+    }, undefined, { githubToken: "" });
     expect(outcome).toEqual({ kind: "changed", observation });
+
+    const authenticatedOutcome = await fetchJobOutcome(githubJob, async (_url, init) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.get("accept")).toBe("application/vnd.github+json");
+      expect(headers.get("x-github-api-version")).toBe("2026-03-10");
+      expect(headers.get("authorization")).toBe("Bearer test-gh-token");
+      return new Response(body, { headers: { "content-type": "application/json" } });
+    }, undefined, { githubToken: "test-gh-token" });
+    expect(authenticatedOutcome).toEqual({ kind: "changed", observation });
+
+    // Scoped egress invariant: never forward GitHub token to third-party storefronts
+    const boothJob = { ...githubJob, platform: "booth" as const, url: "https://booth.pm/ja/items/12345", origin: "https://booth.pm" };
+    await fetchJobOutcome(boothJob, async (_url, init) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.has("authorization")).toBe(false);
+      return new Response("<html><head><title>Test</title></head><body></body></html>", {
+        headers: { "content-type": "text/html" }
+      });
+    }, undefined, { githubToken: "test-gh-token" });
+
     expect(parseGitHubRepository(githubJob, body.replace('"private":false', '"private":true'))).toBeNull();
     expect(parseGitHubRepository(githubJob, body.replace("vrc-get/vrc-get", "other/repo"))).toBeNull();
     const htmlJob = { ...githubJob, url: "https://github.com/vrc-get/vrc-get", origin: "https://github.com" };

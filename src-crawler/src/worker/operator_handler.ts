@@ -2,9 +2,10 @@ import { CoordinatorConflict, readJson } from "./handler.ts";
 import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, LeadStatusSchema,
   OPERATOR_PROTOCOL_VERSION, RejectLeadSchema, AutoQueueRuleListResponseSchema, AutoQueueRuleResponseSchema,
   CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, decodeLeadCursor, decodeRuleCursor,
-  IssueNodeCredentialSchema, NodeCredentialResponseSchema, type IssueNodeCredential,
+  IssueNodeCredentialSchema, NodeCredentialResponseSchema, CatalogListResponseSchema,
+  decodeCatalogCursor, type IssueNodeCredential,
   type AutoQueueRule, type CreateAutoQueueRule, type LeadCursor, type LeadRow,
-  type RuleCursor } from "../shared/operator_protocol.ts";
+  type RuleCursor, type CatalogCursor, type CatalogPackage } from "../shared/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   SourceAccessProfileListResponseSchema, SourceAccessProfileResponseSchema,
   decodeProfileCursor, type CreateSourceAccessProfile, type SourceAccessProfile,
@@ -30,6 +31,9 @@ export interface OperatorStore {
     Promise<SourceAccessProfile> | SourceAccessProfile;
   disableSourceAccessProfile(profileId: string, actor: string, reason: string):
     Promise<SourceAccessProfile> | SourceAccessProfile;
+  listCanonicalPackagesPage(limit: number, cursor: CatalogCursor | null):
+    Promise<{ packages: CatalogPackage[]; nextCursor: string | null }> |
+      { packages: CatalogPackage[]; nextCursor: string | null };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -73,8 +77,9 @@ export async function handleOperatorRequest(
   const nodeIssue = request.method === "POST" && url.pathname === "/v1/operator/nodes";
   const profileDisable = request.method === "POST" &&
     /^\/v1\/operator\/source-profiles\/([a-f0-9-]{36})\/disable$/.exec(url.pathname);
+  const catalogListing = request.method === "GET" && url.pathname === "/v1/operator/catalog";
   if (!listing && !ruleListing && !ruleCreate && !ruleDisable && !profileListing && !profileCreate && !nodeIssue &&
-      !profileDisable && !(request.method === "POST" && leadAction)) {
+      !profileDisable && !catalogListing && !(request.method === "POST" && leadAction)) {
     return failure(404, "not_found", "Route not found");
   }
   if (!await authorized(request, configuredToken)) {
@@ -119,6 +124,19 @@ export async function handleOperatorRequest(
     }
     return json(SourceAccessProfileListResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
       ...await store.listSourceAccessProfilesPage(limit, cursor) }));
+  }
+  if (catalogListing) {
+    const limit = Number(url.searchParams.get("limit") || 100);
+    const cursorValue = url.searchParams.get("cursor");
+    const cursor = cursorValue ? decodeCatalogCursor(cursorValue) : null;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 ||
+        url.searchParams.getAll("limit").length > 1 ||
+        url.searchParams.getAll("cursor").length > 1 || (cursorValue !== null && !cursor) ||
+        [...url.searchParams.keys()].some(key => !["limit", "cursor"].includes(key))) {
+      return failure(400, "invalid_query", "Catalog limit or cursor is invalid");
+    }
+    return json(CatalogListResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
+      ...await store.listCanonicalPackagesPage(limit, cursor) }));
   }
   let body: unknown;
   try { body = await readJson(request); }

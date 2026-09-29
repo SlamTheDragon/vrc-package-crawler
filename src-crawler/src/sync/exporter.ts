@@ -21,6 +21,7 @@ export async function runDatabaseExport(mode: "catalog" | "lake" = "catalog", cu
   const fullTargetPath = path.isAbsolute(targetFile) ? targetFile : path.resolve(CONFIG.baseDir, targetFile);
 
   logger.info(`[Exporter] Starting export in mode '${mode}' to: ${fullTargetPath}`);
+  fs.mkdirSync(path.dirname(fullTargetPath), { recursive: true });
 
   if (fs.existsSync(fullTargetPath)) {
     try {

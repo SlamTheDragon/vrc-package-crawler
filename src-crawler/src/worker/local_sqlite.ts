@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import crypto from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { isIP } from "node:net";
+import { dirname, resolve } from "node:path";
 import {
   ClaimRequestSchema, ObservationSchema, PlatformSchema, PROTOCOL_VERSION, observationMatchesPlatform,
   type ClaimRequest, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse,
@@ -16,7 +18,9 @@ import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser"
 import { CRAWLER_ROBOTS_TOKEN } from "../shared/crawler_identity.ts";
 import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
   IssueNodeCredentialSchema, type IssueNodeCredential,
-  encodeLeadCursor, encodeRuleCursor, type AutoQueueRule, type CreateAutoQueueRule,
+  encodeLeadCursor, encodeRuleCursor, encodeCatalogCursor,
+  type AutoQueueRule, type CreateAutoQueueRule,
+  type CatalogCursor, type CatalogPackage, type CatalogIdentityLink,
   type LeadCursor, type LeadRow, type RuleCursor } from "../shared/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, SourceAccessProfileSchema, encodeProfileCursor,
   type CreateSourceAccessProfile, type SourceAccessProfile, type ProfileCursor,
@@ -40,12 +44,42 @@ type SourceAccessProfileRow = {
   created_at: string; disabled_at: string | null
 };
 
+export type CanonicalUmbrella = "tools" | "assets" | "avatars";
+export type CanonicalLifecycle = "active" | "deprecated" | "quarantined" | "delisted";
+export type EvidenceKind = "vpm_id" | "repository_match" | "cross_storefront_link" | "curator_verified" | "simhash_match";
+export type LinkReviewState = "provisional" | "accepted" | "rejected";
+
+export type CanonicalPackage = {
+  canonicalId: string;
+  umbrella: CanonicalUmbrella;
+  category: string;
+  lifecycle: CanonicalLifecycle;
+  displayName: string;
+  vpmId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IdentityLink = {
+  linkId: string;
+  sourceKey: string;
+  canonicalId: string;
+  evidenceKind: EvidenceKind;
+  confidence: number;
+  reviewState: LinkReviewState;
+  createdAt: string;
+  reviewedAt: string | null;
+};
+
 export class LocalCoordinatorStore implements CoordinatorStore {
   readonly db: Database;
   private readonly now: () => number;
   private readonly robotsMatchers = new Map<string, { snapshotId: string; matcher: CrawlerRules }>();
 
   constructor(databasePath: string = ":memory:", now: () => number = Date.now) {
+    if (databasePath !== ":memory:" && databasePath !== "") {
+      mkdirSync(dirname(resolve(databasePath)), { recursive: true });
+    }
     this.db = new Database(databasePath, { create: true });
     this.db.run("PRAGMA journal_mode = WAL;");
     this.db.run("PRAGMA foreign_keys = ON;");
@@ -172,6 +206,30 @@ export class LocalCoordinatorStore implements CoordinatorStore {
         request_digest TEXT NOT NULL, response_json TEXT NOT NULL, submitted_at TEXT NOT NULL,
         FOREIGN KEY(job_id) REFERENCES crawl_jobs(job_id)
       );
+      CREATE TABLE IF NOT EXISTS canonical_packages (
+        canonical_id TEXT PRIMARY KEY,
+        umbrella TEXT NOT NULL CHECK(umbrella IN ('tools','assets','avatars')),
+        category TEXT NOT NULL,
+        lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active','deprecated','quarantined','delisted')),
+        display_name TEXT NOT NULL,
+        vpm_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS identity_links (
+        link_id TEXT PRIMARY KEY,
+        source_key TEXT NOT NULL,
+        canonical_id TEXT NOT NULL,
+        evidence_kind TEXT NOT NULL CHECK(evidence_kind IN ('vpm_id','repository_match','cross_storefront_link','curator_verified','simhash_match')),
+        confidence REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+        review_state TEXT NOT NULL CHECK(review_state IN ('provisional','accepted','rejected')),
+        created_at TEXT NOT NULL,
+        reviewed_at TEXT,
+        FOREIGN KEY(source_key) REFERENCES source_items(source_key),
+        FOREIGN KEY(canonical_id) REFERENCES canonical_packages(canonical_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_identity_links_source ON identity_links(source_key);
+      CREATE INDEX IF NOT EXISTS idx_identity_links_canonical ON identity_links(canonical_id);
     `);
     // Existing local coordinator databases predate these local-only markers.
     this.db.transaction(() => {
@@ -1032,6 +1090,54 @@ export class LocalCoordinatorStore implements CoordinatorStore {
           VALUES (?,?,?,?,?,?,?,?)`)
           .run(job.job_id, sourceKey, previous?.gone_at && complete ? "restored" : versionId ? "changed" : "unchanged", now, versionId,
             principal.nodeId, request.leaseId, sourceProfile.profileId);
+        // G2 canonical projection: VPM package IDs are authoritative upstream identifiers.
+        // Auto-upsert a canonical package and an accepted vpm_id identity link for every complete
+        // VPM observation. Non-VPM platforms need operator-reviewed identity links instead.
+        if (job.platform === "vpm" && complete) {
+          const vpmId = observation.sourceItemKey; // For VPM jobs, sourceItemKey IS the package ID
+          this.db.prepare(`INSERT INTO canonical_packages
+            (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?)
+            ON CONFLICT(canonical_id) DO UPDATE SET
+              display_name=excluded.display_name,
+              vpm_id=COALESCE(excluded.vpm_id,canonical_packages.vpm_id),
+              updated_at=excluded.updated_at`).run(
+              vpmId, "tools", "vpm_package", "active", observation.title, vpmId, now, now);
+          this.db.prepare(`INSERT OR IGNORE INTO identity_links
+            (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
+            VALUES (?,?,?,'vpm_id',1.0,'accepted',?,?)`).run(
+              crypto.randomUUID(), sourceKey, vpmId, now, now);
+        }
+        // G3 repository_match: if this GitHub job was discovered via a source_lead whose origin
+        // is a VPM source item linked to an accepted canonical package, create a provisional
+        // repository_match identity link (confidence 0.7) for operator review.
+        // Only one link per (source_key, canonical_id) pair; INSERT OR IGNORE prevents duplicates.
+        if (job.platform === "github" && complete) {
+          // Normalize: api.github.com/repos/owner/repo → github.com/owner/repo (lowercase for comparison)
+          const ownerRepo = job.url.match(/^https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)/)?.[1];
+          if (ownerRepo) {
+            const normalizedHtmlUrl = `https://github.com/${ownerRepo}`.toLowerCase();
+            // Find any source_lead of kind 'github_repository' pointing at this URL that was discovered
+            // from a VPM source item that has an accepted canonical identity link.
+            const linkedCanonicals = this.db.prepare(`
+              SELECT DISTINCT il.canonical_id
+              FROM source_leads sl
+              JOIN source_items si ON si.source_key = sl.discovered_from_item_key
+              JOIN identity_links il ON il.source_key = sl.discovered_from_item_key
+              WHERE sl.kind = 'github_repository'
+                AND LOWER(sl.target_url) = ?
+                AND si.platform = 'vpm'
+                AND il.review_state = 'accepted'
+                AND il.evidence_kind = 'vpm_id'
+            `).all(normalizedHtmlUrl) as { canonical_id: string }[];
+            for (const { canonical_id } of linkedCanonicals) {
+              this.db.prepare(`INSERT OR IGNORE INTO identity_links
+                (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at)
+                VALUES (?,?,?,'repository_match',0.7,'provisional',?)`).run(
+                  crypto.randomUUID(), sourceKey, canonical_id, now);
+            }
+          }
+        }
       }
       if (outcome.kind === "gone") {
         const currentItems = this.db.prepare(`SELECT source_key FROM source_items
@@ -1127,4 +1233,232 @@ export class LocalCoordinatorStore implements CoordinatorStore {
       return response;
     }).immediate();
   }
+
+  upsertSourceItem(item: {
+    sourceKey: string;
+    platform: Platform;
+    sourceUrl: string;
+    latestDigest: string;
+    latestVersionNo?: number;
+    goneAt?: string | null;
+  }): void {
+    this.db.prepare(`
+      INSERT INTO source_items (source_key, platform, source_url, latest_digest, latest_version_no, gone_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source_key) DO UPDATE SET
+        platform = excluded.platform,
+        source_url = excluded.source_url,
+        latest_digest = excluded.latest_digest,
+        latest_version_no = excluded.latest_version_no,
+        gone_at = excluded.gone_at
+    `).run(
+      item.sourceKey,
+      item.platform,
+      item.sourceUrl,
+      item.latestDigest,
+      item.latestVersionNo ?? 1,
+      item.goneAt ?? null
+    );
+  }
+
+  upsertCanonicalPackage(pkg: {
+    canonicalId: string;
+    umbrella: CanonicalUmbrella;
+    category: string;
+    lifecycle: CanonicalLifecycle;
+    displayName: string;
+    vpmId?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+  }): CanonicalPackage {
+    const now = new Date(this.now()).toISOString();
+    const createdAt = pkg.createdAt ?? now;
+    const updatedAt = pkg.updatedAt ?? now;
+    const vpmId = pkg.vpmId ?? null;
+    this.db.prepare(`
+      INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(canonical_id) DO UPDATE SET
+        umbrella = excluded.umbrella,
+        category = excluded.category,
+        lifecycle = excluded.lifecycle,
+        display_name = excluded.display_name,
+        vpm_id = COALESCE(excluded.vpm_id, canonical_packages.vpm_id),
+        updated_at = excluded.updated_at
+    `).run(pkg.canonicalId, pkg.umbrella, pkg.category, pkg.lifecycle, pkg.displayName, vpmId, createdAt, updatedAt);
+    return this.getCanonicalPackage(pkg.canonicalId)!;
+  }
+
+  getCanonicalPackage(canonicalId: string): CanonicalPackage | null {
+    const row = this.db.prepare(
+      "SELECT canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at FROM canonical_packages WHERE canonical_id = ?"
+    ).get(canonicalId) as {
+      canonical_id: string;
+      umbrella: CanonicalUmbrella;
+      category: string;
+      lifecycle: CanonicalLifecycle;
+      display_name: string;
+      vpm_id: string | null;
+      created_at: string;
+      updated_at: string;
+    } | null;
+    if (!row) return null;
+    return {
+      canonicalId: row.canonical_id,
+      umbrella: row.umbrella,
+      category: row.category,
+      lifecycle: row.lifecycle,
+      displayName: row.display_name,
+      vpmId: row.vpm_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+
+  createIdentityLink(link: {
+    linkId?: string;
+    sourceKey: string;
+    canonicalId: string;
+    evidenceKind: EvidenceKind;
+    confidence: number;
+    reviewState?: LinkReviewState;
+    createdAt?: string;
+    reviewedAt?: string | null;
+  }): IdentityLink {
+    if (link.confidence < 0.0 || link.confidence > 1.0) {
+      throw new RangeError("confidence must be between 0.0 and 1.0");
+    }
+    const linkId = link.linkId ?? crypto.randomUUID();
+    const now = new Date(this.now()).toISOString();
+    const createdAt = link.createdAt ?? now;
+    const reviewState = link.reviewState ?? "provisional";
+    const reviewedAt = link.reviewedAt ?? (reviewState !== "provisional" ? now : null);
+    this.db.prepare(`
+      INSERT INTO identity_links (link_id, source_key, canonical_id, evidence_kind, confidence, review_state, created_at, reviewed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(linkId, link.sourceKey, link.canonicalId, link.evidenceKind, link.confidence, reviewState, createdAt, reviewedAt);
+    return {
+      linkId,
+      sourceKey: link.sourceKey,
+      canonicalId: link.canonicalId,
+      evidenceKind: link.evidenceKind,
+      confidence: link.confidence,
+      reviewState,
+      createdAt,
+      reviewedAt
+    };
+  }
+
+  updateIdentityLinkReview(linkId: string, reviewState: LinkReviewState, reviewedAt?: string): boolean {
+    const now = reviewedAt ?? new Date(this.now()).toISOString();
+    const res = this.db.prepare(`
+      UPDATE identity_links SET review_state = ?, reviewed_at = ? WHERE link_id = ?
+    `).run(reviewState, now, linkId);
+    return res.changes > 0;
+  }
+
+  deleteIdentityLink(linkId: string): boolean {
+    const res = this.db.prepare("DELETE FROM identity_links WHERE link_id = ?").run(linkId);
+    return res.changes > 0;
+  }
+
+  getIdentityLinksForSourceItem(sourceKey: string): IdentityLink[] {
+    const rows = this.db.prepare(`
+      SELECT link_id, source_key, canonical_id, evidence_kind, confidence, review_state, created_at, reviewed_at
+      FROM identity_links WHERE source_key = ? ORDER BY created_at ASC
+    `).all(sourceKey) as {
+      link_id: string;
+      source_key: string;
+      canonical_id: string;
+      evidence_kind: EvidenceKind;
+      confidence: number;
+      review_state: LinkReviewState;
+      created_at: string;
+      reviewed_at: string | null;
+    }[];
+    return rows.map((r) => ({
+      linkId: r.link_id,
+      sourceKey: r.source_key,
+      canonicalId: r.canonical_id,
+      evidenceKind: r.evidence_kind,
+      confidence: r.confidence,
+      reviewState: r.review_state,
+      createdAt: r.created_at,
+      reviewedAt: r.reviewed_at
+    }));
+  }
+
+  getIdentityLinksForCanonical(canonicalId: string): IdentityLink[] {
+    const rows = this.db.prepare(`
+      SELECT link_id, source_key, canonical_id, evidence_kind, confidence, review_state, created_at, reviewed_at
+      FROM identity_links WHERE canonical_id = ? ORDER BY created_at ASC
+    `).all(canonicalId) as {
+      link_id: string;
+      source_key: string;
+      canonical_id: string;
+      evidence_kind: EvidenceKind;
+      confidence: number;
+      review_state: LinkReviewState;
+      created_at: string;
+      reviewed_at: string | null;
+    }[];
+    return rows.map((r) => ({
+      linkId: r.link_id,
+      sourceKey: r.source_key,
+      canonicalId: r.canonical_id,
+      evidenceKind: r.evidence_kind,
+      confidence: r.confidence,
+      reviewState: r.review_state,
+      createdAt: r.created_at,
+      reviewedAt: r.reviewed_at
+    }));
+  }
+
+  /** Paginated operator read of the canonical catalog (newest first).
+   *  Each page embeds only accepted identity links; provisional/rejected links
+   *  remain internal review state and are not surfaced here. */
+  listCanonicalPackagesPage(limit: number, cursor: CatalogCursor | null):
+      { packages: CatalogPackage[]; nextCursor: string | null } {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Catalog limit must be 1..100");
+    const before = cursor ? "WHERE (p.created_at,p.canonical_id)<(?,?)" : "";
+    const pkgRows = this.db.prepare(`SELECT * FROM canonical_packages p ${before}
+      ORDER BY p.created_at DESC, p.canonical_id DESC LIMIT ?`)
+      .all(...(cursor ? [cursor.createdAt, cursor.canonicalId, limit + 1] : [limit + 1])) as {
+        canonical_id: string; umbrella: string; category: string; lifecycle: string;
+        display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+      }[];
+    const visible = pkgRows.slice(0, limit);
+    const last = visible.at(-1);
+    const packages: CatalogPackage[] = visible.map((pkg) => {
+      const linkRows = this.db.prepare(`SELECT link_id,source_key,evidence_kind,confidence,created_at
+        FROM identity_links WHERE canonical_id=? AND review_state='accepted'
+        ORDER BY created_at ASC`).all(pkg.canonical_id) as {
+          link_id: string; source_key: string; evidence_kind: string;
+          confidence: number; created_at: string;
+        }[];
+      const acceptedLinks: CatalogIdentityLink[] = linkRows.map((l) => ({
+        linkId: l.link_id, sourceKey: l.source_key,
+        evidenceKind: l.evidence_kind as CatalogIdentityLink["evidenceKind"],
+        confidence: l.confidence, createdAt: l.created_at
+      }));
+      return {
+        canonicalId: pkg.canonical_id,
+        umbrella: pkg.umbrella as CatalogPackage["umbrella"],
+        category: pkg.category,
+        lifecycle: pkg.lifecycle as CatalogPackage["lifecycle"],
+        displayName: pkg.display_name,
+        vpmId: pkg.vpm_id,
+        createdAt: pkg.created_at,
+        updatedAt: pkg.updated_at,
+        acceptedLinks
+      };
+    });
+    return {
+      packages,
+      nextCursor: pkgRows.length > limit && last
+        ? encodeCatalogCursor({ createdAt: last.created_at, canonicalId: last.canonical_id })
+        : null
+    };
+  }
 }
+

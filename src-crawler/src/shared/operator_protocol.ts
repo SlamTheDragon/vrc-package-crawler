@@ -95,6 +95,52 @@ export const LeadActionResponseSchema = z.discriminatedUnion("status", [
     status: z.literal("rejected") })
 ]);
 
+/** One accepted identity link embedded in a catalog package response row. */
+export const CatalogIdentityLinkSchema = z.strictObject({
+  linkId: z.uuid(),
+  sourceKey: z.string().min(1).max(500),
+  evidenceKind: z.enum(["vpm_id", "repository_match", "cross_storefront_link", "curator_verified", "simhash_match"]),
+  confidence: z.number().min(0).max(1),
+  createdAt: z.iso.datetime()
+});
+export type CatalogIdentityLink = z.infer<typeof CatalogIdentityLinkSchema>;
+
+/** One row in the canonical catalog page. */
+export const CatalogPackageSchema = z.strictObject({
+  canonicalId: z.string().min(1).max(500),
+  umbrella: z.enum(["tools", "assets", "avatars"]),
+  category: z.string().min(1).max(200),
+  lifecycle: z.enum(["active", "deprecated", "quarantined", "delisted"]),
+  displayName: z.string().min(1).max(500),
+  vpmId: z.string().min(1).max(200).nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  acceptedLinks: z.array(CatalogIdentityLinkSchema)
+});
+export type CatalogPackage = z.infer<typeof CatalogPackageSchema>;
+
+export const CatalogCursorSchema = z.strictObject({
+  createdAt: z.iso.datetime(), canonicalId: z.string().min(1).max(500)
+});
+export type CatalogCursor = z.infer<typeof CatalogCursorSchema>;
+export function encodeCatalogCursor(cursor: CatalogCursor): string {
+  return btoa(JSON.stringify(CatalogCursorSchema.parse(cursor)))
+    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+export function decodeCatalogCursor(value: string): CatalogCursor | null {
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) return null;
+  try {
+    const cursor = CatalogCursorSchema.parse(JSON.parse(atob(value.replaceAll("-", "+").replaceAll("_", "/"))));
+    return encodeCatalogCursor(cursor) === value ? cursor : null;
+  } catch { return null; }
+}
+
+export const CatalogListResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  packages: z.array(CatalogPackageSchema),
+  nextCursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).nullable()
+});
+
 export const OPERATOR_API_JSON_SCHEMAS = {
   approveLead: z.toJSONSchema(ApproveLeadSchema),
   rejectLead: z.toJSONSchema(RejectLeadSchema),
@@ -105,5 +151,6 @@ export const OPERATOR_API_JSON_SCHEMAS = {
   autoQueueRuleListResponse: z.toJSONSchema(AutoQueueRuleListResponseSchema),
   autoQueueRuleResponse: z.toJSONSchema(AutoQueueRuleResponseSchema),
   issueNodeCredential: z.toJSONSchema(IssueNodeCredentialSchema),
-  nodeCredentialResponse: z.toJSONSchema(NodeCredentialResponseSchema)
+  nodeCredentialResponse: z.toJSONSchema(NodeCredentialResponseSchema),
+  catalogListResponse: z.toJSONSchema(CatalogListResponseSchema)
 };

@@ -31,7 +31,8 @@ coordinator.config.json
 tsconfig.tsbuildinfo
 
 # Root scratch and temporary files; src-crawler/scratch contains reproducible smoke scripts
-/scratch/
+scratch/
+*/scratch/
 !docs/scratch
 
 # Legacy archive folders

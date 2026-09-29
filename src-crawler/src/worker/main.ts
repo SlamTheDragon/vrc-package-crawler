@@ -1,8 +1,9 @@
+import { join } from "node:path";
 import { LocalCoordinatorStore } from "./local_sqlite.ts";
 import { handleNodeRequest } from "./handler.ts";
 import { handleOperatorRequest } from "./operator_handler.ts";
 import { PlatformSchema, type Platform } from "../shared/node_protocol.ts";
-import { LeadStatusSchema, decodeLeadCursor } from "../shared/operator_protocol.ts";
+import { LeadStatusSchema, decodeLeadCursor, decodeCatalogCursor } from "../shared/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, SourcePurposeSchema,
   decodeProfileCursor } from "../shared/source_access_profile.ts";
 import { fetchPublicMetadata } from "../node/public_metadata_fetch.ts";
@@ -11,22 +12,39 @@ import { refreshDueRobots, refreshRobotsWithLease, ROBOTS_REFRESH_POLL_MS } from
 import { initializeCoordinatorConfig, loadCoordinatorRuntimeConfig } from
   "./runtime_config.ts";
 
+function printUsage(): void {
+  console.log("Usage: vrc-coordinator init [listen-port] | serve [port] | register <node-id> [platforms] | revoke <node-id> | seed <platform> <https-url> [min-delay-ms] [metadata|discovery] | profile-create <json> | profile-disable <profile-id> <reason> | profiles [limit] [cursor] | refresh-robots <https-origin> | refresh-queued-robots [limit] | leads [status] [limit] [cursor] | approve-lead <lead-key> [min-delay-ms] | suppress <https-url> <reason> | inspect | node-evidence <node-id> | issues | vpm-evidence | catalog [limit] [cursor]");
+}
+
 const [command = "help", ...args] = Bun.argv.slice(2);
+if (command === "help" || command === "--help" || command === "-h") {
+  printUsage();
+  process.exit(0);
+}
+
 if (command === "init") {
   const listenPort = args[0] === undefined ? 8787 : Number(args[0]);
   if (args.length > 1 || !Number.isInteger(listenPort) || listenPort < 1 || listenPort > 65535) {
     console.error("Usage: vrc-coordinator init [listen-port]");
     process.exit(2);
   }
-  const path = initializeCoordinatorConfig(process.cwd(), listenPort);
-  console.log(`Created non-secret coordinator config at ${path}; set COORDINATOR_OPERATOR_TOKEN separately.`);
-  process.exit(0);
+  try {
+    const path = initializeCoordinatorConfig(process.cwd(), listenPort);
+    console.log(`Created non-secret coordinator config at ${path}; set COORDINATOR_OPERATOR_TOKEN separately.`);
+    process.exit(0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      console.log(`Coordinator config already exists at ${join(process.cwd(), "coordinator.config.json")}; skipping re-initialization.`);
+      process.exit(0);
+    }
+    throw error;
+  }
 }
 const { databasePath, listenPort } = loadCoordinatorRuntimeConfig(process.cwd(), process.env);
 const store = new LocalCoordinatorStore(databasePath);
 
 function usage(): never {
-  console.error("Usage: vrc-coordinator init [listen-port] | serve [port] | register <node-id> [platforms] | revoke <node-id> | seed <platform> <https-url> [min-delay-ms] [metadata|discovery] | profile-create <json> | profile-disable <profile-id> <reason> | profiles [limit] [cursor] | refresh-robots <https-origin> | refresh-queued-robots [limit] | leads [status] [limit] [cursor] | approve-lead <lead-key> [min-delay-ms] | suppress <https-url> <reason> | inspect | node-evidence <node-id> | issues | vpm-evidence");
+  printUsage();
   store.close();
   process.exit(2);
 }
@@ -179,7 +197,9 @@ switch (command) {
     const robots = store.db.prepare("SELECT origin,status_code,fetched_at,expires_at FROM origin_robots ORDER BY origin").all();
     const robotsRefreshLeases = store.db.prepare(`SELECT origin,lease_expires_at
       FROM origin_robots_refresh_leases ORDER BY origin`).all();
-    console.log(JSON.stringify({ nodes, jobs, sources, versions, leads, issues, robots, robotsRefreshLeases }, null, 2));
+    const canonical = store.db.prepare("SELECT count(*) AS packages FROM canonical_packages").get();
+    const identityLinks = store.db.prepare("SELECT review_state,count(*) AS count FROM identity_links GROUP BY review_state ORDER BY review_state").all();
+    console.log(JSON.stringify({ nodes, jobs, sources, versions, leads, issues, robots, robotsRefreshLeases, canonical, identityLinks }, null, 2));
     store.close();
     break;
   }
@@ -199,6 +219,15 @@ switch (command) {
   }
   case "vpm-evidence": {
     console.log(JSON.stringify(store.listCompleteVpmEvidence(), null, 2));
+    store.close();
+    break;
+  }
+  case "catalog": {
+    if (args.length > 2) usage();
+    const limit = args[0] ? Number(args[0]) : 100;
+    const cursor = args[1] ? decodeCatalogCursor(args[1]) : null;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (args[1] && !cursor)) usage();
+    console.log(JSON.stringify(store.listCanonicalPackagesPage(limit, cursor), null, 2));
     store.close();
     break;
   }

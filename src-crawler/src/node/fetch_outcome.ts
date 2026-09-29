@@ -22,10 +22,15 @@ export function applyAccessFailure(
       Math.ceil(backoffMs / 1000), response.status, "Rate limited by origin");
     circuitBreaker.recordFailure(origin, response.status, "Rate limited by origin");
   } else {
-    const reason = failure === "challenge" ? "Automated access challenge (Turnstile or managed challenge)" : "Access forbidden by origin";
+    const reason = failure === "challenge"
+      ? "Automated access challenge (Turnstile or managed challenge)"
+      : "Access forbidden by origin";
     logger.warn(`[AccessPolicy] ${reason} at ${url}; holding origin for review.`);
-    targetDb.markStatus(url, "blocked", reason, undefined, undefined, 86400 * 3, response.status === 200 ? 403 : response.status, reason);
-    circuitBreaker.trip(origin, response.status === 200 ? 403 : response.status, reason, 86400 * 3 * 1000);
+    // Trip circuit breaker with bounded exponential backoff instead of a hard 3-day block
+    const effectiveStatusCode = response.status === 200 ? 403 : response.status;
+    const backoffMs = circuitBreaker.trip(origin, effectiveStatusCode, reason);
+    const backoffSec = Math.max(30, Math.ceil(backoffMs / 1000));
+    targetDb.markStatus(url, "blocked", reason, undefined, undefined, backoffSec, effectiveStatusCode, reason);
   }
   return failure;
 }

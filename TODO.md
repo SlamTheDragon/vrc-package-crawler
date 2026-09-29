@@ -320,23 +320,23 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
   - [`LEGAL.md`](LEGAL.md): Section 10.6 ("Downstream Reporting Invariants") & Section 9.4 ("Takedown Protocols") — explicitly distinguish administrative curation auth from unauthenticated rights-holder proof-based delisting.
 - **Acceptance Criteria**: Anonymous `POST /v1/reports` returns `401 Unauthorized`; authenticated delisting reports enter `'needs_review'` buffer. *(Verified: test passes in `tests/phase2_auth_quarantine.test.ts`)*.
 
-#### Task 2.3: Cloudflare Turnstile Detection & Poisson Acceleration Guard [FIXME]
-- **Priority**: Bot Perimeter Defense | **Complexity**: Medium (45 mins) | **Traceability**: CR-15, G-3, G-23, LEGAL §5.1(c), §6.4 | **Status**: Erroneous
-- `To bypass Cloudflare Turnstile as a polite, legitimate web scraper or crawler, your goal is not to hack or "solve" the CAPTCHA using automated solver APIs. Instead, you need to prove your legitimacy and structure your scraper so that Cloudflare recognizes it as a friendly bot.Cloudflare Turnstile generally lets automated traffic pass if the bot is transparent, slow, and behaves like a well-intentioned search engine or data aggregator.`
-- **Files**: [`src/drivers/gumroad.ts`](src-crawler/src/drivers/gumroad/index.ts), [`src/drivers/jinxxy.ts`](src-crawler/src/drivers/jinxxy/index.ts)
+#### Task 2.3: Cloudflare Turnstile Detection & Poisson Acceleration Guard [COMPLETED]
+- **Priority**: Bot Perimeter Defense | **Complexity**: Medium (45 mins) | **Traceability**: CR-15, G-3, G-23, LEGAL §5.1(c), §6.4 | **Status**: Verified & Completed
+- `To bypass Cloudflare Turnstile as a polite, legitimate web scraper or crawler, your goal is not to hack or "solve" the CAPTCHA using automated solver APIs. Instead, you need to prove your legitimacy and structure your scraper so that Cloudflare recognizes it as a friendly bot. Cloudflare Turnstile generally lets automated traffic pass if the bot is transparent, slow, and behaves like a well-intentioned search engine or data aggregator.`
+- **Files**: [`src/drivers/gumroad.ts`](src-crawler/src/drivers/gumroad/index.ts), [`src/drivers/jinxxy.ts`](src-crawler/src/drivers/jinxxy/index.ts), [`src/node/fetch_outcome.ts`](src-crawler/src/node/fetch_outcome.ts)
 - **Problem**: Cloudflare Managed Challenges serve `HTTP 200` with Turnstile HTML challenge scripts. The crawler treats this as a document update, accelerates the Poisson crawl rate ($\lambda \times 1.4$), and triggers an IP ban.
-- **Remediation**: Before parsing HTML DOM, inspect payload:
+- **Remediation**: Before parsing HTML DOM, inspect payload via `applyAccessFailure`. Trip circuit breaker to `OPEN` and apply bounded exponential backoff with full jitter (30s base backoff, doubling per failure, capped at 1 hour) instead of an inflexible 3-day hard freeze:
   ```typescript
-  if (html.includes("challenges.cloudflare.com/turnstile") || html.includes("cf-mitigated: challenge")) {
-    logger.warn(`[AntiBot] Cloudflare Managed Challenge encountered on ${url}. Halting domain crawl.`);
-    await db.markStatus(url, "blocked", 86400 * 3); // 3-day backoff FIXME: too much, use the same exponential back offs
-    return null;
+  if (isChallengeResponse(resp, html)) {
+    const backoffMs = circuitBreaker.trip(origin, 403, reason);
+    await db.markStatus(url, "blocked", reason, undefined, undefined, Math.ceil(backoffMs / 1000), 403, reason);
+    return false;
   }
   ```
 - **Cascading Documentation Changes (Targeted Sections)**:
   - [`docs/scratch/legacy-prototype-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-prototype-targets/DISCOVERY_RULES.md): Section 3.6 ("Turnstile Zero-Circumvention & Halt Invariants") — formalize detection signatures.
   - [`docs/research/markets/PLATFORM-MATRIX.md`](docs/research/markets/PLATFORM-MATRIX.md): Section 2.2 & 2.4 — update perimeter defense notes for Gumroad and Jinxxy.
-- **Acceptance Criteria**: Simulated Turnstile HTML payload halts domain crawl and sets status `"blocked"` without accelerating crawl rate. *(Verified: test passes in `tests/phase2_turnstile_defense.test.ts`)*.
+- **Acceptance Criteria**: Simulated Turnstile HTML payload halts domain crawl and sets status `"blocked"` with bounded exponential backoff without accelerating crawl rate. *(Verified: test passes in `tests/phase2_turnstile_defense.test.ts`)*.
 
 #### Task 2.4: Implement CJK Text Normalization & SimHash Bracket Stripping [COMPLETED]
 - **Priority**: Search Convergence / Entity Resolution | **Complexity**: Medium (1 hour) | **Traceability**: CR-17, G-24 | **Status**: Verified & Completed

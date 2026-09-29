@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/node/runtime_config.ts";
+import { loadScopedGitHubTokenFromEnvFile } from "../src/node/observation_adapter.ts";
 
 const secret = "c".repeat(64);
 const tempRoot = realpathSync(tmpdir());
@@ -20,7 +21,8 @@ describe("standalone node runtime configuration", () => {
         nodeId: "desktop-1", coordinatorUrl: "http://127.0.0.1:8787", capabilities: ["vpm", "shopify"] }));
       expect(loadNodeRuntimeConfig(directory, { NODE_TOKEN: secret })).toEqual({
         nodeId: "desktop-1", baseUrl: "http://127.0.0.1:8787",
-        capabilities: ["vpm", "shopify"], token: secret
+        capabilities: ["vpm", "shopify"], token: secret,
+        databasePath: join(directory, "node.db"),
       });
       expect(() => loadNodeRuntimeConfig(directory, {})).toThrow("NODE_TOKEN");
       expect(() => loadNodeRuntimeConfig(directory, { NODE_TOKEN: secret,
@@ -34,7 +36,7 @@ describe("standalone node runtime configuration", () => {
       const path = initializeNodeConfig(directory, "desktop-1", "http://127.0.0.1:8787", ["vpm"]);
       const saved = readFileSync(path, "utf8");
       expect(JSON.parse(saved)).toEqual({ schemaVersion: 1, nodeId: "desktop-1",
-        coordinatorUrl: "http://127.0.0.1:8787", capabilities: ["vpm"] });
+        coordinatorUrl: "http://127.0.0.1:8787", capabilities: ["vpm"], databaseFile: "node.db" });
       expect(saved).not.toContain(secret);
       expect(() => initializeNodeConfig(directory, "replacement", "http://127.0.0.1:8787", ["vpm"]))
         .toThrow();
@@ -70,6 +72,34 @@ describe("standalone node runtime configuration", () => {
         writeFileSync(join(directory, "node.config.json"), JSON.stringify({ schemaVersion: 1,
           nodeId: "desktop-1", coordinatorUrl, capabilities }));
         expect(() => loadNodeRuntimeConfig(directory, { NODE_TOKEN: secret })).toThrow("config");
+      }
+    } finally { removeFixtureDirectory(directory); }
+  });
+
+  test("supports explicit databaseFile in config and NODE_DB_PATH override", () => {
+    const directory = fixtureDirectory();
+    try {
+      writeFileSync(join(directory, "node.config.json"), JSON.stringify({ schemaVersion: 1,
+        nodeId: "desktop-custom", coordinatorUrl: "http://127.0.0.1:8787",
+        capabilities: ["vpm"], databaseFile: "custom_node.db" }));
+      expect(loadNodeRuntimeConfig(directory, { NODE_TOKEN: secret }).databasePath)
+        .toBe(join(directory, "custom_node.db"));
+      expect(loadNodeRuntimeConfig(directory, { NODE_TOKEN: secret, NODE_DB_PATH: "override.db" }).databasePath)
+        .toBe("override.db");
+    } finally { removeFixtureDirectory(directory); }
+  });
+
+  test("resolves scoped GitHub token only from .env in the binary working directory", () => {
+    const directory = fixtureDirectory();
+    try {
+      expect(loadScopedGitHubTokenFromEnvFile(directory)).toBeUndefined();
+      writeFileSync(join(directory, ".env"), "GITHUB_TOKEN=ghp_test_token_12345\n");
+      expect(loadScopedGitHubTokenFromEnvFile(directory)).toBe("ghp_test_token_12345");
+      const emptyDir = fixtureDirectory();
+      try {
+        expect(loadScopedGitHubTokenFromEnvFile(emptyDir)).toBeUndefined();
+      } finally {
+        removeFixtureDirectory(emptyDir);
       }
     } finally { removeFixtureDirectory(directory); }
   });

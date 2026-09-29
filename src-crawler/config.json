@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "vrc-package-crawler",
+  "version": "0.1.0-preprod",
+  "description": "VRChat asset and package metadata crawler and canonical catalog coordinator",
+  "identity": {
+    "crawlerName": "VRCPackageCrawler",
+    "userAgent": "VRCPackageCrawler/1.0 (+https://github.com/vrc-get/vrc-package-crawler)",
+    "canonicalContact": "https://github.com/vrc-get/vrc-package-crawler"
+  },
+  "protocol": {
+    "version": 1,
+    "minSupportedVersion": 1,
+    "maxSupportedVersion": 1
+  },
+  "defaults": {
+    "coordinatorPort": 8787,
+    "coordinatorHost": "127.0.0.1",
+    "coordinatorBaseUrl": "http://127.0.0.1:8787",
+    "heartbeatIntervalMs": 5000,
+    "originMinDelayMs": 1000,
+    "maxMetadataBytes": 2000000,
+    "maxRobotsBytes": 512000,
+    "defaultNodeId": "node-1"
+  },
+  "platforms": [
+    "vpm",
+    "github",
+    "booth",
+    "gumroad",
+    "jinxxy",
+    "itch",
+    "vrchat",
+    "shopify"
+  ],
+  "evidenceClasses": {
+    "all": [
+      "normalized_facts",
+      "creator_prose",
+      "raw_payload",
+      "media_metadata"
+    ],
+    "defaultRetain": [
+      "normalized_facts"
+    ],
+    "defaultPublish": [
+      "normalized_facts"
+    ]
+  },
+  "databaseFiles": {
+    "coordinator": "coordinator.db",
+    "node": "node.db"
+  },
+  "configFiles": {
+    "coordinator": "coordinator.config.json",
+    "node": "node.config.json"
+  }
+}

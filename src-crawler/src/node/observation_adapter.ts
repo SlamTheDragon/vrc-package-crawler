@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import * as cheerio from "cheerio";
 import type { CrawlJob, DiscoveryLead, Observation, ResultRequest, VpmListingIssue } from "../shared/node_protocol.ts";
 import { isVpmVersion } from "../shared/vpm_version.ts";
@@ -9,6 +11,26 @@ import { UnsafeMetadataTarget } from "./public_metadata_fetch.ts";
 import { parseShopifyProductSitemapLeads } from "../drivers/shopify/discovery.ts";
 
 type Outcome = ResultRequest["outcome"];
+
+/**
+ * Safely resolves an existing GitHub token from .env in the binary's working directory without exposing it.
+ * Used exclusively for scoped rate scaling on api.github.com.
+ */
+export function loadScopedGitHubTokenFromEnvFile(dir: string = process.cwd()): string | undefined {
+  const envPath = join(dir, ".env");
+  try {
+    if (existsSync(envPath)) {
+      const content = readFileSync(envPath, "utf8");
+      const match = content.match(/^ *(?:export +)?(?:GITHUB_TOKEN|GH_TOKEN) *= *["']?([^"'#\r\n]+)["']?/m);
+      if (match && match[1]?.trim()) {
+        return match[1].trim();
+      }
+    }
+  } catch {
+    // Fall through safely on permission or missing file error
+  }
+  return undefined;
+}
 
 async function boundedText(response: Response, maxBytes = 2_000_000): Promise<string> {
   const reader = response.body?.getReader();
@@ -308,8 +330,10 @@ export function parseBoothBrowseLeads(job: CrawlJob, body: string): DiscoveryLea
 
 export async function fetchJobOutcome(job: CrawlJob,
   fetcher: (input: string | URL | Request, init?: RequestInit) => Promise<Response> = fetch,
-  authoritySignal?: AbortSignal): Promise<Outcome> {
-  if ((job.platform === "github" || new URL(job.url).hostname === "api.github.com") &&
+  authoritySignal?: AbortSignal,
+  options?: { githubToken?: string }): Promise<Outcome> {
+  const targetUrl = new URL(job.url);
+  if ((job.platform === "github" || targetUrl.hostname === "api.github.com") &&
       (job.platform !== "github" || !githubApiRepositoryIdentity(job.url))) {
     return { kind: "blocked", reason: "GitHub jobs require a public REST repository metadata endpoint" };
   }
@@ -325,6 +349,12 @@ export async function fetchJobOutcome(job: CrawlJob,
       !isShopifyProductSitemapTarget(job.url))) {
     return { kind: "blocked", reason: "Shopify discovery requires a product sitemap URL" };
   }
+  const isGitHubApi = job.platform === "github" && targetUrl.origin === "https://api.github.com";
+  const githubToken = isGitHubApi
+    ? (options?.githubToken !== undefined
+        ? (options.githubToken.trim() || undefined)
+        : (process.env.GITHUB_TOKEN || process.env.GH_TOKEN)?.trim())
+    : undefined;
   try {
     const response = await fetcher(job.url, {
       headers: {
@@ -333,6 +363,7 @@ export async function fetchJobOutcome(job: CrawlJob,
           job.platform === "shopify" ? "application/xml,text/xml;q=0.9,*/*;q=0.5" :
           "application/json,text/html;q=0.9,*/*;q=0.5",
         ...(job.platform === "github" ? { "x-github-api-version": "2026-03-10" } : {}),
+        ...(githubToken ? { "authorization": `Bearer ${githubToken}` } : {}),
         ...(job.etag ? { "if-none-match": job.etag } : {}),
         ...(job.lastModified ? { "if-modified-since": job.lastModified } : {})
       },
