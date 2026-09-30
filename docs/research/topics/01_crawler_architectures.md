@@ -5,48 +5,46 @@ This guide will explain high-throughput crawler architectures, frontier queue ma
 
 ## 1. Architectural Topologies: Centralized Versus Distributed
 
-Web crawlers will collect documents across network endpoints. System designers will choose between two core topologies: centralized architectures and distributed clusters.
+Web crawlers collect documents across network endpoints. System designers choose between centralized architectures and distributed clusters.
 
 ```mermaid
 flowchart TD
-    subgraph Centralized Engine
-        C1["Single-Node Daemon (vrc-crawler.exe)"] --> C2["Async Event Loop"]
-        C2 --> C3["In-Memory Priority Heap"]
-        C3 --> C4["Local Embedded DB (SQLite WAL)"]
-        C5["Admin CLI (vrc-monitor.exe)"] -.->|Loopback IPC| C1
+    subgraph Centralized Pre-Production (Dual-Process Loopback)
+        C1["Coordinator Process (vrc-coordinator)"] -->|Lease Grants & Origin Pacing| C2["Crawler Node (vrc-node)"]
+        C2 -->|Lease Work Requests & Result DTOs| C1
+        C1 --> C3["Coordinator DB (coordinator.db)"]
+        C2 --> C4["Node DB (node.db)"]
+        C2 --> C5["Scoped Observation Adapters (HTTP)"]
     end
-    subgraph Distributed Cluster
+    subgraph Distributed Multi-Node Cluster
         D1["Frontier Coordinator"] --> D2["Message Broker (Kafka / Redis)"]
         D2 --> D3["Worker Node 1"]
         D2 --> D4["Worker Node 2"]
-        D3 & D4 --> D5["Distributed Store (Cassandra / Bigtable)"]
+        D3 & D4 --> D5["Distributed Store (Cassandra / Bigtable / D1)"]
     end
 ```
 
-### Centralized Single-Node Engines
-A centralized crawler will run on a single host. It will use an asynchronous event loop or lightweight worker threads.
+### Centralized Dual-Process Architecture (Version-0 Pre-Production)
+A centralized crawler runs on a single host. It avoids cross-datacenter network serialization overhead and simplifies consistency for focused domain crawls (such as 50,000 package manifests).
 
-Centralized crawlers suit focused domain crawls, such as indexing 50,000 package manifests. They will avoid network serialization overhead between cluster nodes. Modern single-node crawlers will process hundreds of requests per second using embedded databases like SQLite in WAL mode.
+In the version-0 pre-production architecture, the system separates roles into two distinct binaries communicating over loopback HTTP using validated versioned API payloads (Zod DTOs):
+- `vrc-coordinator`: Governs frontier queue priorities, enforces active source-access profiles, caches RFC 9309 robots rules, serializes origin pacing, issues bounded-time exact-URL leases, and persists authoritative lake state into `coordinator.db` (SQLite WAL).
+- `vrc-node`: Autonomous execution daemon that requests work leases from the coordinator over localhost HTTP, executes scoped observation adapters (`src/node/observation_adapter.ts`), validates output schemas, and records local execution telemetry into `node.db` (SQLite WAL).
 
-#### Standalone Daemon and CLI Separation
-In production single-node deployments, the system will separate execution roles into dedicated binaries:
-- `vrc-crawler.exe`: An autonomous harvesting daemon protected by an operating system process lock (`ProcessLock`). The daemon will not accept CLI subcommand arguments.
-- `vrc-monitor.exe`: A dedicated administrative CLI tool and live dashboard. Administrators will dispatch all management commands (`status`, `recrawl`, `project`, `stop`, `sync`, `export`) through this tool via loopback IPC.
-
-This separation prevents process lock collisions and ensures continuous daemon stability.
+The crawler node never performs unleased network fetches; loss of coordinator availability halts active fetching fail-closed. This dual-process separation eliminates legacy OS process lock collisions (`ProcessLock`), enforces exact protocol boundaries, and matches the target distributed contract locally before deploying edge workers.
 
 ### Distributed Multi-Node Clusters
-Distributed crawlers will partition the URL space across multiple worker nodes. A central coordinator will assign URL hashes to specific nodes.
+Distributed crawlers partition the URL frontier across multiple physical or edge worker nodes. A central coordinator assigns URL hashes or partitions to specific nodes via distributed message brokers.
 
-Distributed architectures suit large-scale crawls exceeding 100 million pages. But distributed crawlers will require message brokers, coordination locks, and network storage. This infrastructure will increase operational complexity.
+Distributed architectures suit web-scale crawls exceeding 100 million pages. However, distributed clusters require message brokers, coordination locks, partition rebalancing, and distributed storage, increasing operational and operational-consistency complexity.
 
-| Architecture Dimension | Centralized Engine (e.g., Colly / Node.js) | Distributed Cluster (e.g., Apache Nutch) |
+| Architecture Dimension | Centralized Dual-Process (`vrc-coordinator` + `vrc-node`) | Distributed Cluster (e.g., Apache Nutch) |
 | :--- | :--- | :--- |
-| **Node Count** | 1 server | Multi-node cluster |
+| **Node Count** | 1 host (dual processes over loopback) | Multi-node cluster |
 | **Throughput Ceiling** | 500 to 2,000 requests per second | 10,000+ requests per second |
-| **Infrastructure Needs** | Local disk and RAM | ZooKeeper, Kafka, Hadoop/HDFS |
-| **Operational Cost** | Low (single virtual machine) | High (multi-instance maintenance) |
-| **Failure Recovery** | Process restart from local log | Node failover and partition rebalancing |
+| **Infrastructure Needs** | Local disk and RAM (`coordinator.db`, `node.db`) | ZooKeeper, Kafka, Hadoop/HDFS, or D1/Durable Objects |
+| **Operational Cost** | Low (single host / development workstation) | High (multi-instance maintenance and cluster orchestration) |
+| **Failure Recovery** | Automatic lease timeout, WAL recovery, idempotent replay | Node failover, lease re-election, and partition rebalancing |
 
 ---
 

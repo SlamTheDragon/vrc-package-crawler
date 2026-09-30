@@ -12,7 +12,7 @@ Naive crawlers will create duplicate entries because each storefront uses differ
 - Listing B: `nadena.dev.modular-avatar (GitHub Release 1.9.2)`
 - Listing C: `[Tool] Face Tracking Auto-Setup for Kikyo (Gumroad)`
 
-To unify these listings into a single catalog record, the engine will use hierarchical entity resolution[^1].
+To unify these listings into a single catalog record, raw observations emitted by node observation adapters (`src/node/observation_adapter.ts`) feed into hierarchical entity resolution[^1].
 
 ```mermaid
 flowchart TD

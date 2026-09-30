@@ -32,8 +32,8 @@ describe("Pre-production directory layout and configuration conformance", () => 
       "DELEGATES.md",
       "TODO.md",
       "LEGAL.md",
-      "docs/scratch/decisions/OPERATOR_QUESTION_QUEUE.md",
-      "docs/scratch/decisions/DECISION_TABLE_MATRIX.md",
+      "docs/scratch/decisions/DEFERRED_OWNER_DECISIONS.md",
+      "docs/scratch/decisions/DIRECTION.md",
       "src-crawler/config.json",
     ];
 

@@ -12,13 +12,13 @@ To provide sub-100ms query latency worldwide, the architecture will replicate sa
 ```mermaid
 flowchart TD
     subgraph Origin Host
-        C["Crawler Daemon & Sanitizer"] --> S["Local SQLite (crawler_state.db)"]
-        Sync["Edge Sync Utility (vrc-sync.exe)"] -->|Read Local Projections| S
+        C["Coordinator Lake & Projections"] --> S["Coordinator DB (coordinator.db)"]
+        Sync["Edge Sync Pipeline"] -->|Read Local Projections| S
         Sync --> CP["sync_checkpoints Table"]
     end
     subgraph Cloudflare Edge Infrastructure
         Sync -->|Batch D1 SQL Execution| D1["Cloudflare D1 (Global Read Replicas)"]
-        W["Cloudflare Worker (vrc-server)"] --> D1
+        W["Cloudflare Worker (Edge Catalog API)"] --> D1
         User["Global Consumer Client"] --> CDN["Cloudflare CDN & Cache Rules"]
         CDN --> W
     end
@@ -28,13 +28,13 @@ flowchart TD
 
 ## 2. Monotonic High-Watermark Synchronization Mechanics
 
-Replicating tens of thousands of catalog records across HTTP network boundaries requires efficient incremental tracking. The synchronization utility (`vrc-sync.exe`) will use a monotonic high-watermark algorithm[^2].
+Replicating tens of thousands of catalog records across HTTP network boundaries requires efficient incremental tracking. The synchronization pipeline uses a monotonic high-watermark algorithm[^2].
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Sync as vrc-sync.exe
-    participant DB as Local SQLite
+    actor Sync as Sync Pipeline
+    participant DB as Coordinator DB
     participant D1 as Cloudflare D1
 
     Sync->>DB: Read checkpoint_value for 'cloudflare_d1_canonical_packages'
@@ -95,7 +95,7 @@ flowchart LR
 ### Operational Recovery and Architectural Invariants
 To prevent silent data omission across distributed edge replicas, the system will enforce three invariants:
 1. **The Forced Watermark Reset Flag**:
-   The synchronization tool will expose an explicit flag (`vrc-sync.exe --reset-watermark`) to reset checkpoints to 0 after full projection rebuilds.
+   The synchronization pipeline provides an explicit flag (`--reset-watermark`) to reset checkpoints to 0 after full projection rebuilds.
 2. **Deterministic High-Watermark Verification SQL**:
    Site reliability engineers will verify local and remote alignment:
    ```sql
@@ -108,26 +108,25 @@ To prevent silent data omission across distributed edge replicas, the system wil
 
 ---
 
-## 4. Ephemeral Pass-Through Image Delivery Versus Object Storage
+## 4. Zero-Binary Media Delivery and Ephemeral Edge Routing
 
-Storefront platforms (including BOOTH and Gumroad) enforce strict hotlinking defenses. They validate HTTP `Referer` headers and generate signed HMAC tokens, returning `HTTP 403 Forbidden` to external client browsers.
+Storefront platforms (including BOOTH and Gumroad) enforce strict hotlinking defenses, validating HTTP `Referer` headers and generating signed HMAC tokens.
 
-Persisting thousands of high-resolution images in Cloudflare R2 object storage incurs high storage costs and creates copyright liability.
+Persisting binary media in Cloudflare R2 object storage incurs high storage costs and introduces copyright exposure. Furthermore, serverless edge environments (such as Cloudflare Workers) run in V8 isolates that cannot execute native Node C++ bindings like Sharp.
 
 ```mermaid
 flowchart LR
-    Client["Client Browser"] -->|GET /api/v1/media/thumb| Proxy["Ephemeral Image Proxy (vrc-server)"]
-    Proxy -->|Fetch with Upstream Headers| CDN["Storefront Origin CDN"]
-    CDN -->|Original Image Buffer| Proxy
-    Proxy -->|Downscale Buffer in RAM (Sharp)| Proxy
-    Proxy -->|Stream Optimized WebP| Client
+    Client["Client Browser"] -->|GET /api/v1/packages/search| API["Edge Catalog API (Worker)"]
+    API -->|Deliver Direct Origin CDN URLs| Client
+    Client -.->|Direct Image Fetch / Referer Policy| CDN["Storefront Origin CDN"]
+    Client -.->|Optional Stream Pass-Through| Proxy["Ephemeral Media Gateway"]
+    Proxy -.->|Non-Persistent Buffer| Client
 ```
 
-The system will deploy an ephemeral in-memory proxy:
-- The proxy will fetch upstream images using authenticated server headers.
-- The proxy will downscale and convert the buffer to WebP in volatile RAM.
-- The proxy will stream the buffer directly to the client with an HTTP `Cache-Control` header.
-- The system will never write image binaries to persistent object stores.
+The system operates strictly on the **Zero-Binary Invariant**:
+- The catalog records and distributes direct canonical media URLs and deep links purely as factual metadata attributes.
+- The catalog never caches or persists binary image BLOBs in SQLite, D1, or R2.
+- Any optional downstream pass-through media gateway streams directly to clients with standard HTTP `Cache-Control` headers without persistent binary disk/object storage or heavy server-side image transcoding.
 
 ---
 

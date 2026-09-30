@@ -1,6 +1,8 @@
 # Prototype database read-only audit (2026-09-27)
 
-Target: `bin/crawler_state.db` (357,777,408 bytes; file modified 2026-09-24). This is prototype/test evidence, **not** a migration source of truth. Queries used `sqlite3 -readonly`; no application constructor, projection, checkpoint, migration, or repair was run against it. Its existing WAL/SHM sidecars were left in place. `PRAGMA quick_check` returned `ok`, which establishes SQLite structural consistency, not catalog semantic correctness.
+> **Historical document:** Retained under `docs/scratch/history/` for traceability. Target: `bin/crawler_state.db` (357,777,408 bytes; file modified 2026-09-24). This is prototype/test evidence, **not** a migration source of truth.
+
+Queries used `sqlite3 -readonly`; no application constructor, projection, checkpoint, migration, or repair was run against it. Its existing WAL/SHM sidecars were left in place. `PRAGMA quick_check` returned `ok`, which establishes SQLite structural consistency, not catalog semantic correctness.
 
 | Check | Observed count | Meaning / action |
 | --- | ---: | --- |

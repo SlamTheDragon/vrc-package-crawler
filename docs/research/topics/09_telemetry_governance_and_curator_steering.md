@@ -102,9 +102,9 @@ The background steering loop would execute `UPDATE canonical_packages SET lifecy
 sequenceDiagram
     autonumber
     actor Attacker as Malicious Actor
-    participant Server as vrc-server.exe
+    participant Server as Coordinator API
     participant Steering as Steering Worker
-    participant DB as Production Database
+    participant DB as Coordinator DB
 
     Attacker->>Server: POST /v1/reports (malicious_or_scam)
     Note over Server: VULNERABILITY: Secret Drift allows unauthenticated request

@@ -72,7 +72,7 @@ However, deploying an automated HTML DOM scraper against VRCArena will remain pr
 - **Server Load on Community Infrastructure**: Scraping rendered HTML pages imposes unnecessary SSR rendering and bandwidth costs on a volunteer, donor-funded non-profit project.
 - **Taxonomy Collisions**: VRCArena centers on avatars and base models (Rexouium, Avali, Kikyo), whereas this crawler is strictly tuned for toolchains and VPM libraries. Ingesting cosmetics without strict isolation triggers SimHash false merges.
 
-The crawler will strictly reject automated HTML DOM scraping. If integration is pursued, the system will rely on bilateral open-source API federation or static dataset dumps with a strict toolchain-only whitelist.
+The crawler strictly rejects automated HTML DOM scraping. If integration is pursued, the system will rely on bilateral open-source API federation or static dataset dumps governed by scoped source-access profiles and typed category filtering.
 
 ---
 
@@ -121,13 +121,13 @@ The VPM standard relies on three machine-readable JSON documents:
 3. **`vpm-manifest.json`**:
    The project lockfile. It records installed packages and version constraints.
 
-Community tools like `vrc-get` show that parsing federated `index.json` manifests gives faster and more reliable discovery than HTML web scraping[^8].
+Community tools like `vrc-get` demonstrate that parsing federated `index.json` manifests yields faster, deterministic discovery compared to HTML web scraping[^8]. Modern node observation adapters (`src/node/observation_adapter.ts`) implement this pattern directly, validating manifest listings and build recipes into bounded protocol payloads.
 
 ### The Open-Web Discovery Fallacy Versus Federated Seeding
 Crawling the unindexed open web for arbitrary `index.json` files without domain-level seed constraints is computationally infeasible. `vpm-manifest.json` is project-local state, not a public feed target. Unbounded web spiders produce astronomical noise, hit bot-walls, and risk infinite spider loops.
 
-The engine will reject open-ended web crawling. Discovery will expand strictly through federated registry seeding:
-- Parsing approved publisher-hosted community repository listings; ALCOM is a client, not a listing source.
+The engine rejects open-ended web crawling. Discovery expands strictly through federated registry seeding:
+- Parsing approved publisher-hosted community repository listings (ALCOM is a desktop client, not a listing source).
 - Extracting VPM repository URLs from verified creator documentation.
 - Polling federated index endpoints with conditional HTTP caching.
 

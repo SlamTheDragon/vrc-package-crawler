@@ -11,14 +11,14 @@ Traditional relational database servers introduce network latency and connection
 
 ```mermaid
 flowchart TD
-    subgraph Engine Process
-        W1["Crawler Workers"] --> A1["Single Write Transaction"]
-        R1["Monitor / Dashboard"] --> A2["Concurrent Read Queries"]
+    subgraph Local Coordinator Process
+        W1["Coordinator Transaction"] --> A1["Single Write Transaction (BEGIN IMMEDIATE)"]
+        R1["Worker API Handlers"] --> A2["Concurrent Read Queries"]
     end
     subgraph SQLite Engine
-        A1 --> WLog["Write-Ahead Log (crawler_state.db-wal)"]
+        A1 --> WLog["Write-Ahead Log (coordinator.db-wal)"]
         WLog --> Ckpt["WAL Checkpoint (Sync to DB)"]
-        Ckpt --> DB["Database File (crawler_state.db)"]
+        Ckpt --> DB["Database File (coordinator.db)"]
         A2 --> DB
         A2 -.-> WLog
     end
@@ -28,13 +28,13 @@ flowchart TD
 
 ## 2. SQLite Configuration for High-Concurrency Write Throughput
 
-Standard SQLite configurations lock the entire database file during writes. To support hundreds of writes per second alongside concurrent dashboard queries, the engine will apply these settings:
+Standard SQLite configurations lock the entire database file during writes. To support high write throughput alongside concurrent query handling, the engine applies these settings:
 
 ### Write-Ahead Logging (WAL Mode)
 ```sql
 PRAGMA journal_mode = WAL;
 ```
-In WAL mode, SQLite will write changes to a separate `-wal` file sequentially. Writers will not block readers, and readers will not block writers[^2].
+In WAL mode, SQLite writes changes to a separate `-wal` file sequentially. Writers do not block readers, and readers do not block writers[^2].
 
 ### Synchronous Normal
 ```sql
@@ -48,21 +48,19 @@ PRAGMA page_size = 4096;
 PRAGMA cache_size = -64000; -- Allocates 64 MB of RAM for cache
 PRAGMA temp_store = MEMORY;
 ```
-Storing temporary tables and indices in RAM will prevent unnecessary disk churn.
+Storing temporary tables and indices in RAM prevents unnecessary disk churn.
 
 ### SQLite Concurrency and Test Suite Isolation Invariants
-In `src/db.ts`, the database sets:
+In coordinator storage (`src/worker/local_sqlite.ts`), the database sets:
 ```sql
 PRAGMA busy_timeout = 10000;
 ```
 This instructs SQLite to wait up to 10 seconds for locks. 
 
-When multiple test files or background processes execute concurrently against the live 357 MB database `dist/crawler_state.db`, exclusive transaction locks (such as catalog exports) cause concurrent tasks to enter busy wait. If a test runner sets a 5,000ms timeout, tests fail spuriously before the 10,000ms busy wait expires.
-
-Automated test suites must isolate their execution environment:
+In version 0 pre-production, automated test suites strictly decouple execution from live databases (`coordinator.db`, `node.db`, or legacy files):
 - Use in-memory SQLite instances (`:memory:`).
-- Use dedicated ephemeral database files for isolated test runs.
-- Avoid concurrent read/write locks against the production database file during automated CI runs.
+- Use dedicated ephemeral database files in temporary directories, deleted after the test run.
+- Avoid concurrent read/write locks against live application database files during automated test and CI runs.
 
 ---
 
@@ -104,58 +102,59 @@ When developers improve deduplication logic or classification filters, they will
 ### Edge Sync Watermark Recovery and Full-Wipe Projection Risks
 Periodic projection scripts that execute `DELETE FROM canonical_packages` reset SQLite auto-incrementing rowids to 1.
 
-In edge synchronization tools (such as `vrc-sync.exe`), watermark resets only trigger if the stored watermark exceeds the maximum row ID in the table (`watermarkRowId > maxRowInDb`). If a table is rebuilt with more rows than the previous watermark, the reset check fails. The synchronization tool will skip rows 1 through the watermark, silently dropping packages from Cloudflare D1.
+In edge delta synchronization pipelines, watermark resets trigger if the stored watermark exceeds the maximum row ID in the table (`watermarkRowId > maxRowInDb`). If a table is rebuilt with more rows than the previous watermark, the reset check fails. The synchronization tool will skip rows 1 through the watermark, silently dropping packages from Cloudflare D1.
 
 To prevent edge data loss:
-- The sync utility will provide a manual forced reset flag (`--reset-watermark`).
-- Production pipelines will verify watermark row alignment with remote D1 before completing sync sweeps.
-- Projections will migrate to deterministic UUID keys or projection epoch counters instead of mutable auto-increment row IDs.
+- The sync pipeline provides an explicit forced reset option (`--reset-watermark`).
+- Production verification checks ensure watermark row alignment with remote D1 before completing sync sweeps.
+- Projections migrate to deterministic UUID keys or projection epoch counters instead of mutable auto-increment row IDs.
 
 ---
 
-## 4. Process Lifecycle, Lock Files, and Crash Recovery
+## 4. Process Lifecycle, Coordinator Leases, and Crash Recovery
 
-Crawlers will run as background services for days. They will survive system reboots and sudden power interruptions[^4].
+Crawler and coordinator run as resilient background services that survive network drops, restarts, and interruptions[^4].
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Startup: Acquire crawler.lock
-    Startup --> Recover: Reset Stale In-Flight Tasks
-    Recover --> Crawling: Dequeue Frontier Tasks
-    Crawling --> SaturationCheck: Check Saturation Ceiling
-    SaturationCheck --> Crawling: Saturation < 95%
-    SaturationCheck --> FinalSanitize: Saturation >= 95%
-    FinalSanitize --> Shutdown: Flush WAL & Remove Lock
+    [*] --> Startup: Initialize Coordinator & Node Stores
+    Startup --> Recover: Reclaim Expired Leases (leased_until < now)
+    Recover --> Scheduling: Issue Scoped Leases to Nodes
+    Scheduling --> Fetching: Execute Leased Adapter Ingestion
+    Fetching --> Ingestion: Commit Results & Leads via Immediate Tx
+    Ingestion --> Draining: Frontier Completion Threshold
+    Draining --> Shutdown: Flush WAL Checkpoints & Close Stores
     Shutdown --> [*]
 ```
 
-### Process Lock Files
-To prevent duplicate instances from corrupting the database, the engine will write an atomic lock file (`crawler.lock`) at startup. The lock file will record:
-- Operating system Process ID (PID).
-- Startup timestamp.
-- Monotonic heartbeat timestamp updated every 10 seconds.
+### Coordinator Leases and Heartbeat Expiry
+To coordinate work across processes without OS process lock collisions (`ProcessLock`), the coordinator issues bounded-time execution leases:
+- Transactions use `BEGIN IMMEDIATE` in `src/worker/local_sqlite.ts` to prevent race conditions during lease claims.
+- Each lease carries a bounded duration (`leased_until`) and an opaque lease token.
+- Active crawler nodes emit periodic heartbeats to extend leases while tasks execute.
 
-If a new process starts, it will check the lock file. If the PID is dead, the process will reclaim the lock safely.
+If a crawler node crashes or disconnects, the lease expires automatically, eliminating deadlock without manual lockfile cleanup.
 
 ### Crash Recovery Invariant
-If a machine halts abruptly, tasks left in `processing` status become orphaned. On startup, the engine will run recovery SQL:
+When a process halts abruptly, tasks left in `leased` state are reclaimed automatically on startup or during maintenance sweeps:
 ```sql
-UPDATE frontier SET status = 'pending' WHERE status = 'processing';
+UPDATE frontier SET status = 'pending', lease_token = NULL, leased_until = NULL 
+WHERE status = 'leased' AND leased_until < datetime('now');
 ```
-This will reset orphaned tasks without losing frontier state.
+This resets orphaned tasks to `pending` without losing frontier history or corrupting database state.
 
 ### Structured Log Rotation and Session Archival
-Monolithic log appending creates unbounded disk growth. The logging subsystem will divide output by session and date:
-- Session prefixes: Output streams will write to `session_<pid>_<iso>.log`.
-- Daily rotation: Log files will rotate at UTC midnight.
-- Gzip compression: Rotated logs will compress asynchronously (`.log.gz`) during idle scheduler intervals.
+Monolithic log appending creates unbounded disk growth. The logging subsystem divides output by session and date:
+- Session prefixes: Output streams write to `session_<pid>_<iso>.log`.
+- Daily rotation: Log files rotate at UTC midnight.
+- Gzip compression: Rotated logs compress asynchronously (`.log.gz`) during idle scheduler intervals.
 
-### The 95 Percent Saturation Stop Sequence
-To prevent infinite crawler loops in circular web graphs, the engine will monitor discovery saturation:
+### Frontier Queue Completion Dynamics
+To monitor queue progression, the engine tracks the frontier queue completion ratio:
 
 $$S = \frac{\text{Processed URLs}}{\text{Total Discovered URLs}}$$
 
-When saturation crosses 95 percent ($S \ge 0.95$), the engine will halt frontier seeding. It will finish in-flight requests, run the final sanitization pass, flush SQLite checkpoints, and shut down cleanly.
+As established in system architecture reviews, $S$ measures queue draining and processing progression rather than total ecosystem completeness. When the frontier queue drains ($S \to 1.0$), the coordinator halts active leasing and transitions to temporal staleness re-seeding or polite idle polling.
 
 ***
 

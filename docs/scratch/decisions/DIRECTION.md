@@ -1,4 +1,4 @@
-﻿# Project Direction and Open Design Arguments
+# Project Direction and Open Design Arguments
 
 > **Document role:** Owner-controlled decision workspace. This document records intent, observations, alternatives, and unresolved arguments. It is not an implementation claim and does not become an engineering mandate until the owner marks a decision **Accepted**.
 >
@@ -28,7 +28,7 @@ When these axes disagree, the disagreement is not resolved by declaring one docu
 | `DIRECTION.md` | Owner intent, alternatives, open questions, accepted design decisions | Proof that a feature exists |
 | `LEGAL.md` | Target operational covenants and legal posture for the projected post-v1.0 application, plus explicit implementation/conformance status | A false claim that version-0 code already enforces every covenant |
 | `TODO.md` | Work decomposition, dependencies, acceptance criteria, and historical phase record | Current runtime truth or a second architecture book |
-| `docs/decisions/current/audits/DISAGREEMENTS.md` | Evidence-backed conflict and defect registry | A parallel roadmap or permanent system specification |
+| Architectural disagreements (§15) | Evidence-backed conflict, breaking points, and defect registry (consolidated from `DISAGREEMENTS.md`) | A parallel roadmap or permanent system specification |
 | `docs/` | Explanations of accepted architecture, protocols, and operations | A place for speculative features presented as current behavior |
 | `src-crawler/src/` | Current implementation | Automatic evidence that the implementation is intended or correct |
 | `tests/` | Executable claims with stated scope and fixtures | Proof of properties the test never exercises |
@@ -214,6 +214,27 @@ A dependency should be adopted only when all applicable checks pass:
 8. Fixtures or conformance tests demonstrate equivalence before custom code is removed.
 9. Documentation identifies why it exists and the subset of its API the project relies on.
 
+### 8.2 Evaluated architectural candidates and decisions matrix (Consolidated from DECISION_TABLE_MATRIX.md)
+
+This decision table records architectural and dependency evaluations across the system, consolidating former `docs/scratch/decisions/DECISION_TABLE_MATRIX.md`.
+
+| Ref | Topic | Candidate / Subject | Rationale & Trade-offs | Disposition |
+|---|---|---|---|---|
+| **DT-01** | Crawler Framework | Crawlee / Puppeteer / Playwright | Heavier runtime footprint; bypasses granular per-origin lease tokens and strict RFC 9309 robots enforcement. | **Rejected** (Keep custom pinned transport) |
+| **DT-02** | Robots.txt Parser | `@trybyte/robotstxt-parser` / `@chrmod/robots-parser` | Fully RFC 9309 compliant, handles merged records and encoded wildcards cleanly. | **Adopted** (`@trybyte/robotstxt-parser@2.0.0`) |
+| **DT-03** | Schema Validation | Zod 3 / Zod 4 | Type inference + runtime boundary validation across loopback API and configuration. | **Adopted** |
+| **DT-04** | Storage Engine | `bun:sqlite` with WAL | Single-file zero-configuration zero-latency database with native prepared statements. | **Adopted** |
+| **DT-05** | Distributed Coordination | Coordinator leases + loopback HTTP | Separates untrusted network crawler nodes from central catalog authority. | **Adopted** |
+| **DT-06** | Node Database | `node.db` (`LocalNodeStore`) | Tracks run lifecycle, claimed tasks, fetch duration, and submission status locally without catalog writes. | **Adopted** |
+| **DT-07** | Same Directory Coexistence | Dual-config dual-db pattern (`coordinator.*` and `node.*`) | Allows node and coordinator to be spawned in identical folder without file or WAL conflict. | **Adopted** |
+| **DT-08** | Web Frontend | SvelteKit + Tailwind 4 (`src-web`) | Lightweight reactive dashboard for operator lead review and node status monitoring. | **Staged** |
+| **DT-09** | Image Processing | Sharp in dedicated worker | Avoids native memory leaks during image metadata extraction and hashing. | **Adopted** (Transcoding retired in v0; hashing retained) |
+| **DT-10** | Content Hashing | SimHash (64-bit) + CJK normalization | Deduplicates titles and descriptions across Japanese and Western storefront mirrors. | **Adopted** |
+| **DT-11** | GitHub Rate Scaling | Scoped `Authorization: Bearer` with `GITHUB_TOKEN` | Safely scales from 60 req/hr to 5,000 req/hr for `api.github.com` metadata queries while isolating credentials from loopback and third-party traffic. | **Adopted** |
+| **DT-12** | Database Pagination | Keyset pagination using `(created_at, id)` | Eliminates $O(N^2)$ table scan degradation on large crawl backlogs compared to `OFFSET/LIMIT`. | **Adopted** |
+| **DT-13** | Identity Link Review | Explicit state machine (`provisional` -> `accepted` / `rejected`) | Enforces relational foreign keys and prevents heuristic clustering algorithms from silently corrupting canonical catalog state. | **Adopted** |
+| **DT-14** | Exponential Backoff | Dynamic backoff via CircuitBreaker | Replaces inflexible multi-day lockouts with bounded exponential backoff, recovering gracefully from transient Cloudflare Turnstile challenges. | **Adopted** |
+
 ## 9. Testing, documentation, and observability arguments
 
 | ID | Question | Thought / desired direction | Observed reality | Projection or alternatives | Why the disagreement matters | State |
@@ -321,7 +342,7 @@ These positions are extracted from the owner's edits. They are preserved without
 Until the owner resolves the high-leverage docket, implementation should be limited to factual audits, release-blocking defects that do not prejudge architecture, and reversible experiments.
 
 1. Reconcile this document with the owner's intended product ontology and source posture.
-2. Audit every `docs/decisions/current/audits/DISAGREEMENTS.md` claim against the current split-driver code; mark it current, resolved, stale, or superseded.
+2. Audit architectural disagreements, defect claims, and breaking points in §15 against current code; mark each item current, resolved, stale, or superseded.
 3. Classify all source FIXMEs and link each to a decision, defect, research item, or stale comment.
 4. Produce a current behavior/conformance matrix for `LEGAL.md` without rewriting its projected target prematurely.
 5. Rewrite Phase 5 only after the dependency-driving decisions above are accepted.
@@ -355,4 +376,76 @@ These code locations are gone; the questions they raised still need owner decisi
 | `src/crawler/steering.ts:36,55` | Report endpoint authority; steering vocabulary (quarantine, suppress, delist) | D-03, M-10, P-06, Q-06 |
 | `tests/phase2_turnstile_defense.test.ts:9` | Circuit-breaker coverage for `cf-mitigated`, body signatures, backoff | A-06, Q-01 |
 
-User comment: Would probably merge disagreements.md here, though disagreements was an agent artifact that needs to be carefully assessed before deletion
+## 15. Architectural Disagreements, Breaking Points, and Defect Ledger
+
+> **Consolidation Note:** Fully incorporated from `docs/scratch/decisions/current/audits/DISAGREEMENTS.md` per owner directive (verbatim user comment: *"Would probably merge this file into DIRECTION.md, though this was an agent artifact that needs to be carefully assessed before deletion"*).
+> **Document role:** Gap and defect registry — not an architecture specification. See `CONFORMANCE.md` for current evidence and Sections 1–14 above for owner decisions.
+> **Audit date:** 2026-09-25 (Phase 4 baseline). Updated 2026-09-30 after `refactor(v0)` purge.
+> **Policy:** Version 0; deletion is preferred over deprecation.
+
+### 15.1 Status of OVERLOOKED items after `refactor(v0)`
+
+Commit `refactor(v0)` permanently deleted `src/utils/image_proxy.ts`, `sharp_worker.ts`, `src/crawler/projection.ts`, `src/crawler/steering.ts`, `src/crawler/index.ts`, `src/server/index.ts`, `src/sync/index.ts`, `src/db.ts` (legacy CrawlerDB), and all `src/drivers/*`. This resolves or closes the following items **as code defects** — the underlying design questions remain open (tracked in the argument tables above).
+
+| ID | Title | Resolution |
+| --- | --- | --- |
+| OVERLOOKED-11 | Stale WebP transcoding and subprocess IPC in `image_proxy.ts`/`sharp_worker.ts` | **Closed** — both files deleted; `sharp` removed from `package.json`; `observation_adapter.ts` records origin URLs only |
+| OVERLOOKED-12 | `resetFrontierForRecrawl()` wipes dead-letter/blocked states | **Closed** — `src/db.ts` (CrawlerDB) deleted; new coordinator uses explicit status transitions in `local_sqlite.ts` |
+| OVERLOOKED-13 | Delta feed missing `projection_epoch`, causing client cursor amnesia | **Closed as legacy** — `src/server/index.ts` deleted; coordinator catalog API uses keyset cursor pagination, not rowid watermarks |
+| OVERLOOKED-14 | Opt-out probe drops HTTP redirects | **Closed as legacy** — `src/server/index.ts` deleted; opt-out flow is now operator-controlled lifecycle state change, not a live probe |
+| OVERLOOKED-15 | VPM manifest hardcodes `1.0.0` for all packages | **Closed as legacy** — `/v1/vpm/index.json` returns HTTP 410; real VPM release evidence is stored in `source_versions` per `local_sqlite.ts` |
+| OVERLOOKED-16 | `canonical_packages.media_id = 'none'` sentinel violates FK integrity | **Closed as legacy** — legacy `canonical_packages` table with `media_id` deleted; new coordinator schema uses `source_items`/`source_versions` without that column |
+| OVERLOOKED-17 | Delta feed omits `package_fronts` multi-storefront data | **Closed as legacy** — `src/server/index.ts` delta feed deleted; multi-platform fronts are operator `GET /v1/operator/catalog` records in `source_items` |
+| OVERLOOKED-18 | Sequential unbatched D1 writes for `package_fronts` | **Closed as legacy** — `src/sync/index.ts` deleted; no D1 sync in v0 pre-production |
+| OVERLOOKED-19 | Dead `'needs_review'` status enum in `user_reports` | **Closed as legacy** — `src/db.ts` legacy schema deleted; new coordinator uses `operator_actions` audit log without that enum |
+
+### 15.2 Subsystem disagreements (still current)
+
+Items that survive the purge and remain active discrepancies between documentation and code reality:
+
+| Topic | Claim A | Claim B | Reality |
+| :--- | :--- | :--- | :--- |
+| API version identifier | `package.json` declares `"version": "1.0.0"` | `GET /v1/health` historically reported `"version": "2.0.0"` | Legacy server deleted; `src-crawler/config.json` is now the version source of truth. API version vocabulary not yet established (O-11) |
+| VPM manifest SemVer | `REPORTING_SCHEMAS.md` §3 specifies multi-version maps | Code hardcoded `1.0.0` for all packages | Legacy server deleted and endpoint returns 410; real versions are stored in `source_versions` but not publicly projected (G4 open) |
+| Tier-2 description boundary | Internal 1024-char summaries allowed | Public descriptions limited to 256 code points in legacy exporter | 256-char limit has no legal basis (A-09); description retention policy is an open owner decision |
+| FTS5 search fields in exported catalog | `COMPREHENSIVE_SYSTEM_ARCHITECTURE.md` §2.1 asserts FTS includes `category`, `subcategory`, `primary_platform` | Legacy `exporter.ts` indexed only `name`, `author`, `description`, `tags` | Legacy exporter deleted; FTS design in future public catalog is not yet specified |
+
+### 15.3 Non-standardized identifiers (still current)
+
+These are open vocabulary issues in `src-crawler/src/shared/` and the coordinator schema:
+
+- **`id` vs `canonical_id` vs `sourceItemKey` vs `platform_item_id`:** coordinator uses `sourceItemKey` as the primary key in `source_items`; `canonical_packages` uses `id` as its pk; `identity_links` connects them. The public API and any downstream consumer need a stable documented vocabulary. See D-04, D-05.
+- **`name` vs `title`:** `source_items` uses `name`; `CatalogPackageSchema` uses `name`; legacy tables used `title`. Standardize on one term before public projection. See Q-06.
+- **Creator identity:** vendor ID vs UTF-8 display name mismatch is not resolved in the coordinator schema — `source_items.name` may store display text while operator identity matching uses URLs. See D-04.
+
+### 15.4 Active breaking points (code still present)
+
+Items referencing **live code** that have not yet been resolved:
+
+| ID | Location | Issue | Severity | Args |
+| --- | --- | --- | --- | --- |
+| NEW-01 | `src/config.ts` | **Resolved** — `targetSaturationScore` and legacy driver pacing constants removed | Closed | P-07 |
+| NEW-02 | `src/shared/node_protocol.ts` (`PlatformSchema`) | 10 platforms declared; curated/sellfy/custom_domain adapters are offline-only — no approved source profiles | Medium | A-02, G3 |
+| NEW-03 | `src/worker/local_sqlite.ts` | `submitResult()` curated outcome routing added but curated metadata observations have no defined schema path | Medium | G3 |
+| NEW-04 | `src/node/observation_adapter.ts` | `parseCuratedDiscoveryLeads` accepts any HTTPS URL from HTML/Markdown; expansion policy (domain allowlist, depth) is unspecified | Medium | C-05, P-04 |
+
+### 15.5 Items formally scheduled for future gates
+
+| Item | Gate | Scope |
+| --- | --- | --- |
+| Open-web VPM feed discovery (ALCOM, GitLab, Codeberg) | G3 | No HTML spidering |
+| VRCArena bilateral federation adapter | G3 | Bilateral data agreement required first |
+| Avatar cosmetics taxonomy isolation and mesh association | G4/G5 | After ontology decision D-08/D-09 |
+| Decentralized contributor ingestion via Worker gateways | Post-v1.0 | Node registration trust model (TOPOLOGY-02) first |
+
+### 15.6 Prototype Database Semantic Audit Findings
+
+Consolidated from read-only audit of `bin/crawler_state.db` (357 MB; modified 2026-09-24; preserved for historical reference under `docs/scratch/history/PROTOTYPE_DB_AUDIT.md`):
+
+- **Scale:** 49,438 raw entities, 16,652 canonical packages, 18,283 fronts, 53,582 frontier URLs.
+- **Fabricated Fronts:** 2,691 fronts whose `raw_entity_id` had no corresponding `entities.id` (every one equaled its canonical package internal `id` due to the legacy projection's `matchingEnt?.id || c.id` fallback synthesizing an unobserved source witness; breakdown: VPM 1,304, GitHub 1,230, BOOTH 110, Gumroad 32, Jinxxy 14, itch 1). Current coordinator avoids creating fronts without raw-observation witnesses.
+- **Duplicate Groups:** 363 duplicate `(platform, platform_item_id)` groups spanning multiple canonical items (Gumroad 211 groups/422 rows; VPM 109 groups/1,141 rows where the largest group assigned a single repository-add link `vcc://vpm/addRepo?...` across 570 items; GitHub 43 groups/149 rows).
+- **Sentinels:** 4,686 `media_id='none'` sentinel rows violating foreign key integrity; newer coordinator stores `NULL`.
+- **Anomalies:** 1 VCC-marked canonical item without `vcc_url`; 16,578 canonical rows with deprecated flat platform URL columns (`github_url`, `booth_url`, etc.).
+- **Disposition:** `bin/crawler_state.db` remains strictly read-only historical test evidence. The new coordinator starts from fresh schemas (`coordinator.db`), never importing legacy tables directly.
+

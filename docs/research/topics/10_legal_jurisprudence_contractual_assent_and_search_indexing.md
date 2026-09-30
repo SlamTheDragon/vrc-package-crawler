@@ -206,9 +206,9 @@ graph TD
     end
 
     subgraph Edge & API Distribution
-        CP --> CF["vrc-sync.exe (Cloudflare D1 Incremental Delta Push)"]
+        CP --> CF["Edge Delta Sync (Cloudflare D1 Delta Push)"]
         CP --> EXP["exporter.ts (vrc_catalog.db SQLite FTS5)"]
-        CP --> API["vrc-server.exe (Headless REST Gateway)"]
+        CP --> API["Coordinator / Catalog API Gateway"]
     end
 ```
 

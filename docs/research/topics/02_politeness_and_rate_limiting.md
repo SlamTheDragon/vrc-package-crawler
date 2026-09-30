@@ -80,13 +80,13 @@ The crawler will inspect response payloads for challenge signatures (`cf-mitigat
 
 ### Adaptive Poisson Re-Crawling and Conditional Headers
 The engine will schedule document revisits based on the Cho-Garcia-Molina Poisson distribution model[^4]. The scheduler will maintain index freshness while respecting domain request quotas:
-1. **Frontier Re-Queuing**: The crawler daemon will periodically invoke `requeueStaleUrls()` during idle monitor intervals.
-2. **Conditional HTTP Requests**: Crawl drivers will transmit `If-None-Match` (ETag) and `If-Modified-Since` headers.
-3. **Freshness Feedback**: When an origin responds with `HTTP 304 Not Modified`, the worker will update metadata without re-downloading the body. It will invoke:
+1. **Frontier Re-Queuing**: The coordinator periodically evaluates stale URLs during frontier scheduling passes.
+2. **Conditional HTTP Requests**: Crawl drivers transmit `If-None-Match` (ETag) and `If-Modified-Since` headers.
+3. **Freshness Feedback**: When an origin responds with `HTTP 304 Not Modified`, metadata updates without re-downloading the body:
    ```typescript
    poissonScheduler.adjustAfterFetch(url, isModified, etag, lastModifiedHeader);
    ```
-   This will compute the next fetch interval dynamically instead of applying a rigid 24-hour constant.
+   This computes the next fetch interval dynamically instead of applying a rigid 24-hour constant.
 
 ### Exponential Backoff with Decorrelated Jitter
 When multiple crawler workers run simultaneously, synchronized retry loops will create thundering herd problems. Adding randomized jitter will break synchronization[^5].

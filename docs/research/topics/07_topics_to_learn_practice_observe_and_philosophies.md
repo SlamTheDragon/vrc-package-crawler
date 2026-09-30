@@ -74,9 +74,9 @@ Engineers will build and test these six core components:
    ```bash
    bun test
    ```
-   Verify that all 57 tests across 12 files pass with 0 failures (including `tests/schema_unification.test.ts` and `tests/gumroad_driver.test.ts`).
+   Verify that all unit, contract, and adapter test suites execute with zero failures across isolated test fixtures.
 2. **Build Test Isolation Fixtures**:
-   Decouple test execution from the production database `dist/crawler_state.db`. Ensure tests instantiate ephemeral in-memory databases (`:memory:`) to eliminate SQLite `busy_timeout` contention.
+   Decouple test execution from live databases (`coordinator.db`, `node.db`, or legacy files). Ensure tests instantiate ephemeral in-memory databases (`:memory:`) or isolated temporary test directories to eliminate SQLite `busy_timeout` contention.
 3. **Build a Min-Heap Politeness Scheduler**:
    Implement a domain scheduler that enforces a strict delay ceiling (such as 3.0 seconds on storefronts). Add randomized jitter and ensure no two requests fire concurrently to the same host.
 4. **Build Socket Guardrails with Streaming Aborts**:
@@ -96,8 +96,8 @@ Engineers will monitor these six operational telemetry signals:
    Track counts of `200 OK`, `304 Not Modified`, `403 Forbidden`, `404 Not Found`, `429 Rate Limited`, and `503 Unavailable` per domain.
 2. **Moving Average Latency (EWMA)**:
    Track the Exponentially Weighted Moving Average of round-trip times per host. Rising response times signal server load before errors occur.
-3. **Frontier Discovery Saturation Index ($S$)**:
-   Monitor the ratio $S = \text{Processed URLs} / \text{Discovered URLs}$. When saturation exceeds 95 percent ($S \ge 0.95$), halt frontier expansion.
+3. **Frontier Queue Completion Ratio ($S$)**:
+   Monitor the ratio $S = \text{Processed URLs} / \text{Discovered URLs}$. Track queue draining progression without conflating frontier completion with total ecosystem coverage.
 4. **Quarantine Discard Yield**:
    Track the percentage of crawled records moved to quarantine. A healthy filter identifies cosmetic assets and flags 55 to 65 percent of raw listings.
 5. **Edge Sync High-Watermark Alignment**:

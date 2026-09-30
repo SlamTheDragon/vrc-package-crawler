@@ -87,18 +87,21 @@ Some developers deploy headless browsers (such as Puppeteer or Playwright) with 
 
 Deploying automated CAPTCHA solvers or proxy rotators to defeat barriers creates severe legal liability under access laws[^5].
 
-### Ephemeral Pass-Through Image Proxying Versus Hotlink Blocking
+### Zero-Binary Media Delivery Versus Hotlink Blocking
 Storefront content delivery networks (including BOOTH and Gumroad) actively prevent client direct image hotlinking. They enforce signed HMAC tokens, `Referer` validation, and return `HTTP 403 Forbidden` to external `<img>` elements.
 
-To reduce media copyright exposure and storage overhead, the architectural roadmap plans a transition toward an ephemeral pass-through image proxy (AGENT.md CR-19/CR-21):
-1. In the current implementation, `ImageProxyService` fetches storefront preview images, downscales them to $480 \times 270$ WebP format, stores binary thumbnails in local SQLite (`media_cache.webp_data`), and serves them via `/v1/media/:id`.
-2. Under the planned architectural deprecation, the service will phase out persistent BLOB caching in favor of ephemeral in-memory downscaling or direct origin URL redirection.
-3. Volatile processing will stream the optimized image directly to the client without persistent disk or object storage.
+To eliminate media copyright liability and storage overhead, the accepted v0 pre-production architecture enforces a strict **Zero-Binary Metadata Invariant**:
+1. The catalog never stores binary images, thumbnails, or BLOB caches in local SQLite (`media_cache` BLOB storage is obsolete and rejected).
+2. Outbound media references are stored and served purely as verified origin CDN URLs and deep links.
+3. If an optional pass-through media gateway is deployed downstream for clients unable to fetch origin assets directly, it operates strictly in-memory without persistent disk or object storage.
 
-### YouTube Embed Filtering at the Frontier
-Media extraction parsers will frequently observe YouTube iframe or embed links (`youtube.com/embed/`, `youtu.be/`). Passing HTML embed targets into binary image processing queues causes Sharp image workers to crash with unhandled exceptions.
+### YouTube Embed Filtering in Observation Adapters
+Media extraction parsers frequently observe YouTube iframe or embed links (`youtube.com/embed/`, `youtu.be/`). 
 
-The crawler will enforce strict protocol and MIME preflight verification. Media links containing YouTube domains will route directly to `youtube_urls` metadata arrays. The system will never enqueue YouTube URLs into the image proxy service.
+Modern observation adapters (`src/node/observation_adapter.ts`) perform strict URI scheme and host classification:
+- YouTube embed links are parsed directly into dedicated `youtube_urls` metadata arrays.
+- Static preview images are validated and parsed into image URL metadata arrays.
+- This clean separation ensures typed metadata delivery without enqueuing HTML video links into image pointer pipelines or attempting native binary image transcoding.
 
 ---
 
