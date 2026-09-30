@@ -1,3 +1,4 @@
+import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { LocalCoordinatorStore } from "./local_sqlite.ts";
 import { handleNodeRequest } from "./handler.ts";
@@ -74,9 +75,22 @@ switch (command) {
     };
     const timer = setInterval(refresh, ROBOTS_REFRESH_POLL_MS);
     refresh();
+    const stopFile = join(process.cwd(), "coordinator.stop");
+    if (existsSync(stopFile)) {
+      try { unlinkSync(stopFile); } catch {}
+    }
+    const stopWatcher = setInterval(() => {
+      if (existsSync(stopFile)) {
+        stop();
+      }
+    }, 100);
     const stop = async () => {
       if (stopping) return;
       stopping = true;
+      clearInterval(stopWatcher);
+      if (existsSync(stopFile)) {
+        try { unlinkSync(stopFile); } catch {}
+      }
       clearInterval(timer);
       shutdown.abort();
       server.stop();
@@ -86,6 +100,17 @@ switch (command) {
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
+    if (process.stdin.isTTY === false) {
+      process.stdin.resume();
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (data) => {
+        const text = String(data).trim();
+        if (text === "stop" || text === "exit" || text === "shutdown") {
+          stop();
+        }
+      });
+      process.stdin.unref();
+    }
     break;
   }
   case "register": {

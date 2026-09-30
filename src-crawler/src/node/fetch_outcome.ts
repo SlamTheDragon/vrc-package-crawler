@@ -1,9 +1,21 @@
-/** Detects an access challenge before the response can be treated as content. */
-import type { CrawlerDB } from "../db/db.ts";
-import { circuitBreaker, rateLimiter } from "../ratelimit.ts";
+import { circuitBreaker } from "../utils/circuit_breaker.ts";
+import { adaptiveRateLimiter as rateLimiter } from "../utils/adaptive_limiter.ts";
 import { logger } from "../utils/logger.ts";
 import { classifyAccessFailure, type AccessFailure } from "../shared/access_outcome.ts";
 export { isChallengeResponse, classifyAccessFailure } from "../shared/access_outcome.ts";
+
+export interface AccessStatusSink {
+  markStatus(
+    url: string,
+    status: string,
+    reason?: string,
+    etag?: string,
+    lastModified?: string,
+    nextIntervalSec?: number,
+    httpStatus?: number,
+    httpMessage?: string
+  ): void;
+}
 
 /** Persist an origin access decision before a caller can mistake the page for data. */
 export function applyAccessFailure(
@@ -11,7 +23,7 @@ export function applyAccessFailure(
   url: string,
   origin: string,
   limiterKey: string,
-  targetDb: CrawlerDB,
+  targetDb: AccessStatusSink,
   body?: string
 ): AccessFailure | null {
   const failure = classifyAccessFailure(response, body);

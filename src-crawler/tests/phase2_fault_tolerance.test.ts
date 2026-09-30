@@ -98,7 +98,7 @@ describe("Phase 2 - Task 2.7: Autonomous Fault Tolerance Subsystem (Domain Circu
         WHERE url = ?;
       `, [expiredUrl]);
 
-      const drained = testDb.drainDeadLetterQueue(10);
+      const drained = testDb.drainExpiredRetryQueue(10);
       expect(drained).toBeGreaterThanOrEqual(1);
 
       const row = testDb.rawDb.prepare("SELECT status FROM frontier WHERE url = ?;").get(expiredUrl) as any;

@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "VRChat Package Crawler - Yet Another Discovery Tool that crawls the public VRChat Web Ecosystem for VCC, Tooling, Assets, World Creation, Avatars & many more. Not affiliated with VRChat Inc.",
   "license": "AGPL-3.0-or-later",
-  "module": "src/crawler/index.ts",
+  "module": "src/index.ts",
+  "main": "src/index.ts",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -22,7 +23,8 @@
     "smoke:multi": "bun run scratch/smoke_multi_coordinator.ts",
     "smoke:vpm:live": "bun run scratch/smoke_live_vpm.ts",
     "smoke:github:live": "bun run scratch/smoke_live_github.ts",
-    "smoke:preprod": "bun run scratch/smoke_preprod_simulation.ts"
+    "smoke:preprod": "bun run scratch/smoke_preprod_simulation.ts",
+    "smoke:continuous": "bun run scratch/smoke_preprod_continuous.ts"
   },
   "devDependencies": {
     "@types/semver": "^7.7.1",

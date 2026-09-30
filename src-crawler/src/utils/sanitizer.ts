@@ -1,5 +1,4 @@
 import { IanaRegistry } from "./iana.ts";
-
 /**
  * Unescapes standard HTML entity codes
  */

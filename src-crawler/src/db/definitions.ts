@@ -1,6 +1,4 @@
-// TODO: add additional storefront markets such as shopify, payhip, & sellfy once fronts are verified
-
-export type PlatformType = "booth" | "github" | "vpm" | "gumroad" | "jinxxy" | "itch";
+export type PlatformType = "booth" | "github" | "vpm" | "gumroad" | "jinxxy" | "itch" | "vrchat" | "shopify";
 
 export interface PlatformMetrics {
   pending: number;

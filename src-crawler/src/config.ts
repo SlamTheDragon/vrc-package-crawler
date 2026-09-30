@@ -1,6 +1,10 @@
 import path from "path";
 import { CRAWLER_USER_AGENT } from "./shared/crawler_identity.ts";
 
+/**
+ * Legacy environment and filesystem path constants.
+ * Active pre-production binaries use src/node/runtime_config.ts and src/worker/runtime_config.ts.
+ */
 // Grounded working-directory path resolution (no hardcoded absolute system paths)
 const isBunRuntime = process.execPath.endsWith("bun.exe") || process.execPath.endsWith("bun");
 export const BASE_DIR = isBunRuntime
@@ -34,10 +38,6 @@ export const CONFIG = {
   gumroadDelayMs: 3000,      // 3.0s delay between Gumroad requests (strictly serialized to prevent 429)
   jinxxyDelayMs: 1200,       // 1.2s delay between Jinxxy requests
   itchDelayMs: 1500,         // 1.5s delay between Itch requests
-  
-  // High saturation ceiling threshold (approaching 100% catalog coverage)
-  // FIXME: obsolete
-  targetSaturationScore: 0.95,
   
   // Batch size for SQLite transaction chunks
   batchSize: 20

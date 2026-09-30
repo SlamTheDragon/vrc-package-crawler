@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { CoordinatorClient } from "./coordinator_client.ts";
 import { runLeasedJob } from "./lease_runner.ts";
@@ -63,16 +63,35 @@ const runOnce = Bun.argv.includes("--once");
 const nodeStore = new LocalNodeStore(databasePath);
 const runId = nodeStore.startRun(nodeId);
 
+const stopFile = join(process.cwd(), "node.stop");
+if (existsSync(stopFile)) {
+  try { unlinkSync(stopFile); } catch {}
+}
+
 let stopping = false;
 const shutdown = () => {
   if (stopping) return;
   stopping = true;
+  if (existsSync(stopFile)) {
+    try { unlinkSync(stopFile); } catch {}
+  }
   nodeStore.finishRun(runId, "completed");
   nodeStore.close();
   process.exit(0);
 };
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
+if (process.stdin.isTTY === false) {
+  process.stdin.resume();
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (data) => {
+    const text = String(data).trim();
+    if (text === "stop" || text === "exit" || text === "shutdown") {
+      shutdown();
+    }
+  });
+  process.stdin.unref();
+}
 
 const client = new CoordinatorClient(baseUrl, token, nodeId, capabilities);
 console.log(`Crawler node ${nodeId} connected to ${baseUrl}; capabilities: ${capabilities.join(",")}; database: ${databasePath}`);
@@ -85,12 +104,22 @@ async function heartbeat(): Promise<void> {
 
 await heartbeat();
 for (;;) {
-  if (stopping) break;
+  if (stopping || existsSync(stopFile)) {
+    shutdown();
+    break;
+  }
   if (Date.now() - lastHeartbeatAt >= 30_000) await heartbeat();
   const claim = await client.claim();
   if (claim.status === "empty") {
     if (runOnce) break;
-    await Bun.sleep(claim.retryAfterMs);
+    const sleepTarget = Date.now() + claim.retryAfterMs;
+    while (!stopping && Date.now() < sleepTarget) {
+      if (existsSync(stopFile)) {
+        shutdown();
+        break;
+      }
+      await Bun.sleep(Math.min(100, sleepTarget - Date.now()));
+    }
     continue;
   }
   const { job } = claim;

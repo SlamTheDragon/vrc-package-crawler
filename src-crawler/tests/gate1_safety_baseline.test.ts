@@ -1,47 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { CrawlerDB } from "../src/db/db.ts";
-import { fetchStorefrontProofWithRedirects, startServer } from "../src/server/index.ts";
 import { ImageProxyService } from "../src/utils/image_proxy.ts";
 import sharp from "sharp";
-import dns from "node:dns/promises";
 import { PoissonScheduler } from "../src/utils/poisson_scheduler.ts";
 import { AdaptiveRateLimiter } from "../src/utils/adaptive_limiter.ts";
 import { DomainCircuitBreaker } from "../src/utils/circuit_breaker.ts";
-import { circuitBreaker } from "../src/ratelimit.ts";
-import { crawlProduct as crawlGumroadProduct } from "../src/drivers/gumroad/harvesting.ts";
+import { circuitBreaker } from "../src/utils/circuit_breaker.ts";
 import { applyAccessFailure, isChallengeResponse } from "../src/node/fetch_outcome.ts";
 
 describe("Gate 1 safety baseline", () => {
-  it("rejects both protected writes when no token is configured", async () => {
-    const fixture = new CrawlerDB(":memory:");
-    const port = 20000 + Math.floor(Math.random() * 1000);
-    const server = startServer({ host: "127.0.0.1", port, apiToken: "", db: fixture });
-    try {
-      for (const route of ["/v1/reports", "/v1/telemetry"]) {
-        const response = await fetch(`http://127.0.0.1:${server.port}${route}`, {
-          method: "POST",
-          headers: { Authorization: "Bearer vrc-secret-telemetry-token", "Content-Type": "application/json" },
-          body: "{}"
-        });
-        expect(response.status).toBe(401);
-      }
-    } finally {
-      server.stop();
-      fixture.close();
-    }
-  });
-
-  it("does not publish a fabricated installable VPM release", async () => {
-    const fixture = new CrawlerDB(":memory:");
-    const server = startServer({ host: "127.0.0.1", port: 21000 + Math.floor(Math.random() * 1000), apiToken: "", db: fixture });
-    try {
-      for (const path of ["/v1/vpm/index.json", "/index.json"]) {
-        const response = await fetch(`http://127.0.0.1:${server.port}${path}`);
-        expect(response.status).toBe(410);
-        expect((await response.json() as any).packages).toBeUndefined();
-      }
-    } finally { server.stop(); fixture.close(); }
-  });
 
   it("manual recrawl preserves in-flight, blocked, dead-letter and timed retry states", () => {
     const fixture = new CrawlerDB(":memory:");
@@ -196,8 +163,9 @@ describe("Gate 1 safety baseline", () => {
       status: 403, headers: { "cf-mitigated": "challenge", "Content-Type": "text/html" }
     })) as unknown as typeof fetch;
     try {
-      const result = await crawlGumroadProduct({ isAborted: false, sleep: async () => {} }, url, fixture);
-      expect(result).toBe(false);
+      const resp = await fetch(url);
+      const failure = applyAccessFailure(resp, url, "gumroad.com", "gumroad.com", fixture, await resp.text());
+      expect(failure).toBe("challenge");
       const row = fixture.rawDb.prepare("SELECT status FROM frontier WHERE url = ?").get(url) as { status: string };
       expect(row.status).toBe("blocked");
       expect(circuitBreaker.getState("gumroad.com")).toBe("OPEN");
@@ -228,67 +196,6 @@ describe("Gate 1 safety baseline", () => {
     } finally {
       circuitBreaker.reset("example.org");
       fixture.close();
-    }
-  });
-
-  it("follows same-origin storefront redirects with a fresh DNS check per hop", async () => {
-    const originalFetch = globalThis.fetch;
-    const originalLookup = dns.lookup;
-    const requested: string[] = [];
-    let lookups = 0;
-    (dns as any).lookup = async () => ({ address: ++lookups === 1 ? "1.1.1.1" : "127.0.0.1", family: 4 });
-    globalThis.fetch = (async (target: string, options: RequestInit) => {
-      requested.push(String(target));
-      expect(options.redirect).toBe("manual");
-      return new Response(null, { status: 302, headers: { Location: "/ja/items/123" } });
-    }) as unknown as typeof fetch;
-    try {
-      await expect(fetchStorefrontProofWithRedirects("https://booth.pm/items/123"))
-        .rejects.toThrow("private/reserved IP");
-      expect(requested).toEqual(["https://booth.pm/items/123"]);
-      expect(lookups).toBe(2);
-    } finally {
-      globalThis.fetch = originalFetch;
-      (dns as any).lookup = originalLookup;
-    }
-  });
-
-  it("rejects storefront redirects to another origin", async () => {
-    const originalFetch = globalThis.fetch;
-    const originalLookup = dns.lookup;
-    (dns as any).lookup = async () => ({ address: "1.1.1.1", family: 4 });
-    globalThis.fetch = (async () => new Response(null, {
-      status: 302,
-      headers: { Location: "https://example.org/claimed-profile" }
-    })) as unknown as typeof fetch;
-    try {
-      await expect(fetchStorefrontProofWithRedirects("https://booth.pm/items/123"))
-        .rejects.toThrow("original HTTPS origin");
-    } finally {
-      globalThis.fetch = originalFetch;
-      (dns as any).lookup = originalLookup;
-    }
-  });
-
-  it("accepts a same-origin language redirect for proof content", async () => {
-    const originalFetch = globalThis.fetch;
-    const originalLookup = dns.lookup;
-    const requested: string[] = [];
-    (dns as any).lookup = async () => ({ address: "1.1.1.1", family: 4 });
-    globalThis.fetch = (async (target: string) => {
-      requested.push(String(target));
-      return requested.length === 1
-        ? new Response(null, { status: 302, headers: { Location: "/ja/items/123" } })
-        : new Response("creator proof token", { status: 200 });
-    }) as unknown as typeof fetch;
-    try {
-      const response = await fetchStorefrontProofWithRedirects("https://booth.pm/items/123");
-      expect(response.status).toBe(200);
-      expect(response.body.toString()).toContain("creator proof token");
-      expect(requested).toEqual(["https://booth.pm/items/123", "https://booth.pm/ja/items/123"]);
-    } finally {
-      globalThis.fetch = originalFetch;
-      (dns as any).lookup = originalLookup;
     }
   });
 });

@@ -98,7 +98,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 1.1: Declare `API_SECRET_TOKEN` in `.env.example` and Purge `CRAWLER_API_TOKEN` [COMPLETED]
 - **Priority**: Critical Security Config | **Complexity**: Very Low (5 mins) | **Traceability**: CR-2, CR-19, G-19, LEGAL §10.6 | **Status**: Verified & Completed
-- **Files**: [`.env.example`](src-crawler/.env.example), [`src/server/index.ts`](src-crawler/src/server/index.ts#L130)
+- **Files**: [`.env.example`](src-crawler/.env.example), `src/server/index.ts` (retired)
 - **Functional Scope & Variable Purpose**:
   - `API_SECRET_TOKEN` is the master administrative bearer authentication token (`Authorization: Bearer <API_SECRET_TOKEN>`) guarding mutating and administrative endpoints on `vrc-server.exe`.
   - Specifically protects:
@@ -122,7 +122,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 1.2: Inject Downstream Terms Notice Header (`VRC-Packages-Terms-Of-Use`) & Export Metadata [COMPLETED]
 - **Priority**: Legal Invariant | **Complexity**: Low (15 mins) | **Traceability**: CR-14, CR-22, G-21, LEGAL §10.1, §10.7 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts#L135-L160), [`src/sync/exporter.ts`](src-crawler/src/sync/exporter.ts)
+- **Files**: `src/server/index.ts` (retired), `src/sync/exporter.ts` (retired)
 - **Header Standards & Naming Rationale**:
   - Per **IETF RFC 6648** ("Deprecating the 'X-' Prefix and Similar Constructs in Application Protocols"), the `X-` prefix was formally deprecated for custom application protocols in June 2012 to avoid technical debt and migration churn when headers become standardized.
   - Accordingly, the header standard uses the clean, un-prefixed project domain identifier `VRC-Packages-Terms-Of-Use` (and RFC 8288 standard web linking).
@@ -157,7 +157,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 1.3: Expose Root API Discovery Route (`GET /`) [COMPLETED]
 - **Priority**: Usability & Discoverability | **Complexity**: Low (15 mins) | **Traceability**: CR-23, G-31 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts#L140-L150)
+- **Files**: `src/server/index.ts` (retired)
 - **Canonical Proof & Standards Grounding**:
   - Grounded in **IETF RFC 9110 Section 3.4 & Section 8.6** (HTTP Semantics: Service discovery and root entrypoint resources).
   - Adheres to **IETF RFC 8288** (Web Linking) and **W3C API Home Documents / RFC 7231 discoverability standards**.
@@ -191,7 +191,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 1.4: Canonical Modified Strategy: Disallow Crawl Fetch Time for Missing Dates, Dissolve External Tools, Front-Stage Sanitation & 2-URL Column Standard [COMPLETED]
 - **Priority**: Data Integrity & Pipeline Logistics | **Complexity**: Low-Med (30 mins) | **Traceability**: CR-5, G-14, LEGAL §2.4, DISCOVERY_RULES §4.2 | **Status**: Verified & Completed
-- **Files**: [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts), [`src/db.ts`](src-crawler/src/db/db.ts), [`src/utils/sanitizer.ts`](src-crawler/src/utils/sanitizer.ts), Ingestion Drivers (`src/drivers/`)
+- **Files**: `src/crawler/projection.ts` (retired), [`src/db.ts`](src-crawler/src/db/db.ts), [`src/utils/sanitizer.ts`](src-crawler/src/utils/sanitizer.ts), Ingestion Drivers (`src/drivers/`)
 - **Schema Proof & Architectural Rationale**:
   - In `src/db.ts`, table `canonical_packages` specifies `origin_created_at TEXT` (nullable ISO 8601), `created_at_confidence TEXT` (`'confirmed' | 'inferred' | 'unknown'`), and `created_at TEXT NOT NULL`. Table `entities` specifies `observed_at TEXT NOT NULL` and `raw_payload JSON`. Table `package_fronts` specifies `created_at TEXT NOT NULL`.
   - Conflating local crawler observation time with upstream publication time (`originCreatedAt`) directly violates `LEGAL.md` §2.4 (Factual Provenance Faithfulness) and `DISCOVERY_RULES.md` §4.2. When upstream platform metadata lacks a verifiable publication date, `origin_created_at` MUST be `NULL` with `created_at_confidence = 'unknown'`.
@@ -223,7 +223,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 1.5: Fix VPM Re-Seeding Permanent Gate Lockout Bug [COMPLETED]
 - **Priority**: Crawler Loop Integrity | **Complexity**: Low (20 mins) | **Traceability**: CR-4, G-13 | **Status**: Verified & Completed
-- **Files**: [`src/crawler/index.ts`](src-crawler/src/crawler/index.ts#L82)
+- **Files**: `src/crawler/index.ts` (retired)
 - **Problem**: Gate condition `if (metrics.platformStats["vpm"].pending < 10 && metrics.platformStats["vpm"].done < 50)` permanently halts VPM re-seeding once lifetime `done >= 50`.
 - **Remediation**: Replace monotonic `done < 50` check with a temporal staleness check:
   ```typescript
@@ -240,7 +240,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 1.6: Filter YouTube Embeds at Frontier and Image Proxy [COMPLETED]
 - **Priority**: Operational Defect | **Complexity**: Low (30 mins) | **Traceability**: CR-6, G-1, DISCOVERY_RULES §7.1 | **Status**: Verified & Completed
-- **Files**: [`src/drivers/jinxxy.ts`](src-crawler/src/drivers/jinxxy/index.ts), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts#L740-L745)
+- **Files**: `src/drivers/jinxxy.ts` (retired), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts#L740-L745)
 - **Problem**: Jinxxy driver enqueues YouTube embed URLs into image queues, triggering Sharp worker parse failures on `text/html`.
 - **Remediation**:
   1. In `src/drivers/jinxxy.ts`, filter media arrays by MIME/type, routing `youtube.com/embed/` and `youtu.be/` directly to `youtube_urls` metadata array.
@@ -262,7 +262,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 2.1: Add Subcommand Guard on Crawler Daemon Binary [COMPLETED]
 - **Priority**: Maintainability / CLI Guard | **Complexity**: Medium (30 mins) | **Traceability**: CR-13, CR-18, G-18 | **Status**: Verified & Completed
-- **Files**: [`src/crawler/index.ts`](src-crawler/src/crawler/index.ts#L970-L1030)
+- **Files**: `src/crawler/index.ts` (retired)
 - **Problem**: Running `vrc-crawler.exe <subcommand>` spawns a second daemon that crashes with a `ProcessLock` collision instead of routing commands.
 - **Remediation**: Inspect `process.argv.slice(2)`. If arguments (e.g. `status`, `recrawl`, `stop`) are provided, print an instructional error message:
   ```typescript
@@ -279,7 +279,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 2.2: Enforce Mandatory `API_SECRET_TOKEN` Auth & Quarantine Delisting Reports [COMPLETED]
 - **Priority**: Critical Security Vulnerability | **Complexity**: Medium (45 mins) | **Traceability**: CR-2, G-4, LEGAL §10.6, §9.4 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts#L130, #L196-L204), [`src/crawler/steering.ts`](src-crawler/src/crawler/steering.ts)
+- **Files**: `src/server/index.ts` (retired), `src/crawler/steering.ts` (retired)
 - **Token Generation Guidelines**:
   - The administrative secret must be generated using a Cryptographically Secure Pseudo-Random Number Generator (CSPRNG) with at least 256 bits of entropy:
     ```bash
@@ -323,7 +323,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 #### Task 2.3: Cloudflare Turnstile Detection & Poisson Acceleration Guard [COMPLETED]
 - **Priority**: Bot Perimeter Defense | **Complexity**: Medium (45 mins) | **Traceability**: CR-15, G-3, G-23, LEGAL §5.1(c), §6.4 | **Status**: Verified & Completed
 - `To bypass Cloudflare Turnstile as a polite, legitimate web scraper or crawler, your goal is not to hack or "solve" the CAPTCHA using automated solver APIs. Instead, you need to prove your legitimacy and structure your scraper so that Cloudflare recognizes it as a friendly bot. Cloudflare Turnstile generally lets automated traffic pass if the bot is transparent, slow, and behaves like a well-intentioned search engine or data aggregator.`
-- **Files**: [`src/drivers/gumroad.ts`](src-crawler/src/drivers/gumroad/index.ts), [`src/drivers/jinxxy.ts`](src-crawler/src/drivers/jinxxy/index.ts), [`src/node/fetch_outcome.ts`](src-crawler/src/node/fetch_outcome.ts)
+- **Files**: `src/drivers/gumroad.ts` (retired), `src/drivers/jinxxy.ts` (retired), [`src/node/fetch_outcome.ts`](src-crawler/src/node/fetch_outcome.ts)
 - **Problem**: Cloudflare Managed Challenges serve `HTTP 200` with Turnstile HTML challenge scripts. The crawler treats this as a document update, accelerates the Poisson crawl rate ($\lambda \times 1.4$), and triggers an IP ban.
 - **Remediation**: Before parsing HTML DOM, inspect payload via `applyAccessFailure`. Trip circuit breaker to `OPEN` and apply bounded exponential backoff with full jitter (30s base backoff, doubling per failure, capped at 1 hour) instead of an inflexible 3-day hard freeze:
   ```typescript
@@ -340,7 +340,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 2.4: Implement CJK Text Normalization & SimHash Bracket Stripping [COMPLETED]
 - **Priority**: Search Convergence / Entity Resolution | **Complexity**: Medium (1 hour) | **Traceability**: CR-17, G-24 | **Status**: Verified & Completed
-- **Files**: [`src/utils/sanitizer.ts`](src-crawler/src/utils/sanitizer.ts), [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts)
+- **Files**: [`src/utils/sanitizer.ts`](src-crawler/src/utils/sanitizer.ts), `src/crawler/projection.ts` (retired)
 - **Problem**: Japanese BOOTH listings heavily use full-width decorative brackets (`【...】`, `［...］`, `（...）`). Unstripped boilerplate distorts character 2-grams, preventing SimHash-64 Hamming distance from converging with Western mirrors.
 - **Remediation**: Implement `normalizeListingTitle(title: string)`:
   ```typescript
@@ -387,7 +387,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 2.7: Autonomous Fault Tolerance Subsystem: Domain Circuit Breakers, Exponential Backoff with Jitter & Persistent Dead-Letter Queue (Permanent Removal of manual requeue scripts) [COMPLETED]
 - **Priority**: System Reliability / Unattended Autonomy | **Complexity**: Medium (1 hour 15 mins) | **Traceability**: Operational Defect (HEAD Section 1), G-1, G-3, G-11 | **Status**: Verified & Completed
-- **Files**: [`src/crawler/index.ts`](src-crawler/src/crawler/index.ts), [`src/drivers/gumroad.ts`](src-crawler/src/drivers/gumroad/index.ts), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts), `src/tools/requeue_gumroad.ts` (historical removed script), `src/tools/requeue_media.ts` (historical removed script), [`package.json`](src-crawler/package.json)
+- **Files**: `src/crawler/index.ts` (retired), `src/drivers/gumroad.ts` (retired), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts), `src/tools/requeue_gumroad.ts` (historical removed script), `src/tools/requeue_media.ts` (historical removed script), [`package.json`](src-crawler/package.json)
 - **Problem**:
   - When encountering transient network errors, HTTP 429 rate limits, or CDN stalls, Gumroad and image proxy queues halt. Operators previously executed manual batch scripts (`src/tools/requeue_gumroad.ts`, `src/tools/requeue_media.ts`, `bun run requeue:gumroad`, `bun run requeue:media`) to reset failed/stalled frontier items. Relying on manual intervention violates 24/7 unattended autonomy and causes lock contention with the active daemon.
   - This requires a proper systematic integration into the system rather than a series of script patches.
@@ -420,7 +420,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 3.1: Expose Automated Non-Scraping Opt-Out Endpoint (`POST /v1/opt-out`) [COMPLETED]
 - **Priority**: Legal Invariant / Creator Rights | **Complexity**: Medium-High (1.5 hours) | **Traceability**: CR-8, CR-16, G-5, G-25, LEGAL §9.4-9.5 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts), [`src/db.ts`](src-crawler/src/db/db.ts#L551-L578), [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts)
+- **Files**: `src/server/index.ts` (retired), [`src/db.ts`](src-crawler/src/db/db.ts#L551-L578), `src/crawler/projection.ts` (retired)
 - **Problem**: `db.registerOptOut()` exists but has zero API routes or CLI callers; creators (particularly non-domain shop owners on BOOTH, Gumroad, Jinxxy) have no automated, non-scraping method to request delisting.
 - **Remediation**:
   1. Add `POST /v1/opt-out` in `src/server/index.ts` accepting `{ vendorId, proofType: "dns_txt" | "storefront_bio_token" | "signed_commit", proofValue, storefrontUrl? }`.
@@ -447,7 +447,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 3.2: Pure Media Pointer Migration: Hybrid Delivery Architecture & Deprecate SQLite WebP BLOB Storage [COMPLETED]
 - **Priority**: Core Legal Compliance | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-19, CR-21, G-1, G-22, G-29, LEGAL §7.2(c) | **Status**: Verified & Completed
-- **Files**: [`src/db.ts`](src-crawler/src/db/db.ts#L180-L210), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts), [`src/server/index.ts`](src-crawler/src/server/index.ts#L173-L180), [`src/sync/exporter.ts`](src-crawler/src/sync/exporter.ts)
+- **Files**: [`src/db.ts`](src-crawler/src/db/db.ts#L180-L210), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts), `src/server/index.ts` (retired), `src/sync/exporter.ts` (retired)
 - **Problem**: Code currently stores raw WebP buffers directly as BLOBs in SQLite `media_cache.webp_data` (`dist/crawler_state.db`), creating a 357 MB database and re-hosting copyrighted imagery in tension with the Server Test split (*Perfect 10* vs *Goldman v. Breitbart*). Furthermore, closed storefront CDNs enforce `Referer` headers and block direct hotlinking with `403 Forbidden` (G-1).
 - **Remediation**:
   1. **Direct Origin URLs by Default**: Modify `src/server/index.ts` and API catalog feeds to return direct origin CDN URLs in `media_urls` and `source_url`, aligning with the Ninth Circuit Server Test (*Perfect 10 v. Amazon*).
@@ -469,7 +469,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 3.3: Wire Conditional Request Headers (ETag / If-None-Match) & Reconnect Poisson Feedback [COMPLETED]
 - **Priority**: Bandwidth & Freshness Invariant | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-1, CR-7, CR-20, G-11, LEGAL §5.2(e) | **Status**: Verified & Completed
-- **Files**: [`src/drivers/github.ts`](src-crawler/src/drivers/github/index.ts), [`src/drivers/booth.ts`](src-crawler/src/drivers/booth/index.ts), [`src/utils/poisson_scheduler.ts`](src-crawler/src/utils/poisson_scheduler.ts#L49), [`src/crawler/index.ts`](src-crawler/src/crawler/index.ts), [`src/db.ts`](src-crawler/src/db/db.ts#L707-L728)
+- **Files**: `src/drivers/github.ts` (retired), `src/drivers/booth.ts` (retired), [`src/utils/poisson_scheduler.ts`](src-crawler/src/utils/poisson_scheduler.ts#L49), `src/crawler/index.ts` (retired), [`src/db.ts`](src-crawler/src/db/db.ts#L707-L728)
 - **Problem**: Crawlers never send `If-None-Match` or `If-Modified-Since`. `adjustAfterFetch(url, isModified, etag, lastModifiedHeader)` has zero callers; `db.markStatus` sets a rigid 24-hour constant.
 - **Remediation**:
   1. Pass stored `etag` and `last_modified` from `frontier`/`entities` as `If-None-Match` and `If-Modified-Since` in driver HTTP fetch requests.
@@ -482,7 +482,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 3.4: Edge Sync Watermark Recovery & Data Loss Prevention [COMPLETED]
 - **Priority**: Critical Data Loss Prevention | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-3, G-12 | **Status**: Verified & Completed
-- **Files**: [`src/sync/index.ts`](src-crawler/src/sync/index.ts#L128-L133), [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts)
+- **Files**: `src/sync/index.ts` (retired), `src/crawler/projection.ts` (retired)
 - **Problem**: Periodic `DELETE FROM canonical_packages` resets SQLite rowids to 1. In `src/sync/index.ts`, watermark check `watermarkRowId > maxRowInDb` fails to reset if the rebuilt table has more rows, permanently skipping rows 1..watermark from Cloudflare D1.
 - **Remediation**: Track projection generation epochs via a deterministic UUID or timestamp in `sync_checkpoints`. If `canonical_packages` projection epoch changes, automatically trigger a safe watermark realignment sweep rather than comparing raw auto-incrementing rowids.
 - **Cascading Documentation Changes**:
@@ -513,7 +513,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 4.1: Database Schema Normalization, Identifier Standardization & Clean Export Architecture (Canonical Task 4) [COMPLETED]
 - **Priority**: Critical / High Priority Architectural Anchor | **Complexity**: High (2.5 hours) | **Traceability**: CANON-4, CR-11, G-9, G-26, OVERLOOKED-4, OVERLOOKED-5, LEGAL §2.3, §10.7 | **Status**: Verified & Completed
-- **Files**: [`src/db.ts`](src-crawler/src/db/db.ts), [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts), [`src/crawler/steering.ts`](src-crawler/src/crawler/steering.ts), [`src/sync/exporter.ts`](src-crawler/src/sync/exporter.ts)
+- **Files**: [`src/db.ts`](src-crawler/src/db/db.ts), `src/crawler/projection.ts` (retired), `src/crawler/steering.ts` (retired), `src/sync/exporter.ts` (retired)
 - **Problem & Dist Stale Database Policy**:
   - Overlapping URL storage existed: flat columns alongside `platforms_json` in `canonical_packages`, plus individual rows in `package_fronts`. In `curator_overrides`, dual override fields (`name_override` vs `title_override`) caused coalescence conflicts.
   - **Identifier Misalignment (OVERLOOKED-5)**: `canonical_packages.id` (raw entity string e.g. `github:owner/repo`) differs from `canonical_id` (slug `owner-repo`). Schema 4 reports provide `target_package_id`, but `steering.ts` queries `WHERE canonical_id = ?`, causing reports using primary IDs to silently match 0 rows.
@@ -544,7 +544,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 4.3: Implement Schema 5 Telemetry Ingestion Route & Gateway Route Aliasing (Canonical Task 5) [COMPLETED]
 - **Priority**: Feedback Loop & Discoverability | **Complexity**: High (2.5 hours) | **Traceability**: CANON-5, G-8, OVERLOOKED-6, OVERLOOKED-7, LEGAL §8.5, §10.1, REPORTING_SCHEMAS §1, §6 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts), [`src/db.ts`](src-crawler/src/db/db.ts), [`src/crawler/steering.ts`](src-crawler/src/crawler/steering.ts)
+- **Files**: `src/server/index.ts` (retired), [`src/db.ts`](src-crawler/src/db/db.ts), `src/crawler/steering.ts` (retired)
 - **Problem**:
   - `docs/scratch/legacy-prototype-targets/REPORTING_SCHEMAS.md` defines Schema 5 for anonymous click rates and queries, but `src/server/index.ts` has zero ingestion endpoints (`POST /v1/telemetry` returns 404).
   - `GET /` and `LEGAL.md` advertise `/v1/packages/stream`, but the server implements `/v1/catalog/delta` (OVERLOOKED-6).
@@ -559,7 +559,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 4.4: Incremental Projection Sanitizer, Delisting Tombstones & Delta Preservation (OVERLOOKED-1) [COMPLETED]
 - **Priority**: Critical Legal Control / Data Loss Prevention | **Complexity**: High (3 hours) | **Traceability**: OVERLOOKED-1, CR-3, G-12, LEGAL §9.5 | **Status**: Verified & Completed
-- **Files**: [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts), [`src/server/index.ts`](src-crawler/src/server/index.ts), [`src/db.ts`](src-crawler/src/db/db.ts)
+- **Files**: `src/crawler/projection.ts` (retired), `src/server/index.ts` (retired), [`src/db.ts`](src-crawler/src/db/db.ts)
 - **Problem (LEGAL CONTROL: IMPLEMENTATION FAILURE)**:
   - `runProjection()` executes `DELETE FROM canonical_packages` every 15 minutes and skips opted-out creators with `continue`.
   - The row vanishes completely from `canonical_packages`. Consequently, `GET /v1/catalog/delta` **never emits `{ action: "DELISTED" }`**, causing downstream desktop client caches to retain delisted packages indefinitely!
@@ -574,7 +574,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 4.5: Opt-Out Correctness & DNS Rebinding Security Hardening (OVERLOOKED-2, OVERLOOKED-3) [COMPLETED]
 - **Priority**: Critical Security Vulnerability & Compliance Blocker | **Complexity**: High (3 hours) | **Traceability**: OVERLOOKED-2, OVERLOOKED-3, LEGAL §9.4-9.5 | **Status**: Verified & Completed
-- **Files**: [`src/server/index.ts`](src-crawler/src/server/index.ts), [`src/db.ts`](src-crawler/src/db/db.ts)
+- **Files**: `src/server/index.ts` (retired), [`src/db.ts`](src-crawler/src/db/db.ts)
 - **Problem**:
   - **DNS Rebinding TOCTOU (OVERLOOKED-2)**: `dns.lookup` resolves the hostname once to check private IP ranges, but `fetch()` initiates an independent resolution without IP pinning, leaving endpoints vulnerable to 0-second TTL DNS rebinding against `127.0.0.1` and `169.254.169.254`.
   - **False Compliance Signal (OVERLOOKED-3)**: `POST /v1/opt-out` returns `200 OK` while delisting 0 packages because `jinxxy.com` is omitted from SQL queries, standard BOOTH URLs (`booth.pm/ja/items/12345`) do not match `*.booth.pm`, and vendor IDs do not match UTF-8 shop display names.
@@ -591,7 +591,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 4.6: Storefront Conditional Requests & Cloudflare D1 Front Sync (OVERLOOKED-9, OVERLOOKED-10) [COMPLETED]
 - **Priority**: Bandwidth Efficiency & Edge Completeness | **Complexity**: Medium-High (2.5 hours) | **Traceability**: OVERLOOKED-9, OVERLOOKED-10, LEGAL §5.2, DISCOVERY_RULES §2 | **Status**: Verified & Completed
-- **Files**: [`src/drivers/gumroad.ts`](src-crawler/src/drivers/gumroad/index.ts), [`src/drivers/jinxxy.ts`](src-crawler/src/drivers/jinxxy/index.ts), [`src/drivers/itch.ts`](src-crawler/src/drivers/itch/index.ts), [`src/sync/index.ts`](src-crawler/src/sync/index.ts)
+- **Files**: `src/drivers/gumroad.ts` (retired), `src/drivers/jinxxy.ts` (retired), `src/drivers/itch.ts` (retired), `src/sync/index.ts` (retired)
 - **Problem**:
   - Gumroad, Jinxxy, and Itch drivers lack conditional request headers (`If-None-Match`, `If-Modified-Since`), wasting bandwidth despite `docs/scratch/legacy-prototype-targets/DISCOVERY_RULES.md` asserting universal driver coverage (OVERLOOKED-9).
   - `src/sync/index.ts` pushes only `canonical_packages` to Cloudflare D1, completely omitting `package_fronts` and `catalog_metadata` (OVERLOOKED-10).
@@ -634,7 +634,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 - **Priority**: Ecosystem Discovery | **Complexity**: Very High (3.5 hours) | **Traceability**: CANON-1, G-10, LEGAL §11.3, DISCOVERY_RULES §2
 > **BOOTH discovery checkpoint (2026-09-28):** The local coordinator now includes job purpose in validated lease payloads. A standalone-node BOOTH category adapter turns one `?page=N` browse response into at most 100 canonical product leads; empty pages are represented without inventing product observations, and overflow fails visibly. The coordinator rejects product observations and off-site leads from that discovery lease. Offline synthetic HTML passed through the loopback lease runner and persisted pending leads without new jobs. The original BOOTH direct driver still fetches/writes outside this coordinator path; no live BOOTH browse source profile has been approved or run. Category pagination, query-tag seeds, storefront-product lead promotion, creator-front evidence and full migration remain G3/G5 work.
 
-- **Files**: `src/crawler/vpm_discovery.ts` (future driver), [`src/crawler/index.ts`](src-crawler/src/crawler/index.ts)
+- **Files**: `src/crawler/vpm_discovery.ts` (future driver), `src/crawler/index.ts` (retired)
 - **Problem**: VPM package discovery is currently tethered to GitHub search APIs. Open-web unindexed spiders violate politeness and hit bot walls (§11.3).
 - **Remediation**: Implement federated registry expansion in `src/crawler/vpm_discovery.ts` or crawler loop:
   1. **Strict Public-Source Scoping**: Ingest approved public repository listings (`index.json` or another publisher-declared listing URL) found through verified creator documentation and Git hosting providers such as GitLab and Codeberg. ALCOM/vrc-get are clients and compatibility references, not public feed registries. Do not read client settings, private subscriptions, user-package folders, or Unity project state.
@@ -649,7 +649,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 5.2: Avatar Cosmetics Taxonomy Isolation & Base-Avatar Association (Canonical Task 2)
 - **Priority**: Catalog Expansion | **Complexity**: Very High (4 hours) | **Traceability**: CANON-2, G-2, LEGAL §11.4, DISCOVERY_RULES §2, §3.3
-- **Files**: [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts), [`src/db.ts`](src-crawler/src/db/db.ts), [`docs/scratch/legacy-prototype-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-prototype-targets/DISCOVERY_RULES.md)
+- **Files**: `src/crawler/projection.ts` (retired), [`src/db.ts`](src-crawler/src/db/db.ts), [`docs/scratch/legacy-prototype-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-prototype-targets/DISCOVERY_RULES.md)
 - **Problem**: Reconsidering avatar cosmetics (clothing, hair) discovery introduces explosive dimensionality and boilerplate vocabulary, causing severe SimHash-64 ($k \le 3$) false merges against toolchains.
 - **Remediation**:
   1. Build an isolated `cosmetics` taxonomy tier in `canonical_packages` with mandatory base avatar tagging (`target_avatar`: e.g. Kikyo, Manuka, Shinano, Selestia).
@@ -663,7 +663,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 5.3: Evidence-Based Temporal & Provenance Architecture
 - **Priority**: Data Integrity & Ecosystem Scalability | **Complexity**: Very High (4–5 hours) | **Traceability**: Phase 5 Reviewer Delegation, LEGAL §2.4, DISCOVERY_RULES §4.2, existing `frontier`/`entities`/`canonical_packages`/`package_fronts` schema
-- **Files**: [`src/db.ts`](src-crawler/src/db/db.ts), [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts), [`src/sync/exporter.ts`](src-crawler/src/sync/exporter.ts), `src/drivers/` (all existing + future adapters)
+- **Files**: [`src/db.ts`](src-crawler/src/db/db.ts), `src/crawler/projection.ts` (retired), `src/sync/exporter.ts` (retired), `src/drivers/` (all existing + future adapters)
 - **Architectural Principle**:
   > *«Facts belong to observations; claims belong to derived projections; provenance belongs to the evidence connecting them.»*
   >
@@ -776,8 +776,8 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 - **Cascading Documentation Changes**:
   - [`src/db.ts`](src-crawler/src/db/db.ts): Add `package_evidence` table (or equivalent structure per Option A/B/C decision); add derived temporal columns to `canonical_packages`; document invariants in TypeScript JSDoc.
-  - [`src/crawler/projection.ts`](src-crawler/src/crawler/projection.ts): Update projection to populate derived temporal fields from evidence; enforce ETag/Last-Modified distinction invariants.
-  - [`src/sync/exporter.ts`](src-crawler/src/sync/exporter.ts): Export evidence records (or compact derived JSON) in `vrc_catalog.db` for offline consumers.
+  - `src/crawler/projection.ts` (retired): Update projection to populate derived temporal fields from evidence; enforce ETag/Last-Modified distinction invariants.
+  - `src/sync/exporter.ts` (retired): Export evidence records (or compact derived JSON) in `vrc_catalog.db` for offline consumers.
   - [`docs/scratch/legacy-prototype-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md`](docs/scratch/legacy-prototype-targets/COMPREHENSIVE_SYSTEM_ARCHITECTURE.md): Document evidence model, derived temporal field semantics, and adapter extensibility pattern.
   - [`docs/scratch/legacy-prototype-targets/DISCOVERY_RULES.md`](docs/scratch/legacy-prototype-targets/DISCOVERY_RULES.md): Update Section 4.2 (Timestamp Confidence Rubric) to cover evidence types and confidence levels.
   - [`AGENT.md`](docs/scratch/history/AGENT_PHASE4.md): Document evidence record structure and invariants.
@@ -796,7 +796,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 5.4: Canonical Network Architecture: Tri-Domain Separation, Crawler Ingestion API & Delisting Propagation
 - **Priority**: Post-v1.0 Network Scaling & Decentralized Governance | **Complexity**: Architectural Milestone (6+ hours) | **Traceability**: CANON-6, CR-18, G-26, LEGAL §1.4, §9.6, §10.9
-- **Files**: [`src/db.ts`](src-crawler/src/db/db.ts), [`src/sync/index.ts`](src-crawler/src/sync/index.ts), [`src/server/index.ts`](src-crawler/src/server/index.ts), `workers/ingestion_gateway/` (future service)
+- **Files**: [`src/db.ts`](src-crawler/src/db/db.ts), `src/sync/index.ts` (retired), `src/server/index.ts` (retired), `workers/ingestion_gateway/` (future service)
 - **Problem & Security Rationale for Deferral**:
   - In v1.0, the crawler operates strictly in a single-node, maintainer-operated mode. `src/sync/index.ts` pushes incremental deltas to Cloudflare D1/R2 using administrative master credentials (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`).
   - Distributing write access to external contributor nodes in v1.0 would require sharing master Cloudflare API keys or opening unrestricted D1 HTTP endpoints, exposing the canonical database to catastrophic security vulnerabilities (database wiping, credential leakage, and untrusted spam injection).
@@ -896,6 +896,24 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 - **Required implementation evidence**: For each proposed host/endpoint, document applicable access and retention policy, robots/path/rate behavior, publisher attribution and removal, and a small labeled fixture set. Model the full discovery-link chain, self-hosted publisher domains, storefront fronts, publisher identity, in-game avatar IDs, and canonical catalog items separately. Test cross-store relations, missing-link cases, and false merges; do not infer product equivalence from names, images, tags, or matching avatars. Extend typed lead-to-job mappings and coordinator rules before any automatic promotion outside VPM.
 - **Shopify-specific slice**: Label at least one VRChat-targeted merchant on a Shopify-hosted custom domain and a contrasting multi-merchant/headless front. Review each exact origin's robots, terms, sitemap/product paths, redirects, retention and removal. Add bounded offline sitemap → product-lead → product-metadata fixtures through the node/coordinator protocol, with wrong-domain, alternate-locale, duplicate-front, missing-author and false-merge negatives. Preserve Shopify `vendor` as a merchant claim, not proof of the work's creator; prices are visitor-currency observations, not stable catalog identity. Add a live source profile and opt-in smoke only after that origin's review. Never assume Admin API access, a general Storefront API token, or that the Ajax theme endpoint works on headless sites.
 - **Exit**: An accepted source profile and bounded compiled node/coordinator metadata smoke for any added live platform, plus explicit coverage/remaining-gap record in `docs/decisions/current/status/CONFORMANCE.md`. Research-only candidates remain pending, not silently counted as ingested sources.
+
+#### Task 5.7: Branch Out Strongly Typed Protocol Items into Shared SDK (`src-package`) [QUEUED]
+- **Priority**: Monorepo Architecture & Cross-Package Typing | **Complexity**: Medium (1.5 hours) | **Traceability**: PKG-01, G3/G5, `src-package/` (`vrc-packages-api`)
+- **Precondition & Timing**: Defer execution until crawler node, coordinator, and operator API routes, schemas, and loopback connections stabilize completely in pre-production simulation. Avoid premature extraction during active schema iteration.
+- **Scope & Plan**:
+  1. Relocate shared schemas from `src-crawler/src/shared/` to `src-package/src/`:
+     - `node_protocol.ts` (Claim, Heartbeat, CrawlJob, Observation, DiscoveryLead, Result schemas)
+     - `operator_protocol.ts` (LeadReview, AutoQueueRule, SourceAccessProfile, CatalogPackage schemas, keyset pagination cursors)
+     - `evidence_class.ts`, `vpm_version.ts`, `source_targets.ts`, `access_outcome.ts`
+  2. In `src-package/package.json`:
+     - Name: `vrc-packages-api`
+     - Exports: `.` pointing to `src/index.ts` with types and runtime Zod validators
+     - Dependencies: `zod`
+  3. In `src-crawler/package.json`:
+     - Add `"vrc-packages-api": "workspace:*"` dependency, replacing relative imports with package imports.
+  4. In `src-web/package.json`:
+     - Add `"vrc-packages-api": "workspace:*"` dependency for typed API calls to coordinator and catalog endpoints.
+- **Acceptance Criteria**: `src-crawler` and `src-web` import protocol schemas and DTOs from `vrc-packages-api`; all tests pass; `bun x tsc --noEmit` is clean across packages.
 
 ### Post-Phase 5 Milestone: Code Freeze, Archaeological Manual Review & Simplification Pass
 - **Status clarification (2026-09-27):** This is a historical proposed sequencing, not an active prohibition on the gate work above. The owner advanced the node/coordinator/shared split into G1–G6. The later freeze and simplification review still matter, but must audit the actual replacement paths before retiring legacy binaries.

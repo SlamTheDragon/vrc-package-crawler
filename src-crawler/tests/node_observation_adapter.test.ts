@@ -258,6 +258,28 @@ describe("standalone node observation adapter", () => {
       "text/html")).toBeNull();
   });
 
+  test("extracts BOOTH product metadata using DOM fallbacks and extracts description outbound links", () => {
+    const storefront = { ...job, platform: "booth" as const, url: "https://booth.pm/ja/items/456789", origin: "https://booth.pm" };
+    const html = `<html><head><title>Fallback Page</title></head><body>
+      <h2 class="item-name">Special Avatar Accessory</h2>
+      <div class="shop-name">Creative Studio</div>
+      <div class="item-description">
+        Detailed description of the asset.
+        Check out the repository at <a href="https://github.com/creativestudio/accessory">GitHub</a>
+        and official docs at <a href="https://example.com/docs">Documentation</a>.
+      </div>
+      <div class="item-created-date">2026-05-01T12:00:00Z</div>
+    </body></html>`;
+    const observation = parseObservation(storefront, html, "text/html");
+    expect(observation).not.toBeNull();
+    expect(observation?.title).toBe("Special Avatar Accessory");
+    expect(observation?.author).toBe("Creative Studio");
+    expect(observation?.summary).toContain("Detailed description of the asset.");
+    expect(observation?.outboundLinks).toContain("https://github.com/creativestudio/accessory");
+    expect(observation?.outboundLinks).toContain("https://example.com/docs");
+    expect(observation?.originUpdatedAt).toBe("2026-05-01T12:00:00.000Z");
+  });
+
   test("classifies rate limits and unparseable responses without submitting product data", async () => {
     const limited = await fetchJobOutcome(job, async () => new Response("", { status: 429, headers: { "Retry-After": "42" } }));
     expect(limited).toEqual({ kind: "rate_limited", retryAfterSeconds: 42 });
@@ -275,5 +297,22 @@ describe("standalone node observation adapter", () => {
     expect(redirect).toEqual({ kind: "blocked", reason: "Redirect requires source review" });
     const malformed = await fetchJobOutcome(job, async () => new Response("<html>search listing</html>", { headers: { "Content-Type": "text/html" } }));
     expect(malformed.kind).toBe("temporary_failure");
+  });
+
+  test("sends conditional headers and returns unchanged on HTTP 304", async () => {
+    const conditionalJob = {
+      ...job,
+      etag: '"test-etag-123"',
+      lastModified: "Mon, 15 Jan 2026 12:00:00 GMT"
+    };
+    let capturedHeaders: Record<string, string> = {};
+    const outcome = await fetchJobOutcome(conditionalJob, async (_url, init) => {
+      const headers = new Headers(init?.headers);
+      capturedHeaders = Object.fromEntries(headers.entries());
+      return new Response(null, { status: 304 });
+    });
+    expect(capturedHeaders["if-none-match"]).toBe('"test-etag-123"');
+    expect(capturedHeaders["if-modified-since"]).toBe("Mon, 15 Jan 2026 12:00:00 GMT");
+    expect(outcome).toEqual({ kind: "unchanged" });
   });
 });

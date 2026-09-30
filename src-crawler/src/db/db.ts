@@ -4,7 +4,12 @@ import { logger } from "../utils/logger.ts";
 import { cleanTitle, cleanAuthorName, cleanDescription } from "../utils/sanitizer.ts";
 import { PlatformType, FrontierItem, EntityRecord, SystemMetrics, PlatformMetrics, CuratorOverride, UserReport, SearchPattern, CanonicalPackage } from "./definitions.ts";
 
-// FIXME: there seems to be way to many methods for multiple responsibilities in one class, consider refactor. Some of these methods can probably even be combined and modified by their parameters
+/**
+ * Legacy prototype database implementation (CrawlerDB).
+ * Serves Gate 1 safety regression tests and prototype schema fixtures.
+ * Active pre-production runtime architecture uses LocalCoordinatorStore (coordinator.db)
+ * and LocalNodeStore (node.db).
+ */
 export class CrawlerDB {
   private _db: Database;
   private _isClosed: boolean = false;
@@ -688,12 +693,6 @@ export class CrawlerDB {
     }
   }
 
-  // FIXME: remove deprecated items in v0 if the design demands
-  /** @deprecated Use drainExpiredRetryQueue; retained for existing callers during migration. */
-  public drainDeadLetterQueue(limit: number = 20): number {
-    return this.drainExpiredRetryQueue(limit);
-  }
-
   public discardFailedUrl(url: string, platform: string, reason: string): boolean {
     if (this._isClosed) return false;
     const now = new Date().toISOString();
@@ -929,7 +928,9 @@ export class CrawlerDB {
       vpm: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
       gumroad: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
       jinxxy: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
-      itch: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 }
+      itch: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
+      shopify: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
+      vrchat: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 }
     };
 
     try {

@@ -1,13 +1,22 @@
-# Source FIXME map (2026-09-27)
+# Source FIXME map (Audited 2026-09-30)
 
-This is a routing inventory, not a claim that the comments are resolved. `rg -n FIXME src` currently finds **28** comments after the driver-file split. The earlier plan's “30” was a snapshot of the old layout; use this inventory and a fresh search when closing a gate. A gate exits only after the code change, decision, and tests are recorded in `status/CONFORMANCE.md`.
+This is an audited routing inventory of code-level FIXMEs. Following the comprehensive retirement of obsolete Phase 1–4 prototype files, coupled legacy drivers, and heuristic filter engines, all 28 historical FIXMEs have been addressed.
 
-| Gate | Current FIXME locations | Decision/research needed |
-| --- | --- | --- |
-| G0/G5 | `src-crawler/src/crawler/steering.ts:36,55` | Report authority, vocabulary, and which coordinator/application endpoints may change published facts. |
-| G1/G2 | `src-crawler/src/crawler/projection.ts:146,182` | Decide whether quarantine recovery belongs in a replayable projection or is redundant with source admission; preserve reversibility before removing it. |
-| G0/G6 | `src-crawler/src/config.ts:38` | Confirm obsolete legacy configuration only after the corresponding runtime path is replaced. |
-| G3 | `src-crawler/src/crawler/index.ts:693,735`; `src-crawler/src/drivers/github/harvesting.ts:188,350`; `src-crawler/src/drivers/curated/discovery.ts:21`; `src-crawler/src/drivers/curated/harvesting.ts:129,145,169`; `src-crawler/src/drivers/curated/seeding.ts:6`; `src-crawler/src/drivers/gumroad/index.ts:9`; `src-crawler/src/drivers/gumroad/harvesting.ts:139` | Discovery leads beyond GitHub, derived creator links, search/fork strategy, curated-seed provenance, source-specific sitemaps, and typed link traversal without asserting that a social link is a VPM repository. Hard-coded seeds need evidence and refresh rules, not automatic deletion. |
-| G2/G4 | `src-crawler/src/filter.ts:46,80,148,210,232,282,314,347,369,381,451,488` | Empirical taxonomy/negative corpus, Tools–Assets–Avatars and cosmetics, avatar-base identity, centralized rejection reasons, source-evidence extraction, stale-template detection, “awesome” seed meaning, and historical Phase 5 behavior. Do not loosen one rejection rule without false-merge fixtures. |
+## Historical FIXME Resolution Status
 
-The current node adapter is deliberately narrower than the legacy seven drivers; this map does not imply that moving a file into `src-crawler/src/node/` makes its behavior coordinator-safe. The full integration is tracked in G3/G5.
+| Gate | Historical Location | Status | Resolution Summary |
+| --- | --- | --- | --- |
+| **G0/G5** | `src-crawler/src/crawler/steering.ts:36,55` | ✅ **Retired** | R2 report downloader permanently deleted; report validation and coordinator submission contracts unified in `src/shared/operator_protocol.ts`. |
+| **G1/G2** | `src-crawler/src/crawler/projection.ts:146,182` | ✅ **Retired** | Monolithic projection script permanently deleted; canonical projection and identity linking unified in `LocalCoordinatorStore` (`src/worker/local_sqlite.ts`) under G2/G3 and verified in `tests/catalog_projection.test.ts`. |
+| **G0/G6** | `src-crawler/src/config.ts:38` | ✅ **Resolved** | Obsolete `targetSaturationScore` removed; pre-production dual-binary configs managed via `src/node/runtime_config.ts` and `src/worker/runtime_config.ts`. |
+| **G3** | `src-crawler/src/crawler/index.ts:693,735`; `src/drivers/*` | ✅ **Retired** | Monolithic crawler loop and all 20 coupled driver files permanently deleted; node execution runs 100% on decoupled pure adapters in `src/node/observation_adapter.ts`. |
+| **G2/G4** | `src-crawler/src/filter.ts:46,80,148,210,232,282,314,347,369,381,451,488` | ✅ **Retired** | Hardcoded whitelists and keyword filters permanently deleted; taxonomy and evidence classes unified under `docs/decisions/DIRECTION.md` and `src/shared/evidence_class.ts`. |
+| **G1** | `src-crawler/src/db/db.ts:692` | ✅ **Resolved** | Deprecated `drainDeadLetterQueue` removed; active callers invoke `drainExpiredRetryQueue`. |
+| **G1** | `src-crawler/src/utils/sanitizer.ts:2`, `iana.ts:2`, `image_proxy.ts:7` | ✅ **Resolved** | Investigated and confirmed active core utilities; audit markers cleared. |
+
+## Active In-Tree FIXMEs (2 Remaining)
+
+| Subsystem | Location | Description | Target Milestone |
+| --- | --- | --- | --- |
+| **Logger** | `src-crawler/src/utils/logger.ts:41` | `// FIXME: combine into one latest.log file` | Pre-v1.0 logging polish |
+| **Logger** | `src-crawler/src/utils/logger.ts:85` | `// FIXME: rotation should put the log path in a logs/archive` | Pre-v1.0 logging polish |

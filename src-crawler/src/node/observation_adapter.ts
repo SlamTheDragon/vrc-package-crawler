@@ -5,10 +5,9 @@ import type { CrawlJob, DiscoveryLead, Observation, ResultRequest, VpmListingIss
 import { isVpmVersion } from "../shared/vpm_version.ts";
 import { classifyAccessFailure, retryAfterSeconds } from "../shared/access_outcome.ts";
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
-  isShopifyProductSitemapTarget } from "../shared/source_targets.ts";
+  isShopifyProductSitemapTarget, shopifyProductLead } from "../shared/source_targets.ts";
 import { CRAWLER_USER_AGENT } from "../shared/crawler_identity.ts";
 import { UnsafeMetadataTarget } from "./public_metadata_fetch.ts";
-import { parseShopifyProductSitemapLeads } from "../drivers/shopify/discovery.ts";
 
 type Outcome = ResultRequest["outcome"];
 
@@ -289,10 +288,11 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
       return claimed.origin === requested.origin && claimed.pathname === requested.pathname;
     } catch { return false; }
   });
-  const title = String(jsonLd?.name || metadata("og:title") || $("h1").first().text() || "").trim();
+  const title = String(jsonLd?.name || metadata("og:title") || $(".item-name").first().text() || $("h1").first().text() || "").trim();
   if (!title) return null;
-  const author = String(jsonLd?.brand?.name || jsonLd?.author?.name || metadata("author") || "Unknown").trim();
-  const summary = String(jsonLd?.description || metadata("og:description") || metadata("description") || "").trim();
+  const author = String(jsonLd?.brand?.name || jsonLd?.author?.name || $(".shop-name").first().text() || $(".user-name").first().text() || metadata("author") || "Unknown").trim();
+  const summary = String(jsonLd?.description || metadata("og:description") || $(".item-description, .js-item-description, .description-text").first().text() || metadata("description") || "").trim();
+  const descLinks = $(".item-description a[href], .js-item-description a[href], .description-text a[href]").toArray().map((el) => $(el).attr("href"));
   // A page's canonical hint can point at a different product, locale or storefront.
   // Identity stays tied to the fetched URL until a platform-specific equivalence rule is reviewed.
   const identity = requested;
@@ -301,8 +301,8 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
   return {
     sourceItemKey, title: title.slice(0, 500),
     author: author.slice(0, 300), summary: summary.slice(0, 1024),
-    outboundLinks: httpsLinks([jsonLd?.url, job.url]),
-    originUpdatedAt: normalizedDate(jsonLd?.dateModified || metadata("article:modified_time"))
+    outboundLinks: httpsLinks([jsonLd?.url, job.url, ...descLinks]),
+    originUpdatedAt: normalizedDate(jsonLd?.dateModified || metadata("article:modified_time") || $(".item-created-date").first().text())
   };
 }
 
@@ -326,6 +326,24 @@ export function parseBoothBrowseLeads(job: CrawlJob, body: string): DiscoveryLea
     } catch { /* A malformed link is not a candidate. */ }
   }
   return [...ids].map(id => ({ kind: "storefront_product", url: `https://booth.pm/ja/items/${id}` }));
+}
+
+/** A Shopify product sitemap is discovery evidence only; merchant/product facts need separate review. */
+export function parseShopifyProductSitemapLeads(job: CrawlJob, body: string): DiscoveryLead[] | null {
+  if (job.platform !== "shopify" || job.purpose !== "discovery" ||
+      !isShopifyProductSitemapTarget(job.url) || /<!DOCTYPE|<!ENTITY/i.test(body) ||
+      !/<\/urlset>\s*$/.test(body)) return null;
+  const $ = cheerio.load(body, { xmlMode: true });
+  if ($("urlset").length !== 1 || $("urlset").parent().length !== 0 || $("sitemapindex").length) return null;
+  const urls = new Set<string>();
+  for (const entry of $("urlset > url").toArray()) {
+    const loc = $(entry).children("loc").first().text().trim();
+    const product = shopifyProductLead(loc, job.origin);
+    if (!product) continue;
+    urls.add(product);
+    if (urls.size > 100) return null;
+  }
+  return [...urls].map(url => ({ kind: "storefront_product", url }));
 }
 
 export async function fetchJobOutcome(job: CrawlJob,
