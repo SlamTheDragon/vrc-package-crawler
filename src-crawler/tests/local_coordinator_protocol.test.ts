@@ -378,6 +378,171 @@ describe("local coordinator protocol", () => {
     } finally { store.close(); }
   });
 
+  test("loopback HTTP round-trip preserves platformTags and derives canonical package category", async () => {
+    const store = new LocalCoordinatorStore();
+    const token = store.createNodeCredential("vpm-node", ["vpm"]);
+    server = Bun.serve({ port: 0, fetch: (req) => handleNodeRequest(req, store) });
+    const post = async (path: string, body: unknown) => {
+      const response = await fetch(`http://localhost:${server!.port}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify(body)
+      });
+      return { status: response.status, body: await response.json() as any };
+    };
+
+    try {
+      // 1. Tagged fixture: observation with platformTags: ["avatar_tool", "vpm"]
+      const taggedUrl = "https://tagged.example.org/index.json";
+      seedApprovedFixtureJob(store, taggedUrl, "vpm", 0);
+      allowFixtureOrigin(store, "https://tagged.example.org");
+
+      const claimRes1 = await post("/v1/node/jobs/claim", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "vpm-node",
+        capabilities: ["vpm"]
+      });
+      expect(claimRes1.status).toBe(200);
+      const claim1 = ClaimResponseSchema.parse(claimRes1.body);
+      expect(claim1.status).toBe("leased");
+      if (claim1.status !== "leased") throw new Error("Expected leased job");
+
+      const vpmId1 = "com.example.avatar-tool-pkg";
+      const resultRes1 = await post("/v1/node/jobs/result", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "vpm-node",
+        jobId: claim1.job.jobId,
+        leaseId: claim1.job.leaseId,
+        idempotencyKey: "loopback-platform-tags-0001",
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: vpmId1,
+            title: "Avatar Tool Package",
+            author: "Test Author",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            platformTags: ["avatar_tool", "vpm"],
+            releases: [{ version: "1.0.0", dependencyRanges: {} }]
+          }
+        }
+      });
+      expect(resultRes1.status).toBe(200);
+      const parsedResult1 = ResultResponseSchema.parse(resultRes1.body);
+      expect(parsedResult1.status).toBe("accepted");
+      expect(parsedResult1.jobId).toBe(claim1.job.jobId);
+      expect(parsedResult1.sourceVersionCreated).toBe(true);
+
+      const pkg1 = store.getCanonicalPackage(vpmId1);
+      expect(pkg1).not.toBeNull();
+      expect(pkg1?.category).toBe("avatar_tool");
+      expect(pkg1?.category).not.toBe("vpm_package");
+
+      const row1 = store.db.prepare("SELECT category FROM canonical_packages WHERE vpm_id=?").get(vpmId1) as { category: string } | null;
+      expect(row1?.category).toBe("avatar_tool");
+
+      // 2. Untagged fixture: observation with no platformTags (undefined)
+      const untaggedUrl = "https://untagged.example.org/index.json";
+      seedApprovedFixtureJob(store, untaggedUrl, "vpm", 0);
+      allowFixtureOrigin(store, "https://untagged.example.org");
+
+      const claimRes2 = await post("/v1/node/jobs/claim", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "vpm-node",
+        capabilities: ["vpm"]
+      });
+      expect(claimRes2.status).toBe(200);
+      const claim2 = ClaimResponseSchema.parse(claimRes2.body);
+      expect(claim2.status).toBe("leased");
+      if (claim2.status !== "leased") throw new Error("Expected leased job");
+
+      const vpmId2 = "com.example.untagged-pkg";
+      const resultRes2 = await post("/v1/node/jobs/result", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "vpm-node",
+        jobId: claim2.job.jobId,
+        leaseId: claim2.job.leaseId,
+        idempotencyKey: "loopback-platform-tags-0002",
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: vpmId2,
+            title: "Untagged Package",
+            author: "Test Author",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            releases: [{ version: "1.0.0", dependencyRanges: {} }]
+          }
+        }
+      });
+      expect(resultRes2.status).toBe(200);
+      const parsedResult2 = ResultResponseSchema.parse(resultRes2.body);
+      expect(parsedResult2.status).toBe("accepted");
+      expect(parsedResult2.jobId).toBe(claim2.job.jobId);
+
+      const pkg2 = store.getCanonicalPackage(vpmId2);
+      expect(pkg2).not.toBeNull();
+      expect(pkg2?.category).toBe("vpm_package");
+
+      const row2 = store.db.prepare("SELECT category FROM canonical_packages WHERE vpm_id=?").get(vpmId2) as { category: string } | null;
+      expect(row2?.category).toBe("vpm_package");
+
+      // 3. Empty tags fixture: observation with empty platformTags: []
+      const emptyTagsUrl = "https://emptytags.example.org/index.json";
+      seedApprovedFixtureJob(store, emptyTagsUrl, "vpm", 0);
+      allowFixtureOrigin(store, "https://emptytags.example.org");
+
+      const claimRes3 = await post("/v1/node/jobs/claim", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "vpm-node",
+        capabilities: ["vpm"]
+      });
+      expect(claimRes3.status).toBe(200);
+      const claim3 = ClaimResponseSchema.parse(claimRes3.body);
+      expect(claim3.status).toBe("leased");
+      if (claim3.status !== "leased") throw new Error("Expected leased job");
+
+      const vpmId3 = "com.example.empty-tags-pkg";
+      const resultRes3 = await post("/v1/node/jobs/result", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "vpm-node",
+        jobId: claim3.job.jobId,
+        leaseId: claim3.job.leaseId,
+        idempotencyKey: "loopback-platform-tags-0003",
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: vpmId3,
+            title: "Empty Tags Package",
+            author: "Test Author",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            platformTags: [],
+            releases: [{ version: "1.0.0", dependencyRanges: {} }]
+          }
+        }
+      });
+      expect(resultRes3.status).toBe(200);
+      const parsedResult3 = ResultResponseSchema.parse(resultRes3.body);
+      expect(parsedResult3.status).toBe("accepted");
+      expect(parsedResult3.jobId).toBe(claim3.job.jobId);
+
+      const pkg3 = store.getCanonicalPackage(vpmId3);
+      expect(pkg3).not.toBeNull();
+      expect(pkg3?.category).toBe("vpm_package");
+
+      const dbRow3 = store.db.prepare("SELECT category FROM canonical_packages WHERE vpm_id=?").get(vpmId3) as { category: string } | null;
+      expect(dbRow3?.category).toBe("vpm_package");
+    } finally {
+      server?.stop(true);
+      server = undefined;
+      store.close();
+    }
+  });
+
   test("scoped credentials, origin leases, change-only versions, idempotency, and revocation", async () => {
     let now = Date.parse("2026-09-27T00:00:00.000Z");
     const store = new LocalCoordinatorStore(":memory:", () => now);
