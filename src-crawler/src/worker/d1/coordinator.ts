@@ -12,6 +12,7 @@ import type { OperatorStore } from "../operator_handler";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils";
 import { D1Database, AutoQueueRuleRow, SourceAccessProfileRow, JobRow, D1PreparedStatement, CanonicalUmbrella, CanonicalLifecycle, CanonicalPackage, EvidenceKind, LinkReviewState, IdentityLink } from "./definitions";
 import { deriveCategoryFromTags } from "../../shared/taxonomy";
+import { extractAvatarCompatibility, type AvatarCompatibility } from "../../shared/avatar_compatibility";
 
 
 export class Coordinator implements CoordinatorStore, OperatorStore {
@@ -408,6 +409,31 @@ export class Coordinator implements CoordinatorStore, OperatorStore {
         batchStmts.push(
           this.db.prepare("UPDATE source_items SET source_url=?,gone_at=CASE WHEN ? THEN NULL ELSE gone_at END WHERE source_key=?")
             .bind(job.url, complete ? 1 : 0, sourceKey)
+        );
+      }
+
+      const avatarCompatibilities = extractAvatarCompatibility(
+        observation.title,
+        observation.summary,
+        observation.outboundLinks,
+        observation.platformTags ?? [],
+        observation.sourceItemKey
+      );
+      for (const compat of avatarCompatibilities) {
+        batchStmts.push(
+          this.db.prepare(`
+            INSERT OR REPLACE INTO avatar_compatibilities
+            (compatibility_id, source_key, target_avatar_base, scope, confidence, evidence_source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            compat.compatibilityId,
+            sourceKey,
+            compat.targetAvatarBase,
+            compat.scope,
+            compat.confidence,
+            compat.evidenceSource,
+            now
+          )
         );
       }
 
@@ -1091,5 +1117,30 @@ export class Coordinator implements CoordinatorStore, OperatorStore {
       createdAt,
       reviewedAt
     };
+  }
+
+  async listAvatarCompatibilities(sourceKey: string): Promise<AvatarCompatibility[]> {
+    const res = await this.db.prepare(`
+      SELECT compatibility_id, source_key, target_avatar_base, scope, confidence, evidence_source
+      FROM avatar_compatibilities
+      WHERE source_key = ?
+      ORDER BY target_avatar_base ASC
+    `).bind(sourceKey).all<{
+      compatibility_id: string;
+      source_key: string;
+      target_avatar_base: string;
+      scope: "named_base" | "universal" | "uncertain";
+      confidence: "creator_declared" | "keyword_inferred" | "unverified";
+      evidence_source: string;
+    }>();
+    const rows = res.results || [];
+    return rows.map((r) => ({
+      compatibilityId: r.compatibility_id,
+      itemKey: r.source_key,
+      targetAvatarBase: r.target_avatar_base,
+      scope: r.scope,
+      confidence: r.confidence,
+      evidenceSource: r.evidence_source
+    }));
   }
 }

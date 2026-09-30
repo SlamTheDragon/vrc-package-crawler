@@ -1323,3 +1323,113 @@ describe("TAXONOMY-01 category derivation from platformTags\n", () => {
     } finally { store.close(); }
   });
 });
+
+describe("Avatar Compatibility Storage (IDENTITY-02)", () => {
+  test("Submitting an observation with avatar declarations results in listAvatarCompatibilities returning both kikyo and manuka with scope named_base", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const boothUrl = "https://booth.pm/ja/items/10101";
+      const { nodeToken, jobId, leaseId, nodeId } = setupStorefrontLease(store, boothUrl, "booth");
+      const principal = store.authenticate(nodeId, nodeToken)!;
+
+      const result = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId, jobId, leaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "booth-item-10101",
+            title: "【桔梗・マヌカ対応】Casual Outfit",
+            author: "Outfit Creator",
+            summary: "Clothing for Kikyo and Manuka",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            platformTags: ["clothing", "kikyo", "manuka"]
+          }
+        }
+      }, principal);
+      expect(result.status).toBe("accepted");
+
+      const sourceKey = `booth:${boothUrl}:booth-item-10101`;
+      const compatibilities = store.listAvatarCompatibilities(sourceKey);
+      expect(compatibilities).toHaveLength(2);
+
+      const bases = compatibilities.map((c) => c.targetAvatarBase).sort();
+      expect(bases).toEqual(["kikyo", "manuka"]);
+      for (const compat of compatibilities) {
+        expect(compat.scope).toBe("named_base");
+        expect(compat.confidence).toBe("creator_declared");
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+  test("Submitting an observation with universal compatibility persists scope universal", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const boothUrl = "https://booth.pm/ja/items/20202";
+      const { nodeToken, jobId, leaseId, nodeId } = setupStorefrontLease(store, boothUrl, "booth");
+      const principal = store.authenticate(nodeId, nodeToken)!;
+
+      const result = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId, jobId, leaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "booth-item-20202",
+            title: "Universal Shader 全アバター対応",
+            author: "Shader Creator",
+            summary: "All avatar compatible shader",
+            outboundLinks: [],
+            originUpdatedAt: null
+          }
+        }
+      }, principal);
+      expect(result.status).toBe("accepted");
+
+      const sourceKey = `booth:${boothUrl}:booth-item-20202`;
+      const compatibilities = store.listAvatarCompatibilities(sourceKey);
+      expect(compatibilities).toHaveLength(1);
+      expect(compatibilities[0].targetAvatarBase).toBe("generic");
+      expect(compatibilities[0].scope).toBe("universal");
+      expect(compatibilities[0].confidence).toBe("creator_declared");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("Submitting an observation with no avatar mentions persists zero compatibility rows", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const boothUrl = "https://booth.pm/ja/items/30303";
+      const { nodeToken, jobId, leaseId, nodeId } = setupStorefrontLease(store, boothUrl, "booth");
+      const principal = store.authenticate(nodeId, nodeToken)!;
+
+      const result = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId, jobId, leaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "booth-item-30303",
+            title: "Editor Tool Helper",
+            author: "Tool Dev",
+            summary: "Unity editor utility for organizing assets",
+            outboundLinks: [],
+            originUpdatedAt: null
+          }
+        }
+      }, principal);
+      expect(result.status).toBe("accepted");
+
+      const sourceKey = `booth:${boothUrl}:booth-item-30303`;
+      const compatibilities = store.listAvatarCompatibilities(sourceKey);
+      expect(compatibilities).toHaveLength(0);
+    } finally {
+      store.close();
+    }
+  });
+});
+

@@ -198,6 +198,20 @@ CREATE INDEX IF NOT EXISTS idx_source_events_contributor ON source_events(contri
 CREATE INDEX IF NOT EXISTS idx_source_issues_contributor ON source_issues(contributor_node_id,issue_id DESC);
 CREATE INDEX IF NOT EXISTS idx_source_leads_first_node ON source_leads(first_seen_node_id,first_seen_at DESC,lead_key DESC);
 CREATE INDEX IF NOT EXISTS idx_source_leads_last_node ON source_leads(last_seen_node_id,last_seen_at DESC,lead_key DESC);
+CREATE TABLE IF NOT EXISTS avatar_compatibilities (
+  compatibility_id TEXT PRIMARY KEY,
+  source_key TEXT NOT NULL,
+  target_avatar_base TEXT NOT NULL,
+  scope TEXT NOT NULL CHECK(scope IN ('named_base', 'universal', 'uncertain')),
+  confidence TEXT NOT NULL CHECK(confidence IN ('creator_declared', 'keyword_inferred', 'unverified')),
+  evidence_source TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (source_key) REFERENCES source_items(source_key) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_avatar_compat_source_key ON avatar_compatibilities(source_key);
+CREATE INDEX IF NOT EXISTS idx_avatar_compat_target_base ON avatar_compatibilities(target_avatar_base);
 `;
+
+export const INIT_SQL = D1_SCHEMA_SQL;
 
 

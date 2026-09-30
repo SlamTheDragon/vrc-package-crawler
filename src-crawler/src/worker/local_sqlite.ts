@@ -17,6 +17,7 @@ import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, type OriginR
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
 import { CRAWLER_ROBOTS_TOKEN } from "../shared/crawler_identity.ts";
 import { deriveCategoryFromTags } from "../shared/taxonomy.ts";
+import { extractAvatarCompatibility, type AvatarCompatibility } from "../shared/avatar_compatibility.ts";
 import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
   IssueNodeCredentialSchema, type IssueNodeCredential,
   encodeLeadCursor, encodeRuleCursor, encodeCatalogCursor,
@@ -247,6 +248,18 @@ export class LocalCoordinatorStore implements CoordinatorStore {
       CREATE INDEX IF NOT EXISTS idx_package_fronts_canonical ON package_fronts(canonical_id);
       CREATE INDEX IF NOT EXISTS idx_package_fronts_source ON package_fronts(source_key);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_package_fronts_canonical_source ON package_fronts(canonical_id, source_key);
+      CREATE TABLE IF NOT EXISTS avatar_compatibilities (
+        compatibility_id TEXT PRIMARY KEY,
+        source_key TEXT NOT NULL,
+        target_avatar_base TEXT NOT NULL,
+        scope TEXT NOT NULL CHECK(scope IN ('named_base', 'universal', 'uncertain')),
+        confidence TEXT NOT NULL CHECK(confidence IN ('creator_declared', 'keyword_inferred', 'unverified')),
+        evidence_source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (source_key) REFERENCES source_items(source_key) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_avatar_compat_source_key ON avatar_compatibilities(source_key);
+      CREATE INDEX IF NOT EXISTS idx_avatar_compat_target_base ON avatar_compatibilities(target_avatar_base);
     `);
     // Existing local coordinator databases predate these local-only markers.
     this.db.transaction(() => {
@@ -1115,6 +1128,28 @@ export class LocalCoordinatorStore implements CoordinatorStore {
           this.db.prepare("UPDATE source_items SET source_url=?,gone_at=CASE WHEN ? THEN NULL ELSE gone_at END WHERE source_key=?")
             .run(job.url, complete ? 1 : 0, sourceKey);
         }
+        const avatarCompatibilities = extractAvatarCompatibility(
+          observation.title,
+          observation.summary,
+          observation.outboundLinks,
+          observation.platformTags ?? [],
+          observation.sourceItemKey
+        );
+        for (const compat of avatarCompatibilities) {
+          this.db.prepare(`
+            INSERT OR REPLACE INTO avatar_compatibilities
+            (compatibility_id, source_key, target_avatar_base, scope, confidence, evidence_source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            compat.compatibilityId,
+            sourceKey,
+            compat.targetAvatarBase,
+            compat.scope,
+            compat.confidence,
+            compat.evidenceSource,
+            now
+          );
+        }
         this.db.prepare(`INSERT INTO source_events
           (job_id,source_key,kind,observed_at,version_id,contributor_node_id,submission_lease_id,source_profile_id)
           VALUES (?,?,?,?,?,?,?,?)`)
@@ -1677,6 +1712,30 @@ export class LocalCoordinatorStore implements CoordinatorStore {
   deletePackageFront(frontId: string): boolean {
     const res = this.db.prepare("DELETE FROM package_fronts WHERE front_id = ?").run(frontId);
     return res.changes > 0;
+  }
+
+  listAvatarCompatibilities(sourceKey: string): AvatarCompatibility[] {
+    const rows = this.db.prepare(`
+      SELECT compatibility_id, source_key, target_avatar_base, scope, confidence, evidence_source
+      FROM avatar_compatibilities
+      WHERE source_key = ?
+      ORDER BY target_avatar_base ASC
+    `).all(sourceKey) as {
+      compatibility_id: string;
+      source_key: string;
+      target_avatar_base: string;
+      scope: "named_base" | "universal" | "uncertain";
+      confidence: "creator_declared" | "keyword_inferred" | "unverified";
+      evidence_source: string;
+    }[];
+    return rows.map((r) => ({
+      compatibilityId: r.compatibility_id,
+      itemKey: r.source_key,
+      targetAvatarBase: r.target_avatar_base,
+      scope: r.scope,
+      confidence: r.confidence,
+      evidenceSource: r.evidence_source
+    }));
   }
 
   private syncPackageFrontFromSourceItem(canonicalId: string, sourceKey: string): void {

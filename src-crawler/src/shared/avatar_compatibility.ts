@@ -65,9 +65,36 @@ const UNIVERSAL_PATTERNS = [
 export function extractAvatarCompatibility(
   title: string,
   description: string,
-  tags: string[] = [],
-  itemKey: string = "unknown"
+  outboundLinks: string[],
+  tags: string[],
+  itemKey?: string
+): AvatarCompatibility[];
+export function extractAvatarCompatibility(
+  title: string,
+  description: string,
+  tags?: string[],
+  itemKey?: string
+): AvatarCompatibility[];
+export function extractAvatarCompatibility(
+  title: string,
+  description: string,
+  arg3: string[] = [],
+  arg4?: string[] | string,
+  arg5?: string
 ): AvatarCompatibility[] {
+  let outboundLinks: string[] = [];
+  let tags: string[] = [];
+  let itemKey = "unknown";
+
+  if (Array.isArray(arg4)) {
+    outboundLinks = arg3;
+    tags = arg4;
+    itemKey = arg5 ?? "unknown";
+  } else {
+    tags = arg3;
+    itemKey = typeof arg4 === "string" ? arg4 : "unknown";
+  }
+
   const normTitle = (title || "").normalize("NFKC");
   const normDesc = (description || "").normalize("NFKC");
   const normTags = (tags || []).map(t => (t || "").normalize("NFKC"));

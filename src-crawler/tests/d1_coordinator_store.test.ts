@@ -360,6 +360,70 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     expect(page3.packages[0].canonicalId).toBe("pkg-001");
   });
 
+  it("persists avatar compatibilities on submit and lists them (D1)", async () => {
+    const mockDb = createMockD1Database();
+    const store = new Coordinator(mockDb);
+    await store.initSchema();
+
+    const token = await store.issueNodeCredential({
+      schemaVersion: 1,
+      nodeId: "node-compat",
+      capabilities: ["vpm"],
+      reason: "Avatar compat test node"
+    }, "operator-admin");
+    const principal = (await store.authenticate("node-compat", token))!;
+
+    await store.createSourceAccessProfile({
+      schemaVersion: 1,
+      platform: "vpm",
+      origin: "https://vpm.example.com",
+      pathScope: "/index.json",
+      method: "GET",
+      purpose: "metadata",
+      minDelayMs: 1000,
+      expiresAt: "2099-01-01T00:00:00Z",
+      reviewReference: "rev-compat",
+      reason: "Allow testing avatar compat persistence",
+      retainClasses: ["normalized_facts", "creator_prose"],
+      publishClasses: []
+    }, "operator-admin");
+
+    await store.recordRobotsSnapshot("https://vpm.example.com", 200, "User-agent: *\nAllow: /");
+    await store.seedJob("https://vpm.example.com/index.json", "vpm", 1000, undefined, "metadata");
+
+    const claimRes = await store.claim({
+      schemaVersion: 1,
+      nodeId: "node-compat",
+      capabilities: ["vpm"]
+    }, principal);
+    if (claimRes.status !== "leased") throw new Error("Expected leased status");
+
+    const submitRes = await store.submit({
+      schemaVersion: 1,
+      nodeId: "node-compat",
+      jobId: claimRes.job.jobId,
+      leaseId: claimRes.job.leaseId,
+      idempotencyKey: "submit-compat-001",
+      outcome: {
+        kind: "changed",
+        observation: {
+          sourceItemKey: "com.example.avatar-dress",
+          title: "【桔梗・マヌカ対応】Cute Dress",
+          summary: "Clothing for Kikyo and Manuka",
+          author: "Dev",
+          outboundLinks: [],
+          originUpdatedAt: null
+        }
+      }
+    }, principal);
+
+    expect(submitRes.status).toBe("accepted");
+    const sourceKey = "vpm:https://vpm.example.com/index.json:com.example.avatar-dress";
+    const compat = await store.listAvatarCompatibilities(sourceKey);
+    expect(compat.length).toBe(2);
+    expect(compat.map((c) => c.targetAvatarBase).sort()).toEqual(["kikyo", "manuka"]);
+  });
+
   it("Worker edge fetch entrypoint routing", async () => {
     const mockDb = createMockD1Database();
     const store = new Coordinator(mockDb);
