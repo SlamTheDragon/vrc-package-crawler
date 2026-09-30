@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseGitHubRepository, parseObservation, parseVpmListingRecipe, parseVpmRepository, fetchJobOutcome } from "../src/node/observation_adapter.ts";
+import { parseGitHubRepository, parseObservation, parseVpmListingRecipe, parseVpmRepository, parseCuratedDiscoveryLeads, fetchJobOutcome } from "../src/node/observation_adapter.ts";
 import { CrawlJobSchema, ResultRequestSchema } from "../src/shared/node_protocol.ts";
 import { CRAWLER_USER_AGENT, CRAWLER_ROBOTS_TOKEN } from "../src/shared/crawler_identity.ts";
 import { CONFIG } from "../src/config.ts";
@@ -314,5 +314,147 @@ describe("standalone node observation adapter", () => {
     expect(capturedHeaders["if-none-match"]).toBe('"test-etag-123"');
     expect(capturedHeaders["if-modified-since"]).toBe("Mon, 15 Jan 2026 12:00:00 GMT");
     expect(outcome).toEqual({ kind: "unchanged" });
+  });
+
+  test("extracts Gumroad product metadata from /l/:slug path", () => {
+    const gumroadJob = { ...job, platform: "gumroad" as const, url: "https://gumroad.com/l/awesome-avatar", origin: "https://gumroad.com" };
+    const html = `<html><head>
+      <meta property="og:title" content="Awesome VRChat Avatar">
+      <meta name="author" content="GumroadCreator">
+      <meta property="og:description" content="A fully rigged avatar with PhysBones.">
+      <script type="application/ld+json">{"@type":"Product","name":"Awesome VRChat Avatar","url":"https://gumroad.com/l/awesome-avatar","brand":{"name":"GumroadCreator"}}</script>
+    </head><body><h1>Awesome VRChat Avatar</h1></body></html>`;
+    const obs = parseObservation(gumroadJob, html, "text/html");
+    expect(obs).not.toBeNull();
+    expect(obs?.title).toBe("Awesome VRChat Avatar");
+    expect(obs?.author).toBe("GumroadCreator");
+    expect(obs?.sourceItemKey).toBe("gumroad.com/l/awesome-avatar");
+    expect(parseObservation({ ...gumroadJob, url: "https://gumroad.com/about" }, html, "text/html")).toBeNull();
+  });
+
+  test("extracts Jinxxy product metadata from /:creator/:slug path", () => {
+    const jinxxyJob = { ...job, platform: "jinxxy" as const, url: "https://jinxxy.com/coolcreator/particle-gimmick", origin: "https://jinxxy.com" };
+    const html = `<html><head>
+      <meta property="og:title" content="Particle Gimmick Tool">
+      <meta property="og:description" content="VRChat OSC and contact receiver particles.">
+      <script type="application/ld+json">{"@type":"Product","name":"Particle Gimmick Tool","brand":{"name":"coolcreator"}}</script>
+    </head><body><div class="user-name">coolcreator</div></body></html>`;
+    const obs = parseObservation(jinxxyJob, html, "text/html");
+    expect(obs).not.toBeNull();
+    expect(obs?.title).toBe("Particle Gimmick Tool");
+    expect(obs?.author).toBe("coolcreator");
+    expect(obs?.sourceItemKey).toBe("jinxxy.com/coolcreator/particle-gimmick");
+    expect(parseObservation({ ...jinxxyJob, url: "https://jinxxy.com/tags" }, html, "text/html")).toBeNull();
+  });
+
+  test("extracts itch.io product metadata from *.itch.io host", () => {
+    const itchJob = { ...job, platform: "itch" as const, url: "https://creator.itch.io/vrchat-shader-pack", origin: "https://creator.itch.io" };
+    const html = `<html><head>
+      <meta property="og:title" content="VRChat Shader Pack">
+      <meta property="og:description" content="Toon and audio-reactive shaders for Unity.">
+      <script type="application/ld+json">{"@type":"Product","name":"VRChat Shader Pack","author":{"name":"ItchDev"}}</script>
+    </head><body></body></html>`;
+    const obs = parseObservation(itchJob, html, "text/html");
+    expect(obs).not.toBeNull();
+    expect(obs?.title).toBe("VRChat Shader Pack");
+    expect(obs?.author).toBe("ItchDev");
+    expect(obs?.sourceItemKey).toBe("creator.itch.io/vrchat-shader-pack");
+    expect(parseObservation({ ...itchJob, url: "https://otherdomain.com/item" }, html, "text/html")).toBeNull();
+  });
+
+  test("extracts Shopify product metadata from custom merchant and myshopify domains", async () => {
+    const shopifyJob = { ...job, platform: "shopify" as const, purpose: "metadata" as const,
+      url: "https://jellycube.co/products/rurune-vrcft-add-on", origin: "https://jellycube.co" };
+    const html = `<html><head>
+      <meta property="og:title" content="Rurune VRCFaceTracking Add-on">
+      <meta property="og:description" content="Facial expression tracking for VRChat avatar.">
+      <script type="application/ld+json">{"@type":"Product","name":"Rurune VRCFaceTracking Add-on","brand":{"name":"JellyCube"}}</script>
+    </head><body><h1 class="item-name">Rurune VRCFaceTracking Add-on</h1></body></html>`;
+    const obs = parseObservation(shopifyJob, html, "text/html");
+    expect(obs).not.toBeNull();
+    expect(obs?.title).toBe("Rurune VRCFaceTracking Add-on");
+    expect(obs?.author).toBe("JellyCube");
+    expect(obs?.sourceItemKey).toBe("jellycube.co/products/rurune-vrcft-add-on");
+
+    const outcome = await fetchJobOutcome(shopifyJob, async () => new Response(html, { headers: { "content-type": "text/html" } }));
+    expect(outcome.kind).toBe("changed");
+    if (outcome.kind === "changed") {
+      expect(outcome.observation.title).toBe("Rurune VRCFaceTracking Add-on");
+    }
+
+    const invalidShopify = { ...shopifyJob, url: "https://jellycube.co/collections/all" };
+    expect(await fetchJobOutcome(invalidShopify, async () => new Response(html))).toEqual({
+      kind: "blocked", reason: "Shopify metadata requires a valid merchant product URL"
+    });
+  });
+
+  test("extracts Sellfy product metadata from sellfy.com and merchant stores", async () => {
+    const sellfyJob = { ...job, platform: "sellfy" as const, purpose: "metadata" as const,
+      url: "https://sellfy.com/creator/p/super-gimmick/", origin: "https://sellfy.com" };
+    const html = `<html><head>
+      <meta property="og:title" content="Super Gimmick Prefab">
+      <meta property="og:description" content="Interactive prop for worlds and avatars.">
+      <script type="application/ld+json">{"@type":"Product","name":"Super Gimmick Prefab","brand":{"name":"SellfyCreator"}}</script>
+    </head><body></body></html>`;
+    const obs = parseObservation(sellfyJob, html, "text/html");
+    expect(obs).not.toBeNull();
+    expect(obs?.title).toBe("Super Gimmick Prefab");
+    expect(obs?.author).toBe("SellfyCreator");
+    expect(obs?.sourceItemKey).toBe("sellfy.com/creator/p/super-gimmick/");
+
+    const outcome = await fetchJobOutcome(sellfyJob, async () => new Response(html, { headers: { "content-type": "text/html" } }));
+    expect(outcome.kind).toBe("changed");
+
+    const invalidSellfy = { ...sellfyJob, url: "https://sellfy.com/creator/about" };
+    expect(await fetchJobOutcome(invalidSellfy, async () => new Response(html))).toEqual({
+      kind: "blocked", reason: "Sellfy metadata requires a valid product URL"
+    });
+  });
+
+  test("extracts product metadata from custom creator domains", async () => {
+    const customJob = { ...job, platform: "custom_domain" as const, purpose: "metadata" as const,
+      url: "https://store.vrcfury.com/tools/vrcfury", origin: "https://store.vrcfury.com" };
+    const html = `<html><head>
+      <meta property="og:title" content="VRCFury Tool Suite">
+      <meta property="og:description" content="Seamless non-destructive avatar upgrades.">
+      <script type="application/ld+json">{"@type":"SoftwareApplication","name":"VRCFury Tool Suite","author":{"name":"VRCFury Team"}}</script>
+    </head><body></body></html>`;
+    const obs = parseObservation(customJob, html, "text/html");
+    expect(obs).not.toBeNull();
+    expect(obs?.title).toBe("VRCFury Tool Suite");
+    expect(obs?.author).toBe("VRCFury Team");
+    expect(obs?.sourceItemKey).toBe("store.vrcfury.com/tools/vrcfury");
+
+    const outcome = await fetchJobOutcome(customJob, async () => new Response(html, { headers: { "content-type": "text/html" } }));
+    expect(outcome.kind).toBe("changed");
+
+    const rootDomainJob = { ...customJob, url: "https://store.vrcfury.com/" };
+    expect(await fetchJobOutcome(rootDomainJob, async () => new Response(html))).toEqual({
+      kind: "blocked", reason: "Custom domain metadata requires a valid path"
+    });
+  });
+
+  test("extracts curated discovery leads from repositories.txt and community collections", async () => {
+    const curatedJob = { ...job, platform: "curated" as const, purpose: "discovery" as const,
+      url: "https://raw.githubusercontent.com/vrchat-community/vpm-listing-curated/main/repositories.txt",
+      origin: "https://raw.githubusercontent.com" };
+    const txtBody = `# Decentralized Community Repositories
+https://vpm.anatawa12.com/vpm.json
+https://kurotu.github.io/vpm-repos/index.json
+https://github.com/vrc-get/vrc-get
+# invalid line
+http://insecure.example.com/repo.json
+`;
+    const leads = parseCuratedDiscoveryLeads(curatedJob, txtBody, "text/plain");
+    expect(leads).not.toBeNull();
+    expect(leads).toContainEqual({ kind: "vpm_listing", url: "https://vpm.anatawa12.com/vpm.json" });
+    expect(leads).toContainEqual({ kind: "vpm_listing", url: "https://kurotu.github.io/vpm-repos/index.json" });
+    expect(leads).toContainEqual({ kind: "github_repository", url: "https://github.com/vrc-get/vrc-get" });
+
+    const outcome = await fetchJobOutcome(curatedJob, async () => new Response(txtBody, { headers: { "content-type": "text/plain" } }));
+    expect(outcome.kind).toBe("discovery");
+    if (outcome.kind === "discovery") {
+      expect(outcome.leads.length).toBeGreaterThanOrEqual(3);
+    }
   });
 });

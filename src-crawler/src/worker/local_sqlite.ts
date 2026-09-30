@@ -11,7 +11,7 @@ import {
 import { CoordinatorConflict, type CoordinatorStore, type NodePrincipal } from "./handler.ts";
 import { isPrivateOrReservedIp } from "../shared/ip_policy.ts";
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
-  isShopifyProductSitemapTarget, shopifyProductLead } from "../shared/source_targets.ts";
+  isShopifyProductSitemapTarget, shopifyProductLead, isSellfyProductTarget } from "../shared/source_targets.ts";
 import { isItchSearchUrl } from "../shared/source_path_policy.ts";
 import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, type OriginRobotsSnapshot } from "../shared/robots_snapshot.ts";
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
@@ -594,8 +594,16 @@ export class LocalCoordinatorStore implements CoordinatorStore {
         (platform !== "github" || !githubApiRepositoryIdentity(parsed.href))) {
       throw new Error("GitHub jobs require a public REST repository metadata endpoint");
     }
-    if (platform === "shopify" && (purpose !== "discovery" || !isShopifyProductSitemapTarget(parsed.href))) {
-      throw new Error("Shopify jobs require an exact product-sitemap discovery URL");
+    if (platform === "shopify") {
+      if (purpose === "discovery" && !isShopifyProductSitemapTarget(parsed.href)) {
+        throw new Error("Shopify discovery jobs require an exact product-sitemap discovery URL");
+      }
+      if (purpose === "metadata" && !shopifyProductLead(parsed.href, parsed.origin)) {
+        throw new Error("Shopify metadata jobs require an exact merchant product URL");
+      }
+    }
+    if (platform === "sellfy" && purpose === "metadata" && !isSellfyProductTarget(parsed.href)) {
+      throw new Error("Sellfy metadata jobs require an exact product URL");
     }
     if (!Number.isInteger(minDelayMs) || minDelayMs < 0 || minDelayMs > 86_400_000) throw new Error("Invalid origin delay");
     // The standalone node is unauthenticated; GitHub's public API budget is 60 requests/hour per IP.
@@ -1027,8 +1035,8 @@ export class LocalCoordinatorStore implements CoordinatorStore {
           throw new CoordinatorConflict("BOOTH browse leads require canonical BOOTH product URLs");
         }
       }
-      if (job.platform === "shopify") {
-        if (job.job_purpose !== "discovery" || !isShopifyProductSitemapTarget(job.url) ||
+      if (job.platform === "shopify" && job.job_purpose === "discovery") {
+        if (!isShopifyProductSitemapTarget(job.url) ||
             outcome.kind === "changed" || outcome.kind === "batch" || outcome.kind === "partial_batch") {
           throw new CoordinatorConflict("Shopify product sitemap jobs can report leads, not product observations");
         }
@@ -1036,6 +1044,11 @@ export class LocalCoordinatorStore implements CoordinatorStore {
           lead.kind !== "storefront_product" || !shopifyProductLead(lead.url, job.origin) ||
           lead.discoveredFromItemKey !== undefined || lead.claimedPackageId !== undefined)) {
           throw new CoordinatorConflict("Shopify sitemap leads require same-origin product URLs");
+        }
+      }
+      if (job.platform === "curated" && job.job_purpose === "discovery") {
+        if (outcome.kind === "changed" || outcome.kind === "batch" || outcome.kind === "partial_batch") {
+          throw new CoordinatorConflict("Curated discovery jobs report discovery leads, not product observations");
         }
       }
       const observations = outcome.kind === "changed" ? [outcome.observation] :

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import { CrawlerDB } from "../src/db/db.ts";
-import { ImageProxyService } from "../src/utils/image_proxy.ts";
-import sharp from "sharp";
 import { PoissonScheduler } from "../src/utils/poisson_scheduler.ts";
 import { AdaptiveRateLimiter } from "../src/utils/adaptive_limiter.ts";
 import { DomainCircuitBreaker } from "../src/utils/circuit_breaker.ts";
@@ -83,55 +81,6 @@ describe("Gate 1 safety baseline", () => {
     }
   });
 
-  it("stores source media metadata and hashes without a generated WebP payload", async () => {
-    const fixture = new CrawlerDB(":memory:");
-    const originalFetch = globalThis.fetch;
-    const png = await sharp({ create: { width: 320, height: 240, channels: 3, background: "#325787" } }).png().toBuffer();
-    globalThis.fetch = (async () => new Response(png, {
-      status: 200,
-      headers: { "Content-Type": "image/png", "Content-Length": String(png.length) }
-    })) as unknown as typeof fetch;
-    try {
-      const record = await ImageProxyService.processAndCacheImage("https://example.org/preview.png", fixture);
-      expect(record?.content_type).toBe("image/png");
-      expect(record?.width).toBe(320);
-      expect(record?.height).toBe(240);
-      expect(record?.blurhash).toBeTruthy();
-      expect(record?.phash_64).toHaveLength(16);
-      const columns = fixture.rawDb.prepare("PRAGMA table_info(media_cache)").all() as { name: string }[];
-      expect(columns.some((column) => column.name === "webp_data")).toBe(false);
-    } finally {
-      globalThis.fetch = originalFetch;
-      fixture.close();
-      ImageProxyService.shutdown();
-    }
-  });
-
-  it("keeps missing media as NULL and defers rechecks without a dangling sentinel", async () => {
-    const fixture = new CrawlerDB(":memory:");
-    try {
-      fixture.rawDb.run(`
-        INSERT INTO canonical_packages (
-          id, canonical_id, name, author, category, subcategory, type,
-          primary_platform, platforms_json, url, source_ids_json, created_at, updated_at
-        ) VALUES (
-          'missing-media', 'missing-media', 'No preview', 'Fixture', 'tool', 'general', 'tool',
-          'github', '["github"]', 'https://github.com/example/no-preview', '[]', datetime('now'), datetime('now')
-        );
-      `);
-      expect(await ImageProxyService.indexPendingMedia(10, fixture)).toBe(0);
-      const first = fixture.rawDb.prepare("SELECT media_id, media_checked_at FROM canonical_packages WHERE canonical_id = 'missing-media'")
-        .get() as { media_id: string | null; media_checked_at: string | null };
-      expect(first.media_id).toBeNull();
-      expect(first.media_checked_at).toBeTruthy();
-      expect(await ImageProxyService.indexPendingMedia(10, fixture)).toBe(0);
-      const second = fixture.rawDb.prepare("SELECT media_checked_at FROM canonical_packages WHERE canonical_id = 'missing-media'")
-        .get() as { media_checked_at: string | null };
-      expect(second.media_checked_at).toBe(first.media_checked_at);
-    } finally {
-      fixture.close();
-    }
-  });
 
   it("bounds Retry-After so one origin cannot suspend the crawler indefinitely", () => {
     const limiter = new AdaptiveRateLimiter();

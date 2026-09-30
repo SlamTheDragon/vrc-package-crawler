@@ -1,428 +1,233 @@
-# VRChat Package Crawler: Production Deployment Runbook & SRE Guide
+# VRChat Package Crawler: Pre-Production Runbook
 
-**Target Audience:** Site Reliability Engineers (SRE), Infrastructure Delegates, and Systems Operators  
-**Revision:** Phase 4 Complete (Production Deployment, Supervisor Management, Blocker Remediation, Ephemeral Media Streaming & Edge Distribution)  
-**Binary Distribution:** Standalone Single-File Native Executables (`dist/`)  
+**Target Audience:** Operators and infrastructure delegates running the pre-production two-binary local stack  
+**Revision:** Version 0 pre-production (refactor/v0 baseline)  
+**Status:** Local simulation only — no Cloudflare account, API key, or deployed Worker required
+
+> [!IMPORTANT]
+> This runbook supersedes the Phase 4 draft that described `vrc-crawler`, `vrc-server`, `vrc-monitor`, `vrc-sync`, and Cloudflare D1/R2 sync. Those binaries and the associated IPC, sync scripts, and `dist/.env` configuration are **permanently retired**. Do not attempt to run them.
 
 ---
 
-## 1. Operational Topography & Architectural Isolation
+## 1. Current Architecture
 
-The deployment architecture will run the headless crawler engine on dedicated hosts. The engine will connect to edge services through encrypted outbound tunnels.
+The system is two separately runnable binaries communicating over loopback HTTP:
 
 ```mermaid
 flowchart LR
-    subgraph "External Clients"
-        VCC["VCC / ALCOM Clients"]
-        DESKTOP["Desktop Discovery Clients"]
-        USER["Community Curators"]
+    subgraph "Same Working Directory"
+        COORD["vrc-coordinator\n(coordinator.db + coordinator.config.json)\nHTTP :3737"]
+        NODE["vrc-node\n(node.db + node.config.json)\nHTTP → :3737"]
     end
 
-    subgraph "Cloudflare Edge Tier"
-        CF_DNS["Cloudflare DNS (Proxied)"]
-        CF_WAF["Cloudflare WAF / Rate Limiter"]
-        CF_CACHE["Cloudflare Edge Cache Rules"]
-        CF_TUNNEL["Cloudflare Tunnel (cloudflared)"]
-        CF_D1[("Cloudflare D1 (Edge Mirror)")]
-        CF_R2[("Cloudflare R2 (Media Storage)")]
+    NODE -->|"claim / heartbeat / submit\n(versioned API payloads)"| COORD
+    COORD -->|"lease grant / rejection"| NODE
+
+    subgraph "External Sources (permit-gated)"
+        GITHUB["GitHub REST API"]
+        VPM["VPM listing repos"]
+        BOOTH["BOOTH (research only)"]
     end
 
-    subgraph "Host VPS (Linux / Windows)"
-        SERVER["vrc-server (:8080)\n(Headless REST API)"]
-        CRAWLER["vrc-crawler\n(Background Daemon)"]
-        MONITOR["vrc-monitor\n(CLI Dispatcher)"]
-        LOCAL_DB[("dist/crawler_state.db\n(SQLite WAL)")]
-        LOCAL_BACKUP[("dist/backups/deltas/\n(Fallback Storage)")]
-        SYNC_TOOL["vrc-sync\n(Scheduled Sync)"]
-    end
-
-    VCC --> CF_DNS
-    DESKTOP --> CF_DNS
-    USER --> CF_DNS
-
-    CF_DNS --> CF_WAF
-    CF_WAF --> CF_CACHE
-    CF_CACHE -->|Origin Tunnel| CF_TUNNEL
-    CF_TUNNEL -->|127.0.0.1:8080| SERVER
-
-    SERVER --> LOCAL_DB
-    CRAWLER --> LOCAL_DB
-    MONITOR -->|IPC 127.0.0.1:8765| CRAWLER
-    SYNC_TOOL --> LOCAL_DB
-    SYNC_TOOL -->|D1 REST API| CF_D1
-    SYNC_TOOL -->|Disconnected| LOCAL_BACKUP
+    NODE -->|"robots + source-profile required"| GITHUB
+    NODE -->|"robots + source-profile required"| VPM
+    NODE -.->|"future / research"| BOOTH
 ```
+
+| Binary | Entry Point | Config File | Database |
+|---|---|---|---|
+| `dist/local-coordinator/vrc-coordinator.exe` | `src-crawler/src/worker/main.ts` | `coordinator.config.json` | `coordinator.db` |
+| `dist/local-node/vrc-node.exe` | `src-crawler/src/node/main.ts` | `node.config.json` | `node.db` |
+
+Both files are emitted in the binary's **working directory** — typically the directory you launch from.
 
 ---
 
-## 2. Binary Topography & Execution Rules
+## 2. Build
 
-The build process will produce standalone native binaries in `dist/`. Operators must understand the operational boundaries of each binary:
+```bash
+# From src-crawler/
+bun run build
+```
 
-| Binary | Source Path | Target Platform | Operational Role |
-|---|---|---|---|
-| `dist/vrc-crawler.exe` | `src/crawler/index.ts` | Windows x64 | 24/7 background harvesting daemon. Acquires single-instance `ProcessLock`. Contains zero CLI subcommand parsing. |
-| `dist/vrc-crawler-linux` | `src/crawler/index.ts` | Linux x64 | Linux background service binary. Run under systemd. |
-| `dist/vrc-monitor.exe` | `src/monitor/index.ts` | Windows x64 | Primary CLI control binary and terminal monitor. All IPC commands must be dispatched through this binary. |
-| `dist/vrc-server.exe` | `src/server/index.ts` | Windows x64 | Headless REST API server for Schemas 1, 2, and 4. |
-| `dist/vrc-server-linux` | `src/server/index.ts` | Linux x64 | Linux headless REST API server. |
-| `dist/vrc-sync.exe` | `src/sync/index.ts` | Windows x64 | Incremental edge synchronization utility for Cloudflare D1. |
+Produces:
+- `dist/local-coordinator/vrc-coordinator.exe` (Windows x64)
+- `dist/local-node/vrc-node.exe` (Windows x64)
+- `dist/worker/` (Cloudflare Worker bundle — for future use only)
+
+---
+
+## 3. Pre-Production Launch (Two-Binary Local Simulation)
+
+### 3.1 Automated smoke (recommended)
+
+```bash
+bun run smoke:continuous
+```
+
+This script (`src-crawler/scratch/smoke_preprod_continuous.ts`):
+1. Builds both binaries
+2. Launches both concurrently in a temporary working directory
+3. Operator-issues a node credential via `POST /v1/operator/nodes`
+4. Provisions scoped source-access profiles
+5. Runs sustained background daemon execution — autonomous job pickup, real VPM fetches, Poisson-paced scheduling
+6. Verifies zero SQLite lock collisions between `coordinator.db` and `node.db`
+7. Cleanly shuts down both processes
+
+### 3.2 Manual launch
+
+Open two terminals in the **same working directory**:
+
+**Terminal A — coordinator:**
+```bash
+./dist/local-coordinator/vrc-coordinator.exe
+```
+
+**Terminal B — node:**
+```bash
+./dist/local-node/vrc-node.exe
+```
+
+On first run, each binary writes its own config file. The coordinator will print the operator token to stdout on first boot. Copy it before continuing.
+
+### 3.3 Operator bootstrap (issue a node token)
+
+```bash
+# Issue a node credential (replace <OPERATOR_TOKEN> with what the coordinator printed)
+curl -s -X POST http://127.0.0.1:3737/v1/operator/nodes \
+  -H "Authorization: Bearer <OPERATOR_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"nodeId":"local-node-1","capabilities":["vpm","github","booth","curated"],"reason":"pre-production local node"}'
+```
+
+Copy the `token` from the response and add it to `node.config.json` as `"coordinatorToken"`.
+
+---
+
+## 4. Source Access — Permit Gate
+
+A queued URL does **not** authorize a live fetch. Every job requires:
+
+1. An active scoped **source-access profile** (`POST /v1/operator/source-profiles`)
+2. A successful **robots.txt preflight** (coordinator-coordinated, origin-paced)
+3. A **lease grant** at claim time, re-validated at heartbeat and submission
+
+Nodes fetch only coordinator-leased jobs. Coordinator unavailability stops new fetches. Disable a source profile to immediately revoke all new lease grants for that origin.
+
+```bash
+# Create a source-access profile for github.com
+curl -s -X POST http://127.0.0.1:3737/v1/operator/source-profiles \
+  -H "Authorization: Bearer <OPERATOR_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": "https://github.com",
+    "allowedPurposes": ["metadata"],
+    "rateFloorMs": 60000,
+    "rationale": "VPM package metadata; reviewed exact paths only",
+    "expiresAt": null
+  }'
+```
+
+See `docs/decisions/current/access/SOURCE_ACCESS_REVIEW.md` for current source-policy decisions per platform.
+
+---
+
+## 5. Operator API Reference
+
+The coordinator exposes two API layers over loopback HTTP:
+
+| Layer | Port | Auth |
+|---|---|---|
+| Node protocol (claim/heartbeat/submit) | `:3737` | Node bearer token (issued by operator) |
+| Operator control | `:3737/v1/operator/*` | Operator bearer token (printed on first boot) |
+
+Key operator routes:
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/operator/leads` | List discovered pending leads for review |
+| `POST /v1/operator/leads/:id/queue` | Promote a pending lead to a queued job |
+| `POST /v1/operator/auto-queue-rules` | Create a rule to auto-promote matching leads |
+| `GET /v1/operator/source-profiles` | List source-access profiles |
+| `POST /v1/operator/source-profiles` | Create a scoped source-access profile |
+| `DELETE /v1/operator/source-profiles/:id` | Disable a profile and revoke open leases |
+| `POST /v1/operator/nodes` | Issue a node credential |
+| `GET /v1/operator/catalog` | List canonical packages (paginated) |
+
+Full schema is in `src-crawler/src/shared/operator_protocol.ts` and documented in `docs/decisions/current/api/OPERATOR_CONTROL_API.md`.
+
+---
+
+## 6. GitHub Token Usage
+
+The existing GitHub token in `bin/` may be used **only** for its intended scoped GitHub REST metadata role. It must not be:
+- Copied into documentation or output
+- Used as a coordinator registration key
+- Used as an operator bearer token
+- Used for any non-GitHub API
+
+Set it as `GITHUB_TOKEN` in the node's environment or `node.config.json`.
+
+---
+
+## 7. Database Layout
+
+Both processes run in the same working directory without lock collisions:
+
+| File | Owner | Purpose |
+|---|---|---|
+| `coordinator.db` | coordinator | Source items, versions, events, identity links, canonical packages, leases, leads, operator audit log |
+| `coordinator.config.json` | coordinator | Coordinator bind address, operator token hash, robots pacing config |
+| `node.db` | node | Local node runs, task telemetry, outcome records |
+| `node.config.json` | node | Coordinator URL, node ID, issued node token, capabilities |
 
 > [!CAUTION]
-> Never execute subcommands directly on `vrc-crawler.exe` (such as `vrc-crawler.exe status` or `stop`). The crawler binary will interpret arguments as a command to start a new daemon. It will crash with a `ProcessLock` collision. Always send commands through `vrc-monitor.exe`.
-
-### Correct IPC Command Dispatch Reference
-
-| Desired Action | Correct Command | Target Service |
-|---|---|---|
-| Check Daemon Status | `dist/vrc-monitor.exe status` | Crawler Daemon IPC (`127.0.0.1:8765`) |
-| Stop Daemon Cleanly | `dist/vrc-monitor.exe stop` | Crawler Daemon IPC (`127.0.0.1:8765`) |
-| Trigger Poisson Recrawl | `dist/vrc-monitor.exe recrawl` | Crawler Daemon IPC (`127.0.0.1:8765`) |
-| Force Projection Build | `dist/vrc-monitor.exe project` | Crawler Daemon IPC (`127.0.0.1:8765`) |
-| Trigger Edge Sync | `dist/vrc-monitor.exe sync` | Crawler Daemon IPC (`127.0.0.1:8765`) |
-| Export SQLite Catalog | `dist/vrc-monitor.exe export` | Exporter Subsystem |
+> `bin/crawler_state.db` is a legacy prototype database from Phase 1–4. It uses the old CrawlerDB schema. Do not operate on it with the new binaries. Tests are isolated from it.
 
 ---
 
-## 3. Environment & Security Configuration
-
-Create the runtime configuration file at `dist/.env`.
-
-### Production Template (`dist/.env`)
-
-```env
-# Network and Gateway Configuration
-PORT=8080
-HOST=127.0.0.1
-CRAWLER_IPC_PORT=8765
-
-# Security Secret (Mandatory for administrative reports)
-API_SECRET_TOKEN=replace_with_a_secure_random_64_character_hex_token
-
-# Storefront Tokens (Optional but recommended)
-GITHUB_TOKEN=ghp_your_github_personal_access_token_here
-
-# Cloudflare Edge Sync Credentials
-CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
-CLOUDFLARE_API_TOKEN=your_cloudflare_api_token
-CLOUDFLARE_D1_DATABASE_ID=your_d1_database_uuid
-# (CLOUDFLARE_R2_BUCKET_NAME is deprecated; pure media pointer architecture streams via memory)
-
-# Path Overrides (Defaults resolve to dist/ if unset)
-CRAWLER_DB_PATH=dist/crawler_state.db
-CRAWLER_LOGS_DIR=dist/logs
-```
-
-> [!IMPORTANT]
-> The server reads `API_SECRET_TOKEN` from the environment. Do not use the legacy name `CRAWLER_API_TOKEN`. If `API_SECRET_TOKEN` is unset, protected write routes return `401`; they do not fall back to a built-in token. Set a strong secret in production. This administrative token is transitional until scoped node and application credentials are implemented.
-
----
-
-## 4. Host Service Supervision
-
-Production hosts will run services under supervised process managers with automatic restarts.
-
-### 4.1 Linux Host Setup (systemd)
-
-1. Create target deployment directory and service user:
-   ```bash
-   sudo mkdir -p /opt/vrc-catalog/dist/reports/pending
-   sudo mkdir -p /opt/vrc-catalog/dist/reports/processed
-   sudo mkdir -p /opt/vrc-catalog/dist/backups/deltas
-   sudo mkdir -p /opt/vrc-catalog/dist/logs
-   sudo useradd -r -s /bin/false vrc
-   ```
-
-2. Copy binaries and database into place:
-   ```bash
-   sudo cp dist/vrc-server-linux /opt/vrc-catalog/dist/
-   sudo cp dist/vrc-crawler-linux /opt/vrc-catalog/dist/
-   sudo cp dist/crawler_state.db /opt/vrc-catalog/dist/
-   sudo cp dist/.env /opt/vrc-catalog/dist/
-   sudo chmod +x /opt/vrc-catalog/dist/vrc-server-linux /opt/vrc-catalog/dist/vrc-crawler-linux
-   sudo chown -R vrc:vrc /opt/vrc-catalog
-   ```
-
-3. Create systemd unit for API gateway (`/etc/systemd/system/vrc-server.service`):
-   ```ini
-   [Unit]
-   Description=VRChat Package Crawler Headless API Gateway
-   After=network.target
-
-   [Service]
-   Type=simple
-   User=vrc
-   Group=vrc
-   WorkingDirectory=/opt/vrc-catalog/dist
-   ExecStart=/opt/vrc-catalog/dist/vrc-server-linux --port 8080 --host 127.0.0.1
-   Restart=always
-   RestartSec=5s
-   LimitNOFILE=65536
-   EnvironmentFile=/opt/vrc-catalog/dist/.env
-
-   # Hardening
-   ProtectSystem=full
-   ProtectHome=true
-   NoNewPrivileges=true
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-4. Create systemd unit for background crawler (`/etc/systemd/system/vrc-crawler.service`):
-   ```ini
-   [Unit]
-   Description=VRChat Package Crawler 24/7 Harvesting Daemon
-   After=network.target
-
-   [Service]
-   Type=simple
-   User=vrc
-   Group=vrc
-   WorkingDirectory=/opt/vrc-catalog/dist
-   ExecStart=/opt/vrc-catalog/dist/vrc-crawler-linux
-   Restart=always
-   RestartSec=10s
-   LimitNOFILE=65536
-   EnvironmentFile=/opt/vrc-catalog/dist/.env
-
-   ProtectSystem=full
-   ProtectHome=true
-   NoNewPrivileges=true
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-5. Enable and start services:
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now vrc-server vrc-crawler
-   sudo systemctl status vrc-server vrc-crawler
-   ```
-
-### 4.2 Windows Host Setup (NSSM)
-
-1. Place binaries and `crawler_state.db` in `C:\vrc-catalog\dist\`.
-2. Install the API Gateway service via NSSM:
-   ```cmd
-   nssm install VrcServer "C:\vrc-catalog\dist\vrc-server.exe" "--port 8080 --host 127.0.0.1"
-   nssm set VrcServer AppDirectory "C:\vrc-catalog\dist"
-   nssm set VrcServer AppRestartDelay 5000
-   nssm start VrcServer
-   ```
-3. Install the Background Crawler service via NSSM:
-   ```cmd
-   nssm install VrcCrawler "C:\vrc-catalog\dist\vrc-crawler.exe" ""
-   nssm set VrcCrawler AppDirectory "C:\vrc-catalog\dist"
-   nssm set VrcCrawler AppRestartDelay 10000
-   nssm start VrcCrawler
-   ```
-
----
-
-## 5. Cloudflare Tunnel & Edge Routing
-
-Operators will not open inbound public firewall ports. All public traffic will pass through an outbound encrypted Cloudflare Tunnel.
-
-1. Authenticate `cloudflared` on the host:
-   ```bash
-   cloudflared tunnel login
-   cloudflared tunnel create vrc-gateway-tunnel
-   ```
-
-2. Configure tunnel ingress (`/etc/cloudflared/config.yml`):
-   ```yaml
-   tunnel: <TUNNEL_UUID>
-   credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
-
-   ingress:
-     - hostname: api.vrc-catalog.net
-       service: http://127.0.0.1:8080
-       originRequest:
-         connectTimeout: 10s
-         noTLSVerify: false
-     - service: http_status:404
-   ```
-
-3. Route DNS through the tunnel:
-   ```bash
-   cloudflared tunnel route dns vrc-gateway-tunnel api.vrc-catalog.net
-   ```
-
-4. Install `cloudflared` as a service:
-   ```bash
-   sudo cloudflared service install
-   sudo systemctl start cloudflared
-   ```
-
----
-
-## 6. Cloudflare Edge Cache & WAF Rules
-
-Operators will configure cache and security rules in the Cloudflare dashboard.
-
-### 6.1 Edge Cache Rules (`Caching -> Cache Rules`)
-
-| Rule Name | Expression | Edge Cache TTL | Browser TTL | Settings |
-|---|---|---|---|---|
-| Rule 1: Media Proxy | `http.request.uri.path starts_with "/v1/media/"` | 30 Days | 30 Days | Cache Everything, Ignore Query String |
-| Rule 2: Media Stream | `http.request.uri.path eq "/v1/media/stream"` | Bypass / Private | 1 Day | Pass-through (private client caching only) |
-| Rule 3: VPM Manifest | `http.request.uri.path eq "/v1/vpm/index.json"` | 10 Minutes | 5 Minutes | Cache Everything, Respect Origin, SWR 60s |
-| Rule 4: Feed Delta | `http.request.uri.path eq "/v1/catalog/delta"` | 1 Minute | 30 Seconds | Cache by Query String (`cursor`, `limit`) |
-| Rule 5: Reports Bypass | `http.request.uri.path eq "/v1/reports"` | Bypass | Bypass | Bypass Cache, Direct to Origin |
-| Rule 6: Opt-Out Bypass | `http.request.uri.path eq "/v1/opt-out"` | Bypass | Bypass | Bypass Cache, Direct to Origin |
-| Rule 7: Health Check | `http.request.uri.path eq "/v1/health"` | Bypass | Bypass | Bypass Cache |
-
-### 6.2 WAF Rate Limiting (`Security -> WAF -> Rate Limiting`)
-
-- **Rule Name:** `Schema 4 Ingestion Throttling`
-- **Condition:** `http.request.uri.path eq "/v1/reports" and http.request.method eq "POST"`
-- **Rate Limit:** 10 requests per 1 minute per IP.
-- **Action:** Block with HTTP 429 response.
-
-- **Rule Name:** `Automated Opt-Out Throttling`
-- **Condition:** `http.request.uri.path eq "/v1/opt-out" and http.request.method eq "POST"`
-- **Rate Limit:** 5 requests per 1 minute per IP.
-- **Action:** Block with HTTP 429 response.
-
----
-
-## 7. Edge Sync Watermark Verification & Recovery
-
-The `vrc-sync` utility will push incremental records to Cloudflare D1.
-
-### Scheduled Cron Job
-Run edge sync every 4 hours:
-```bash
-0 */4 * * * /opt/vrc-catalog/dist/vrc-sync --batch-size 100 >> /opt/vrc-catalog/dist/logs/sync.log 2>&1
-```
-
-### Watermark Recovery After Table Rebuilds
-The canonical projection engine runs `DELETE FROM canonical_packages` during full rebuilds, generating a fresh `projection_epoch` in `catalog_metadata`.
-
-`vrc-sync` autonomously detects when `projection_epoch` in `sync_checkpoints` diverges from `catalog_metadata`, automatically realigning the high-watermark to 0 to prevent silent row omission. Operators can also force an immediate manual watermark reset:
+## 8. Tests and Verification
 
 ```bash
-/opt/vrc-catalog/dist/vrc-sync --reset-watermark
+# Run all tests (offline, hermetic)
+bun test
+
+# Type-check
+bun run typecheck
+
+# Build all targets
+bun run build
+
+# Check documentation links
+bun run check:docs
+
+# Continuous pre-production simulation (real data, two binaries)
+bun run smoke:continuous
+
+# GitHub live metadata smoke (opt-in, real network)
+bun run smoke:github:live
 ```
 
-### High-Watermark Verification Query
-Verify watermark alignment between local SQLite and remote Cloudflare D1:
-
-```sql
--- Check local maximum rowid in SQLite:
-SELECT MAX(rowid) AS local_max_rowid FROM canonical_packages;
-
--- Check recorded checkpoint and projection epoch for Cloudflare D1:
-SELECT last_synced_rowid, projection_epoch, synced_at, status 
-FROM sync_checkpoints 
-WHERE sync_target = 'cloudflare_d1' 
-ORDER BY id DESC LIMIT 1;
-```
-
-If `checkpoint_value` exceeds `local_max_rowid`, reset the checkpoint to zero.
+Current baseline: **161 tests, 0 failures, 1344 assertions** (2026-09-30).
 
 ---
 
-## 8. Database Schema Topography, Column Normalization & Logistics Slimming
+## 9. Cloudflare Simulation
 
-Operators and infrastructure delegates must observe the following schema boundaries and data invariants:
+The local pre-production stack **simulates** the eventual Cloudflare Worker/coordinator split using loopback HTTP. No Cloudflare account, tunnel, D1 database, R2 bucket, API token, or Worker deployment is required for this milestone.
 
-### 8.1 The 2-URL-Column Standard & Flat Column Purge
-To eliminate redundant columns and prevent mock-reality drift:
-- `canonical_packages` retains exactly **two** URL columns:
-  1. `url TEXT NOT NULL`: Primary storefront / repository URL corresponding to `primary_platform`.
-  2. `vcc_url TEXT`: VPM/VCC manifest deep link (`vcc://vpm/addRepo?url=...`).
-- Redundant flat columns (`github_url`, `booth_url`, `gumroad_url`, `jinxxy_url`, `itch_url`) are **permanently removed**.
-- Individual per-platform storefront details are decoupled into the normalized `package_fronts` table (`id`, `canonical_id`, `platform`, `platform_item_id`, `url`, `title`, `author`, `price_currency`, `price_amount`, `origin_created_at`, `origin_updated_at`, `raw_entity_id`, `media_urls_json`, `youtube_urls_json`).
-- `curator_overrides` removes the duplicate `title_override` column, standardizing exclusively on `name_override`.
-
-### 8.2 Operator Query Guide for Normalized Schema
-
-```sql
--- Query package primary platform and URL:
-SELECT canonical_id, name, primary_platform, url, vcc_url 
-FROM canonical_packages 
-WHERE canonical_id = 'modular-avatar';
-
--- Query all decoupled storefront links, pricing, and origin entity across platforms:
-SELECT platform, platform_item_id, url, price_currency, price_amount, raw_entity_id 
-FROM package_fronts 
-WHERE canonical_id = 'modular-avatar';
-
--- Check high-watermark row count on normalized table:
-SELECT count(*), max(rowid) FROM canonical_packages;
-
--- Inspect pure origin media metadata (zero BLOB storage):
-SELECT source_url, blurhash, phash_64, content_type 
-FROM media_cache 
-LIMIT 10;
-```
-
-### 8.3 Logistics Slimming: Elimination of Standalone Tool Scripts
-In v1.0, standalone manual scripts in `tools/` (`requeue_gumroad.ts`, `requeue_media.ts`, `pipeline_sanitize.ts`, `exporter.ts`, `steering.ts`, `discover_vpm.ts`) have been **completely deleted** rather than maintained as fragile shims. Their operations are dissolved natively into:
-- Early driver ingestion (`src/drivers/vpm_index.ts`, `src/drivers/gumroad.ts`)
-- Front-stage sanitization (`src/utils/sanitizer.ts`)
-- Native projection engine (`src/crawler/projection.ts` / `vrc-crawler`)
-- Edge export engine (`src/sync/exporter.ts` / `vrc-export`)
-- Continuous monitor loop (`src/crawler/steering.ts` / `vrc-monitor`)
-
-Operators must never attempt to invoke scripts in `tools/`. All operations run through supervised binaries (`dist/vrc-crawler.exe`, `dist/vrc-monitor.exe`, `dist/vrc-sync.exe`).
-
-### 8.4 Media Table Slimming & Pure Origin Pointer Architecture
-Per `LEGAL.md` §7.2(c), the pipeline deprecates SQLite WebP BLOB storage (`media_cache.webp_data`), eliminating over 350 MB of database bloat. Both primary SQLite (`dist/crawler_state.db`), exported catalogs (`dist/vrc_catalog.db`), and Cloudflare D1 edge sync records carry direct origin URL arrays (`media_urls_json`), BlurHash strings, and 64-bit pHash digests without binary BLOB storage (*Perfect 10 v. Amazon* Server Test compliance). For clients encountering origin CDN hotlink blocks or `Referer` restrictions, the server provides an on-demand ephemeral in-memory streaming proxy (`GET /v1/media/stream?url=...`) with zero disk storage and private client-side caching.
-
-### 8.5 Version 0 Ground-Truth Policy & Dead Migration Removal
-This system is version 0. Deprecation shims, backward-compatibility type aliases, and automatic runtime table rename loops (`_v2` -> clean name) are permanently dropped. Delegates and operators are instructed to:
-- Never execute in-place column-by-column migration scripts against legacy stale databases in `dist/`.
-- Rebuild fresh canonical state cleanly from raw `entities` event logs or fresh crawler seeding (`bun run project`).
-- Treat code DDL (`src/db.ts`) as Ground Truth.
+The `dist/worker/` bundle is built but not deployed. See `docs/research/spikes/CLOUDFLARE_PORTABILITY_SPIKE.md` for the portability assessment.
 
 ---
 
-## 9. Log Management & Archival
+## 10. Pre-Production Operator Checklist
 
-The logging subsystem (`src/logger.ts`) provides native session-prefixed daily rotating log streams with automatic gzip (`.log.gz`) compression:
-- **Session Prefixes**: File paths follow `dist/logs/session_<pid>_<sessionId>_<YYYY-MM-DD>.log`.
-- **Daily Rotation & Gzip**: At UTC midnight turnover, active file handles are closed, prior day log files are compressed via native zlib gzip (`level: 9`) to `.log.gz`, uncompressed originals are purged, and fresh stream handles are opened.
-- **External Log Management**: Optional external rotation configurations below may still be used if host OS retention policies are desired.
-
-### Linux logrotate Configuration (`/etc/logrotate.d/vrc-catalog`)
-
-```
-/opt/vrc-catalog/dist/logs/*.log {
-    daily
-    missingok
-    rotate 14
-    compress
-    delaycompress
-    notifempty
-    copytruncate
-}
-```
-
-### Windows Log Sweep (PowerShell Scheduled Task)
-
-```powershell
-Get-ChildItem -Path "C:\vrc-catalog\dist\logs\*.log" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | ForEach-Object {
-    $zipPath = "$($_.FullName).$((Get-Date).ToString('yyyyMMdd')).zip"
-    Compress-Archive -Path $_.FullName -DestinationPath $zipPath -Update
-    Clear-Content $_.FullName
-}
-```
-
----
-
-## 9. SRE Production Checklist
-
-- [ ] Compile native binaries via `bun run build:all`.
-- [ ] Transfer binaries and initial database to host directory.
-- [ ] Configure `dist/.env` with random `API_SECRET_TOKEN` and credentials.
-- [ ] Verify `ProcessLock` activates when starting crawler daemon.
-- [ ] Install and verify supervisor services (systemd or NSSM).
-- [ ] Confirm IPC commands respond via `vrc-monitor.exe status`.
-- [ ] Establish Cloudflare Tunnel and verify zero open inbound firewall ports.
-- [ ] Apply Edge Cache Rules and WAF rate limits in Cloudflare dashboard.
-- [ ] Execute `vrc-sync --dry-run` to verify Cloudflare D1 connectivity.
-- [ ] Confirm health endpoint responds: `curl -I http://127.0.0.1:8080/v1/health`.
+- [ ] `bun run build` completes without errors
+- [ ] `bun test` passes (161 tests, 0 failures)
+- [ ] `bun run typecheck` passes (0 errors)
+- [ ] Both binaries launch in the same working directory without lock collisions
+- [ ] Coordinator prints operator token on first boot
+- [ ] Node credential issued via `POST /v1/operator/nodes`
+- [ ] At least one source-access profile created and verified before any live fetch attempt
+- [ ] `bun run smoke:continuous` passes end-to-end
+- [ ] No credentials appear in logs, databases, or output files

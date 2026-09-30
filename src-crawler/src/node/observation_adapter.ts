@@ -5,7 +5,8 @@ import type { CrawlJob, DiscoveryLead, Observation, ResultRequest, VpmListingIss
 import { isVpmVersion } from "../shared/vpm_version.ts";
 import { classifyAccessFailure, retryAfterSeconds } from "../shared/access_outcome.ts";
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
-  isShopifyProductSitemapTarget, shopifyProductLead } from "../shared/source_targets.ts";
+  isShopifyProductSitemapTarget, shopifyProductLead,
+  isSellfyProductTarget, sellfyProductIdentity, isCustomDomainProductTarget } from "../shared/source_targets.ts";
 import { CRAWLER_USER_AGENT } from "../shared/crawler_identity.ts";
 import { UnsafeMetadataTarget } from "./public_metadata_fetch.ts";
 
@@ -124,7 +125,7 @@ function releaseEvidence(version: string, manifest: Record<string, unknown>): No
 
 /** A template source is a build recipe. Its URLs are leads, not package or version evidence. */
 export function parseVpmListingRecipe(job: CrawlJob, body: string): DiscoveryLead[] | null {
-  if (job.platform !== "vpm") return null;
+  if (job.platform !== "vpm" && job.platform !== "curated") return null;
   let raw: unknown;
   try { raw = JSON.parse(body); } catch { return null; }
   const recipe = object(raw);
@@ -269,7 +270,10 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
   const productPath = job.platform === "booth" && /^\/(?:[a-z]{2}\/)?items\/\d+\/?$/.test(productUrl.pathname) ||
     job.platform === "gumroad" && /^\/l\/[^/]+\/?$/.test(productUrl.pathname) ||
     job.platform === "jinxxy" && /^\/[^/]+\/[^/]+\/?$/.test(productUrl.pathname) ||
-    job.platform === "itch" && productUrl.hostname.endsWith(".itch.io");
+    job.platform === "itch" && productUrl.hostname.endsWith(".itch.io") ||
+    job.platform === "shopify" && /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?products\/[a-z0-9][a-z0-9-]*\/?$/i.test(productUrl.pathname) ||
+    job.platform === "sellfy" && isSellfyProductTarget(job.url) ||
+    (job.platform === "custom_domain" || job.platform === "vrchat") && isCustomDomainProductTarget(job.url);
   if (!productPath) return null;
   const $ = cheerio.load(body);
   const metadata = (key: string) => $(`meta[property="${key}"],meta[name="${key}"]`).first().attr("content")?.trim() || "";
@@ -346,6 +350,57 @@ export function parseShopifyProductSitemapLeads(job: CrawlJob, body: string): Di
   return [...urls].map(url => ({ kind: "storefront_product", url }));
 }
 
+/** Curated community collections and repositories.txt feed parser. */
+export function parseCuratedDiscoveryLeads(job: CrawlJob, body: string, contentType: string = ""): DiscoveryLead[] | null {
+  if (job.platform !== "curated" || job.purpose !== "discovery") return null;
+
+  // 1. Try JSON recipe / manifest list first
+  const recipeLeads = parseVpmListingRecipe(job, body);
+  if (recipeLeads && recipeLeads.length > 0) return recipeLeads;
+
+  // 2. Text-based repositories.txt (newline delimited HTTPS URLs)
+  const leads: DiscoveryLead[] = [];
+  const lines = body.split(/[\r\n]+/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    try {
+      const parsed = new URL(line);
+      if (parsed.protocol === "https:") {
+        if (parsed.hostname === "github.com" && /^\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parsed.pathname)) {
+          leads.push({ kind: "github_repository", url: parsed.href });
+        } else if (parsed.pathname.endsWith(".json")) {
+          leads.push({ kind: "vpm_listing", url: parsed.href });
+        }
+      }
+    } catch {}
+    if (leads.length >= 100) break;
+  }
+
+  // 3. If HTML / Markdown, extract github and vpm links
+  if (leads.length === 0 && (contentType.includes("html") || body.includes("<html") || body.includes("http"))) {
+    const urlMatches = body.match(/https:\/\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.~!$&'()*+,;=:@%-]+)+/g) || [];
+    for (const match of urlMatches) {
+      try {
+        const parsed = new URL(match);
+        if (parsed.hostname === "github.com") {
+          const m = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/.exec(parsed.pathname);
+          if (m && m[1] !== "topics" && m[1] !== "search") {
+            leads.push({ kind: "github_repository", url: `https://github.com/${m[1]}/${m[2]}` });
+          }
+        } else if (parsed.pathname.endsWith("/index.json") || parsed.pathname.endsWith("/vpm.json") || parsed.pathname.endsWith("/packages.json")) {
+          leads.push({ kind: "vpm_listing", url: parsed.href });
+        }
+      } catch {}
+      if (leads.length >= 100) break;
+    }
+  }
+
+  if (leads.length === 0) return null;
+  const unique = [...new Map(leads.map(l => [`${l.kind}:${l.url}`, l])).values()];
+  return unique.slice(0, 100);
+}
+
 export async function fetchJobOutcome(job: CrawlJob,
   fetcher: (input: string | URL | Request, init?: RequestInit) => Promise<Response> = fetch,
   authoritySignal?: AbortSignal,
@@ -363,9 +418,19 @@ export async function fetchJobOutcome(job: CrawlJob,
       return { kind: "blocked", reason: "BOOTH metadata requires an item URL" };
     }
   }
-  if (job.platform === "shopify" && (job.purpose !== "discovery" ||
-      !isShopifyProductSitemapTarget(job.url))) {
-    return { kind: "blocked", reason: "Shopify discovery requires a product sitemap URL" };
+  if (job.platform === "shopify") {
+    if (job.purpose === "discovery" && !isShopifyProductSitemapTarget(job.url)) {
+      return { kind: "blocked", reason: "Shopify discovery requires a product sitemap URL" };
+    }
+    if (job.purpose === "metadata" && !shopifyProductLead(job.url, job.origin)) {
+      return { kind: "blocked", reason: "Shopify metadata requires a valid merchant product URL" };
+    }
+  }
+  if (job.platform === "sellfy" && job.purpose === "metadata" && !isSellfyProductTarget(job.url)) {
+    return { kind: "blocked", reason: "Sellfy metadata requires a valid product URL" };
+  }
+  if (job.platform === "custom_domain" && job.purpose === "metadata" && !isCustomDomainProductTarget(job.url)) {
+    return { kind: "blocked", reason: "Custom domain metadata requires a valid path" };
   }
   const isGitHubApi = job.platform === "github" && targetUrl.origin === "https://api.github.com";
   const githubToken = isGitHubApi
@@ -417,13 +482,18 @@ export async function fetchJobOutcome(job: CrawlJob,
       return leads ? { kind: "discovery", leads } :
         { kind: "temporary_failure", reason: "BOOTH browse exceeds one bounded lead batch" };
     }
-    if (job.platform === "shopify") {
+    if (job.platform === "shopify" && job.purpose === "discovery") {
       if (!/^(?:application|text)\/xml\b/i.test(response.headers.get("content-type") || "")) {
         return { kind: "temporary_failure", reason: "Shopify sitemap response was not XML" };
       }
       const leads = parseShopifyProductSitemapLeads(job, body);
       return leads ? { kind: "discovery", leads } :
         { kind: "temporary_failure", reason: "Shopify product sitemap was malformed or exceeds one bounded lead batch" };
+    }
+    if (job.platform === "curated" && job.purpose === "discovery") {
+      const leads = parseCuratedDiscoveryLeads(job, body, response.headers.get("content-type") || "");
+      return leads ? { kind: "discovery", leads } :
+        { kind: "temporary_failure", reason: "Curated discovery exceeds one bounded lead batch" };
     }
     if (job.platform === "vpm") {
       const parsed = parseVpmRepositoryEvidence(job, body);

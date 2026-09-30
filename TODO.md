@@ -240,7 +240,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 1.6: Filter YouTube Embeds at Frontier and Image Proxy [COMPLETED]
 - **Priority**: Operational Defect | **Complexity**: Low (30 mins) | **Traceability**: CR-6, G-1, DISCOVERY_RULES §7.1 | **Status**: Verified & Completed
-- **Files**: `src/drivers/jinxxy.ts` (retired), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts#L740-L745)
+- **Files**: `src/drivers/jinxxy.ts` (retired), `src/utils/image_proxy.ts` (retired)
 - **Problem**: Jinxxy driver enqueues YouTube embed URLs into image queues, triggering Sharp worker parse failures on `text/html`.
 - **Remediation**:
   1. In `src/drivers/jinxxy.ts`, filter media arrays by MIME/type, routing `youtube.com/embed/` and `youtu.be/` directly to `youtube_urls` metadata array.
@@ -387,7 +387,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 2.7: Autonomous Fault Tolerance Subsystem: Domain Circuit Breakers, Exponential Backoff with Jitter & Persistent Dead-Letter Queue (Permanent Removal of manual requeue scripts) [COMPLETED]
 - **Priority**: System Reliability / Unattended Autonomy | **Complexity**: Medium (1 hour 15 mins) | **Traceability**: Operational Defect (HEAD Section 1), G-1, G-3, G-11 | **Status**: Verified & Completed
-- **Files**: `src/crawler/index.ts` (retired), `src/drivers/gumroad.ts` (retired), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts), `src/tools/requeue_gumroad.ts` (historical removed script), `src/tools/requeue_media.ts` (historical removed script), [`package.json`](src-crawler/package.json)
+- **Files**: `src/crawler/index.ts` (retired), `src/drivers/gumroad.ts` (retired), `src/utils/image_proxy.ts` (retired), `src/tools/requeue_gumroad.ts` (historical removed script), `src/tools/requeue_media.ts` (historical removed script), [`package.json`](src-crawler/package.json)
 - **Problem**:
   - When encountering transient network errors, HTTP 429 rate limits, or CDN stalls, Gumroad and image proxy queues halt. Operators previously executed manual batch scripts (`src/tools/requeue_gumroad.ts`, `src/tools/requeue_media.ts`, `bun run requeue:gumroad`, `bun run requeue:media`) to reset failed/stalled frontier items. Relying on manual intervention violates 24/7 unattended autonomy and causes lock contention with the active daemon.
   - This requires a proper systematic integration into the system rather than a series of script patches.
@@ -447,7 +447,7 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
 
 #### Task 3.2: Pure Media Pointer Migration: Hybrid Delivery Architecture & Deprecate SQLite WebP BLOB Storage [COMPLETED]
 - **Priority**: Core Legal Compliance | **Complexity**: Medium-High (2 hours) | **Traceability**: CR-19, CR-21, G-1, G-22, G-29, LEGAL §7.2(c) | **Status**: Verified & Completed
-- **Files**: [`src/db.ts`](src-crawler/src/db/db.ts#L180-L210), [`src/utils/image_proxy.ts`](src-crawler/src/utils/image_proxy.ts), `src/server/index.ts` (retired), `src/sync/exporter.ts` (retired)
+- **Files**: [`src/db.ts`](src-crawler/src/db/db.ts#L180-L210), `src/utils/image_proxy.ts` (retired), `src/server/index.ts` (retired), `src/sync/exporter.ts` (retired)
 - **Problem**: Code currently stores raw WebP buffers directly as BLOBs in SQLite `media_cache.webp_data` (`dist/crawler_state.db`), creating a 357 MB database and re-hosting copyrighted imagery in tension with the Server Test split (*Perfect 10* vs *Goldman v. Breitbart*). Furthermore, closed storefront CDNs enforce `Referer` headers and block direct hotlinking with `403 Forbidden` (G-1).
 - **Remediation**:
   1. **Direct Origin URLs by Default**: Modify `src/server/index.ts` and API catalog feeds to return direct origin CDN URLs in `media_urls` and `source_url`, aligning with the Ninth Circuit Server Test (*Perfect 10 v. Amazon*).

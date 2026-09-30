@@ -49,3 +49,33 @@ export function shopifyProductLead(value: string, origin: string): string | null
     return url.href;
   } catch { return null; }
 }
+
+/** A canonical Sellfy product URL, on sellfy.com or a merchant-branded custom domain. */
+export function isSellfyProductTarget(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.port || url.search || url.hash) return false;
+    return /^(?:\/[A-Za-z0-9_.-]+)?\/p\/[A-Za-z0-9_.-]+\/?$/.test(url.pathname);
+  } catch { return false; }
+}
+
+/** A canonical Sellfy product identity key. */
+export function sellfyProductIdentity(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (!isSellfyProductTarget(value)) return null;
+    const match = /^(?:\/([A-Za-z0-9_.-]+))?\/p\/([A-Za-z0-9_.-]+)\/?$/.exec(url.pathname);
+    if (!match) return null;
+    return match[1] ? `${url.hostname}:${match[1]}:${match[2]}` : `${url.hostname}:${match[2]}`;
+  } catch { return null; }
+}
+
+/** Validates a custom creator domain product or package target URL. */
+export function isCustomDomainProductTarget(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.port || url.search || url.hash) return false;
+    return url.pathname !== "/" && url.pathname.length > 1;
+  } catch { return false; }
+}
+

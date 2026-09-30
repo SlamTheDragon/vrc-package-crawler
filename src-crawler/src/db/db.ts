@@ -929,8 +929,11 @@ export class CrawlerDB {
       gumroad: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
       jinxxy: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
       itch: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
+      curated: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
       shopify: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
-      vrchat: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 }
+      sellfy: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
+      vrchat: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 },
+      custom_domain: { pending: 0, retrying: 0, fetching: 0, done: 0, failed: 0, entities: 0 }
     };
 
     try {

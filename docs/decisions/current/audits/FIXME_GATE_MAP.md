@@ -12,7 +12,7 @@ This is an audited routing inventory of code-level FIXMEs. Following the compreh
 | **G3** | `src-crawler/src/crawler/index.ts:693,735`; `src/drivers/*` | ✅ **Retired** | Monolithic crawler loop and all 20 coupled driver files permanently deleted; node execution runs 100% on decoupled pure adapters in `src/node/observation_adapter.ts`. |
 | **G2/G4** | `src-crawler/src/filter.ts:46,80,148,210,232,282,314,347,369,381,451,488` | ✅ **Retired** | Hardcoded whitelists and keyword filters permanently deleted; taxonomy and evidence classes unified under `docs/decisions/DIRECTION.md` and `src/shared/evidence_class.ts`. |
 | **G1** | `src-crawler/src/db/db.ts:692` | ✅ **Resolved** | Deprecated `drainDeadLetterQueue` removed; active callers invoke `drainExpiredRetryQueue`. |
-| **G1** | `src-crawler/src/utils/sanitizer.ts:2`, `iana.ts:2`, `image_proxy.ts:7` | ✅ **Resolved** | Investigated and confirmed active core utilities; audit markers cleared. |
+| **G1** | `src-crawler/src/utils/sanitizer.ts:2`, `iana.ts:2` | ✅ **Resolved** | Investigated and confirmed active core utilities; audit markers cleared. Prototype `image_proxy.ts` and `sharp_worker.ts` permanently retired per CR-19/CR-21. |
 
 ## Active In-Tree FIXMEs (2 Remaining)
 
