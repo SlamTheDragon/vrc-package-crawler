@@ -11,7 +11,7 @@ import { type CoordinatorStore, type NodePrincipal, CoordinatorConflict } from "
 import type { OperatorStore } from "../operator_handler";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils";
 import { D1Database, AutoQueueRuleRow, SourceAccessProfileRow, JobRow, D1PreparedStatement, CanonicalUmbrella, CanonicalLifecycle, CanonicalPackage, EvidenceKind, LinkReviewState, IdentityLink } from "./definitions";
-import { deriveCategoryFromTags } from "../../shared/taxonomy";
+import { deriveCategoryFromTags, type DesktopToolEvidence } from "../../shared/taxonomy";
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../shared/avatar_compatibility";
 
 
@@ -1142,5 +1142,71 @@ export class Coordinator implements CoordinatorStore, OperatorStore {
       confidence: r.confidence,
       evidenceSource: r.evidence_source
     }));
+  }
+
+  async recordDesktopToolEvidence(evidence: DesktopToolEvidence & { confidence: number }): Promise<void> {
+    const now = new Date(this.now()).toISOString();
+    await this.db.prepare(`
+      INSERT INTO desktop_tool_evidence
+        (canonical_id, tool_subtype, supported_os, particular_vrchat_target, evidence_url, publisher_claim, confidence, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(canonical_id) DO UPDATE SET
+        tool_subtype = excluded.tool_subtype,
+        supported_os = excluded.supported_os,
+        particular_vrchat_target = excluded.particular_vrchat_target,
+        evidence_url = excluded.evidence_url,
+        publisher_claim = excluded.publisher_claim,
+        confidence = excluded.confidence
+    `).bind(
+      evidence.canonicalId,
+      evidence.toolSubtype,
+      JSON.stringify(evidence.supportedOS),
+      evidence.particularVRChatTarget ? 1 : 0,
+      evidence.evidenceUrl,
+      evidence.publisherClaim,
+      evidence.confidence,
+      now
+    ).run();
+  }
+
+  async getDesktopToolEvidence(canonicalId: string): Promise<(DesktopToolEvidence & { confidence: number }) | null> {
+    const row = await this.db.prepare(`
+      SELECT canonical_id, tool_subtype, supported_os, particular_vrchat_target, evidence_url, publisher_claim, confidence, created_at
+      FROM desktop_tool_evidence
+      WHERE canonical_id = ?
+    `).bind(canonicalId).first<{
+      canonical_id: string;
+      tool_subtype: DesktopToolEvidence["toolSubtype"];
+      supported_os: string;
+      particular_vrchat_target: number;
+      evidence_url: string;
+      publisher_claim: string;
+      confidence: number;
+      created_at: string;
+    }>();
+
+    if (!row) return null;
+
+    let supportedOS: DesktopToolEvidence["supportedOS"] = ["windows"];
+    try {
+      supportedOS = JSON.parse(row.supported_os);
+    } catch {
+      supportedOS = ["windows"];
+    }
+
+    return {
+      canonicalId: row.canonical_id,
+      toolSubtype: row.tool_subtype,
+      supportedOS,
+      particularVRChatTarget: row.particular_vrchat_target === 1,
+      evidenceUrl: row.evidence_url,
+      publisherClaim: row.publisher_claim,
+      confidence: row.confidence
+    };
+  }
+
+  async deleteCanonicalPackage(canonicalId: string): Promise<boolean> {
+    const res = await this.db.prepare("DELETE FROM canonical_packages WHERE canonical_id = ?").bind(canonicalId).run();
+    return ((res.meta as any)?.changes ?? 0) > 0;
   }
 }

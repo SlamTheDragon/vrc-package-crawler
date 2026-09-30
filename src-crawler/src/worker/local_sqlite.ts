@@ -16,7 +16,7 @@ import { isItchSearchUrl } from "../shared/source_path_policy.ts";
 import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, type OriginRobotsSnapshot } from "../shared/robots_snapshot.ts";
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
 import { CRAWLER_ROBOTS_TOKEN } from "../shared/crawler_identity.ts";
-import { deriveCategoryFromTags } from "../shared/taxonomy.ts";
+import { deriveCategoryFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../shared/taxonomy.ts";
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../shared/avatar_compatibility.ts";
 import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
   IssueNodeCredentialSchema, type IssueNodeCredential,
@@ -260,6 +260,17 @@ export class LocalCoordinatorStore implements CoordinatorStore {
       );
       CREATE INDEX IF NOT EXISTS idx_avatar_compat_source_key ON avatar_compatibilities(source_key);
       CREATE INDEX IF NOT EXISTS idx_avatar_compat_target_base ON avatar_compatibilities(target_avatar_base);
+      CREATE TABLE IF NOT EXISTS desktop_tool_evidence (
+        canonical_id TEXT PRIMARY KEY,
+        tool_subtype TEXT NOT NULL CHECK(tool_subtype IN ('companion_client','osc_control','tracking_bridge','streaming_accessibility','utility')),
+        supported_os TEXT NOT NULL,
+        particular_vrchat_target INTEGER NOT NULL CHECK(particular_vrchat_target IN (0, 1)),
+        evidence_url TEXT NOT NULL,
+        publisher_claim TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (canonical_id) REFERENCES canonical_packages(canonical_id) ON DELETE CASCADE
+      );
     `);
     // Existing local coordinator databases predate these local-only markers.
     this.db.transaction(() => {
@@ -1312,6 +1323,39 @@ export class LocalCoordinatorStore implements CoordinatorStore {
             });
           }
         }
+
+        const desktopClassification = classifyDesktopTool(
+          observation.title,
+          observation.summary,
+          observation.outboundLinks,
+          observation.platformTags ?? []
+        );
+
+        if (desktopClassification.isDesktopTool && desktopClassification.confidence >= 0.8 && desktopClassification.subtype) {
+          const targetCanonicalIds = new Set<string>(linkedCanonicalIds);
+          const standalonePkg = this.getCanonicalPackage(observation.sourceItemKey);
+          if (standalonePkg) {
+            targetCanonicalIds.add(standalonePkg.canonicalId);
+          }
+
+          if (targetCanonicalIds.size > 0) {
+            const evidenceUrl = (observation as any).storefrontUrl || observation.outboundLinks[0] || `https://github.com/${observation.sourceItemKey}`;
+            const publisherClaim = observation.summary || observation.title;
+            const supportedOS = inferSupportedOS(`${observation.title} ${observation.summary} ${(observation.platformTags ?? []).join(" ")}`);
+
+            for (const canonicalId of targetCanonicalIds) {
+              this.recordDesktopToolEvidence({
+                canonicalId,
+                toolSubtype: desktopClassification.subtype,
+                supportedOS,
+                particularVRChatTarget: true,
+                evidenceUrl,
+                publisherClaim,
+                confidence: desktopClassification.confidence
+              });
+            }
+          }
+        }
       }
       if (outcome.kind === "gone") {
         const currentItems = this.db.prepare(`SELECT source_key FROM source_items
@@ -1736,6 +1780,72 @@ export class LocalCoordinatorStore implements CoordinatorStore {
       confidence: r.confidence,
       evidenceSource: r.evidence_source
     }));
+  }
+
+  recordDesktopToolEvidence(evidence: DesktopToolEvidence & { confidence: number }): void {
+    const now = new Date(this.now()).toISOString();
+    this.db.prepare(`
+      INSERT INTO desktop_tool_evidence
+        (canonical_id, tool_subtype, supported_os, particular_vrchat_target, evidence_url, publisher_claim, confidence, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(canonical_id) DO UPDATE SET
+        tool_subtype = excluded.tool_subtype,
+        supported_os = excluded.supported_os,
+        particular_vrchat_target = excluded.particular_vrchat_target,
+        evidence_url = excluded.evidence_url,
+        publisher_claim = excluded.publisher_claim,
+        confidence = excluded.confidence
+    `).run(
+      evidence.canonicalId,
+      evidence.toolSubtype,
+      JSON.stringify(evidence.supportedOS),
+      evidence.particularVRChatTarget ? 1 : 0,
+      evidence.evidenceUrl,
+      evidence.publisherClaim,
+      evidence.confidence,
+      now
+    );
+  }
+
+  getDesktopToolEvidence(canonicalId: string): (DesktopToolEvidence & { confidence: number }) | null {
+    const row = this.db.prepare(`
+      SELECT canonical_id, tool_subtype, supported_os, particular_vrchat_target, evidence_url, publisher_claim, confidence, created_at
+      FROM desktop_tool_evidence
+      WHERE canonical_id = ?
+    `).get(canonicalId) as {
+      canonical_id: string;
+      tool_subtype: DesktopToolEvidence["toolSubtype"];
+      supported_os: string;
+      particular_vrchat_target: number;
+      evidence_url: string;
+      publisher_claim: string;
+      confidence: number;
+      created_at: string;
+    } | null;
+
+    if (!row) return null;
+
+    let supportedOS: DesktopToolEvidence["supportedOS"] = ["windows"];
+    try {
+      supportedOS = JSON.parse(row.supported_os);
+    } catch {
+      supportedOS = ["windows"];
+    }
+
+    return {
+      canonicalId: row.canonical_id,
+      toolSubtype: row.tool_subtype,
+      supportedOS,
+      particularVRChatTarget: row.particular_vrchat_target === 1,
+      evidenceUrl: row.evidence_url,
+      publisherClaim: row.publisher_claim,
+      confidence: row.confidence
+    };
+  }
+
+  deleteCanonicalPackage(canonicalId: string): boolean {
+    const res = this.db.prepare("DELETE FROM canonical_packages WHERE canonical_id = ?").run(canonicalId);
+    return res.changes > 0;
   }
 
   private syncPackageFrontFromSourceItem(canonicalId: string, sourceKey: string): void {

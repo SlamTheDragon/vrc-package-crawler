@@ -33,6 +33,25 @@ export interface DesktopToolClassification {
 }
 
 /**
+ * Infers supported desktop operating systems from text/tags.
+ * Defaults to ["windows"] if no specific OS indicators are found.
+ */
+export function inferSupportedOS(text: string): ("windows" | "linux" | "macos")[] {
+  const lower = (text || "").toLowerCase();
+  const osList: ("windows" | "linux" | "macos")[] = [];
+  if (/\b(?:windows|win10|win11|win7|win8|\.exe)\b/.test(lower)) {
+    osList.push("windows");
+  }
+  if (/\b(?:linux|ubuntu|debian|arch|appimage|flatpak)\b/.test(lower)) {
+    osList.push("linux");
+  }
+  if (/\b(?:macos|mac\s*os|osx|darwin)\b/.test(lower)) {
+    osList.push("macos");
+  }
+  return osList.length > 0 ? osList : ["windows"];
+}
+
+/**
  * Classifies whether a software item is a standalone VRChat desktop tool (Gate G4 & Task 5.5).
  *
  * Positives: matches known VRChat desktop tools (e.g. VRCX, VRCFaceTracking, VRCOSC, ADVOSC)

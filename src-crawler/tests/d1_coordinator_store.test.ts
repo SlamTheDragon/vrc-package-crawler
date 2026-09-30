@@ -29,8 +29,8 @@ export function createMockD1Database(db = new Database(":memory:")): D1Database 
         },
         async run<T = unknown>(): Promise<D1Result<T>> {
           const prepared = db.prepare(query);
-          prepared.run(...(boundValues as any));
-          return { success: true };
+          const info = prepared.run(...(boundValues as any));
+          return { success: true, meta: { changes: info.changes } };
         },
         async all<T = unknown>(): Promise<D1Result<T>> {
           const prepared = db.prepare(query);
@@ -468,5 +468,44 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       env
     );
     expect(nodeReq.status).toBe(401);
+  });
+
+  it("records, retrieves, and cascades desktop tool evidence in D1", async () => {
+    const mockDb = createMockD1Database();
+    const store = new Coordinator(mockDb);
+    await store.initSchema();
+
+    await store.upsertCanonicalPackage({
+      canonicalId: "vrcx-d1",
+      umbrella: "tools",
+      category: "companion_client",
+      lifecycle: "active",
+      displayName: "VRCX"
+    });
+
+    await store.recordDesktopToolEvidence({
+      canonicalId: "vrcx-d1",
+      toolSubtype: "companion_client",
+      supportedOS: ["windows"],
+      particularVRChatTarget: true,
+      evidenceUrl: "https://github.com/vrcx-team/VRCX",
+      publisherClaim: "VRCX is an assistant/companion application for VRChat",
+      confidence: 0.98
+    });
+
+    const retrieved = await store.getDesktopToolEvidence("vrcx-d1");
+    expect(retrieved).not.toBeNull();
+    expect(retrieved?.canonicalId).toBe("vrcx-d1");
+    expect(retrieved?.toolSubtype).toBe("companion_client");
+    expect(retrieved?.supportedOS).toEqual(["windows"]);
+    expect(retrieved?.particularVRChatTarget).toBe(true);
+    expect(retrieved?.evidenceUrl).toBe("https://github.com/vrcx-team/VRCX");
+    expect(retrieved?.publisherClaim).toBe("VRCX is an assistant/companion application for VRChat");
+    expect(retrieved?.confidence).toBe(0.98);
+
+    // Cascade deletion
+    const deleted = await store.deleteCanonicalPackage("vrcx-d1");
+    expect(deleted).toBe(true);
+    expect(await store.getDesktopToolEvidence("vrcx-d1")).toBeNull();
   });
 });

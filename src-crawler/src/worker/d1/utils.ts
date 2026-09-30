@@ -210,6 +210,17 @@ CREATE TABLE IF NOT EXISTS avatar_compatibilities (
 );
 CREATE INDEX IF NOT EXISTS idx_avatar_compat_source_key ON avatar_compatibilities(source_key);
 CREATE INDEX IF NOT EXISTS idx_avatar_compat_target_base ON avatar_compatibilities(target_avatar_base);
+CREATE TABLE IF NOT EXISTS desktop_tool_evidence (
+  canonical_id TEXT PRIMARY KEY,
+  tool_subtype TEXT NOT NULL CHECK(tool_subtype IN ('companion_client','osc_control','tracking_bridge','streaming_accessibility','utility')),
+  supported_os TEXT NOT NULL,
+  particular_vrchat_target INTEGER NOT NULL CHECK(particular_vrchat_target IN (0, 1)),
+  evidence_url TEXT NOT NULL,
+  publisher_claim TEXT NOT NULL,
+  confidence REAL NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (canonical_id) REFERENCES canonical_packages(canonical_id) ON DELETE CASCADE
+);
 `;
 
 export const INIT_SQL = D1_SCHEMA_SQL;

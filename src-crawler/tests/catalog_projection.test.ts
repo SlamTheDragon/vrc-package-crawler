@@ -1433,3 +1433,171 @@ describe("Avatar Compatibility Storage (IDENTITY-02)", () => {
   });
 });
 
+describe("Desktop Tool Evidence Storage (Task 5.5 / Gate G4)", () => {
+  test("storing and retrieving desktop tool evidence for a known desktop tool (VRCX)", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      // Create canonical package for VRCX
+      store.upsertCanonicalPackage({
+        canonicalId: "vrcx-official",
+        umbrella: "tools",
+        category: "companion_client",
+        lifecycle: "active",
+        displayName: "VRCX"
+      });
+
+      // Record desktop tool evidence
+      store.recordDesktopToolEvidence({
+        canonicalId: "vrcx-official",
+        toolSubtype: "companion_client",
+        supportedOS: ["windows"],
+        particularVRChatTarget: true,
+        evidenceUrl: "https://github.com/vrcx-team/VRCX",
+        publisherClaim: "VRCX is an assistant/companion application for VRChat",
+        confidence: 0.98
+      });
+
+      // Retrieve evidence and assert all properties
+      const evidence = store.getDesktopToolEvidence("vrcx-official");
+      expect(evidence).not.toBeNull();
+      expect(evidence?.canonicalId).toBe("vrcx-official");
+      expect(evidence?.toolSubtype).toBe("companion_client");
+      expect(evidence?.supportedOS).toEqual(["windows"]);
+      expect(evidence?.particularVRChatTarget).toBe(true);
+      expect(evidence?.evidenceUrl).toBe("https://github.com/vrcx-team/VRCX");
+      expect(evidence?.publisherClaim).toBe("VRCX is an assistant/companion application for VRChat");
+      expect(evidence?.confidence).toBe(0.98);
+
+      // Non-existent canonical package returns null
+      expect(store.getDesktopToolEvidence("non_existent_tool")).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("cascade deletion: deleting canonical package deletes its desktop tool evidence", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      store.upsertCanonicalPackage({
+        canonicalId: "vrcx-official",
+        umbrella: "tools",
+        category: "companion_client",
+        lifecycle: "active",
+        displayName: "VRCX"
+      });
+
+      store.recordDesktopToolEvidence({
+        canonicalId: "vrcx-official",
+        toolSubtype: "companion_client",
+        supportedOS: ["windows"],
+        particularVRChatTarget: true,
+        evidenceUrl: "https://github.com/vrcx-team/VRCX",
+        publisherClaim: "VRCX is an assistant/companion application for VRChat",
+        confidence: 0.98
+      });
+
+      expect(store.getDesktopToolEvidence("vrcx-official")).not.toBeNull();
+
+      // Delete canonical package
+      const deleted = store.deleteCanonicalPackage("vrcx-official");
+      expect(deleted).toBe(true);
+      expect(store.getCanonicalPackage("vrcx-official")).toBeNull();
+
+      // Desktop tool evidence must be deleted by CASCADE
+      expect(store.getDesktopToolEvidence("vrcx-official")).toBeNull();
+
+      // Verify at raw SQL table level as well
+      const rawRows = store.db.prepare("SELECT * FROM desktop_tool_evidence WHERE canonical_id = ?").all("vrcx-official");
+      expect(rawRows).toHaveLength(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("submitting an observation for a known desktop tool auto-classifies and records evidence", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      // Canonical package exists for standalone desktop tool
+      store.upsertCanonicalPackage({
+        canonicalId: "vrcx-team/VRCX",
+        umbrella: "tools",
+        category: "companion_client",
+        lifecycle: "active",
+        displayName: "VRCX"
+      });
+
+      const ghUrl = "https://api.github.com/repos/vrcx-team/VRCX";
+      const { nodeToken, jobId, leaseId, nodeId } = setupGitHubLease(store, ghUrl);
+      const principal = store.authenticate(nodeId, nodeToken)!;
+
+      const result = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId, jobId, leaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "vrcx-team/VRCX",
+            title: "VRCX",
+            author: "vrcx-team",
+            summary: "VRCX is an assistant/companion application for VRChat",
+            outboundLinks: ["https://github.com/vrcx-team/VRCX"],
+            originUpdatedAt: null
+          }
+        }
+      }, principal);
+      expect(result.status).toBe("accepted");
+
+      const evidence = store.getDesktopToolEvidence("vrcx-team/VRCX");
+      expect(evidence).not.toBeNull();
+      expect(evidence?.canonicalId).toBe("vrcx-team/VRCX");
+      expect(evidence?.toolSubtype).toBe("companion_client");
+      expect(evidence?.supportedOS).toEqual(["windows"]);
+      expect(evidence?.particularVRChatTarget).toBe(true);
+      expect(evidence?.evidenceUrl).toBe("https://github.com/vrcx-team/VRCX");
+      expect(evidence?.publisherClaim).toBe("VRCX is an assistant/companion application for VRChat");
+      expect(evidence?.confidence).toBeGreaterThanOrEqual(0.8);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("submitting observation for non-desktop software does not record desktop tool evidence", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      store.upsertCanonicalPackage({
+        canonicalId: "booth-item-40404",
+        umbrella: "assets",
+        category: "clothing",
+        lifecycle: "active",
+        displayName: "Cute Gothic Dress"
+      });
+
+      const boothUrl = "https://booth.pm/ja/items/40404";
+      const { nodeToken, jobId, leaseId, nodeId } = setupStorefrontLease(store, boothUrl, "booth");
+      const principal = store.authenticate(nodeId, nodeToken)!;
+
+      const result = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId, jobId, leaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "booth-item-40404",
+            title: "Cute Gothic Dress",
+            author: "DressMaker",
+            summary: "A nice dress for Kikyo avatar",
+            outboundLinks: [],
+            originUpdatedAt: null
+          }
+        }
+      }, principal);
+      expect(result.status).toBe("accepted");
+
+      expect(store.getDesktopToolEvidence("booth-item-40404")).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+});
+
+
