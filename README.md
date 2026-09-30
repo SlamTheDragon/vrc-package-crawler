@@ -117,7 +117,6 @@ bun run smoke:multi         # Multi-process coordinator lease & race check
 
 The legacy monolithic Phase 1–4 binaries (`vrc-crawler.exe`, `vrc-server.exe`, `vrc-monitor.exe`, `vrc-sync.exe`, port 8765 IPC, and direct D1 edge sync) have been permanently retired and deleted as part of the version 0 pre-production refactor. For historical design records and specifications, see:
 - [`docs/scratch/history/AGENT_PHASE4.md`](docs/scratch/history/AGENT_PHASE4.md)
-- [`docs/scratch/legacy-prototype-targets/`](docs/scratch/legacy-prototype-targets/)
 - [`docs/scratch/decisions/current/status/CONFORMANCE.md`](docs/scratch/decisions/current/status/CONFORMANCE.md)
 
 ---
