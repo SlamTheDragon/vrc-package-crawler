@@ -27,9 +27,22 @@ accessible; the browser helper also failed before loading the site. No
 Filmot subtitle text has been verified. Recheck exact wording against captions before
 using any quotation; these instructions paraphrase themes only.
 
-Rule files use Antigravity's documented `trigger: always_on` frontmatter.
+Rule files use Antigravity's documented `trigger: always_on` frontmatter:
+- [`rules/00-authority-and-truth.md`](./rules/00-authority-and-truth.md)
+- [`rules/01-small-vertical-slices.md`](./rules/01-small-vertical-slices.md)
+- [`rules/02-boundary-and-review.md`](./rules/02-boundary-and-review.md)
+- [`rules/03-stop-and-goal-integrity.md`](./rules/03-stop-and-goal-integrity.md)
+- [`rules/04-context-preservation-and-anti-bloat.md`](./rules/04-context-preservation-and-anti-bloat.md) (guards context window, resists Jevons bloat, defeats RAG blind spots)
+
 Skills use its required singular `SKILL.md` manifest; `SKILLS.md` is the
-owner-requested procedure. See [Antigravity rules](https://www.antigravity.google/docs/rules/)
+owner-requested procedure. Available skills:
+- [`skills/codebase-orientation`](./skills/codebase-orientation/SKILL.md)
+- [`skills/goal-checkpoint`](./skills/goal-checkpoint/SKILL.md)
+- [`skills/incremental-delivery`](./skills/incremental-delivery/SKILL.md)
+- [`skills/system-reliability-review`](./skills/system-reliability-review/SKILL.md)
+- [`skills/context-recovery`](./skills/context-recovery/SKILL.md) (5-step recovery after context compaction or detected drift)
+
+See [Antigravity rules](https://www.antigravity.google/docs/rules/)
 and [skills](https://www.antigravity.google/docs/skills/). Its
 [Stop hook contract](https://www.antigravity.google/docs/hooks) exposes
 execution-loop state and a continue/stop decision, not a proof of the

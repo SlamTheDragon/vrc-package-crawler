@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import { isIP } from "node:net";
 import { dirname, resolve } from "node:path";
 import {
-  ClaimRequestSchema, ObservationSchema, PlatformSchema, PROTOCOL_VERSION, observationMatchesPlatform,
+  ClaimRequestSchema, ObservationSchema, PlatformSchema, PROTOCOL_VERSION, STOREFRONT_PLATFORMS, observationMatchesPlatform,
   type ClaimRequest, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse,
   type Observation, type Platform, type ResultRequest, type ResultResponse
 } from "../shared/node_protocol.ts";
@@ -21,6 +21,7 @@ import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
   encodeLeadCursor, encodeRuleCursor, encodeCatalogCursor,
   type AutoQueueRule, type CreateAutoQueueRule,
   type CatalogCursor, type CatalogPackage, type CatalogIdentityLink,
+  PackageFrontSchema, type PackageFront,
   type LeadCursor, type LeadRow, type RuleCursor } from "../shared/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, SourceAccessProfileSchema, encodeProfileCursor,
   type CreateSourceAccessProfile, type SourceAccessProfile, type ProfileCursor,
@@ -228,8 +229,23 @@ export class LocalCoordinatorStore implements CoordinatorStore {
         FOREIGN KEY(source_key) REFERENCES source_items(source_key),
         FOREIGN KEY(canonical_id) REFERENCES canonical_packages(canonical_id)
       );
-      CREATE INDEX IF NOT EXISTS idx_identity_links_source ON identity_links(source_key);
-      CREATE INDEX IF NOT EXISTS idx_identity_links_canonical ON identity_links(canonical_id);
+      CREATE TABLE IF NOT EXISTS package_fronts (
+        front_id TEXT PRIMARY KEY,
+        canonical_id TEXT NOT NULL,
+        source_key TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        storefront_url TEXT NOT NULL,
+        price REAL,
+        currency TEXT,
+        availability TEXT NOT NULL DEFAULT 'available',
+        observed_at TEXT NOT NULL,
+        UNIQUE(canonical_id, source_key),
+        FOREIGN KEY (canonical_id) REFERENCES canonical_packages(canonical_id) ON DELETE CASCADE,
+        FOREIGN KEY (source_key) REFERENCES source_items(source_key) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_package_fronts_canonical ON package_fronts(canonical_id);
+      CREATE INDEX IF NOT EXISTS idx_package_fronts_source ON package_fronts(source_key);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_package_fronts_canonical_source ON package_fronts(canonical_id, source_key);
     `);
     // Existing local coordinator databases predate these local-only markers.
     this.db.transaction(() => {
@@ -1157,12 +1173,116 @@ export class LocalCoordinatorStore implements CoordinatorStore {
             }
           }
         }
+        // G2/G4 package_fronts relational projection:
+        // When an observation has an accepted or provisional identity link to a canonical package
+        // (or if it is a storefront platform with an outbound match), upsert a row into package_fronts.
+        const linkedCanonicalIds = new Set<string>();
+        const existingLinks = this.db.prepare(`
+          SELECT canonical_id FROM identity_links
+          WHERE source_key = ? AND review_state IN ('accepted', 'provisional')
+        `).all(sourceKey) as { canonical_id: string }[];
+        for (const { canonical_id } of existingLinks) {
+          linkedCanonicalIds.add(canonical_id);
+        }
+
+        const isStorefront = STOREFRONT_PLATFORMS.has(job.platform) || observation.price !== undefined;
+        if (isStorefront) {
+          // Outbound match 1: observation outbound links matching source items or leads linked to a canonical package
+          for (const outbound of observation.outboundLinks) {
+            const normalizedOutbound = outbound.toLowerCase().replace(/\/+$/, "");
+            const matches = this.db.prepare(`
+              SELECT DISTINCT il.canonical_id
+              FROM identity_links il
+              JOIN source_items si ON si.source_key = il.source_key
+              WHERE LOWER(RTRIM(si.source_url, '/')) = ?
+                AND il.review_state IN ('accepted', 'provisional')
+            `).all(normalizedOutbound) as { canonical_id: string }[];
+            for (const { canonical_id } of matches) {
+              linkedCanonicalIds.add(canonical_id);
+            }
+
+            const ghMatch = normalizedOutbound.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)/);
+            if (ghMatch) {
+              const apiGhUrl = `https://api.github.com/repos/${ghMatch[1]}`.toLowerCase();
+              const ghMatches = this.db.prepare(`
+                SELECT DISTINCT il.canonical_id
+                FROM identity_links il
+                JOIN source_items si ON si.source_key = il.source_key
+                WHERE LOWER(RTRIM(si.source_url, '/')) = ?
+                  AND il.review_state IN ('accepted', 'provisional')
+              `).all(apiGhUrl) as { canonical_id: string }[];
+              for (const { canonical_id } of ghMatches) {
+                linkedCanonicalIds.add(canonical_id);
+              }
+            }
+
+            const leadMatches = this.db.prepare(`
+              SELECT DISTINCT il.canonical_id
+              FROM source_leads sl
+              JOIN identity_links il ON (
+                (sl.discovered_from_item_key IS NOT NULL AND (
+                  il.canonical_id = sl.discovered_from_item_key
+                  OR il.source_key = sl.discovered_from_item_key
+                  OR il.source_key = 'vpm:' || sl.discovered_from_url || ':' || sl.discovered_from_item_key
+                ))
+                OR (sl.claimed_package_id IS NOT NULL AND il.canonical_id = sl.claimed_package_id)
+              )
+              WHERE LOWER(RTRIM(sl.target_url, '/')) = ?
+                AND il.review_state IN ('accepted', 'provisional')
+            `).all(normalizedOutbound) as { canonical_id: string }[];
+            for (const { canonical_id } of leadMatches) {
+              linkedCanonicalIds.add(canonical_id);
+            }
+          }
+
+          // Outbound match 2: source leads where target_url matches this job URL (e.g. storefront discovered from VPM)
+          const normalizedJobUrl = job.url.toLowerCase().replace(/\/+$/, "");
+          const jobLeadMatches = this.db.prepare(`
+            SELECT DISTINCT il.canonical_id
+            FROM source_leads sl
+            JOIN identity_links il ON (
+              (sl.discovered_from_item_key IS NOT NULL AND (
+                il.canonical_id = sl.discovered_from_item_key
+                OR il.source_key = sl.discovered_from_item_key
+                OR il.source_key = 'vpm:' || sl.discovered_from_url || ':' || sl.discovered_from_item_key
+              ))
+              OR (sl.claimed_package_id IS NOT NULL AND il.canonical_id = sl.claimed_package_id)
+            )
+            WHERE LOWER(RTRIM(sl.target_url, '/')) = ?
+              AND il.review_state IN ('accepted', 'provisional')
+          `).all(normalizedJobUrl) as { canonical_id: string }[];
+          for (const { canonical_id } of jobLeadMatches) {
+            linkedCanonicalIds.add(canonical_id);
+          }
+        }
+
+        for (const canonicalId of linkedCanonicalIds) {
+          if (isStorefront) {
+            this.db.prepare(`INSERT OR IGNORE INTO identity_links
+              (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at)
+              VALUES (?,?,?,'cross_storefront_link',0.8,'provisional',?)`).run(
+                crypto.randomUUID(), sourceKey, canonicalId, now);
+
+            const storefrontUrl = (observation as any).storefrontUrl || job.url;
+            this.upsertPackageFront({
+              canonicalId,
+              sourceKey,
+              platform: job.platform,
+              storefrontUrl,
+              price: observation.price ?? null,
+              currency: observation.currency ?? null,
+              availability: observation.availability ?? "available",
+              observedAt: now
+            });
+          }
+        }
       }
       if (outcome.kind === "gone") {
         const currentItems = this.db.prepare(`SELECT source_key FROM source_items
           WHERE platform=? AND source_url=? AND gone_at IS NULL`).all(job.platform, job.url) as { source_key: string }[];
         for (const item of currentItems) {
           this.db.prepare("UPDATE source_items SET gone_at=? WHERE source_key=?").run(now, item.source_key);
+          this.db.prepare("UPDATE package_fronts SET availability='delisted', observed_at=? WHERE source_key=?").run(now, item.source_key);
           this.db.prepare(`INSERT INTO source_events
             (job_id,source_key,kind,observed_at,version_id,contributor_node_id,submission_lease_id,source_profile_id)
             VALUES (?,?,'gone',?,NULL,?,?,?)`)
@@ -1356,6 +1476,11 @@ export class LocalCoordinatorStore implements CoordinatorStore {
       INSERT INTO identity_links (link_id, source_key, canonical_id, evidence_kind, confidence, review_state, created_at, reviewed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(linkId, link.sourceKey, link.canonicalId, link.evidenceKind, link.confidence, reviewState, createdAt, reviewedAt);
+
+    if (reviewState === "accepted" || reviewState === "provisional") {
+      this.syncPackageFrontFromSourceItem(link.canonicalId, link.sourceKey);
+    }
+
     return {
       linkId,
       sourceKey: link.sourceKey,
@@ -1370,14 +1495,41 @@ export class LocalCoordinatorStore implements CoordinatorStore {
 
   updateIdentityLinkReview(linkId: string, reviewState: LinkReviewState, reviewedAt?: string): boolean {
     const now = reviewedAt ?? new Date(this.now()).toISOString();
+    const existing = this.db.prepare("SELECT canonical_id, source_key FROM identity_links WHERE link_id = ?").get(linkId) as { canonical_id: string; source_key: string } | null;
     const res = this.db.prepare(`
       UPDATE identity_links SET review_state = ?, reviewed_at = ? WHERE link_id = ?
     `).run(reviewState, now, linkId);
+
+    if (res.changes > 0 && existing) {
+      if (reviewState === "rejected") {
+        const remaining = this.db.prepare(`
+          SELECT 1 FROM identity_links
+          WHERE canonical_id = ? AND source_key = ? AND review_state IN ('accepted', 'provisional')
+        `).get(existing.canonical_id, existing.source_key);
+        if (!remaining) {
+          this.db.prepare("DELETE FROM package_fronts WHERE canonical_id = ? AND source_key = ?")
+            .run(existing.canonical_id, existing.source_key);
+        }
+      } else if (reviewState === "accepted" || reviewState === "provisional") {
+        this.syncPackageFrontFromSourceItem(existing.canonical_id, existing.source_key);
+      }
+    }
     return res.changes > 0;
   }
 
   deleteIdentityLink(linkId: string): boolean {
+    const existing = this.db.prepare("SELECT canonical_id, source_key FROM identity_links WHERE link_id = ?").get(linkId) as { canonical_id: string; source_key: string } | null;
     const res = this.db.prepare("DELETE FROM identity_links WHERE link_id = ?").run(linkId);
+    if (res.changes > 0 && existing) {
+      const remaining = this.db.prepare(`
+        SELECT 1 FROM identity_links
+        WHERE canonical_id = ? AND source_key = ? AND review_state IN ('accepted', 'provisional')
+      `).get(existing.canonical_id, existing.source_key);
+      if (!remaining) {
+        this.db.prepare("DELETE FROM package_fronts WHERE canonical_id = ? AND source_key = ?")
+          .run(existing.canonical_id, existing.source_key);
+      }
+    }
     return res.changes > 0;
   }
 
@@ -1433,6 +1585,144 @@ export class LocalCoordinatorStore implements CoordinatorStore {
     }));
   }
 
+  upsertPackageFront(front: {
+    frontId?: string;
+    canonicalId: string;
+    sourceKey: string;
+    platform: Platform;
+    storefrontUrl: string;
+    price?: number | null;
+    currency?: string | null;
+    availability?: "available" | "delisted" | "unknown";
+    observedAt?: string;
+  }): PackageFront {
+    const frontId = front.frontId ?? crypto.randomUUID();
+    const now = new Date(this.now()).toISOString();
+    const observedAt = front.observedAt ?? now;
+    const availability = front.availability ?? "available";
+    const price = front.price ?? null;
+    const currency = front.currency ?? null;
+
+    this.db.prepare(`
+      INSERT INTO package_fronts
+        (front_id, canonical_id, source_key, platform, storefront_url, price, currency, availability, observed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(canonical_id, source_key) DO UPDATE SET
+        platform = excluded.platform,
+        storefront_url = excluded.storefront_url,
+        price = excluded.price,
+        currency = excluded.currency,
+        availability = excluded.availability,
+        observed_at = excluded.observed_at
+    `).run(frontId, front.canonicalId, front.sourceKey, front.platform, front.storefrontUrl, price, currency, availability, observedAt);
+
+    const row = this.db.prepare(`
+      SELECT front_id, canonical_id, source_key, platform, storefront_url, price, currency, availability, observed_at
+      FROM package_fronts WHERE canonical_id = ? AND source_key = ?
+    `).get(front.canonicalId, front.sourceKey) as {
+      front_id: string;
+      canonical_id: string;
+      source_key: string;
+      platform: Platform;
+      storefront_url: string;
+      price: number | null;
+      currency: string | null;
+      availability: "available" | "delisted" | "unknown";
+      observed_at: string;
+    };
+
+    return {
+      frontId: row.front_id,
+      canonicalId: row.canonical_id,
+      sourceKey: row.source_key,
+      platform: row.platform,
+      storefrontUrl: row.storefront_url,
+      price: row.price,
+      currency: row.currency,
+      availability: row.availability,
+      observedAt: row.observed_at
+    };
+  }
+
+  getPackageFrontsForCanonical(canonicalId: string): PackageFront[] {
+    const rows = this.db.prepare(`
+      SELECT front_id, canonical_id, source_key, platform, storefront_url, price, currency, availability, observed_at
+      FROM package_fronts WHERE canonical_id = ?
+      ORDER BY observed_at ASC, front_id ASC
+    `).all(canonicalId) as {
+      front_id: string;
+      canonical_id: string;
+      source_key: string;
+      platform: Platform;
+      storefront_url: string;
+      price: number | null;
+      currency: string | null;
+      availability: "available" | "delisted" | "unknown";
+      observed_at: string;
+    }[];
+    return rows.map((r) => ({
+      frontId: r.front_id,
+      canonicalId: r.canonical_id,
+      sourceKey: r.source_key,
+      platform: r.platform,
+      storefrontUrl: r.storefront_url,
+      price: r.price,
+      currency: r.currency,
+      availability: r.availability,
+      observedAt: r.observed_at
+    }));
+  }
+
+  deletePackageFront(frontId: string): boolean {
+    const res = this.db.prepare("DELETE FROM package_fronts WHERE front_id = ?").run(frontId);
+    return res.changes > 0;
+  }
+
+  private syncPackageFrontFromSourceItem(canonicalId: string, sourceKey: string): void {
+    const item = this.db.prepare(`
+      SELECT si.platform, si.source_url, si.gone_at, sv.payload_json, sv.observed_at
+      FROM source_items si
+      LEFT JOIN source_versions sv ON sv.source_key = si.source_key AND sv.version_no = si.latest_version_no
+      WHERE si.source_key = ?
+    `).get(sourceKey) as {
+      platform: Platform;
+      source_url: string;
+      gone_at: string | null;
+      payload_json: string | null;
+      observed_at: string | null;
+    } | null;
+
+    if (!item) return;
+    const isStorefront = STOREFRONT_PLATFORMS.has(item.platform);
+    let price: number | null = null;
+    let currency: string | null = null;
+    let availability: "available" | "delisted" | "unknown" = item.gone_at ? "delisted" : "available";
+    let storefrontUrl = item.source_url;
+
+    if (item.payload_json) {
+      try {
+        const parsed = JSON.parse(item.payload_json);
+        if (parsed.price !== undefined) price = parsed.price;
+        if (parsed.currency !== undefined) currency = parsed.currency;
+        if (parsed.availability !== undefined) availability = parsed.availability;
+        if (parsed.storefrontUrl) storefrontUrl = parsed.storefrontUrl;
+      } catch {}
+    }
+
+    if (isStorefront || price !== null) {
+      this.upsertPackageFront({
+        canonicalId,
+        sourceKey,
+        platform: item.platform,
+        storefrontUrl,
+        price,
+        currency,
+        availability,
+        observedAt: item.observed_at ?? new Date(this.now()).toISOString()
+      });
+    }
+  }
+
   /** Paginated operator read of the canonical catalog (newest first).
    *  Each page embeds only accepted identity links; provisional/rejected links
    *  remain internal review state and are not surfaced here. */
@@ -1460,6 +1750,24 @@ export class LocalCoordinatorStore implements CoordinatorStore {
         evidenceKind: l.evidence_kind as CatalogIdentityLink["evidenceKind"],
         confidence: l.confidence, createdAt: l.created_at
       }));
+      const frontRows = this.db.prepare(`SELECT front_id, canonical_id, source_key, platform, storefront_url, price, currency, availability, observed_at
+        FROM package_fronts WHERE canonical_id=?
+        ORDER BY observed_at ASC, front_id ASC`).all(pkg.canonical_id) as {
+          front_id: string; canonical_id: string; source_key: string; platform: Platform;
+          storefront_url: string; price: number | null; currency: string | null;
+          availability: "available" | "delisted" | "unknown"; observed_at: string;
+        }[];
+      const fronts: PackageFront[] = frontRows.map((f) => ({
+        frontId: f.front_id,
+        canonicalId: f.canonical_id,
+        sourceKey: f.source_key,
+        platform: f.platform,
+        storefrontUrl: f.storefront_url,
+        price: f.price,
+        currency: f.currency,
+        availability: f.availability,
+        observedAt: f.observed_at
+      }));
       return {
         canonicalId: pkg.canonical_id,
         umbrella: pkg.umbrella as CatalogPackage["umbrella"],
@@ -1469,7 +1777,8 @@ export class LocalCoordinatorStore implements CoordinatorStore {
         vpmId: pkg.vpm_id,
         createdAt: pkg.created_at,
         updatedAt: pkg.updated_at,
-        acceptedLinks
+        acceptedLinks,
+        fronts
       };
     });
     return {

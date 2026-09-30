@@ -201,3 +201,11 @@ export async function handleOperatorRequest(
     return failure(missing ? 404 : 409, missing ? "not_found" : "conflict", message);
   }
 }
+
+export function createOperatorHandler(store: OperatorStore, configuredToken: string): (request: Request) => Promise<Response | null> {
+  return async (request: Request): Promise<Response | null> => {
+    const path = new URL(request.url).pathname;
+    if (!path.startsWith("/v1/operator/")) return null;
+    return handleOperatorRequest(request, store, configuredToken);
+  };
+}

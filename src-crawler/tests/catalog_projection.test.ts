@@ -51,6 +51,20 @@ function setupGitHubLease(store: LocalCoordinatorStore, url: string): {
   return { nodeToken, jobId: claimed.job.jobId, leaseId: claimed.job.leaseId, nodeId };
 }
 
+function setupStorefrontLease(store: LocalCoordinatorStore, url: string, platform: "booth" | "gumroad"): {
+  nodeToken: string; jobId: string; leaseId: string; nodeId: string;
+} {
+  const nodeId = `test-${platform}-node`;
+  const nodeToken = store.createNodeCredential(nodeId, [platform]);
+  const principal = store.authenticate(nodeId, nodeToken)!;
+  seedApprovedFixtureJob(store, url, platform, 60_000);
+  const origin = new URL(url).origin;
+  store.recordRobotsSnapshot(origin, 404);
+  const claimed = store.claim({ schemaVersion: PROTOCOL_VERSION, nodeId, capabilities: [platform] }, principal);
+  if (claimed.status !== "leased") throw new Error(`Expected ${platform} lease`);
+  return { nodeToken, jobId: claimed.job.jobId, leaseId: claimed.job.leaseId, nodeId };
+}
+
 let server: ReturnType<typeof Bun.serve> | undefined;
 afterEach(() => { server?.stop(true); server = undefined; });
 
@@ -746,6 +760,471 @@ describe("GET /v1/operator/catalog endpoint", () => {
         headers: { authorization: `Bearer ${nodeToken}` }
       });
       expect(denied.status).toBe(401);
+    } finally { store.close(); }
+  });
+});
+
+describe("G2/G4 package fronts relational projection", () => {
+  test("storefront observation attached to canonical package projects fronts correctly", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      // 1. Ingest VPM package to create canonical package
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "com.example.frontpkg",
+            title: "Fronted Package",
+            author: "Author",
+            summary: "A package with storefront",
+            outboundLinks: [],
+            originUpdatedAt: null
+          }
+        }
+      }, vpmPrincipal);
+
+      // Verify canonical package exists with empty fronts
+      const initialPkg = store.getCanonicalPackage("com.example.frontpkg");
+      expect(initialPkg).not.toBeNull();
+      const initialPage = store.listCanonicalPackagesPage(10, null);
+      expect(initialPage.packages[0].fronts).toEqual([]);
+
+      // 2. Attach a BOOTH storefront observation
+      const boothUrl = "https://booth.pm/ja/items/88888";
+      const { nodeToken: boothToken, jobId: boothJobId, leaseId: boothLeaseId, nodeId: boothNodeId } =
+        setupStorefrontLease(store, boothUrl, "booth");
+      const boothPrincipal = store.authenticate(boothNodeId, boothToken)!;
+
+      const submitResult = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: boothNodeId, jobId: boothJobId, leaseId: boothLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "booth-item-88888",
+            title: "Fronted Package on BOOTH",
+            author: "Author",
+            summary: "Storefront description",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            price: 2500,
+            currency: "JPY",
+            availability: "available"
+          }
+        }
+      }, boothPrincipal);
+      expect(submitResult.status).toBe("accepted");
+
+      const boothSourceKey = `booth:${boothUrl}:booth-item-88888`;
+      store.createIdentityLink({
+        sourceKey: boothSourceKey,
+        canonicalId: "com.example.frontpkg",
+        evidenceKind: "cross_storefront_link",
+        confidence: 0.95,
+        reviewState: "accepted"
+      });
+
+      // Verify fronts projection via store helper
+      const fronts = store.getPackageFrontsForCanonical("com.example.frontpkg");
+      expect(fronts).toHaveLength(1);
+      expect(fronts[0].canonicalId).toBe("com.example.frontpkg");
+      expect(fronts[0].sourceKey).toBe(boothSourceKey);
+      expect(fronts[0].platform).toBe("booth");
+      expect(fronts[0].storefrontUrl).toBe(boothUrl);
+      expect(fronts[0].price).toBe(2500);
+      expect(fronts[0].currency).toBe("JPY");
+      expect(fronts[0].availability).toBe("available");
+
+      // Verify listCanonicalPackagesPage projects fronts
+      const page = store.listCanonicalPackagesPage(10, null);
+      const pkg = page.packages.find(p => p.canonicalId === "com.example.frontpkg");
+      expect(pkg).toBeDefined();
+      expect(pkg?.fronts).toHaveLength(1);
+      expect(pkg?.fronts[0].price).toBe(2500);
+      expect(pkg?.fronts[0].currency).toBe("JPY");
+      expect(pkg?.fronts[0].platform).toBe("booth");
+    } finally { store.close(); }
+  });
+
+  test("price and currency updates on a front update the front without modifying canonical package metadata", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "com.example.pricepkg",
+            title: "Original Canonical Title",
+            author: "Author",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null
+          }
+        }
+      }, vpmPrincipal);
+
+      const beforePkg = store.getCanonicalPackage("com.example.pricepkg")!;
+      expect(beforePkg).not.toBeNull();
+
+      // Submit storefront observation with initial price
+      const boothUrl = "https://booth.pm/ja/items/77777";
+      const { nodeToken: boothToken, jobId: boothJobId1, leaseId: boothLeaseId1, nodeId: boothNodeId } =
+        setupStorefrontLease(store, boothUrl, "booth");
+      const boothPrincipal = store.authenticate(boothNodeId, boothToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: boothNodeId, jobId: boothJobId1, leaseId: boothLeaseId1,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "booth-77777",
+            title: "BOOTH Storefront Title 1",
+            author: "Author",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            price: 1000,
+            currency: "JPY",
+            availability: "available"
+          }
+        }
+      }, boothPrincipal);
+
+      const boothSourceKey = `booth:${boothUrl}:booth-77777`;
+      store.createIdentityLink({
+        sourceKey: boothSourceKey,
+        canonicalId: "com.example.pricepkg",
+        evidenceKind: "cross_storefront_link",
+        confidence: 0.9,
+        reviewState: "accepted"
+      });
+
+      let fronts = store.getPackageFrontsForCanonical("com.example.pricepkg");
+      expect(fronts).toHaveLength(1);
+      expect(fronts[0].price).toBe(1000);
+      expect(fronts[0].currency).toBe("JPY");
+
+      // Reset origin lease to permit second fetch
+      store.db.prepare("UPDATE origin_leases SET next_allowed_at=? WHERE origin=?")
+        .run(new Date(0).toISOString(), "https://booth.pm");
+      store.db.prepare("UPDATE crawl_jobs SET state='pending', next_fetch_at=? WHERE job_id=?")
+        .run(new Date(0).toISOString(), boothJobId1);
+
+      // Re-claim job
+      const claimed2 = store.claim({ schemaVersion: PROTOCOL_VERSION, nodeId: boothNodeId, capabilities: ["booth"] }, boothPrincipal);
+      if (claimed2.status !== "leased") throw new Error("Expected re-lease");
+
+      // Second submission: updated price and currency
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: boothNodeId, jobId: claimed2.job.jobId, leaseId: claimed2.job.leaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "booth-77777",
+            title: "BOOTH Storefront Title 2",
+            author: "Author",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            price: 1500,
+            currency: "JPY",
+            availability: "available"
+          }
+        }
+      }, boothPrincipal);
+
+      // Verify front was updated
+      fronts = store.getPackageFrontsForCanonical("com.example.pricepkg");
+      expect(fronts).toHaveLength(1);
+      expect(fronts[0].price).toBe(1500);
+      expect(fronts[0].currency).toBe("JPY");
+
+      // Verify canonical package metadata remains unchanged
+      const afterPkg = store.getCanonicalPackage("com.example.pricepkg")!;
+      expect(afterPkg.displayName).toBe(beforePkg.displayName);
+      expect(afterPkg.displayName).toBe("Original Canonical Title");
+      expect(afterPkg.updatedAt).toBe(beforePkg.updatedAt);
+      expect(afterPkg.vpmId).toBe(beforePkg.vpmId);
+      expect(afterPkg.category).toBe(beforePkg.category);
+      expect(afterPkg.umbrella).toBe(beforePkg.umbrella);
+    } finally { store.close(); }
+  });
+
+  test("multiple storefront fronts (e.g. BOOTH + Gumroad) coexist on one canonical package", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "com.example.multistore",
+            title: "Multi-Store Package",
+            author: "Dev",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null
+          }
+        }
+      }, vpmPrincipal);
+
+      // 1. BOOTH storefront
+      const boothUrl = "https://booth.pm/ja/items/55555";
+      const { nodeToken: boothToken, jobId: boothJobId, leaseId: boothLeaseId, nodeId: boothNodeId } =
+        setupStorefrontLease(store, boothUrl, "booth");
+      const boothPrincipal = store.authenticate(boothNodeId, boothToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: boothNodeId, jobId: boothJobId, leaseId: boothLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "booth-55555",
+            title: "Multi-Store on BOOTH",
+            author: "Dev",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            price: 2000,
+            currency: "JPY",
+            availability: "available"
+          }
+        }
+      }, boothPrincipal);
+
+      const boothSourceKey = `booth:${boothUrl}:booth-55555`;
+      store.createIdentityLink({
+        sourceKey: boothSourceKey,
+        canonicalId: "com.example.multistore",
+        evidenceKind: "cross_storefront_link",
+        confidence: 0.9,
+        reviewState: "accepted"
+      });
+
+      // 2. Gumroad storefront
+      const gumroadUrl = "https://gumroad.com/l/multistore";
+      const { nodeToken: gumroadToken, jobId: gumroadJobId, leaseId: gumroadLeaseId, nodeId: gumroadNodeId } =
+        setupStorefrontLease(store, gumroadUrl, "gumroad");
+      const gumroadPrincipal = store.authenticate(gumroadNodeId, gumroadToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: gumroadNodeId, jobId: gumroadJobId, leaseId: gumroadLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "gumroad-multistore",
+            title: "Multi-Store on Gumroad",
+            author: "Dev",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            price: 15,
+            currency: "USD",
+            availability: "available"
+          }
+        }
+      }, gumroadPrincipal);
+
+      const gumroadSourceKey = `gumroad:${gumroadUrl}:gumroad-multistore`;
+      store.createIdentityLink({
+        sourceKey: gumroadSourceKey,
+        canonicalId: "com.example.multistore",
+        evidenceKind: "cross_storefront_link",
+        confidence: 0.85,
+        reviewState: "accepted"
+      });
+
+      // Verify both fronts coexist on the canonical package
+      const fronts = store.getPackageFrontsForCanonical("com.example.multistore");
+      expect(fronts).toHaveLength(2);
+
+      const boothFront = fronts.find(f => f.platform === "booth");
+      expect(boothFront).toBeDefined();
+      expect(boothFront?.storefrontUrl).toBe(boothUrl);
+      expect(boothFront?.price).toBe(2000);
+      expect(boothFront?.currency).toBe("JPY");
+
+      const gumroadFront = fronts.find(f => f.platform === "gumroad");
+      expect(gumroadFront).toBeDefined();
+      expect(gumroadFront?.storefrontUrl).toBe(gumroadUrl);
+      expect(gumroadFront?.price).toBe(15);
+      expect(gumroadFront?.currency).toBe("USD");
+
+      // Verify via listCanonicalPackagesPage
+      const page = store.listCanonicalPackagesPage(10, null);
+      const pkg = page.packages.find(p => p.canonicalId === "com.example.multistore");
+      expect(pkg?.fronts).toHaveLength(2);
+      expect(pkg?.fronts.map(f => f.platform).sort()).toEqual(["booth", "gumroad"]);
+    } finally { store.close(); }
+  });
+
+  test("operator catalog API (GET /v1/operator/catalog) serializes fronts array", async () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      // 1. VPM package
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "batch",
+          observations: [
+            { sourceItemKey: "com.api.pkg1", title: "API Package 1", author: "A", summary: "", outboundLinks: [], originUpdatedAt: null },
+            { sourceItemKey: "com.api.pkg2", title: "API Package 2", author: "B", summary: "", outboundLinks: [], originUpdatedAt: null }
+          ]
+        }
+      }, vpmPrincipal);
+
+      // 2. Attach storefront front to com.api.pkg1
+      const boothUrl = "https://booth.pm/ja/items/99001";
+      const { nodeToken: boothToken, jobId: boothJobId, leaseId: boothLeaseId, nodeId: boothNodeId } =
+        setupStorefrontLease(store, boothUrl, "booth");
+      const boothPrincipal = store.authenticate(boothNodeId, boothToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: boothNodeId, jobId: boothJobId, leaseId: boothLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "item-99001",
+            title: "API Package 1 Store",
+            author: "A",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            price: 500,
+            currency: "JPY",
+            availability: "available"
+          }
+        }
+      }, boothPrincipal);
+
+      const boothSourceKey = `booth:${boothUrl}:item-99001`;
+      store.createIdentityLink({
+        sourceKey: boothSourceKey,
+        canonicalId: "com.api.pkg1",
+        evidenceKind: "cross_storefront_link",
+        confidence: 0.9,
+        reviewState: "accepted"
+      });
+
+      // In-process GET /v1/operator/catalog
+      const inProcessRes = await handleOperatorRequest(operatorGet("/v1/operator/catalog"), store, OPERATOR_TOKEN);
+      expect(inProcessRes.status).toBe(200);
+      const inProcessBody = CatalogListResponseSchema.parse(await inProcessRes.json());
+      expect(inProcessBody.packages).toHaveLength(2);
+
+      const pkgWithFront = inProcessBody.packages.find(p => p.canonicalId === "com.api.pkg1")!;
+      expect(pkgWithFront).toBeDefined();
+      expect(pkgWithFront.fronts).toHaveLength(1);
+      expect(pkgWithFront.fronts[0].platform).toBe("booth");
+      expect(pkgWithFront.fronts[0].storefrontUrl).toBe(boothUrl);
+      expect(pkgWithFront.fronts[0].price).toBe(500);
+      expect(pkgWithFront.fronts[0].currency).toBe("JPY");
+      expect(pkgWithFront.fronts[0].availability).toBe("available");
+      expect(pkgWithFront.fronts[0].observedAt).toBeDefined();
+
+      const pkgWithoutFront = inProcessBody.packages.find(p => p.canonicalId === "com.api.pkg2")!;
+      expect(pkgWithoutFront).toBeDefined();
+      expect(pkgWithoutFront.fronts).toEqual([]);
+
+      // Loopback HTTP test
+      server = Bun.serve({
+        port: 0,
+        fetch: async (req) => {
+          if (req.url.includes("/v1/operator/")) return handleOperatorRequest(req, store, OPERATOR_TOKEN);
+          return handleNodeRequest(req, store);
+        }
+      });
+      const port = server.port;
+
+      const loopback = await fetch(`http://127.0.0.1:${port}/v1/operator/catalog`, {
+        headers: { authorization: `Bearer ${OPERATOR_TOKEN}` }
+      });
+      expect(loopback.status).toBe(200);
+      const loopbackBody = CatalogListResponseSchema.parse(await loopback.json());
+      const loopbackPkg = loopbackBody.packages.find(p => p.canonicalId === "com.api.pkg1")!;
+      expect(loopbackPkg.fronts).toHaveLength(1);
+      expect(loopbackPkg.fronts[0].price).toBe(500);
+      expect(loopbackPkg.fronts[0].currency).toBe("JPY");
+      expect(loopbackPkg.fronts[0].platform).toBe("booth");
+    } finally { store.close(); }
+  });
+
+  test("storefront observation with outbound match links and projects front automatically", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "com.example.outboundmatch",
+            title: "Outbound Match Target",
+            author: "Author",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null
+          }
+        }
+      }, vpmPrincipal);
+
+      // Now storefront observation points outbound link to the VPM source URL
+      const boothUrl = "https://booth.pm/ja/items/44444";
+      const { nodeToken: boothToken, jobId: boothJobId, leaseId: boothLeaseId, nodeId: boothNodeId } =
+        setupStorefrontLease(store, boothUrl, "booth");
+      const boothPrincipal = store.authenticate(boothNodeId, boothToken)!;
+
+      // Submit BOOTH observation with outbound link to vpm.example.com/index.json
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: boothNodeId, jobId: boothJobId, leaseId: boothLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "booth-44444",
+            title: "BOOTH Item Matching VPM",
+            author: "Author",
+            summary: "",
+            outboundLinks: ["https://vpm.example.com/index.json"],
+            originUpdatedAt: null,
+            price: 1200,
+            currency: "JPY",
+            availability: "available"
+          }
+        }
+      }, boothPrincipal);
+
+      // Provisional identity link must be created
+      const links = store.getIdentityLinksForCanonical("com.example.outboundmatch");
+      expect(links.some(l => l.evidenceKind === "cross_storefront_link" && l.reviewState === "provisional")).toBe(true);
+
+      // Front must be projected
+      const fronts = store.getPackageFrontsForCanonical("com.example.outboundmatch");
+      expect(fronts).toHaveLength(1);
+      expect(fronts[0].platform).toBe("booth");
+      expect(fronts[0].price).toBe(1200);
+      expect(fronts[0].currency).toBe("JPY");
     } finally { store.close(); }
   });
 });

@@ -12,7 +12,7 @@
     "node": "bun run src/node/main.ts",
     "build": "bun run build:node && bun run build:coordinator && bun run build:worker",
     "build:node": "bun build --compile --outfile=dist/local-node/vrc-node.exe src/node/main.ts",
-    "build:worker": "bun build --target=browser --outdir=dist/worker src/worker/handler.ts src/worker/operator_handler.ts",
+    "build:worker": "bun build --target=browser --outdir=dist/worker src/worker/handler.ts src/worker/operator_handler.ts src/worker/worker_entry.ts",
     "build:coordinator": "bun build --compile --outfile=dist/local-coordinator/vrc-coordinator.exe src/worker/main.ts",
     "build:linux": "bun run build:node:linux && bun run build:coordinator:linux",
     "build:node:linux": "bun build --compile --target=bun-linux-x64 --outfile=dist/local-node/vrc-node-linux src/node/main.ts",

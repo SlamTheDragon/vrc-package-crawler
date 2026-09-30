@@ -8,37 +8,52 @@ export interface LoggerOptions {
   logsDir?: string;
   sessionId?: string;
   initialDate?: string;
+  archiveDir?: string;
+  enableLatestLog?: boolean;
 }
 
 export class Logger {
   private logsDir: string;
+  private archiveDir: string;
   private sessionId: string;
   private currentDate: string;
+  private enableLatestLog: boolean;
   private crawlerLogStream!: fs.WriteStream;
   private rateLimitLogStream!: fs.WriteStream;
   private errorLogStream!: fs.WriteStream;
+  private latestLogStream?: fs.WriteStream;
   private crawlerLogPath!: string;
   private rateLimitLogPath!: string;
   private errorLogPath!: string;
+  private latestLogPath: string;
   private isClosed: boolean = false;
   private isRotating: boolean = false;
   private hasExplicitInitialDate: boolean = false;
 
   constructor(options: LoggerOptions = {}) {
     this.logsDir = options.logsDir || CONFIG.logsDir;
+    this.archiveDir = options.archiveDir || path.join(this.logsDir, "archive");
     this.sessionId = options.sessionId || `${process.pid}_${Date.now()}`;
     this.hasExplicitInitialDate = !!options.initialDate;
     this.currentDate = options.initialDate || new Date().toISOString().slice(0, 10);
+    this.enableLatestLog = options.enableLatestLog ?? true;
+    this.latestLogPath = path.join(this.logsDir, "latest.log");
 
     if (!fs.existsSync(this.logsDir)) {
       fs.mkdirSync(this.logsDir, { recursive: true });
+    }
+
+    if (this.enableLatestLog) {
+      if (!fs.existsSync(this.latestLogPath)) {
+        fs.writeFileSync(this.latestLogPath, "");
+      }
+      this.latestLogStream = fs.createWriteStream(this.latestLogPath, { flags: "a" });
     }
 
     this.openStreamsForDate(this.currentDate);
   }
 
   private openStreamsForDate(dateStr: string) {
-    // FIXME: combine into one latest.log file
     this.crawlerLogPath = path.join(this.logsDir, `session_${this.sessionId}_${dateStr}.log`);
     this.rateLimitLogPath = path.join(this.logsDir, `session_${this.sessionId}_${dateStr}_ratelimits.log`);
     this.errorLogPath = path.join(this.logsDir, `session_${this.sessionId}_${dateStr}_errors.log`);
@@ -60,17 +75,22 @@ export class Logger {
     return this.crawlerLogPath;
   }
 
-  public getActiveLogFiles(): { crawler: string; rateLimit: string; error: string } {
+  public getActiveLogFiles(): { crawler: string; rateLimit: string; error: string; latest: string } {
     return {
       crawler: this.crawlerLogPath,
       rateLimit: this.rateLimitLogPath,
-      error: this.errorLogPath
+      error: this.errorLogPath,
+      latest: this.latestLogPath
     };
   }
 
-  public async compressLogFile(sourcePath: string): Promise<string> {
+  public async compressLogFile(sourcePath: string, targetDir?: string): Promise<string> {
     if (!fs.existsSync(sourcePath)) return "";
-    const gzPath = `${sourcePath}.gz`;
+    const destinationDir = targetDir || this.archiveDir;
+    if (!fs.existsSync(destinationDir)) {
+      fs.mkdirSync(destinationDir, { recursive: true });
+    }
+    const gzPath = path.join(destinationDir, `${path.basename(sourcePath)}.gz`);
     const sourceStream = fs.createReadStream(sourcePath);
     const destinationStream = fs.createWriteStream(gzPath);
     const gzip = zlib.createGzip({ level: 9 });
@@ -82,7 +102,6 @@ export class Logger {
     return gzPath;
   }
 
-  // FIXME: rotation should put the log path in a logs/archive
   public async rotate(newDate?: string): Promise<string[]> {
     if (this.isClosed || this.isRotating) return [];
     this.isRotating = true;
@@ -134,6 +153,9 @@ export class Logger {
         try {
           const line = `[${this.timestamp()}] [DEBUG] ${msg} ${meta ? JSON.stringify(meta) : ""}\n`;
           this.crawlerLogStream.write(line);
+          if (this.latestLogStream) {
+            this.latestLogStream.write(line);
+          }
         } catch (_) {}
       }
       console.log(`\x1b[36m[DEBUG]\x1b[0m ${msg}`, meta ? meta : "");
@@ -146,6 +168,9 @@ export class Logger {
       try {
         const line = `[${this.timestamp()}] [INFO] ${msg} ${meta ? JSON.stringify(meta) : ""}\n`;
         this.crawlerLogStream.write(line);
+        if (this.latestLogStream) {
+          this.latestLogStream.write(line);
+        }
       } catch (_) {}
     }
     console.log(`\x1b[32m[INFO]\x1b[0m ${msg}`, meta ? meta : "");
@@ -157,6 +182,9 @@ export class Logger {
       try {
         const line = `[${this.timestamp()}] [WARN] ${msg} ${meta ? JSON.stringify(meta) : ""}\n`;
         this.crawlerLogStream.write(line);
+        if (this.latestLogStream) {
+          this.latestLogStream.write(line);
+        }
       } catch (_) {}
     }
     console.log(`\x1b[33m[WARN]\x1b[0m ${msg}`, meta ? meta : "");
@@ -170,6 +198,9 @@ export class Logger {
         const line = `[${this.timestamp()}] [ERROR] ${msg} - ${errDetail}\n`;
         this.errorLogStream.write(line);
         this.crawlerLogStream.write(line);
+        if (this.latestLogStream) {
+          this.latestLogStream.write(line);
+        }
       } catch (_) {}
     }
     console.error(`\x1b[31m[ERROR]\x1b[0m ${msg}`, errDetail);
@@ -181,6 +212,9 @@ export class Logger {
       try {
         const line = `[${this.timestamp()}] [RATE_LIMIT] [${platform}] Remaining: ${remaining} | Reset: ${resetTime} | Sleeping: ${waitMs}ms\n`;
         this.rateLimitLogStream.write(line);
+        if (this.latestLogStream) {
+          this.latestLogStream.write(line);
+        }
       } catch (_) {}
     }
     console.log(`\x1b[35m[RATE_LIMIT]\x1b[0m [${platform}] Remaining: ${remaining} -> Pausing ${Math.round(waitMs / 1000)}s`);
@@ -189,11 +223,15 @@ export class Logger {
   async close(): Promise<void> {
     if (this.isClosed) return;
     this.isClosed = true;
-    await Promise.all([
+    const promises: Promise<unknown>[] = [
       new Promise((r) => this.crawlerLogStream.end(r)),
       new Promise((r) => this.rateLimitLogStream.end(r)),
       new Promise((r) => this.errorLogStream.end(r))
-    ]);
+    ];
+    if (this.latestLogStream) {
+      promises.push(new Promise((r) => this.latestLogStream!.end(r)));
+    }
+    await Promise.all(promises);
   }
 }
 

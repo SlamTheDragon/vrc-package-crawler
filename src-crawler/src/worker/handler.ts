@@ -107,3 +107,11 @@ export async function handleNodeRequest(request: Request, store: CoordinatorStor
     return failure(500, "internal_error", "Coordinator request failed");
   }
 }
+
+export function createCoordinatorHandler(store: CoordinatorStore): (request: Request) => Promise<Response | null> {
+  return async (request: Request): Promise<Response | null> => {
+    const path = new URL(request.url).pathname;
+    if (!path.startsWith("/v1/node/")) return null;
+    return handleNodeRequest(request, store);
+  };
+}

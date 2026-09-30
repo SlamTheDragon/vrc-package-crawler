@@ -8,6 +8,9 @@ export const PlatformSchema = z.enum([
   "booth", "github", "vpm", "gumroad", "jinxxy", "itch", "curated", "shopify", "sellfy", "custom_domain"
 ]);
 export type Platform = z.infer<typeof PlatformSchema>;
+export const STOREFRONT_PLATFORMS: ReadonlySet<Platform> = new Set([
+  "booth", "gumroad", "jinxxy", "itch", "shopify", "sellfy", "custom_domain"
+]);
 export const JobPurposeSchema = z.enum(["discovery", "metadata"]);
 export type JobPurpose = z.infer<typeof JobPurposeSchema>;
 
@@ -81,7 +84,11 @@ export const ObservationSchema = z.strictObject({
   outboundLinks: z.array(HttpsUrlSchema).max(100),
   originUpdatedAt: z.iso.datetime().nullable(),
   release: VpmReleaseEvidenceSchema.optional(),
-  releases: z.array(VpmReleaseEvidenceSchema).min(1).max(100).optional()
+  releases: z.array(VpmReleaseEvidenceSchema).min(1).max(100).optional(),
+  price: z.number().nullable().optional(),
+  currency: z.string().nullable().optional(),
+  availability: z.enum(["available", "delisted", "unknown"]).optional(),
+  storefrontUrl: HttpsUrlSchema.optional()
 });
 export type Observation = z.infer<typeof ObservationSchema>;
 

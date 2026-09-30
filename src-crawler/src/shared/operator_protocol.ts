@@ -105,6 +105,19 @@ export const CatalogIdentityLinkSchema = z.strictObject({
 });
 export type CatalogIdentityLink = z.infer<typeof CatalogIdentityLinkSchema>;
 
+export const PackageFrontSchema = z.object({
+  frontId: z.string(),
+  canonicalId: z.string(),
+  sourceKey: z.string(),
+  platform: PlatformSchema,
+  storefrontUrl: z.string().url(),
+  price: z.number().nullable().optional(),
+  currency: z.string().nullable().optional(),
+  availability: z.enum(["available", "delisted", "unknown"]).default("available"),
+  observedAt: z.string()
+});
+export type PackageFront = z.infer<typeof PackageFrontSchema>;
+
 /** One row in the canonical catalog page. */
 export const CatalogPackageSchema = z.strictObject({
   canonicalId: z.string().min(1).max(500),
@@ -115,7 +128,8 @@ export const CatalogPackageSchema = z.strictObject({
   vpmId: z.string().min(1).max(200).nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
-  acceptedLinks: z.array(CatalogIdentityLinkSchema)
+  acceptedLinks: z.array(CatalogIdentityLinkSchema),
+  fronts: z.array(PackageFrontSchema).default([])
 });
 export type CatalogPackage = z.infer<typeof CatalogPackageSchema>;
 
