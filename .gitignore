@@ -35,6 +35,7 @@ tsconfig.tsbuildinfo
 scratch/
 */scratch/
 !docs/scratch
+!src-crawler/scratch/
 
 # Legacy archive folders
 crawler-cache-archive-2.unclean/
