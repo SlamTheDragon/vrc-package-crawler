@@ -15,6 +15,9 @@ if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
   }
 }
 
+// FIXME: WARNING: Certain hardcoded node identity elements cannot pass pre-production process
+// FIXME: CODEBASE NOT OOP-ORIENTED
+// FIXME: might be better if there's a walk-through or a simple GUI panel for node setup, because the node is a client anyway, and thus its node arch will remain the way it is, but the cloudflare coordinator will be oriented to be coded for worker, while using its methods to emit a local binary to simulate remote cloudflare worker operation. To clarify, the goal is to truly operate as a crawler network, locally ingesting downstream data from sites to be manually verify that what was produced is something expected in cloudflare, before worker migration begins ("full 'final' post-production runtime during the pre-production phase")
 const args = Bun.argv.slice(2);
 if (args[0] === "help" || args[0] === "--help" || args[0] === "-h") {
   console.log("Usage: vrc-node init [node-id] [coordinator-url] [comma-separated-capabilities]");
@@ -40,6 +43,7 @@ if (args[0] === "init") {
       process.exit(0);
     }
     throw error;
+    // FIXME: use logger, dont explicitly throw errors
   }
 }
 
@@ -47,6 +51,7 @@ let config: ReturnType<typeof loadNodeRuntimeConfig>;
 try {
   config = loadNodeRuntimeConfig(process.cwd(), process.env);
 } catch (error) {
+  // FIXME: USE LOGGER
   console.error(`[Error] ${(error as Error).message}`);
   if (!existsSync(join(process.cwd(), "node.config.json"))) {
     console.error("No node.config.json found in this directory. Run 'vrc-node init [node-id]' to initialize.");

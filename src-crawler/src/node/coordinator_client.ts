@@ -13,6 +13,7 @@ export class CoordinatorClient {
     readonly capabilities: Platform[]
   ) {
     if (!coordinatorEndpointAllowed(baseUrl)) {
+      // FIXME: ORIENT CODEBASE AS IF IT'S WORKING WITH THE TRUE CLOUDFLARE INSTANCE
       throw new Error("Coordinator URL must be HTTPS, or HTTP on loopback without credentials");
     }
     if (!token) throw new Error("Node credential is required");

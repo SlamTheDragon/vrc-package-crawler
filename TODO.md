@@ -3,8 +3,9 @@
 > **Document Status**: Authoritative Engineering Roadmap, Compliance Audit & Systems Specification  
 > **Target Repository**: `F:\.repo\.main\vrc-package-crawler`  
 > **Current authority note (2026-09-28):** Owner decisions in [`docs/decisions/DIRECTION.md`](docs/decisions/DIRECTION.md), applicable external constraints, and target `LEGAL.md` govern this engineering roadmap. Code and reproducible tests describe current behavior; [`docs/decisions/current/status/CONFORMANCE.md`](docs/decisions/current/status/CONFORMANCE.md) records measured exits. Historical phase text below may express older precedence assumptions.  
+> **Purge note (2026-09-30, commit `refactor(v0)`):** All files under `src/drivers/*`, `src/crawler/*`, `src/server/*`, `src/sync/*`, `src/monitor/*`, `src/utils/image_proxy.ts`, `src/utils/sharp_worker.ts`, `src/utils/ipc.ts`, `src/utils/lock.ts`, `src/utils/ratelimit.ts`, and `src/node/driver_runtime.ts` are **permanently deleted**. The active system is `src/node/main.ts` (crawler node) + `src/worker/main.ts` (coordinator), communicating over loopback HTTP. File citations in §§2, 8, 9 that reference deleted paths are historical defect records, not current code locations. Current baseline: **161 tests, 0 fail** (`bun test`); `CONFORMANCE.md` records all gate evidence.
 > **Canonical TODO Baseline**: Commit `09e9dc8` (6 canonical foundation items)  
-> **Ground Truth Test Suite**: **Decoupled / Clean-Slate Baseline** (All 12 legacy test files in `tests/` deleted by operator to eliminate false-positive test results, mock-reality drift, and codebase dislocation against stale databases; Task 2.6 establishes a deterministic, in-memory isolated testbed).  
+> **Ground Truth Test Suite**: **Decoupled / Clean-Slate Baseline** (All 12 legacy test files in `tests/` deleted by operator; Task 2.6 establishes a deterministic, in-memory isolated testbed — completed in pre-production two-binary model).  
 > **Integrity Mandate**: Strictly **ZERO context loss** across canonical tasks, platform ToS contractual analyses, judicial precedents, PRISMA-ScR systematic review audits, code-reality gap analyses, and adversarial calibration matrices.
 
 ---
@@ -1107,6 +1108,8 @@ Serving crawled metadata via a free API to downstream developers does not elimin
 
 ## 8. Code-Reality Gap Index (CR-1 through CR-30)
 
+> **Status update (2026-09-30):** CRs referencing deleted files are closed as code defects. The code-path no longer exists; the underlying design question (if any) is tracked in `DIRECTION.md`. **Closed by `refactor(v0)` purge:** CR-1 (`poisson_scheduler`/`crawler/index.ts`), CR-2 (`server/index.ts`/`steering.ts`), CR-3 (`projection.ts`/`sync/index.ts`), CR-4 (`crawler/index.ts`), CR-5 (`projection.ts`/`drivers/*`), CR-6 (`jinxxy.ts`/`image_proxy.ts`), CR-7 (`drivers/github.ts`), CR-8 (`db.ts`/`server/index.ts`), CR-11 (`projection.ts`/`sync/exporter.ts`), CR-12 (`logger.ts` — partial), CR-13 (`crawler/index.ts`/`monitor/index.ts`), CR-14 (`server/index.ts`), CR-15 (`drivers/gumroad.ts`/`jinxxy.ts`), CR-16 (`server/index.ts`), CR-17 (`projection.ts`), CR-19 (`image_proxy.ts`) ✅, CR-20 (`drivers/*`), CR-21 (`image_proxy.ts`/`exporter.ts`) ✅, CR-22 (`sync/exporter.ts`), CR-23 (`server/index.ts`). **Still open:** CR-18 (legacy rows unattributed; new coordinator has attribution), CR-24–CR-30 (legal/policy records, no deleted-file dependency).
+
 The following index records every confirmed gap between documentation/architectural claims and physical source code, with verified line-level citations:
 
 | ID | Architectural Claim | Production Code Reality | Citations & Line Evidence |
@@ -1145,6 +1148,8 @@ The following index records every confirmed gap between documentation/architectu
 ---
 
 ## 9. Grounding Truth Verification Matrix (G-1 through G-32)
+
+> **Status update (2026-09-30):** G-items referencing deleted files are closed as code defects. **Closed by `refactor(v0)` purge:** G-8 (`vrc-server.exe`/`Workers`), G-14 (`projection.ts`/`crawler/index.ts`), G-18 (`crawler/index.ts`/`monitor/index.ts`), G-29 (`image_proxy.ts`/`media_cache.webp_data` BLOB). Remaining open G-items are legal/policy positions or architecture-scope records independent of file deletions.
 
 Every architectural proposition, empirical finding, and skeptical deconstruction verified across repository topography and documentation:
 

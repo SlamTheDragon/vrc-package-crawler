@@ -2,8 +2,11 @@ import path from "path";
 import { CRAWLER_USER_AGENT } from "./shared/crawler_identity.ts";
 
 /**
+ * FIXME: fuse and migrate
  * Legacy environment and filesystem path constants.
  * Active pre-production binaries use src/node/runtime_config.ts and src/worker/runtime_config.ts.
+ * This file is retained only for legacy CrawlerDB (src/db/db.ts), logger, and robots utilities
+ * used by Gate 1 safety-baseline tests. Do not add new driver-pacing or lock constants here.
  */
 // Grounded working-directory path resolution (no hardcoded absolute system paths)
 const isBunRuntime = process.execPath.endsWith("bun.exe") || process.execPath.endsWith("bun");
@@ -22,23 +25,12 @@ export const CONFIG = {
   projectDir: BASE_DIR,
   dbPath: DB_PATH,
   logsDir: LOGS_DIR,
-  lockPath: path.resolve(CANONICAL_DIR, "crawler.lock"),
   userAgent: CRAWLER_USER_AGENT,
-  
+
   // Protected routes fail closed when no administrative token is configured.
   apiSecretToken: process.env.API_SECRET_TOKEN?.trim() || "",
 
   // GitHub Token for 5,000 req/hr API limit (supports GITHUB_TOKEN or GH_TOKEN env vars)
   githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "",
-
-  // Mercator host-based politeness pacing (ms)
-  boothDelayMs: 1500,        // 1.5s delay between BOOTH requests
-  githubSearchDelayMs: (process.env.GITHUB_TOKEN || process.env.GH_TOKEN) ? 2000 : 6000, // 2s with token, 6s unauthenticated
-  vpmIndexDelayMs: 400,      // 0.4s delay between manifest fetches
-  gumroadDelayMs: 3000,      // 3.0s delay between Gumroad requests (strictly serialized to prevent 429)
-  jinxxyDelayMs: 1200,       // 1.2s delay between Jinxxy requests
-  itchDelayMs: 1500,         // 1.5s delay between Itch requests
-  
-  // Batch size for SQLite transaction chunks
-  batchSize: 20
 };
+
