@@ -1,12 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
+import { Coordinator } from "../src/worker/d1/coordinator.ts";
 import {
-  D1CoordinatorStore,
   type D1Database,
   type D1PreparedStatement,
   type D1Result,
   type D1ExecResult
-} from "../src/worker/d1_store.ts";
+} from "../src/worker/d1/definitions.ts";
 import workerEntry, { type Env } from "../src/worker/worker_entry.ts";
 import { decodeCatalogCursor } from "../src/shared/operator_protocol.ts";
 
@@ -68,7 +68,7 @@ export function createMockD1Database(db = new Database(":memory:")): D1Database 
 describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
   it("Node registration and bearer authentication", async () => {
     const mockDb = createMockD1Database();
-    const store = new D1CoordinatorStore(mockDb);
+    const store = new Coordinator(mockDb);
     await store.initSchema();
 
     const token = await store.issueNodeCredential({
@@ -96,7 +96,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
 
   it("Claiming a job under active source access profile", async () => {
     const mockDb = createMockD1Database();
-    const store = new D1CoordinatorStore(mockDb);
+    const store = new Coordinator(mockDb);
     await store.initSchema();
 
     const token = await store.issueNodeCredential({
@@ -135,15 +135,16 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     }, principal!);
 
     expect(claimRes.status).toBe("leased");
-    expect(claimRes.job?.jobId).toBe(jobId);
-    expect(claimRes.job?.url).toBe("https://vpm.example.com/index.json");
-    expect(claimRes.job?.platform).toBe("vpm");
-    expect(claimRes.job?.retainClasses).toEqual(["normalized_facts", "creator_prose"]);
+    if (claimRes.status !== "leased") throw new Error("Expected leased status");
+    expect(claimRes.job.jobId).toBe(jobId);
+    expect(claimRes.job.url).toBe("https://vpm.example.com/index.json");
+    expect(claimRes.job.platform).toBe("vpm");
+    expect(claimRes.job.retainClasses).toEqual(["normalized_facts", "creator_prose"]);
   });
 
   it("Heartbeat updates", async () => {
     const mockDb = createMockD1Database();
-    const store = new D1CoordinatorStore(mockDb);
+    const store = new Coordinator(mockDb);
     await store.initSchema();
 
     const token = await store.issueNodeCredential({
@@ -179,14 +180,15 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     }, principal);
 
     expect(claimRes.status).toBe("leased");
+    if (claimRes.status !== "leased") throw new Error("Expected leased status");
 
     const fetchHb = await store.heartbeat({
       schemaVersion: 1,
       nodeId: "node-gamma",
       capabilities: ["vpm"],
       state: "fetching",
-      activeJobId: claimRes.job!.jobId,
-      activeLeaseId: claimRes.job!.leaseId
+      activeJobId: claimRes.job.jobId,
+      activeLeaseId: claimRes.job.leaseId
     }, principal);
     expect(fetchHb.status).toBe("alive");
     expect(typeof fetchHb.serverTime).toBe("string");
@@ -211,7 +213,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
 
   it("Submitting a complete observation and canonical package projection", async () => {
     const mockDb = createMockD1Database();
-    const store = new D1CoordinatorStore(mockDb);
+    const store = new Coordinator(mockDb);
     await store.initSchema();
 
     const token = await store.issueNodeCredential({
@@ -245,12 +247,13 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       nodeId: "node-delta",
       capabilities: ["vpm"]
     }, principal);
+    if (claimRes.status !== "leased") throw new Error("Expected leased status");
 
     const submitRes = await store.submit({
       schemaVersion: 1,
       nodeId: "node-delta",
-      jobId: claimRes.job!.jobId,
-      leaseId: claimRes.job!.leaseId,
+      jobId: claimRes.job.jobId,
+      leaseId: claimRes.job.leaseId,
       idempotencyKey: "submit-key-001",
       outcome: {
         kind: "changed",
@@ -280,8 +283,8 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     const dupRes = await store.submit({
       schemaVersion: 1,
       nodeId: "node-delta",
-      jobId: claimRes.job!.jobId,
-      leaseId: claimRes.job!.leaseId,
+      jobId: claimRes.job.jobId,
+      leaseId: claimRes.job.leaseId,
       idempotencyKey: "submit-key-001",
       outcome: {
         kind: "changed",
@@ -302,7 +305,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
 
   it("Operator catalog listing with keyset pagination", async () => {
     const mockDb = createMockD1Database();
-    const store = new D1CoordinatorStore(mockDb);
+    const store = new Coordinator(mockDb);
     await store.initSchema();
 
     const baseTime = Date.now();
@@ -359,7 +362,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
 
   it("Worker edge fetch entrypoint routing", async () => {
     const mockDb = createMockD1Database();
-    const store = new D1CoordinatorStore(mockDb);
+    const store = new Coordinator(mockDb);
     await store.initSchema();
 
     const operatorToken = "a".repeat(64);
