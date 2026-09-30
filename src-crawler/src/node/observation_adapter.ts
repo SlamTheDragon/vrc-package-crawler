@@ -273,7 +273,7 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
     job.platform === "itch" && productUrl.hostname.endsWith(".itch.io") ||
     job.platform === "shopify" && /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?products\/[a-z0-9][a-z0-9-]*\/?$/i.test(productUrl.pathname) ||
     job.platform === "sellfy" && isSellfyProductTarget(job.url) ||
-    (job.platform === "custom_domain" || job.platform === "vrchat") && isCustomDomainProductTarget(job.url);
+    job.platform === "custom_domain" && isCustomDomainProductTarget(job.url);
   if (!productPath) return null;
   const $ = cheerio.load(body);
   const metadata = (key: string) => $(`meta[property="${key}"],meta[name="${key}"]`).first().attr("content")?.trim() || "";

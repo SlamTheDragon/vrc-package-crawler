@@ -3,7 +3,7 @@
 > **Version-0 review note (2026-09-28):** This contract contains Phase 4
 > architecture and historical binary/schema descriptions, some of which no
 > longer match the local coordinator/node split. Use the live-code
-> [pipeline responsibility map](../../decisions/current/PIPELINE_RESPONSIBILITY_MAP.md),
+> [pipeline responsibility map](../decisions/current/PIPELINE_RESPONSIBILITY_MAP.md),
 > `../decisions/DIRECTION.md`, `../plans/IMPLEMENTATION_PLAN.md`, and `../status/CONFORMANCE.md` to check
 > current behavior and gate status before implementing from this document.
 > Antigravity's active workspace guardrails are in `.agents/rules/` and its

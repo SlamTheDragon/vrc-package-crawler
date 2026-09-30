@@ -1,6 +1,6 @@
 # Decision Table Matrix
 
-> **Canonical Source:** [`docs/decisions/DIRECTION.md`](../../decisions/DIRECTION.md) §8
+> **Canonical Source:** [`docs/decisions/DIRECTION.md`](DIRECTION.md) §8
 > **Companion Document:** [`docs/scratch/decisions/OPERATOR_QUESTION_QUEUE.md`](OPERATOR_QUESTION_QUEUE.md)
 
 This decision table matrix records architectural and dependency evaluations across the system.

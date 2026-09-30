@@ -1,4 +1,4 @@
-export type PlatformType = "booth" | "github" | "vpm" | "gumroad" | "jinxxy" | "itch" | "curated" | "shopify" | "sellfy" | "vrchat" | "custom_domain";
+export type PlatformType = "booth" | "github" | "vpm" | "gumroad" | "jinxxy" | "itch" | "curated" | "shopify" | "sellfy" | "custom_domain";
 
 export interface PlatformMetrics {
   pending: number;

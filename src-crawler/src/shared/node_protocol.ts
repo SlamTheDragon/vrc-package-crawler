@@ -5,7 +5,7 @@ import { isVpmVersion } from "./vpm_version.ts";
 export const PROTOCOL_VERSION = 1 as const;
 
 export const PlatformSchema = z.enum([
-  "booth", "github", "vpm", "gumroad", "jinxxy", "itch", "curated", "shopify", "sellfy", "vrchat", "custom_domain"
+  "booth", "github", "vpm", "gumroad", "jinxxy", "itch", "curated", "shopify", "sellfy", "custom_domain"
 ]);
 export type Platform = z.infer<typeof PlatformSchema>;
 export const JobPurposeSchema = z.enum(["discovery", "metadata"]);

@@ -7,6 +7,7 @@ import { initializeNodeConfig, loadNodeRuntimeConfig } from "./runtime_config.ts
 import { LocalNodeStore } from "./local_sqlite.ts";
 import { PlatformSchema, type Platform } from "../shared/node_protocol.ts";
 import { loadScopedGitHubTokenFromEnvFile } from "./observation_adapter.ts";
+import { logger } from "../utils/logger.ts";
 
 if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
   const fallbackToken = loadScopedGitHubTokenFromEnvFile(process.cwd());
@@ -42,8 +43,8 @@ if (args[0] === "init") {
       console.log(`Node config already exists at ${join(process.cwd(), "node.config.json")}; skipping re-initialization.`);
       process.exit(0);
     }
-    throw error;
-    // FIXME: use logger, dont explicitly throw errors
+    logger.error(`Failed to initialize node config: ${(error as Error).message}`);
+    process.exit(1);
   }
 }
 
@@ -51,13 +52,12 @@ let config: ReturnType<typeof loadNodeRuntimeConfig>;
 try {
   config = loadNodeRuntimeConfig(process.cwd(), process.env);
 } catch (error) {
-  // FIXME: USE LOGGER
-  console.error(`[Error] ${(error as Error).message}`);
+  logger.error(`[Error] ${(error as Error).message}`);
   if (!existsSync(join(process.cwd(), "node.config.json"))) {
-    console.error("No node.config.json found in this directory. Run 'vrc-node init [node-id]' to initialize.");
+    logger.error("No node.config.json found in this directory. Run 'vrc-node init [node-id]' to initialize.");
   } else if (!process.env.NODE_TOKEN) {
-    console.error("NODE_TOKEN is required. Set it in .env or pass as an environment variable.");
-    console.error("Generate a token using coordinator: 'vrc-coordinator register <node-id>'.");
+    logger.error("NODE_TOKEN is required. Set it in .env or pass as an environment variable.");
+    logger.error("Generate a token using coordinator: 'vrc-coordinator register <node-id>'.");
   }
   process.exit(1);
 }
