@@ -457,4 +457,58 @@ http://insecure.example.com/repo.json
       expect(outcome.leads.length).toBeGreaterThanOrEqual(3);
     }
   });
+  test("populates platformTags from VPM manifest keywords (trimmed, deduped, capped at 50)", () => {
+    // Single-manifest path: keywords present, including duplicates and whitespace padding
+    const keywords = [" avatar ", "tool", "avatar", "  ", 42, "vrc", "tool"];
+    const manifest = {
+      name: "com.example.tool", version: "1.0.0",
+      displayName: "Example Tool", description: "desc", keywords
+    };
+    const obs = parseObservation(job, JSON.stringify(manifest), "application/json");
+    expect(obs).not.toBeNull();
+    // Trimmed, deduplicated, empty strings filtered out, non-strings filtered out
+    expect(obs?.platformTags).toEqual(["avatar", "tool", "vrc"]);
+
+    // Cap at 50: generate 60 unique keywords
+    const manyKeywords = Array.from({ length: 60 }, (_, i) => `tag-${i}`);
+    const bigManifest = { name: "com.example.tool", version: "1.0.0", keywords: manyKeywords };
+    const bigObs = parseObservation(job, JSON.stringify(bigManifest), "application/json");
+    expect(bigObs?.platformTags?.length).toBe(50);
+
+    // Repository listing path: keywords on the manifest version
+    const listing = JSON.stringify({ packages: { "com.example.tool": { versions: {
+      "1.0.0": { name: "com.example.tool", version: "1.0.0", keywords: [" avatar ", "tool", "avatar"] }
+    } } } });
+    const parsed = parseVpmRepository(job, listing);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.[0]?.platformTags).toEqual(["avatar", "tool"]);
+  });
+
+  test("omits platformTags when VPM manifest has no keywords field", () => {
+    // Single-manifest with no keywords field at all
+    const manifest = { name: "com.example.tool", version: "1.0.0" };
+    const obs = parseObservation(job, JSON.stringify(manifest), "application/json");
+    expect(obs).not.toBeNull();
+    expect(obs?.platformTags).toBeUndefined();
+
+    // Single-manifest with empty keywords array
+    const emptyManifest = { name: "com.example.tool", version: "1.0.0", keywords: [] };
+    const emptyObs = parseObservation(job, JSON.stringify(emptyManifest), "application/json");
+    expect(emptyObs).not.toBeNull();
+    expect(emptyObs?.platformTags).toBeUndefined();
+
+    // Single-manifest with keywords containing only whitespace/non-strings → undefined
+    const blankManifest = { name: "com.example.tool", version: "1.0.0", keywords: ["  ", 99, null] };
+    const blankObs = parseObservation(job, JSON.stringify(blankManifest), "application/json");
+    expect(blankObs).not.toBeNull();
+    expect(blankObs?.platformTags).toBeUndefined();
+
+    // Repository listing path with no keywords on any manifest version
+    const listing = JSON.stringify({ packages: { "com.example.tool": { versions: {
+      "1.0.0": { name: "com.example.tool", version: "1.0.0" }
+    } } } });
+    const parsed = parseVpmRepository(job, listing);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.[0]?.platformTags).toBeUndefined();
+  });
 });

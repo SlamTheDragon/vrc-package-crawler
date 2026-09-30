@@ -88,7 +88,8 @@ export const ObservationSchema = z.strictObject({
   price: z.number().nullable().optional(),
   currency: z.string().nullable().optional(),
   availability: z.enum(["available", "delisted", "unknown"]).optional(),
-  storefrontUrl: HttpsUrlSchema.optional()
+  storefrontUrl: HttpsUrlSchema.optional(),
+  platformTags: z.array(z.string().max(100)).max(50).optional()
 });
 export type Observation = z.infer<typeof ObservationSchema>;
 

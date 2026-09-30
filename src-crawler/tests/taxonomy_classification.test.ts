@@ -2,7 +2,8 @@ import { describe, it, expect } from "bun:test";
 import {
   DesktopToolSubtypeSchema,
   DesktopToolEvidenceSchema,
-  classifyDesktopTool
+  classifyDesktopTool,
+  deriveCategoryFromTags
 } from "../src/shared/taxonomy.ts";
 import {
   AvatarCompatibilitySchema,
@@ -295,5 +296,77 @@ describe("Avatar Compatibility Taxonomy (IDENTITY-02)", () => {
     );
 
     expect(items).toEqual([]);
+  });
+});
+
+describe("deriveCategoryFromTags (TAXONOMY-01)", () => {
+  it("returns defaultCategory when platformTags is undefined", () => {
+    expect(deriveCategoryFromTags(undefined, "vpm_package")).toBe("vpm_package");
+  });
+
+  it("returns defaultCategory when platformTags is empty", () => {
+    expect(deriveCategoryFromTags([], "vpm_package")).toBe("vpm_package");
+  });
+
+  it("maps 'avatar' tag to avatar_tool", () => {
+    expect(deriveCategoryFromTags(["avatar"], "vpm_package")).toBe("avatar_tool");
+  });
+
+  it("maps 'avatar_tool' exact tag to avatar_tool", () => {
+    expect(deriveCategoryFromTags(["avatar_tool", "vpm"], "vpm_package")).toBe("avatar_tool");
+  });
+
+  it("maps 'avatar-tool' hyphenated tag to avatar_tool", () => {
+    expect(deriveCategoryFromTags(["vpm", "avatar-tool"], "vpm_package")).toBe("avatar_tool");
+  });
+
+  it("maps 'shader' tag to shader", () => {
+    expect(deriveCategoryFromTags(["shader", "lilToon"], "vpm_package")).toBe("shader");
+  });
+
+  it("maps 'world' tag to world_tool", () => {
+    expect(deriveCategoryFromTags(["world", "gimmick"], "vpm_package")).toBe("world_tool");
+  });
+
+  it("maps 'world_creation' exact tag to world_tool", () => {
+    expect(deriveCategoryFromTags(["world_creation"], "vpm_package")).toBe("world_tool");
+  });
+
+  it("maps 'animation' tag to animation_tool", () => {
+    expect(deriveCategoryFromTags(["animation"], "vpm_package")).toBe("animation_tool");
+  });
+
+  it("maps 'physics' tag to physics_tool", () => {
+    expect(deriveCategoryFromTags(["physics"], "vpm_package")).toBe("physics_tool");
+  });
+
+  it("maps 'physbone' tag to physics_tool", () => {
+    expect(deriveCategoryFromTags(["physbone", "avatar"], "vpm_package")).toBe("physics_tool");
+  });
+
+  it("clothing tag is conservative — returns defaultCategory", () => {
+    expect(deriveCategoryFromTags(["clothing", "outfit"], "vpm_package")).toBe("vpm_package");
+  });
+
+  it("outfit tag is conservative — returns defaultCategory", () => {
+    expect(deriveCategoryFromTags(["outfit"], "vpm_package")).toBe("vpm_package");
+  });
+
+  it("cosmetic tag is conservative — returns defaultCategory", () => {
+    expect(deriveCategoryFromTags(["cosmetic"], "vpm_package")).toBe("vpm_package");
+  });
+
+  it("unknown tags fall back to defaultCategory", () => {
+    // Tags that contain none of the vocabulary substrings
+    expect(deriveCategoryFromTags(["vpm", "sdk", "utility", "modular"], "vpm_package")).toBe("vpm_package");
+  });
+
+  it("normalises NFKC and case before matching", () => {
+    // Full-width uppercase AVATAR should normalise to match
+    expect(deriveCategoryFromTags(["\uFF21\uFF36\uFF41\uFF54\uFF41\uFF52"], "vpm_package")).toBe("avatar_tool");
+  });
+
+  it("first matching tag wins (avatar before shader in list)", () => {
+    expect(deriveCategoryFromTags(["avatar", "shader"], "vpm_package")).toBe("avatar_tool");
   });
 });

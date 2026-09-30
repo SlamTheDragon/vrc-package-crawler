@@ -11,6 +11,7 @@ import { type CoordinatorStore, type NodePrincipal, CoordinatorConflict } from "
 import type { OperatorStore } from "../operator_handler";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils";
 import { D1Database, AutoQueueRuleRow, SourceAccessProfileRow, JobRow, D1PreparedStatement, CanonicalUmbrella, CanonicalLifecycle, CanonicalPackage, EvidenceKind, LinkReviewState, IdentityLink } from "./definitions";
+import { deriveCategoryFromTags } from "../../shared/taxonomy";
 
 
 export class Coordinator implements CoordinatorStore, OperatorStore {
@@ -428,7 +429,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore {
               display_name=excluded.display_name,
               vpm_id=COALESCE(excluded.vpm_id,canonical_packages.vpm_id),
               updated_at=excluded.updated_at`).bind(
-            vpmId, "tools", "vpm_package", "active", observation.title, vpmId, now, now),
+            vpmId, "tools", deriveCategoryFromTags(observation.platformTags, "vpm_package"), "active", observation.title, vpmId, now, now),
           this.db.prepare(`INSERT OR IGNORE INTO identity_links
             (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
             VALUES (?,?,?,'vpm_id',1.0,'accepted',?,?)`).bind(

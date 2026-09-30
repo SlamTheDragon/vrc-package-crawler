@@ -1228,3 +1228,98 @@ describe("G2/G4 package fronts relational projection", () => {
     } finally { store.close(); }
   });
 });
+
+// ---------------------------------------------------------------------------
+// TAXONOMY-01: category derivation from platformTags on VPM observations
+// ---------------------------------------------------------------------------
+describe("TAXONOMY-01 category derivation from platformTags\n", () => {
+  test("VPM observation with platformTags ['avatar_tool','vpm'] projects category as 'avatar_tool'", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken, jobId, leaseId, nodeId } = setupVpmLease(store);
+      const principal = store.authenticate(nodeId, nodeToken)!;
+      const result = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId, jobId, leaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "batch",
+          observations: [{
+            sourceItemKey: "com.example.avatarpkg",
+            title: "Avatar Tool Package",
+            author: "Carol",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            platformTags: ["avatar_tool", "vpm"]
+          }]
+        }
+      }, principal);
+      expect(result.status).toBe("accepted");
+
+      const pkg = store.getCanonicalPackage("com.example.avatarpkg");
+      expect(pkg).not.toBeNull();
+      expect(pkg?.umbrella).toBe("tools");       // umbrella unchanged
+      expect(pkg?.category).toBe("avatar_tool"); // derived from platformTags
+    } finally { store.close(); }
+  });
+
+  test("VPM observation with no platformTags keeps default category 'vpm_package'", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken, jobId, leaseId, nodeId } = setupVpmLease(store);
+      const principal = store.authenticate(nodeId, nodeToken)!;
+      const result = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId, jobId, leaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "batch",
+          observations: [{
+            sourceItemKey: "com.example.untaggedpkg",
+            title: "Untagged Package",
+            author: "Dave",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null
+            // platformTags intentionally absent
+          }]
+        }
+      }, principal);
+      expect(result.status).toBe("accepted");
+
+      const pkg = store.getCanonicalPackage("com.example.untaggedpkg");
+      expect(pkg).not.toBeNull();
+      expect(pkg?.umbrella).toBe("tools");
+      expect(pkg?.category).toBe("vpm_package"); // default — no tags to map
+    } finally { store.close(); }
+  });
+
+  test("VPM observation with empty platformTags array keeps default category 'vpm_package'", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken, jobId, leaseId, nodeId } = setupVpmLease(store);
+      const principal = store.authenticate(nodeId, nodeToken)!;
+      const result = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId, jobId, leaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "batch",
+          observations: [{
+            sourceItemKey: "com.example.emptytagspkg",
+            title: "Empty Tags Package",
+            author: "Eve",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null,
+            platformTags: []
+          }]
+        }
+      }, principal);
+      expect(result.status).toBe("accepted");
+
+      const pkg = store.getCanonicalPackage("com.example.emptytagspkg");
+      expect(pkg).not.toBeNull();
+      expect(pkg?.umbrella).toBe("tools");
+      expect(pkg?.category).toBe("vpm_package"); // empty array → default
+    } finally { store.close(); }
+  });
+});

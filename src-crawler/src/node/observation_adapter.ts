@@ -76,6 +76,21 @@ function authorName(value: unknown): string | null {
   return string(value) || string(object(value)?.name);
 }
 
+/**
+ * Normalises a VPM manifest `keywords` field into a deduplicated, trimmed list capped at 50.
+ * Returns undefined when no valid tags survive so the wire field stays omitted.
+ */
+function vpmKeywords(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const tags = [...new Set(
+    value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0 && item.length <= 100)
+  )].slice(0, 50);
+  return tags.length > 0 ? tags : undefined;
+}
+
 function httpsLink(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   try { return new URL(value).protocol === "https:" ? value : undefined; } catch { return undefined; }
@@ -221,6 +236,7 @@ function parseVpmRepositoryEvidence(job: CrawlJob, body: string): {
     if (issues.length > 100) return null;
     if (manifests.length === 0) continue;
     const author = manifests.map(({ manifest }) => authorName(manifest?.author)).find(Boolean) || authorName(repo.author) || "Unknown";
+    const platformTags = vpmKeywords(manifests.map(({ manifest }) => manifest?.keywords).find((kw) => Array.isArray(kw)));
     observations.push({
       sourceItemKey: packageId,
       title: (manifests.map(({ manifest }) => string(manifest?.displayName)).find(Boolean) || packageId).slice(0, 500),
@@ -229,7 +245,8 @@ function parseVpmRepositoryEvidence(job: CrawlJob, body: string): {
       outboundLinks: httpsLinks([repo.url, object(repo.infoLink)?.url, ...manifests.map(({ manifest }) => object(manifest?.author)?.url)]),
       originUpdatedAt: manifests.map(({ manifest }) => normalizedDate(manifest?.updated_at))
         .filter((date): date is string => date !== null).sort().at(-1) || null,
-      releases: manifests.map(({ release }) => release)
+      releases: manifests.map(({ release }) => release),
+      ...(platformTags !== undefined ? { platformTags } : {})
     });
   }
   return { observations, issues };
@@ -259,12 +276,14 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
         const author = typeof item.author === "string" ? item.author : item.author?.name;
         const release = releaseEvidence(version, item);
         if (!release) return null;
+        const platformTags = vpmKeywords(item.keywords);
         return {
           sourceItemKey: name, title: String(item.displayName || name).slice(0, 500),
           author: String(author || "Unknown").slice(0, 300), summary: String(item.description || "").slice(0, 1024),
           outboundLinks: httpsLinks([item.url, item.author?.url]),
           originUpdatedAt: normalizedDate(item.updated_at),
-          release
+          release,
+          ...(platformTags !== undefined ? { platformTags } : {})
         };
       }
       return null;

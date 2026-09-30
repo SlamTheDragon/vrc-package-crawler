@@ -209,3 +209,49 @@ export function classifyDesktopTool(
     reason: "Mentions VRChat but lacks standalone desktop tool characteristics"
   };
 }
+
+/**
+ * Derives a canonical category string from an array of platform-supplied tags.
+ *
+ * Maps known VPM/platform vocabulary to canonical category values used in
+ * `canonical_packages.category`. The mapping is intentionally conservative:
+ * unrecognised or absent tags always return `defaultCategory`.
+ *
+ * Tag normalisation: NFKC, lowercase, trimmed before comparison.
+ *
+ * @param platformTags - Optional array of raw tag strings from the observation.
+ * @param defaultCategory - Fallback category when no tag matches known vocabulary.
+ * @returns A canonical category string.
+ */
+export function deriveCategoryFromTags(
+  platformTags: string[] | undefined,
+  defaultCategory: string
+): string {
+  if (!platformTags || platformTags.length === 0) return defaultCategory;
+
+  const normalized = platformTags.map(t => (t || "").normalize("NFKC").toLowerCase().trim());
+
+  for (const tag of normalized) {
+    if (tag.includes("avatar") || tag === "avatar_tool" || tag === "avatar-tool") {
+      return "avatar_tool";
+    }
+    if (tag.includes("shader")) {
+      return "shader";
+    }
+    if (tag.includes("world") || tag === "world_creation") {
+      return "world_tool";
+    }
+    if (tag.includes("animation")) {
+      return "animation_tool";
+    }
+    if (tag.includes("physics") || tag.includes("physbone")) {
+      return "physics_tool";
+    }
+    // clothing/outfit/cosmetic via VPM are edge cases — keep default
+    if (tag.includes("clothing") || tag.includes("outfit") || tag.includes("cosmetic")) {
+      return defaultCategory;
+    }
+  }
+
+  return defaultCategory;
+}

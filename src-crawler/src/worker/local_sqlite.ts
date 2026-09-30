@@ -16,6 +16,7 @@ import { isItchSearchUrl } from "../shared/source_path_policy.ts";
 import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, type OriginRobotsSnapshot } from "../shared/robots_snapshot.ts";
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
 import { CRAWLER_ROBOTS_TOKEN } from "../shared/crawler_identity.ts";
+import { deriveCategoryFromTags } from "../shared/taxonomy.ts";
 import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
   IssueNodeCredentialSchema, type IssueNodeCredential,
   encodeLeadCursor, encodeRuleCursor, encodeCatalogCursor,
@@ -1131,7 +1132,7 @@ export class LocalCoordinatorStore implements CoordinatorStore {
               display_name=excluded.display_name,
               vpm_id=COALESCE(excluded.vpm_id,canonical_packages.vpm_id),
               updated_at=excluded.updated_at`).run(
-              vpmId, "tools", "vpm_package", "active", observation.title, vpmId, now, now);
+              vpmId, "tools", deriveCategoryFromTags(observation.platformTags, "vpm_package"), "active", observation.title, vpmId, now, now);
           this.db.prepare(`INSERT OR IGNORE INTO identity_links
             (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
             VALUES (?,?,?,'vpm_id',1.0,'accepted',?,?)`).run(
