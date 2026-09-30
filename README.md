@@ -49,307 +49,91 @@ For a no-network two-process coordinator check, run `bun run build:coordinator` 
 
 ---
 
-## Legacy Phase 1–4 architecture
-
-> Historical reference only. The legacy `build:all`, `start`, `export`, `project`, crawler and server script entries below are no longer provided by `src-crawler/package.json`. Use the current coordinator/node commands above; do not use the following recipes as a pre-production runbook.
-
-```
-dist/vrc-crawler.exe          -- 24/7 background daemon (headless, no console window)
-dist/vrc-monitor.exe          -- Interactive console monitor and CLI control interface
-dist/vrc-sync.exe             -- Periodic Cloudflare edge sync utility
-dist/vrc-server.exe           -- Headless REST API server (Schemas 1, 2, and 4)
-dist/vrc-crawler-linux        -- Linux daemon binary
-dist/vrc-server-linux         -- Linux headless REST API binary
-```
-
-### Core Components
-
-| Component | Description |
-|---|---|
-| Poisson Refresh Scheduler | The scheduler will re-crawl URLs based on observed change frequency. It will keep the index fresh during continuous operation. |
-| CQRS Observation Lake | The `entities` table will store raw crawl payloads immutably. Relevance status flags will quarantine items without deleting data. |
-| Canonical Projection Engine | The projection engine will run every 15 minutes. It will synthesize `canonical_packages` and `package_fronts` from raw entities. |
-| Pure Media & Streaming Proxy | The system returns direct origin CDN URLs by default and provides an ephemeral in-memory streaming proxy (`GET /v1/media/stream`) with zero local BLOB storage. It computes BlurHash and 64-bit pHash. |
-| Loopback IPC Control | The crawler daemon will listen on `127.0.0.1:8765`. It will accept `/stop`, `/recrawl`, `/project`, `/sync`, and `/steering` commands. |
-| Interactive Monitor CLI | The `vrc-monitor.exe` binary will dispatch IPC commands to the daemon. It will display real-time terminal metrics. |
-| Cloudflare Edge Sync | The `vrc-sync.exe` utility will push incremental deltas to Cloudflare D1. It will fall back to local backup deltas if offline. |
-| Autonomous Steering Engine | The steering engine will process Schema 4 feedback every 30 minutes. It will apply curator overrides and search pattern weights. |
-| Exportable Single-File Catalog | The exporter will build a defragmented `vrc_catalog.db` file with SQLite FTS5 for offline search. |
-
-### Database
-
-The primary database will reside at `dist/crawler_state.db`. The system will create this file on first run. It will contain:
-
-- `frontier`: URL queue with Cho-Garcia-Molina Poisson adaptive scheduling.
-- `entities`: Immutable raw observation lake across all platforms.
-- `canonical_packages`: Deduplicated catalog projections with lifecycle and confidence tracking.
-- `package_fronts`: Per-platform storefront mappings (BOOTH, GitHub, Gumroad, Jinxxy, Itch).
-- `media_cache`: Pure origin media metadata, source URLs, BlurHash, and 64-bit pHash (zero local BLOBs).
-- `curator_overrides`: Persistent community and author overrides surviving projection rebuilds.
-- `user_reports`: Inbound user feedback and steering reports (Schema 4).
-- `search_patterns`: Closed-loop dynamic discovery query seeds and negative filter tokens.
-- `creator_opt_outs`: Legal exclusion registry with regex and bio-token verification.
-- `sync_checkpoints`: High-watermark cursors for edge sync.
-
----
-
-## Directory Structure
+## Pre-Production Repository Layout
 
 ```
 vrc-package-crawler/
-  src-crawler/src/                        Core crawler engine and foundation
-    node/                     New standalone node, API client, observation adapter, driver runtime
-    worker/                   Worker-portable request handler and local SQLite/CLI adapters
-    shared/                   Versioned API schemas and cross-boundary validation
-    crawler/                  Autonomous 24/7 crawler daemon (vrc-crawler.exe / linux)
-      index.ts                Main harvesting daemon & DLQ idle draining loop
-      projection.ts           Canonical projection, SimHash clustering, and umbrella tagging
-      steering.ts             Autonomous steering feedback processor & quarantine buffer
-    monitor/                  Interactive console monitor & IPC status CLI (vrc-monitor.exe)
-      index.ts
-    sync/                     Cloudflare D1/R2 incremental sync daemon (vrc-sync.exe)
-      index.ts
-      exporter.ts             Single-file catalog and FTS5 SQLite exporter (vrc-export.exe)
-    server/                   Headless REST API server (Schemas 1, 2, 4) (vrc-server.exe)
-      index.ts
-    drivers/                  Per-platform crawl drivers (BOOTH, GitHub, Gumroad, Jinxxy, Itch, VPM)
-    utils/                    Shared utilities (circuit breaker, image proxy, robots.txt, Poisson, IPC, lock)
-    db.ts                     Unified SQLite database layer with auto-upgrade
-    filter.ts                 Relevance and safety filters
-    classifier.ts             Taxonomy classification
-    config.ts                 Path resolution and runtime configuration (sole canonical DB in dist/)
-  docs/                       Specification documents
-    DISCOVERY_RULES.md        Discovery, relevance scoring, and re-audit rules
-    COMPREHENSIVE_SYSTEM_ARCHITECTURE.md System blueprint and guardrails audit
-    ARCHITECTURE_AND_COMPLIANCE_GUIDE.md Legal, contractual, and technical boundaries
-    REPORTING_SCHEMAS.md      Schemas 1 to 5 for client ingestion and telemetry
-    EDGE_SYNC_AND_SCALE_GUIDE.md Cloudflare edge synchronization guide
-    OPERATIONS_AND_CHECKLIST.md Operational checklists and verification
-    topics/                   Technical deep-dive topics
-  tests/                      Bun test suites; run `bun test` and `bun run typecheck`
-  dist/                       Isolated runtime environment (gitignored)
-    vrc-crawler.exe           Background daemon binary (Windows)
-    vrc-monitor.exe           Console monitor & CLI binary (Windows)
-    vrc-sync.exe              Cloudflare edge sync binary (Windows)
-    vrc-server.exe            Headless API gateway binary (Windows)
-    vrc-crawler-linux         Background daemon binary (Linux)
-    vrc-server-linux          Headless API gateway binary (Linux)
-    crawler_state.db          Live SQLite database
-    logs/                     Log files
-    .env                      Local environment secrets
-    .env.example              Configuration template
+  .agents/                    Agent specifications, rules, and link-check scripts
+  src-crawler/                Crawler engine, coordinator, and standalone node
+    src/
+      node/                   Standalone crawler node, observation adapter, runtime config
+      worker/                 Coordinator request handler, operator API, local SQLite store
+      shared/                 Versioned API protocol schemas (Zod) and platform definitions
+      utils/                  Shared utilities (circuit breaker, logger, robots.txt)
+    dist/                     Compiled standalone binaries (local-node, local-coordinator, worker)
+    scratch/                  Reproducible test scripts (smoke_preprod_continuous.ts, etc.)
+    config.json               Baseline preprod configuration and identity template
+  src-web/                    Downstream operator and registry dashboard (SvelteKit)
+  src-crawler-client/         Crawler client library scaffold
+  src-package/                Shared strongly typed protocol & domain package (queued for extraction)
+  docs/                       Authoritative documentation
+    scratch/
+      decisions/              Owner decisions, capability gates, conformance, question queue
+      history/                Archived Phase 4 execution contract
+      legacy-prototype-targets/ Archived Phase 1–4 monolithic guides
+    research/                 Primary-source market and technical research
+    source/                   Target specification templates
+  tests/                      Root pre-production layout conformance tests
 ```
 
-> [!IMPORTANT]
-> The `dist/` directory will serve as the isolated runtime environment. Binaries, database files, logs, and `.env` will live inside `dist/`. The project root will store only source code and documentation. Run binaries from `dist/` or specify absolute paths.
-
 ---
 
-## Prerequisites
+## Prerequisites & Development
 
-- **Bun** >= 1.4.0 (required for development and building).
-- **GitHub Token** (optional): increases GitHub API rate limit from 60 to 5,000 requests per hour.
-- **Cloudflare Credentials** (optional): required for edge sync via `vrc-sync`.
+- **Bun** >= 1.4.0 (required for development, testing, and compilation).
+- **GitHub Token** (optional): increases GitHub REST rate limit from 60 to 5,000 req/hr.
 
----
-
-## First-Time Setup
-
-1. Install project dependencies (from `src-crawler/`):
-   ```powershell
-   bun install
-   ```
-
-2. Build pre-production binaries:
-   ```powershell
-   bun run build:coordinator
-   bun run build:node
-   ```
-   Or build all artifacts including browser worker bundle:
-   ```powershell
-   bun run build
-   ```
-
-3. Run pre-production end-to-end simulation:
-   ```powershell
-   bun run smoke:preprod
-   ```
-
----
-
-## Running on Windows
-
-### Start Background Crawler Daemon
-
-The crawler daemon will run in the background without a console window. It will acquire a single-instance process lock.
+### Core Commands (run from `src-crawler/`)
 
 ```powershell
-Start-Process "dist\vrc-crawler.exe"
+# Install dependencies
+bun install
+
+# Run the test suite (161 tests across 23 files, isolated in-memory)
+bun test
+
+# Typecheck without emit
+bun run typecheck
+
+# Check documentation links (99 documents)
+bun run check:docs
+
+# Build compiled pre-production binaries
+bun run build:coordinator   # dist/local-coordinator/vrc-coordinator.exe
+bun run build:node          # dist/local-node/vrc-node.exe
+bun run build:worker        # dist/worker/ (Cloudflare Worker browser bundle)
+bun run build               # Builds all three targets
+
+# Pre-production verification smokes
+bun run smoke:preprod       # End-to-end dual-binary simulation in shared directory
+bun run smoke:continuous    # Continuous dual-daemon simulation with autonomous polling
+bun run smoke:local         # Multi-process loopback topology & heartbeat check
+bun run smoke:multi         # Multi-process coordinator lease & race check
 ```
-
-> [!NOTE]
-> The `vrc-crawler.exe` binary will not parse CLI subcommands. Do not run arguments against `vrc-crawler.exe`. Dispatch all administrative commands through `vrc-monitor.exe`.
-
-### Monitor and Control Crawler Daemon
-
-Launch the interactive monitor:
-
-```powershell
-dist\vrc-monitor.exe
-```
-
-The monitor will read from the SQLite database. It will use indexed queries and will not block crawling.
-
-You can also send non-interactive commands to the daemon through `vrc-monitor.exe`:
-
-```powershell
-dist\vrc-monitor.exe status     # Check daemon health and metrics
-dist\vrc-monitor.exe recrawl    # Trigger immediate Poisson re-crawl sweep
-dist\vrc-monitor.exe project    # Trigger canonical projection rebuild
-dist\vrc-monitor.exe sync       # Trigger Cloudflare edge sync
-dist\vrc-monitor.exe export     # Trigger catalog export
-dist\vrc-monitor.exe stop       # Send graceful shutdown signal to daemon
-```
-
-Interactive monitor hotkeys:
-
-| Key | Action |
-|---|---|
-| `r` | Send immediate re-crawl request to daemon |
-| `p` | Trigger canonical projection rebuild |
-| `s` | Run Cloudflare edge sync |
-| `e` | Export catalog to `vrc_catalog.db` |
-| `q` | Send graceful shutdown to daemon |
-
-### Run Headless API Server
-
-The headless API server serves Schemas 1, 2, 4, 6, and ephemeral streaming:
-
-```powershell
-dist\vrc-server.exe --port 8080 --host 127.0.0.1
-```
-
-Primary Gateway Endpoints:
-- `GET /`: API Home and capability discovery document.
-- `GET /v1/health`: Server uptime, memory metrics, and catalog counts.
-- `GET /v1/catalog/delta`: Schema 1 cursor-paginated delta stream with direct origin media pointers.
-- `GET /v1/packages/stream`: Route alias for `/v1/catalog/delta` ensuring spec compatibility.
-- `GET /v1/vpm/index.json` (and `/index.json`): retired with HTTP 410. The catalog links to authoritative upstream VPM repositories; it does not invent installable releases.
-- `POST /v1/reports`: Ingests Schema 4 community steering reports (requires `API_SECRET_TOKEN` bearer auth).
-- `POST /v1/opt-out`: Schema 6 automated creator opt-out (supports storefront bio tokens, DNS TXT, and signed commits).
-- `POST /v1/telemetry`: Ingests Schema 5 anonymous query/click telemetry with strict anti-PII filtering.
-- `GET /v1/media/stream`: Ephemeral in-memory WebP streaming proxy for hotlink/Referer blocked storefronts.
-
-Set `API_SECRET_TOKEN` in `.env` to protect administrative endpoints and report processing.
-
-### Run Cloudflare Edge Sync Manually
-
-```powershell
-dist\vrc-sync.exe
-```
-
-This utility will require `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_D1_DATABASE_ID`, and `CLOUDFLARE_API_TOKEN`.
 
 ---
 
-## Running on Linux
+## Historical Architecture Note
 
-1. Make the daemon executable and start it in the background:
-   ```bash
-   chmod +x dist/vrc-crawler-linux
-   ./dist/vrc-crawler-linux &
-   ```
-
-2. View crawler log output:
-   ```bash
-   tail -f logs/crawler.log
-   ```
-
-3. Run the headless API server:
-   ```bash
-   chmod +x dist/vrc-server-linux
-   ./dist/vrc-server-linux --port 8080 --host 127.0.0.1
-   ```
-
-A systemd service template will reside in `DELEGATES.md` for production deployment.
-
----
-
-## Exporting the Catalog
-
-1. Export lightweight catalog with FTS5 search:
-   ```powershell
-   bun run export -- --catalog
-   ```
-
-2. Export full observation lake snapshot:
-   ```powershell
-   bun run export -- --lake
-   ```
-
-Output will write to `vrc_catalog.db` in the working directory.
-
----
-
-## Development & Verification
-
-1. Run the test suite:
-   ```powershell
-   bun test
-   ```
-   The test suite contains 220 passing tests across 36 files (1,995 expect assertions) in `src-crawler`, plus 4 tests across 1 file in root `tests/`. Total: 224 passing tests across 37 files (2,025 assertions).
-
-2. Check TypeScript types without emitting:
-   ```powershell
-   bun run typecheck
-   ```
-
-3. Run verification smokes:
-   ```powershell
-   bun run smoke:preprod   # Full pre-production dual-binary simulation in shared directory
-   bun run smoke:local     # Multi-process loopback topology & heartbeat check
-   bun run smoke:multi     # Multi-process coordinator lease & race check
-   ```
-
----
-
-## Reporting Schemas
-
-External applications will integrate with the crawler through standardized schemas. See [docs/scratch/legacy-prototype-targets/REPORTING_SCHEMAS.md](docs/scratch/legacy-prototype-targets/REPORTING_SCHEMAS.md):
-
-- **Schema 1**: Downstream Feed Delta Ingestion Report (cursor-paginated, SHA-256 digest).
-- **Schema 2**: Native VCC / ALCOM Community Repository Manifest (`index.json`).
-- **Schema 3**: End-User Project Dependency Audit Report.
-- **Schema 4**: Upstream User Steering Report (curator overrides, delisting flags, negative tokens).
-- **Schema 5**: Downstream Interaction and Search Telemetry (clicks, bookmarks, queries).
-- **Schema 6**: Rights-Holder Automated Opt-Out Request (`POST /v1/opt-out`).
-
----
-
-## Cloudflare Edge Distribution
-
-See [docs/scratch/legacy-prototype-targets/EDGE_SYNC_AND_SCALE_GUIDE.md](docs/scratch/legacy-prototype-targets/EDGE_SYNC_AND_SCALE_GUIDE.md) for details:
-
-- Cloudflare D1 and R2 provisioning and schema setup.
-- Incremental delta replication via `vrc-sync.exe` with high-watermark cursors.
-- Watermark recovery procedures for projection rebuilds.
-- Catalog delivery through Cloudflare Workers.
+The legacy monolithic Phase 1–4 binaries (`vrc-crawler.exe`, `vrc-server.exe`, `vrc-monitor.exe`, `vrc-sync.exe`, port 8765 IPC, and direct D1 edge sync) have been permanently retired and deleted as part of the version 0 pre-production refactor. For historical design records and specifications, see:
+- [`docs/scratch/history/AGENT_PHASE4.md`](docs/scratch/history/AGENT_PHASE4.md)
+- [`docs/scratch/legacy-prototype-targets/`](docs/scratch/legacy-prototype-targets/)
+- [`docs/scratch/decisions/current/status/CONFORMANCE.md`](docs/scratch/decisions/current/status/CONFORMANCE.md)
 
 ---
 
 ## Legal and Compliance
 
-The crawler will follow strict legal boundaries and community norms:
+The crawler operates under strict legal boundaries and community norms:
+- **Zero-Binary Invariant**: It does not download, cache, or redistribute binary asset archives (`.unitypackage`, executables, 3D meshes, textures).
+- **Factual Metadata Focus**: It discovers and indexes public factual metadata, routing links directly to original creator storefronts.
+- **Politeness & Access Gates**: Requires scoped source-access profiles and RFC 9309 robots compliance before network fetching.
+- **Opt-Out Support**: Provides creator delisting and exclusion mechanisms.
 
-- It will not download binary asset archives (`.unitypackage`, executables, textures).
-- It will index only factual public metadata.
-- It will route all store links directly to original creators.
-- It will identify itself via `User-Agent: VRCDiscoveryBot/1.0`.
-- It will obey `robots.txt` with 24-hour caching per RFC 9309.
-See [LEGAL.md](LEGAL.md) and [docs/scratch/legacy-prototype-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md](docs/scratch/legacy-prototype-targets/ARCHITECTURE_AND_COMPLIANCE_GUIDE.md) for full compliance specifications.
+See [`LEGAL.md`](LEGAL.md) and [`DELEGATES.md`](DELEGATES.md) for full operational covenants and runbooks.
 
 ---
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0) — see the [LICENSE.md](LICENSE.md) file for details.
+This project is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0) — see the [`LICENSE.md`](LICENSE.md) file for details.

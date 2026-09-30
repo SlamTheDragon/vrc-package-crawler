@@ -53,8 +53,8 @@ Items referencing **live code** that have not yet been resolved:
 
 | ID | Location | Issue | Severity | Args |
 | --- | --- | --- | --- | --- |
-| NEW-01 | `src/config.ts:38` (`targetSaturationScore`) | Stale concept; heartbeat saturation measures queue completion, not ecosystem coverage | Low | P-07 |
-| NEW-02 | `src/shared/node_protocol.ts` (`PlatformSchema`) | 11 platforms declared; curated/sellfy/custom_domain/vrchat adapters are offline-only — no approved source profiles | Medium | A-02, G3 |
+| NEW-01 | `src/config.ts` | **Resolved** — `targetSaturationScore` and legacy driver pacing constants removed | Closed | P-07 |
+| NEW-02 | `src/shared/node_protocol.ts` (`PlatformSchema`) | 10 platforms declared; curated/sellfy/custom_domain adapters are offline-only — no approved source profiles | Medium | A-02, G3 |
 | NEW-03 | `src/worker/local_sqlite.ts` | `submitResult()` curated outcome routing added but curated metadata observations have no defined schema path | Medium | G3 |
 | NEW-04 | `src/node/observation_adapter.ts` | `parseCuratedDiscoveryLeads` accepts any HTTPS URL from HTML/Markdown; expansion policy (domain allowlist, depth) is unspecified | Medium | C-05, P-04 |
 
