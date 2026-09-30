@@ -38,6 +38,19 @@ function setupVpmLease(store: LocalCoordinatorStore): {
   return { nodeToken, jobId: claimed.job.jobId, leaseId: claimed.job.leaseId, nodeId };
 }
 
+function setupGitHubLease(store: LocalCoordinatorStore, url: string): {
+  nodeToken: string; jobId: string; leaseId: string; nodeId: string
+} {
+  const nodeId = "test-gh-node";
+  const nodeToken = store.createNodeCredential(nodeId, ["github"]);
+  const principal = store.authenticate(nodeId, nodeToken)!;
+  seedApprovedFixtureJob(store, url, "github", 60_000);
+  store.recordRobotsSnapshot("https://api.github.com", 404);
+  const claimed = store.claim({ schemaVersion: PROTOCOL_VERSION, nodeId, capabilities: ["github"] }, principal);
+  if (claimed.status !== "leased") throw new Error("Expected GitHub lease");
+  return { nodeToken, jobId: claimed.job.jobId, leaseId: claimed.job.leaseId, nodeId };
+}
+
 let server: ReturnType<typeof Bun.serve> | undefined;
 afterEach(() => { server?.stop(true); server = undefined; });
 
@@ -250,6 +263,354 @@ describe("G2 canonical projection via VPM observation submission", () => {
       const page2real = store.listCanonicalPackagesPage(2, cursor);
       expect(page2real.packages).toHaveLength(1);
       expect(page2real.nextCursor).toBeNull();
+    } finally { store.close(); }
+  });
+});
+
+describe("G3 repository_match identity linking on GitHub submission", () => {
+  test("creates provisional repository_match link when GitHub repo matches lead discovered from VPM package", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+
+      // 1. Ingest VPM package: com.example.animtool
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "com.example.animtool",
+            title: "Animation Tool",
+            author: "Alice",
+            summary: "",
+            outboundLinks: [],
+            originUpdatedAt: null
+          }
+        }
+      }, vpmPrincipal);
+
+      // Verify canonical package was created
+      const pkg = store.getCanonicalPackage("com.example.animtool");
+      expect(pkg).not.toBeNull();
+      expect(pkg?.vpmId).toBe("com.example.animtool");
+
+      // 2. Insert a source_lead pointing to GitHub repository discovered from this VPM package
+      const leadKey = crypto.randomUUID();
+      store.db.prepare(`INSERT INTO source_leads
+        (lead_key,discovered_from_url,discovered_from_job_id,discovered_from_item_key,kind,target_url,claimed_package_id,status,first_seen_at,last_seen_at)
+        VALUES (?,'https://vpm.example.com/index.json',?,'com.example.animtool','github_repository','https://github.com/vrc-dev/anim-tool',NULL,'pending_review',datetime('now'),datetime('now'))`)
+        .run(leadKey, vpmJobId);
+
+      // 3. Setup and submit GitHub job for api.github.com/repos/vrc-dev/anim-tool
+      const ghUrl = "https://api.github.com/repos/vrc-dev/anim-tool";
+      const { nodeToken: ghToken, jobId: ghJobId, leaseId: ghLeaseId, nodeId: ghNodeId } = setupGitHubLease(store, ghUrl);
+      const ghPrincipal = store.authenticate(ghNodeId, ghToken)!;
+
+      const ghResult = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: ghNodeId, jobId: ghJobId, leaseId: ghLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "github:555666",
+            title: "anim-tool",
+            author: "vrc-dev",
+            summary: "",
+            outboundLinks: ["https://github.com/vrc-dev/anim-tool"],
+            originUpdatedAt: null
+          }
+        }
+      }, ghPrincipal);
+      expect(ghResult.status).toBe("accepted");
+
+      // 4. Verify identity links for canonical package
+      const links = store.getIdentityLinksForCanonical("com.example.animtool");
+      expect(links).toHaveLength(2);
+
+      const vpmLink = links.find(l => l.evidenceKind === "vpm_id");
+      expect(vpmLink).toBeDefined();
+      expect(vpmLink?.reviewState).toBe("accepted");
+      expect(vpmLink?.confidence).toBe(1.0);
+
+      const ghLink = links.find(l => l.evidenceKind === "repository_match");
+      expect(ghLink).toBeDefined();
+      expect(ghLink?.reviewState).toBe("provisional");
+      expect(ghLink?.confidence).toBe(0.7);
+      expect(ghLink?.sourceKey).toBe(`github:${ghUrl}:github:555666`);
+
+      // 5. Public catalog must embed only accepted links
+      const catalogPage = store.listCanonicalPackagesPage(10, null);
+      const catalogPkg = catalogPage.packages.find(p => p.canonicalId === "com.example.animtool");
+      expect(catalogPkg?.acceptedLinks).toHaveLength(1);
+      expect(catalogPkg?.acceptedLinks[0].evidenceKind).toBe("vpm_id");
+
+      // 6. Operator reviews and accepts the provisional link
+      const accepted = store.updateIdentityLinkReview(ghLink!.linkId, "accepted");
+      expect(accepted).toBe(true);
+
+      const updatedPage = store.listCanonicalPackagesPage(10, null);
+      const updatedPkg = updatedPage.packages.find(p => p.canonicalId === "com.example.animtool");
+      expect(updatedPkg?.acceptedLinks).toHaveLength(2);
+      expect(updatedPkg?.acceptedLinks.some(l => l.evidenceKind === "repository_match")).toBe(true);
+    } finally { store.close(); }
+  });
+
+  test("provisional repository_match link is idempotent on re-submission", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: { sourceItemKey: "com.example.idem", title: "Idem Tool", author: "Bob", summary: "", outboundLinks: [], originUpdatedAt: null }
+        }
+      }, vpmPrincipal);
+
+      store.db.prepare(`INSERT INTO source_leads
+        (lead_key,discovered_from_url,discovered_from_job_id,discovered_from_item_key,kind,target_url,claimed_package_id,status,first_seen_at,last_seen_at)
+        VALUES (?,'https://vpm.example.com/index.json',?,'com.example.idem','github_repository','https://github.com/vrc-dev/idem-tool',NULL,'pending_review',datetime('now'),datetime('now'))`)
+        .run(crypto.randomUUID(), vpmJobId);
+
+      const ghUrl = "https://api.github.com/repos/vrc-dev/idem-tool";
+      const { nodeToken: ghToken, jobId: ghJobId, leaseId: ghLeaseId, nodeId: ghNodeId } = setupGitHubLease(store, ghUrl);
+      const ghPrincipal = store.authenticate(ghNodeId, ghToken)!;
+
+      const ghObs = {
+        sourceItemKey: "github:777888",
+        title: "idem-tool",
+        author: "vrc-dev",
+        summary: "",
+        outboundLinks: ["https://github.com/vrc-dev/idem-tool"],
+        originUpdatedAt: null
+      };
+
+      const ghIdempotency = crypto.randomUUID();
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: ghNodeId, jobId: ghJobId, leaseId: ghLeaseId,
+        idempotencyKey: ghIdempotency,
+        outcome: { kind: "changed", observation: ghObs }
+      }, ghPrincipal);
+
+      expect(store.getIdentityLinksForCanonical("com.example.idem")).toHaveLength(2);
+
+      // 1. Re-submission with identical idempotencyKey returns duplicate
+      const replay = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: ghNodeId, jobId: ghJobId, leaseId: ghLeaseId,
+        idempotencyKey: ghIdempotency,
+        outcome: { kind: "changed", observation: ghObs }
+      }, ghPrincipal);
+      expect(replay.duplicate).toBe(true);
+
+      // Still exactly 2 links, no duplication
+      expect(store.getIdentityLinksForCanonical("com.example.idem")).toHaveLength(2);
+    } finally { store.close(); }
+  });
+
+  test("unrelated GitHub repo without matching lead does not link to canonical package", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const ghUrl = "https://api.github.com/repos/independent/unrelated-repo";
+      const { nodeToken, jobId, leaseId, nodeId } = setupGitHubLease(store, ghUrl);
+      const principal = store.authenticate(nodeId, nodeToken)!;
+
+      const result = store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId, jobId, leaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "github:111222",
+            title: "unrelated-repo",
+            author: "independent",
+            summary: "",
+            outboundLinks: ["https://github.com/independent/unrelated-repo"],
+            originUpdatedAt: null
+          }
+        }
+      }, principal);
+      expect(result.status).toBe("accepted");
+
+      // No canonical package was created or linked
+      const { packages } = store.listCanonicalPackagesPage(10, null);
+      expect(packages).toHaveLength(0);
+      expect(store.getIdentityLinksForSourceItem(`github:${ghUrl}:github:111222`)).toHaveLength(0);
+    } finally { store.close(); }
+  });
+
+  test("GitHub repo matching one package does NOT link to other packages from same VPM repo", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+
+      // Ingest package A and package B in the same VPM repository listing
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "batch",
+          observations: [
+            { sourceItemKey: "com.example.toolA", title: "Tool A", author: "Dev", summary: "", outboundLinks: [], originUpdatedAt: null },
+            { sourceItemKey: "com.example.toolB", title: "Tool B", author: "Dev", summary: "", outboundLinks: [], originUpdatedAt: null }
+          ]
+        }
+      }, vpmPrincipal);
+
+      // Lead specifically connects com.example.toolA to https://github.com/vrc-dev/tool-a
+      store.db.prepare(`INSERT INTO source_leads
+        (lead_key,discovered_from_url,discovered_from_job_id,discovered_from_item_key,kind,target_url,claimed_package_id,status,first_seen_at,last_seen_at)
+        VALUES (?,'https://vpm.example.com/index.json',?,'com.example.toolA','github_repository','https://github.com/vrc-dev/tool-a',NULL,'pending_review',datetime('now'),datetime('now'))`)
+        .run(crypto.randomUUID(), vpmJobId);
+
+      // Ingest GitHub repository for tool-a
+      const ghUrl = "https://api.github.com/repos/vrc-dev/tool-a";
+      const { nodeToken: ghToken, jobId: ghJobId, leaseId: ghLeaseId, nodeId: ghNodeId } = setupGitHubLease(store, ghUrl);
+      const ghPrincipal = store.authenticate(ghNodeId, ghToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: ghNodeId, jobId: ghJobId, leaseId: ghLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: { sourceItemKey: "github:999000", title: "tool-a", author: "vrc-dev", summary: "", outboundLinks: ["https://github.com/vrc-dev/tool-a"], originUpdatedAt: null }
+        }
+      }, ghPrincipal);
+
+      // toolA should have 2 links (vpm_id, repository_match)
+      expect(store.getIdentityLinksForCanonical("com.example.toolA")).toHaveLength(2);
+
+      // toolB MUST NOT have any repository_match link! ONLY 1 link (vpm_id)!
+      const toolBLinks = store.getIdentityLinksForCanonical("com.example.toolB");
+      expect(toolBLinks).toHaveLength(1);
+      expect(toolBLinks[0].evidenceKind).toBe("vpm_id");
+    } finally { store.close(); }
+  });
+
+  test("handles case variations, trailing slashes, and .git suffix in lead target_url", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: { sourceItemKey: "com.example.casepkg", title: "Case Pkg", author: "Dev", summary: "", outboundLinks: [], originUpdatedAt: null }
+        }
+      }, vpmPrincipal);
+
+      // Lead with mixed case, .git suffix, and trailing slash
+      store.db.prepare(`INSERT INTO source_leads
+        (lead_key,discovered_from_url,discovered_from_job_id,discovered_from_item_key,kind,target_url,claimed_package_id,status,first_seen_at,last_seen_at)
+        VALUES (?,'https://vpm.example.com/index.json',?,'com.example.casepkg','github_repository','https://github.com/VRC-Dev/CasePkg.git/',NULL,'pending_review',datetime('now'),datetime('now'))`)
+        .run(crypto.randomUUID(), vpmJobId);
+
+      // GitHub crawler submits lowercase canonical API endpoint
+      const ghUrl = "https://api.github.com/repos/vrc-dev/casepkg";
+      const { nodeToken: ghToken, jobId: ghJobId, leaseId: ghLeaseId, nodeId: ghNodeId } = setupGitHubLease(store, ghUrl);
+      const ghPrincipal = store.authenticate(ghNodeId, ghToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: ghNodeId, jobId: ghJobId, leaseId: ghLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: { sourceItemKey: "github:123321", title: "casepkg", author: "vrc-dev", summary: "", outboundLinks: ["https://github.com/vrc-dev/casepkg"], originUpdatedAt: null }
+        }
+      }, ghPrincipal);
+
+      const links = store.getIdentityLinksForCanonical("com.example.casepkg");
+      expect(links).toHaveLength(2);
+      expect(links.some(l => l.evidenceKind === "repository_match")).toBe(true);
+    } finally { store.close(); }
+  });
+
+  test("links canonical package via claimed_package_id on source lead", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: { sourceItemKey: "com.example.claimedpkg", title: "Claimed Pkg", author: "Dev", summary: "", outboundLinks: [], originUpdatedAt: null }
+        }
+      }, vpmPrincipal);
+
+      // Lead specifying claimed_package_id instead of discovered_from_item_key
+      store.db.prepare(`INSERT INTO source_leads
+        (lead_key,discovered_from_url,discovered_from_job_id,discovered_from_item_key,kind,target_url,claimed_package_id,status,first_seen_at,last_seen_at)
+        VALUES (?,'https://vpm.example.com/index.json',?,NULL,'github_repository','https://github.com/vrc-dev/claimed-pkg','com.example.claimedpkg','pending_review',datetime('now'),datetime('now'))`)
+        .run(crypto.randomUUID(), vpmJobId);
+
+      const ghUrl = "https://api.github.com/repos/vrc-dev/claimed-pkg";
+      const { nodeToken: ghToken, jobId: ghJobId, leaseId: ghLeaseId, nodeId: ghNodeId } = setupGitHubLease(store, ghUrl);
+      const ghPrincipal = store.authenticate(ghNodeId, ghToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: ghNodeId, jobId: ghJobId, leaseId: ghLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: { sourceItemKey: "github:456654", title: "claimed-pkg", author: "vrc-dev", summary: "", outboundLinks: ["https://github.com/vrc-dev/claimed-pkg"], originUpdatedAt: null }
+        }
+      }, ghPrincipal);
+
+      const links = store.getIdentityLinksForCanonical("com.example.claimedpkg");
+      expect(links).toHaveLength(2);
+      expect(links.some(l => l.evidenceKind === "repository_match")).toBe(true);
+    } finally { store.close(); }
+  });
+
+  test("untargeted lead with null item key and null claimed package id does not link", () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const { nodeToken: vpmToken, jobId: vpmJobId, leaseId: vpmLeaseId, nodeId: vpmNodeId } = setupVpmLease(store);
+      const vpmPrincipal = store.authenticate(vpmNodeId, vpmToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: vpmNodeId, jobId: vpmJobId, leaseId: vpmLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: { sourceItemKey: "com.example.untargeted", title: "Untargeted", author: "Dev", summary: "", outboundLinks: [], originUpdatedAt: null }
+        }
+      }, vpmPrincipal);
+
+      // Untargeted lead (both item key and claimed package id are null)
+      store.db.prepare(`INSERT INTO source_leads
+        (lead_key,discovered_from_url,discovered_from_job_id,discovered_from_item_key,kind,target_url,claimed_package_id,status,first_seen_at,last_seen_at)
+        VALUES (?,'https://vpm.example.com/index.json',?,NULL,'github_repository','https://github.com/vrc-dev/untargeted-repo',NULL,'pending_review',datetime('now'),datetime('now'))`)
+        .run(crypto.randomUUID(), vpmJobId);
+
+      const ghUrl = "https://api.github.com/repos/vrc-dev/untargeted-repo";
+      const { nodeToken: ghToken, jobId: ghJobId, leaseId: ghLeaseId, nodeId: ghNodeId } = setupGitHubLease(store, ghUrl);
+      const ghPrincipal = store.authenticate(ghNodeId, ghToken)!;
+
+      store.submit({
+        schemaVersion: PROTOCOL_VERSION, nodeId: ghNodeId, jobId: ghJobId, leaseId: ghLeaseId,
+        idempotencyKey: crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: { sourceItemKey: "github:789987", title: "untargeted-repo", author: "vrc-dev", summary: "", outboundLinks: ["https://github.com/vrc-dev/untargeted-repo"], originUpdatedAt: null }
+        }
+      }, ghPrincipal);
+
+      // Canonical package must NOT have received any repository_match link
+      const links = store.getIdentityLinksForCanonical("com.example.untargeted");
+      expect(links).toHaveLength(1);
+      expect(links[0].evidenceKind).toBe("vpm_id");
     } finally { store.close(); }
   });
 });

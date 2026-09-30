@@ -7,6 +7,7 @@ import { PlatformType, FrontierItem, EntityRecord, SystemMetrics, PlatformMetric
 /**
  * Legacy prototype database implementation (CrawlerDB).
  * Serves Gate 1 safety regression tests and prototype schema fixtures.
+ * FIXME: fuse code into appropriate folders or files
  * Active pre-production runtime architecture uses LocalCoordinatorStore (coordinator.db)
  * and LocalNodeStore (node.db).
  */

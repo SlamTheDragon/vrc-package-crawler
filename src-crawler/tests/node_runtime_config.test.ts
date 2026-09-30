@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/node/runtime_config.ts";
@@ -101,6 +101,15 @@ describe("standalone node runtime configuration", () => {
       } finally {
         removeFixtureDirectory(emptyDir);
       }
+    } finally { removeFixtureDirectory(directory); }
+  });
+
+  test("resolves scoped GitHub token from bin/.env as fallback in working directory", () => {
+    const directory = fixtureDirectory();
+    try {
+      mkdirSync(join(directory, "bin"), { recursive: true });
+      writeFileSync(join(directory, "bin", ".env"), "GH_TOKEN=ghp_bin_token_67890\n");
+      expect(loadScopedGitHubTokenFromEnvFile(directory)).toBe("ghp_bin_token_67890");
     } finally { removeFixtureDirectory(directory); }
   });
 });

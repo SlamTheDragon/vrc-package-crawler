@@ -1126,20 +1126,26 @@ export class LocalCoordinatorStore implements CoordinatorStore {
         // repository_match identity link (confidence 0.7) for operator review.
         // Only one link per (source_key, canonical_id) pair; INSERT OR IGNORE prevents duplicates.
         if (job.platform === "github" && complete) {
-          // Normalize: api.github.com/repos/owner/repo → github.com/owner/repo (lowercase for comparison)
+          // Normalize: api.github.com/repos/owner/repo → github.com/owner/repo (lowercase, no .git, no trailing slash)
           const ownerRepo = job.url.match(/^https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)/)?.[1];
           if (ownerRepo) {
-            const normalizedHtmlUrl = `https://github.com/${ownerRepo}`.toLowerCase();
+            const normalizedHtmlUrl = `https://github.com/${ownerRepo}`.toLowerCase().replace(/\/+$/, "").replace(/\.git$/, "");
             // Find any source_lead of kind 'github_repository' pointing at this URL that was discovered
-            // from a VPM source item that has an accepted canonical identity link.
+            // from a specific VPM package item that has an accepted canonical identity link.
+            // Do NOT link across unrelated packages from the same repository URL without item provenance.
             const linkedCanonicals = this.db.prepare(`
               SELECT DISTINCT il.canonical_id
               FROM source_leads sl
-              JOIN source_items si ON si.source_key = sl.discovered_from_item_key
-              JOIN identity_links il ON il.source_key = sl.discovered_from_item_key
+              JOIN identity_links il ON (
+                (sl.discovered_from_item_key IS NOT NULL AND (
+                  il.canonical_id = sl.discovered_from_item_key
+                  OR il.source_key = sl.discovered_from_item_key
+                  OR il.source_key = 'vpm:' || sl.discovered_from_url || ':' || sl.discovered_from_item_key
+                ))
+                OR (sl.claimed_package_id IS NOT NULL AND il.canonical_id = sl.claimed_package_id)
+              )
               WHERE sl.kind = 'github_repository'
-                AND LOWER(sl.target_url) = ?
-                AND si.platform = 'vpm'
+                AND LOWER(RTRIM(CASE WHEN RTRIM(sl.target_url, '/') LIKE '%.git' THEN SUBSTR(RTRIM(sl.target_url, '/'), 1, LENGTH(RTRIM(sl.target_url, '/')) - 4) ELSE RTRIM(sl.target_url, '/') END, '/')) = ?
                 AND il.review_state = 'accepted'
                 AND il.evidence_kind = 'vpm_id'
             `).all(normalizedHtmlUrl) as { canonical_id: string }[];

@@ -13,21 +13,26 @@ import { UnsafeMetadataTarget } from "./public_metadata_fetch.ts";
 type Outcome = ResultRequest["outcome"];
 
 /**
- * Safely resolves an existing GitHub token from .env in the binary's working directory without exposing it.
+ * Safely resolves an existing scoped GitHub token from .env or bin/.env in the working directory without exposing it.
  * Used exclusively for scoped rate scaling on api.github.com.
  */
 export function loadScopedGitHubTokenFromEnvFile(dir: string = process.cwd()): string | undefined {
-  const envPath = join(dir, ".env");
-  try {
-    if (existsSync(envPath)) {
-      const content = readFileSync(envPath, "utf8");
-      const match = content.match(/^ *(?:export +)?(?:GITHUB_TOKEN|GH_TOKEN) *= *["']?([^"'#\r\n]+)["']?/m);
-      if (match && match[1]?.trim()) {
-        return match[1].trim();
+  const candidatePaths = [
+    join(dir, ".env"),
+    join(dir, "bin", ".env")
+  ];
+  for (const envPath of candidatePaths) {
+    try {
+      if (existsSync(envPath)) {
+        const content = readFileSync(envPath, "utf8");
+        const match = content.match(/^ *(?:export +)?(?:GITHUB_TOKEN|GH_TOKEN) *= *["']?([^"'#\r\n]+)["']?/m);
+        if (match && match[1]?.trim()) {
+          return match[1].trim();
+        }
       }
+    } catch {
+      // Fall through safely on permission or missing file error
     }
-  } catch {
-    // Fall through safely on permission or missing file error
   }
   return undefined;
 }
