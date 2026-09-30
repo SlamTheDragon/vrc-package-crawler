@@ -62,3 +62,11 @@ were not readable from this workspace; no content from them has been assumed.
 The next useful owner decision is a small concrete retention/publication
 example for one source, after the vocabulary map is reviewedâ€”not a blanket
 answer for all seven capabilities.
+
+## Taxonomy decisions (added 2026-09-30, from user clarification)
+
+| ID | Question to resolve | Author.Comments | Current safe assumption while unanswered | Why it matters |
+|---|---|---|---|---|
+| TAXONOMY-01 | **Umbrella category field: static or platform-derived?** Owner confirmed 3 umbrella buckets (avatars, assets, tools, optionally worlds). ObservationSchema has no tags field yet. VPM manifests expose keywords[]; BOOTH/Gumroad tags come from scraped product pages. Should the node adapter pass platform-observed tags as z.array(z.string()).optional() on ObservationSchema, and should the coordinator assign canonical_packages.category from the first matched tag or a classifier? | Owner stated: "tags underneath [umbrellas] are dynamically pulled from platforms." Current code uses hardcoded category="vpm_package" at local_sqlite.ts:1134 and d1/coordinator.ts:431. | Keep category="vpm_package" as a safe placeholder; do not store observation-side tags until the field schema and coordinator assignment rule are decided. | Adding a tags[] field changes both the wire protocol schema and how the coordinator assigns canonical category, which affects all downstream catalog views. |
+| TAXONOMY-02 | **worlds as a 4th umbrella bucket.** Owner said: "These categories can be expanded to 4 if we want world creation to be its own thing." The canonical_packages schema CHECK(umbrella IN ('tools','assets','avatars')) must be broadened. Should worlds be added now or left for a later migration? | Owner is leaning toward 4 umbrellas but did not commit. | Do not add worlds until the owner confirms it - a schema migration is required. | Premature addition creates pressure to populate it with content before world sources are reviewed and approved. |
+
