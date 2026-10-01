@@ -45,7 +45,7 @@ if (command === "init") {
   }
 }
 const { databasePath, listenPort } = loadCoordinatorRuntimeConfig(process.cwd(), process.env);
-const store = new LocalCoordinatorStore(databasePath);
+const store = new LocalCoordinatorStore(databasePath, undefined, true);
 
 function usage(): never {
   printUsage();
@@ -66,18 +66,13 @@ switch (command) {
         if (path.startsWith("/v1/operator/")) {
           return handleOperatorRequest(request, store, operatorToken);
         }
-        if (path === "/v1/app/index" || path === "/v1/app/index/delta" || path === "/v1/catalog" || path === "/v1/catalog/delta") {
+        if (path === "/v1/app/index" || path === "/v1/app/index/delta") {
           return handlePublicCatalogRequest(request, store);
         }
-        if (
-          path.startsWith("/v1/app/") ||
-          path.startsWith("/v1/apps/") ||
-          path === "/v1/catalog/search" ||
-          path === "/v1/catalog/random"
-        ) {
+        if (path.startsWith("/v1/app/")) {
           return handleDownstreamRequest(request, store);
         }
-        if (path.startsWith("/v1/user/") || path.startsWith("/v1/registrant/") || path === "/v1/delist") {
+        if (path.startsWith("/v1/user/")) {
           return handleUserRequest(request, store);
         }
         return handleNodeRequest(request, store);

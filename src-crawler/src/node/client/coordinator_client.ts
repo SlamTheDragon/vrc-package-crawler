@@ -7,12 +7,46 @@ import {
 
 import { logger } from "../../utils/logging/logger.ts";
 
+/**
+ * Resolves a target API path against a coordinator baseUrl without stripping subpaths.
+ * e.g. baseUrl "https://edge.domain.com/vrc" + path "/v1/node/jobs/claim"
+ *   -> "https://edge.domain.com/vrc/v1/node/jobs/claim"
+ */
+export function resolveCoordinatorUrl(baseUrl: string, path: string): URL {
+  const base = new URL(baseUrl);
+  const basePath = base.pathname.replace(/\/+$/, "");
+  const cleanPath = path.replace(/^\/+/, "");
+  base.pathname = basePath ? `${basePath}/${cleanPath}` : `/${cleanPath}`;
+  return base;
+}
+
+/**
+ * Classifies transient edge gateway error codes (e.g., Cloudflare 520-524 or reverse proxy 502-504)
+ * that justify bounded client retry backoff.
+ */
+export function isTransientEdgeStatus(status: number): boolean {
+  return (status >= 520 && status <= 524) || status === 502 || status === 503 || status === 504;
+}
+
+export interface CoordinatorClientOptions {
+  maxRetries?: number;
+  retryBaseDelayMs?: number;
+}
+
+/**
+ * Client used by autonomous crawler nodes to communicate with the remote coordinator API.
+ * Supports Cloudflare Worker edge instances over HTTPS and local loopback simulation.
+ */
 export class CoordinatorClient {
+  private readonly maxRetries: number;
+  private readonly retryBaseDelayMs: number;
+
   constructor(
     private readonly baseUrl: string,
     private readonly token: string,
     readonly nodeId: string,
-    readonly capabilities: Platform[]
+    readonly capabilities: Platform[],
+    options?: CoordinatorClientOptions
   ) {
     if (!coordinatorEndpointAllowed(baseUrl)) {
       // Validates dual-mode operation:
@@ -23,25 +57,56 @@ export class CoordinatorClient {
       throw new Error("Coordinator URL must be HTTPS, or HTTP on loopback without credentials");
     }
     if (!token) throw new Error("Node credential is required");
+    this.maxRetries = options?.maxRetries ?? 2;
+    this.retryBaseDelayMs = options?.retryBaseDelayMs ?? 250;
     ClaimRequestSchema.parse({ schemaVersion: PROTOCOL_VERSION, nodeId, capabilities });
   }
 
   private async post(path: string, payload: unknown, timeoutMs = 30_000): Promise<unknown> {
-    try {
-      const response = await fetch(new URL(path, this.baseUrl), {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${this.token}` },
-        body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs)
-      });
-      const json: unknown = await response.json();
-      if (!response.ok) {
+    const targetUrl = resolveCoordinatorUrl(this.baseUrl, path);
+    let attempt = 0;
+
+    while (true) {
+      attempt++;
+      try {
+        const response = await fetch(targetUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${this.token}` },
+          body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs)
+        });
+
+        if (response.ok) {
+          return await response.json();
+        }
+
+        const json: unknown = await response.json().catch(() => ({}));
+
+        if (isTransientEdgeStatus(response.status) && attempt <= this.maxRetries) {
+          const delayMs = Math.min(this.retryBaseDelayMs * Math.pow(2, attempt - 1), 2000);
+          logger.warn(`Transient edge error ${response.status} from ${path}, retrying in ${delayMs}ms (attempt ${attempt}/${this.maxRetries})...`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+
         logger.error(`Coordinator request to ${path} returned status ${response.status}`, json);
         throw new Error(`Coordinator ${response.status}: ${JSON.stringify(json)}`);
+      } catch (err) {
+        const isNetworkErr = err instanceof Error && (
+          err.name === "TimeoutError" ||
+          err.message.includes("fetch failed") ||
+          err.message.includes("ConnectionRefused")
+        );
+
+        if (isNetworkErr && attempt <= this.maxRetries) {
+          const delayMs = Math.min(this.retryBaseDelayMs * Math.pow(2, attempt - 1), 2000);
+          logger.warn(`Network error contacting coordinator at ${path}: ${(err as Error).message}, retrying in ${delayMs}ms (attempt ${attempt}/${this.maxRetries})...`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+
+        logger.error(`Coordinator POST ${path} failed`, err);
+        throw err;
       }
-      return json;
-    } catch (err) {
-      logger.error(`Coordinator POST ${path} failed`, err);
-      throw err;
     }
   }
 
@@ -63,6 +128,9 @@ export class CoordinatorClient {
     return ResultResponseSchema.parse(await this.post("/v1/node/jobs/result", payload));
   }
 }
+
+/** NodeCoordinatorClient is an explicit alias clarifying this is the node's client for the coordinator API. */
+export { CoordinatorClient as NodeCoordinatorClient };
 
 /**
  * Shared by runtime config and the client so local and remote endpoint rules cannot drift.

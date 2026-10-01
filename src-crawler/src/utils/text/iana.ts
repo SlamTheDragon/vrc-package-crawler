@@ -1,5 +1,3 @@
-import { logger } from "../logging/logger.ts";
-
 export class IanaRegistry {
   private static tlds: Set<string> = new Set();
   private static isInitialized = false;
@@ -10,7 +8,7 @@ export class IanaRegistry {
     // Projection is deterministic and offline by default. An operator may explicitly
     // refresh this advisory root-zone list; failure still falls back to bootstrap.
     if (process.env.IANA_REFRESH === "1") try {
-      logger.info("[IANA] Fetching official Root Zone Database from data.iana.org...");
+      console.info("[IANA] Fetching official Root Zone Database from data.iana.org...");
       const resp = await fetch("https://data.iana.org/TLD/tlds-alpha-by-domain.txt", {
         // FIXME: multimple identities found, please check other documents and consolidate this into one singular static value files
         headers: { "User-Agent": "VRCPackageCrawler/2.0 (IANA Root Zone Synchronizer)" }
@@ -28,11 +26,11 @@ export class IanaRegistry {
           }
         }
         this.isInitialized = true;
-        logger.info(`[IANA] Successfully loaded ${count} authoritative TLDs from IANA.`);
+        console.info(`[IANA] Successfully loaded ${count} authoritative TLDs from IANA.`);
         return;
       }
     } catch (err) {
-      logger.warn("[IANA] Could not fetch live IANA Root Zone Database, falling back to bootstrap set.", err);
+      console.warn("[IANA] Could not fetch live IANA Root Zone Database, falling back to bootstrap set.", err);
     }
 
     // Comprehensive bootstrap baseline if network is unreachable

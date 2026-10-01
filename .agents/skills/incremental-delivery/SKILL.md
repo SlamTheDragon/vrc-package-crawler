@@ -1,6 +1,6 @@
 ---
 name: incremental-delivery
-description: Implements a capability gate as small verified vertical slices, resisting one giant implementation plan and all-at-once rewrites.
+description: Step-by-step procedural lifecycle for gated, iterative delivery using implementation plan ledgers, task tracker rewrites, and author review pauses.
 ---
 
 # Incremental delivery

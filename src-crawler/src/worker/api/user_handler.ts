@@ -63,13 +63,12 @@ function failure(status: number, code: string, message: string): Response {
 }
 
 /**
- * Handles all /v1/user/* (and /v1/registrant/*) and unauthenticated /v1/delist (opt-out) routes.
+ * Handles all /v1/user/* routes.
  *
  * Route map:
- *   POST /v1/user/nodes             — issue a capability-encoded node token        [vrcp_usr_ auth required]
- *   POST /v1/user/apps              — register a downstream application             [vrcp_usr_ auth required]
- *   POST /v1/user/delist            — self-service delisting on their behalf        [vrcp_usr_ auth required]
- *   POST /v1/delist                 — unauthenticated creator opt-out (proof-gated) [no auth]
+ *   POST /v1/user/nodes  — issue a capability-encoded node token [vrcp_usr_ auth required]
+ *   POST /v1/user/apps   — register a downstream application    [vrcp_usr_ auth required]
+ *   POST /v1/user/delist — unified delisting (authenticated user or unauthenticated creator proof-gated)
  */
 export async function handleUserRequest(
   request: Request,
@@ -78,12 +77,11 @@ export async function handleUserRequest(
   const url = new URL(request.url);
   const path = url.pathname;
 
-  const isNodeIssue = request.method === "POST" && (path === "/v1/user/nodes" || path === "/v1/registrant/nodes");
-  const isAppRegister = request.method === "POST" && (path === "/v1/user/apps" || path === "/v1/registrant/apps");
-  const isUserDelist = request.method === "POST" && (path === "/v1/user/delist" || path === "/v1/registrant/delist");
-  const isPublicDelist = request.method === "POST" && path === "/v1/delist";
+  const isNodeIssue = request.method === "POST" && path === "/v1/user/nodes";
+  const isAppRegister = request.method === "POST" && path === "/v1/user/apps";
+  const isDelist = request.method === "POST" && path === "/v1/user/delist";
 
-  if (!isNodeIssue && !isAppRegister && !isUserDelist && !isPublicDelist) {
+  if (!isNodeIssue && !isAppRegister && !isDelist) {
     return failure(404, "not_found", "Route not found");
   }
 
@@ -97,8 +95,42 @@ export async function handleUserRequest(
     return failure(400, "bad_json", "Request body must be bounded valid JSON");
   }
 
-  // Unauthenticated creator opt-out — proof-gated, no user token required
-  if (isPublicDelist) {
+  // Unified delisting route (POST /v1/user/delist)
+  if (isDelist) {
+    const authHeader = request.headers.get("authorization") || "";
+    if (authHeader.startsWith("Bearer ")) {
+      const token = authHeader.slice(7).trim();
+      const user = await store.authenticateUser(token);
+      if (!user) {
+        workerLogger.warn("Invalid user token", { path });
+        return failure(401, "unauthorized", "Invalid user credential");
+      }
+      const parsed = DelistRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return failure(400, "invalid_payload",
+          parsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
+      }
+      try {
+        const result = await store.submitDelistRequest({
+          targetUrl: parsed.data.targetUrl,
+          canonicalId: parsed.data.canonicalId,
+          reason: parsed.data.reason,
+          requesterType: "user",
+          requesterId: user.userId,
+          proofKind: parsed.data.proofKind,
+          proofValue: parsed.data.proofValue,
+          contactEmail: parsed.data.contactEmail
+        });
+        return json(DelistResponseSchema.parse(result), 202);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Delisting request failed";
+        workerLogger.error("User delist request failed", error,
+          { path, userId: user.userId });
+        return failure(500, "internal_error", msg);
+      }
+    }
+
+    // Unauthenticated creator opt-out — proof-gated, no user token required
     const parsed = DelistRequestSchema.safeParse(body);
     if (!parsed.success) {
       return failure(400, "invalid_payload",
@@ -128,7 +160,7 @@ export async function handleUserRequest(
     }
   }
 
-  // All /v1/user/* routes require vrcp_usr_ bearer auth
+  // All remaining /v1/user/* routes require vrcp_usr_ bearer auth
   const authHeader = request.headers.get("authorization") || "";
   if (!authHeader.startsWith("Bearer ")) {
     return failure(401, "unauthorized", "User bearer credential required (vrcp_usr_)");
@@ -177,7 +209,6 @@ export async function handleUserRequest(
       const token = await store.issueNodeCredential(credParsed.data,
         `user:${user.userId}`);
       // Parse capability bitmask out of the issued token
-      const capMatch = /^vrcp_[0-9a-fA-F]{64}([0-9a-fA-F]{4})$/.exec(token);
       const capabilities = credParsed.data.capabilities ?? [];
       const response: RegisterNodeResponse = {
         schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
@@ -195,32 +226,6 @@ export async function handleUserRequest(
     }
   }
 
-  if (isUserDelist) {
-    const parsed = DelistRequestSchema.safeParse(body);
-    if (!parsed.success) {
-      return failure(400, "invalid_payload",
-        parsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
-    }
-    try {
-      const result = await store.submitDelistRequest({
-        targetUrl: parsed.data.targetUrl,
-        canonicalId: parsed.data.canonicalId,
-        reason: parsed.data.reason,
-        requesterType: "user",
-        requesterId: user.userId,
-        proofKind: parsed.data.proofKind,
-        proofValue: parsed.data.proofValue,
-        contactEmail: parsed.data.contactEmail
-      });
-      return json(DelistResponseSchema.parse(result), 202);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Delisting request failed";
-      workerLogger.error("User delist request failed", error,
-        { path, userId: user.userId });
-      return failure(500, "internal_error", msg);
-    }
-  }
-
   return failure(404, "not_found", "Route not found");
 }
 
@@ -229,7 +234,7 @@ export function createUserHandler(
 ): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
-    if (path.startsWith("/v1/user/") || path.startsWith("/v1/registrant/") || path === "/v1/delist") {
+    if (path.startsWith("/v1/user/")) {
       return handleUserRequest(request, store);
     }
     return null;

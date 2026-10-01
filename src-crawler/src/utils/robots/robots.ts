@@ -54,7 +54,7 @@ export class RobotsEnforcer {
     try {
       const response = await fetch(`${origin}/robots.txt`, {
         signal: controller.signal,
-        redirect: "manual", // No unchecked cross-origin redirect by the legacy fetch path.
+        redirect: "manual", // No unchecked cross-origin redirect by the crawler fetch path.
         headers: { "User-Agent": CRAWLER_USER_AGENT, Accept: "text/plain" }
       });
       const record: CachedRobotsRecord = {

@@ -3,10 +3,11 @@ import {
   formatAppToken,
   isAppToken,
   formatUserToken,
-  isUserToken
+  isUserToken,
+  isOperatorToken
 } from "../src/auth/tokens.ts";
 
-describe("src-package auth tokens (consumer only)", () => {
+describe("src-package auth tokens", () => {
   it("formats and validates app tokens (vrcp_app_<64-hex>)", () => {
     const hex64 = "a".repeat(64);
     const token = formatAppToken(hex64);
@@ -28,5 +29,12 @@ describe("src-package auth tokens (consumer only)", () => {
 
     expect(isUserToken("vrcp_usr_invalid")).toBe(false);
     expect(isUserToken(`vrcp_app_${hex64}`)).toBe(false);
+  });
+
+  it("validates operator tokens (64-hex secrets)", () => {
+    const validOpToken = "c".repeat(64);
+    expect(isOperatorToken(validOpToken)).toBe(true);
+    expect(isOperatorToken("short")).toBe(false);
+    expect(isOperatorToken("g".repeat(64))).toBe(false);
   });
 });

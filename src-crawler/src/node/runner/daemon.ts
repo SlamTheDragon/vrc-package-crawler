@@ -94,6 +94,17 @@ export class CrawlerNodeDaemon {
     }
 
     const { job } = claim;
+
+    // Fail closed: enforce lease unexpired preflight check
+    const nowMs = Date.now();
+    if (new Date(job.leaseExpiresAt).getTime() <= nowMs) {
+      const errorMsg = `Lease ${job.leaseId} for job ${job.jobId} expired before execution (expired at ${job.leaseExpiresAt})`;
+      logger.warn(errorMsg);
+      const taskId = this.nodeStore.recordClaimedJob(this.runId, job);
+      this.nodeStore.recordTaskFailure(taskId, errorMsg, { durationMs: 0 });
+      return "empty";
+    }
+
     logger.info(`Fetching ${job.platform} ${job.url}`, { jobId: job.jobId });
     const taskId = this.nodeStore.recordClaimedJob(this.runId, job);
     this.nodeStore.recordTaskProgress(taskId, "fetching");
@@ -136,22 +147,29 @@ export class CrawlerNodeDaemon {
           break;
         }
 
-        const outcome = await this.step();
-        if (outcome === "stopped") {
-          break;
-        }
-        if (runOnce) {
-          break;
-        }
-        if (outcome === "empty") {
-          const sleepTarget = Date.now() + (this.lastRetryAfterMs || 5_000);
-          while (!this.stopping && Date.now() < sleepTarget) {
-            if (this.options.stopFilePath && existsSync(this.options.stopFilePath)) {
-              this.stop();
-              break;
-            }
-            await sleepFn(Math.min(100, Math.max(0, sleepTarget - Date.now())));
+        try {
+          const outcome = await this.step();
+          if (outcome === "stopped") {
+            break;
           }
+          if (runOnce) {
+            break;
+          }
+          if (outcome === "empty") {
+            const sleepTarget = Date.now() + (this.lastRetryAfterMs || 5_000);
+            while (!this.stopping && Date.now() < sleepTarget) {
+              if (this.options.stopFilePath && existsSync(this.options.stopFilePath)) {
+                this.stop();
+                break;
+              }
+              await sleepFn(Math.min(100, Math.max(0, sleepTarget - Date.now())));
+            }
+          }
+        } catch (stepErr) {
+          if (this.stopping) break;
+          if (runOnce) throw stepErr;
+          logger.warn("Coordinator communication failure, backing off 5s before reconnecting...", stepErr);
+          await sleepFn(5_000);
         }
       }
     } catch (err) {

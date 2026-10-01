@@ -1,4 +1,4 @@
-/** Origin access outcomes used by both legacy drivers and distributed nodes. */
+/** Origin access outcomes used across drivers and distributed nodes. */
 export function isChallengeResponse(response: Pick<Response, "headers">, body?: string): boolean {
   if (response.headers.get("cf-mitigated")?.trim().toLowerCase() === "challenge") return true;
   if (!body) return false;

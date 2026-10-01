@@ -4,6 +4,8 @@ import {
   RegisterAppResponseSchema,
   DownstreamFeedbackRequestSchema,
   DownstreamFeedbackResponseSchema,
+  ReportSubmissionRequestSchema,
+  ReportSubmissionResponseSchema,
   CatalogSearchRequestSchema,
   CatalogSearchResponseSchema,
   CatalogRandomResponseSchema,
@@ -11,6 +13,8 @@ import {
   type RegisterAppResponse,
   type DownstreamFeedbackRequest,
   type DownstreamFeedbackResponse,
+  type ReportSubmissionRequest,
+  type ReportSubmissionResponse,
   type CatalogSearchRequest,
   type CatalogSearchResponse,
   type CatalogRandomResponse
@@ -53,10 +57,10 @@ export async function handleDownstreamRequest(
   const url = new URL(request.url);
   const path = url.pathname;
 
-  const isRegister = request.method === "POST" && (path === "/v1/app/register" || path === "/v1/apps/register");
-  const isFeedback = request.method === "POST" && (path === "/v1/app/reports" || path === "/v1/apps/feedback");
-  const isSearch = request.method === "POST" && (path === "/v1/app/index/search" || path === "/v1/catalog/search");
-  const isRandom = request.method === "GET" && (path === "/v1/app/index/random" || path === "/v1/catalog/random");
+  const isRegister = request.method === "POST" && path === "/v1/app/register";
+  const isFeedback = request.method === "POST" && path === "/v1/app/reports";
+  const isSearch = request.method === "POST" && path === "/v1/app/index/search";
+  const isRandom = request.method === "GET" && path === "/v1/app/index/random";
 
   if (!isRegister && !isFeedback && !isSearch && !isRandom) {
     return failure(404, "not_found", "Route not found");
@@ -102,7 +106,7 @@ export async function handleDownstreamRequest(
     return failure(401, "unauthorized", "Invalid application token");
   }
 
-  // 3. Demand Feedback Signal Ingestion
+  // 3. Consolidated Reporting Route (/v1/app/reports) per API_ROUTES.md §2.4
   if (isFeedback) {
     let body: unknown;
     try {
@@ -113,14 +117,45 @@ export async function handleDownstreamRequest(
       return failure(400, "bad_json", "Request body must be valid JSON");
     }
 
-    const parsed = DownstreamFeedbackRequestSchema.safeParse(body);
-    if (!parsed.success) {
-      return failure(400, "invalid_payload", parsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
+    const reportParsed = ReportSubmissionRequestSchema.safeParse(body);
+    const feedbackParsed = !reportParsed.success ? DownstreamFeedbackRequestSchema.safeParse(body) : null;
+
+    if (!reportParsed.success && !feedbackParsed?.success) {
+      return failure(400, "invalid_payload", reportParsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
+    }
+
+    let feedbackInput: DownstreamFeedbackRequest;
+    if (reportParsed.success) {
+      const data = reportParsed.data;
+      const signalType = data.signalKind ?? (data.reportType === "demand_signal" ? "search_miss" : "refresh_demand");
+      feedbackInput = {
+        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
+        signalType: signalType as any,
+        query: data.query,
+        zeroHits: data.zeroHits,
+        targetUrl: data.targetUrl,
+        metadata: {
+          ...data.metadata,
+          reportType: data.reportType,
+          reportKind: data.reportKind,
+          canonicalId: data.canonicalId
+        }
+      };
+    } else if (feedbackParsed && feedbackParsed.success) {
+      feedbackInput = feedbackParsed.data;
+    } else {
+      return failure(400, "invalid_payload", "Invalid payload");
     }
 
     try {
-      const response = await store.recordDownstreamFeedback(app.appId, parsed.data);
-      return json(DownstreamFeedbackResponseSchema.parse(response), 200);
+      const response = await store.recordDownstreamFeedback(app.appId, feedbackInput);
+      return json({
+        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
+        status: "accepted",
+        reportId: response.signalId,
+        signalId: response.signalId,
+        recordedAt: response.recordedAt
+      }, 200);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Feedback ingestion failed";
       workerLogger.error("Failed to record downstream feedback", error, { path, appId: app.appId });
@@ -203,10 +238,10 @@ export function createDownstreamHandler(store: DownstreamStore): (request: Reque
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
     if (
-      path.startsWith("/v1/app/") ||
-      path.startsWith("/v1/apps/") ||
-      path === "/v1/catalog/search" ||
-      path === "/v1/catalog/random"
+      path === "/v1/app/register" ||
+      path === "/v1/app/reports" ||
+      path === "/v1/app/index/search" ||
+      path === "/v1/app/index/random"
     ) {
       return handleDownstreamRequest(request, store);
     }

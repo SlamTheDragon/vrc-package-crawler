@@ -15,7 +15,7 @@ function isPrivateOrReservedIpv4(ip: string): boolean {
   return false;
 }
 
-/** Conservative public-address check shared by the legacy gateway and standalone node. */
+/** Conservative public-address check shared across coordinator and standalone nodes. */
 export function isPrivateOrReservedIp(ip: string): boolean {
   if (!ip) return true;
   const cleanIp = ip.trim().replace(/^\[|\]$/g, "");

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/node/config/runtime_config.ts";
-import { coordinatorEndpointAllowed } from "../src/node/client/coordinator_client.ts";
+import { coordinatorEndpointAllowed, resolveCoordinatorUrl, isTransientEdgeStatus, CoordinatorClient } from "../src/node/client/coordinator_client.ts";
 import { loadScopedGitHubTokenFromEnvFile } from "../src/node/adapters/observation_adapter.ts";
 import { getTestOutputDir } from "./helpers/test_directory.ts";
 
@@ -147,6 +147,103 @@ describe("coordinatorEndpointAllowed dual-mode Cloudflare endpoint validation", 
     expect(coordinatorEndpointAllowed("ws://127.0.0.1:8787")).toBe(false);
     expect(coordinatorEndpointAllowed("ftp://127.0.0.1:8787")).toBe(false);
     expect(coordinatorEndpointAllowed("not-a-valid-url")).toBe(false);
+  });
+});
+
+describe("coordinator client transport & edge resilience", () => {
+  test("resolveCoordinatorUrl preserves custom domain subpaths and normalizes trailing slashes", () => {
+    expect(resolveCoordinatorUrl("https://coordinator.example.com", "/v1/node/jobs/claim").toString())
+      .toBe("https://coordinator.example.com/v1/node/jobs/claim");
+    expect(resolveCoordinatorUrl("https://coordinator.example.com/", "v1/node/jobs/claim").toString())
+      .toBe("https://coordinator.example.com/v1/node/jobs/claim");
+    expect(resolveCoordinatorUrl("https://domain.org:8443/custom/edge", "/v1/node/heartbeat").toString())
+      .toBe("https://domain.org:8443/custom/edge/v1/node/heartbeat");
+    expect(resolveCoordinatorUrl("https://domain.org:8443/custom/edge/", "v1/node/heartbeat").toString())
+      .toBe("https://domain.org:8443/custom/edge/v1/node/heartbeat");
+  });
+
+  test("isTransientEdgeStatus identifies Cloudflare and gateway retryable status codes", () => {
+    expect(isTransientEdgeStatus(502)).toBe(true);
+    expect(isTransientEdgeStatus(503)).toBe(true);
+    expect(isTransientEdgeStatus(504)).toBe(true);
+    expect(isTransientEdgeStatus(520)).toBe(true);
+    expect(isTransientEdgeStatus(521)).toBe(true);
+    expect(isTransientEdgeStatus(522)).toBe(true);
+    expect(isTransientEdgeStatus(523)).toBe(true);
+    expect(isTransientEdgeStatus(524)).toBe(true);
+
+    expect(isTransientEdgeStatus(200)).toBe(false);
+    expect(isTransientEdgeStatus(400)).toBe(false);
+    expect(isTransientEdgeStatus(401)).toBe(false);
+    expect(isTransientEdgeStatus(403)).toBe(false);
+    expect(isTransientEdgeStatus(404)).toBe(false);
+    expect(isTransientEdgeStatus(409)).toBe(false);
+    expect(isTransientEdgeStatus(500)).toBe(false);
+  });
+
+  test("CoordinatorClient retries transient 522 edge status and succeeds on subsequent attempt", async () => {
+    const originalFetch = globalThis.fetch;
+    let callCount = 0;
+    try {
+      globalThis.fetch = (async () => {
+        callCount++;
+        if (callCount === 1) {
+          return new Response(JSON.stringify({ error: "Cloudflare Connection Timed Out" }), {
+            status: 522,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        return new Response(JSON.stringify({
+          schemaVersion: 1,
+          status: "empty",
+          retryAfterMs: 3000
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }) as any;
+
+      const client = new CoordinatorClient(
+        "https://vrc-coordinator.workers.dev",
+        secret,
+        "test-node-1",
+        ["vpm"],
+        { maxRetries: 2, retryBaseDelayMs: 10 }
+      );
+
+      const claimRes = await client.claim();
+      expect(callCount).toBe(2);
+      expect(claimRes.status).toBe("empty");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("CoordinatorClient fails without retry on non-transient 403 authorization rejection", async () => {
+    const originalFetch = globalThis.fetch;
+    let callCount = 0;
+    try {
+      globalThis.fetch = (async () => {
+        callCount++;
+        return new Response(JSON.stringify({ error: "Capability not granted" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" }
+        });
+      }) as any;
+
+      const client = new CoordinatorClient(
+        "https://vrc-coordinator.workers.dev",
+        secret,
+        "test-node-1",
+        ["vpm"],
+        { maxRetries: 2, retryBaseDelayMs: 10 }
+      );
+
+      expect(client.claim()).rejects.toThrow("Coordinator 403");
+      expect(callCount).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

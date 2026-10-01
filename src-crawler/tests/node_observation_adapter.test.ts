@@ -430,6 +430,19 @@ describe("standalone node observation adapter", () => {
     expect(await fetchJobOutcome(rootDomainJob, async () => new Response(html))).toEqual({
       kind: "blocked", reason: "Custom domain metadata requires a valid path"
     });
+
+    const payhipJob = { ...job, platform: "custom_domain" as const, purpose: "metadata" as const,
+      url: "https://payhip.com/b/sample-vrc-item", origin: "https://payhip.com" };
+    const payhipHtml = `<html><head>
+      <meta property="og:title" content="Sample VRChat Accessory">
+      <meta property="og:description" content="Custom shader and accessory prefab for VRChat.">
+      <script type="application/ld+json">{"@type":"Product","name":"Sample VRChat Accessory","brand":{"name":"PayhipCreator"}}</script>
+    </head><body><div class="user-name">PayhipCreator</div></body></html>`;
+    const payhipObs = parseObservation(payhipJob, payhipHtml, "text/html");
+    expect(payhipObs).not.toBeNull();
+    expect(payhipObs?.title).toBe("Sample VRChat Accessory");
+    expect(payhipObs?.author).toBe("PayhipCreator");
+    expect(payhipObs?.sourceItemKey).toBe("payhip.com/b/sample-vrc-item");
   });
 
   test("extracts curated discovery leads from repositories.txt and community collections", async () => {

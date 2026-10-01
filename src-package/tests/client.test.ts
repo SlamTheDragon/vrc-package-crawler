@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { VrcPackagesClient, VrcApiError } from "../src/client.ts";
+import { encodeLeadCursor, decodeLeadCursor } from "../src/protocol/operator.ts";
 
 describe("VrcPackagesClient SDK", () => {
   const dummyAppToken = "vrcp_app_" + "a".repeat(64);
@@ -355,6 +356,52 @@ describe("VrcPackagesClient SDK", () => {
 
     const rejectRes = await client.operator.leads.reject("a".repeat(64), { reason: "Irrelevant" });
     expect(rejectRes.status).toBe("rejected");
+  });
+
+  it("parses coordinator snake_case wire responses for operator leads and decodes cursors", async () => {
+    const operatorToken = "e".repeat(64);
+    const coordCursor = encodeLeadCursor({
+      status: "pending_review",
+      firstSeenAt: "2026-10-01T10:00:00.000Z",
+      leadKey: "b".repeat(64)
+    });
+    const mockFetch = async (): Promise<Response> => {
+      return new Response(JSON.stringify({
+        schemaVersion: 1,
+        leads: [
+          {
+            lead_key: "b".repeat(64),
+            kind: "vpm_listing",
+            target_url: "https://example.com/feed.json",
+            claimed_package_id: null,
+            discovered_from_url: "https://example.com",
+            discovered_from_item_key: null,
+            status: "pending_review",
+            first_seen_at: "2026-10-01T10:00:00.000Z",
+            last_seen_at: "2026-10-01T10:00:00.000Z"
+          }
+        ],
+        nextCursor: coordCursor
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+
+    const client = new VrcPackagesClient({
+      baseUrl: "https://api.vrc-packages.example",
+      operatorToken,
+      fetch: mockFetch as unknown as typeof fetch
+    });
+
+    const res = await client.operator.leads.list({ status: "pending_review" });
+    expect(res.leads.length).toBe(1);
+    expect(res.leads[0].leadKey).toBe("b".repeat(64));
+    expect(res.leads[0].lead_key).toBe("b".repeat(64));
+    expect(res.leads[0].leadKind).toBe("vpm_listing");
+    expect(res.leads[0].targetUrl).toBe("https://example.com/feed.json");
+    expect(res.nextCursor).toBe(coordCursor);
+
+    const decoded = decodeLeadCursor(res.nextCursor!, "pending_review");
+    expect(decoded).not.toBeNull();
+    expect(decoded?.leadKey).toBe("b".repeat(64));
   });
 
   it("exercises operator source profiles: list, create, and disable", async () => {

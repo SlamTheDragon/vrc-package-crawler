@@ -71,7 +71,11 @@ export function cleanAuthorName(rawName: string): string {
   if (!rawName) return "Unknown";
   let a = unescapeHtml(rawName).normalize("NFKC");
   a = a.replace(/<[^>]+>/g, "").replace(/\([^)]+\)/g, "");
-  a = a.replace(/[@#].*$/, "");
+  if (/^\s*[@#]/.test(a)) {
+    a = a.replace(/^\s*[@#]+/, "");
+  } else {
+    a = a.replace(/\s+[@#].*$/, "");
+  }
   a = a.replace(/\s+/g, " ").trim();
   return a.length > 0 ? a : "Unknown";
 }
@@ -86,7 +90,7 @@ export function cleanAuthorName(rawName: string): string {
 export function cleanDescription(rawDesc: string): string {
   if (!rawDesc) return "";
   let desc = unescapeHtml(rawDesc);
-  desc = desc.replace(/!\[.*?\]\(.*?\)/g, "").replace(/(?:https?:\/\/discord\.gg\/\S+)/gi, "").trim();
+  desc = desc.replace(/!\[.*?\]\(.*?\)/g, "").replace(/(?:https?:\/\/(?:discord\.gg|discord(?:app)?\.com\/invite)\/\S+)/gi, "").trim();
   // Normalize horizontal spaces within lines, and collapse excessive vertical blank lines
   desc = desc.replace(/[^\S\r\n]+/g, " ");
   desc = desc.replace(/\r\n/g, "\n");
@@ -323,4 +327,38 @@ export function resolveAuthors(
     primaryAuthor,
     allAuthors
   };
+}
+
+/**
+ * Outbound Link Hygiene (LEGAL.md Section 4.3):
+ * Strips tracking parameters, session identifiers, and third-party affiliate tokens from outbound links.
+ */
+export function cleanTrackingParams(urlStr: string): string {
+  if (!urlStr || typeof urlStr !== "string") return "";
+  try {
+    const url = new URL(urlStr);
+    const trackingExact = new Set([
+      "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+      "ref", "aff", "affiliate", "fbclid", "gclid", "token", "source",
+      "msclkid", "twclid", "igshid", "mc_eid", "_ga", "_gl", "spm", "si",
+      "session_id", "feature"
+    ]);
+    const keysToDelete: string[] = [];
+    for (const key of url.searchParams.keys()) {
+      const lower = key.toLowerCase();
+      if (trackingExact.has(lower) || lower.startsWith("utm_") || lower.startsWith("aff_") || lower.startsWith("ref_")) {
+        keysToDelete.push(key);
+      }
+    }
+    for (const key of keysToDelete) {
+      url.searchParams.delete(key);
+    }
+    let res = url.href;
+    if (!urlStr.endsWith("/") && res.endsWith("/") && url.pathname === "/") {
+      res = res.slice(0, -1);
+    }
+    return res;
+  } catch {
+    return urlStr;
+  }
 }

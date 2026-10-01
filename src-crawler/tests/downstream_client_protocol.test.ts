@@ -40,9 +40,9 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     });
   };
 
-  test("POST /v1/apps/register creates downstream application with vrcp_app_ token", async () => {
+  test("POST /v1/app/register creates downstream application with vrcp_app_ token", async () => {
     const res = await handleDownstreamRequest(
-      request("/v1/apps/register", "POST", {
+      request("/v1/app/register", "POST", {
         schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
         appName: "ALCOM Desktop Manager",
         contactEmail: "alcom@example.org",
@@ -59,12 +59,22 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     expect(data.appToken).toMatch(/^vrcp_app_[a-f0-9]{64}$/);
     expect(data.permissions).toContain("catalog:search");
     expect(data.permissions).toContain("demand:feedback");
+
+    // Legacy route must return 404
+    const legacyRes = await handleDownstreamRequest(
+      request("/v1/apps/register", "POST", {
+        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
+        appName: "Legacy App"
+      }),
+      store
+    );
+    expect(legacyRes.status).toBe(404);
   });
 
-  test("POST /v1/apps/feedback requires authentication and ingests demand signals", async () => {
+  test("POST /v1/app/reports requires authentication and ingests demand signals", async () => {
     // 1. Register app
     const regRes = await handleDownstreamRequest(
-      request("/v1/apps/register", "POST", {
+      request("/v1/app/register", "POST", {
         schemaVersion: 1,
         appName: "VCC Mobile Companion"
       }),
@@ -74,7 +84,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // 2. Reject unauthenticated feedback
     const unauthRes = await handleDownstreamRequest(
-      request("/v1/apps/feedback", "POST", {
+      request("/v1/app/reports", "POST", {
         schemaVersion: 1,
         signalType: "search_miss",
         query: "physbone optimizer"
@@ -85,7 +95,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // 3. Reject invalid token
     const badTokenRes = await handleDownstreamRequest(
-      request("/v1/apps/feedback", "POST", {
+      request("/v1/app/reports", "POST", {
         schemaVersion: 1,
         signalType: "search_miss",
         query: "physbone optimizer"
@@ -96,7 +106,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // 4. Accept valid search miss feedback signal
     const feedbackRes = await handleDownstreamRequest(
-      request("/v1/apps/feedback", "POST", {
+      request("/v1/app/reports", "POST", {
         schemaVersion: 1,
         signalType: "search_miss",
         query: "novel shader generator",
@@ -115,7 +125,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // 5. Accept refresh demand signal for specific target
     const refreshRes = await handleDownstreamRequest(
-      request("/v1/apps/feedback", "POST", {
+      request("/v1/app/reports", "POST", {
         schemaVersion: 1,
         signalType: "refresh_demand",
         requestedPlatform: "github",
@@ -124,12 +134,23 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
       store
     );
     expect(refreshRes.status).toBe(200);
+
+    // Legacy route must return 404
+    const legacyRes = await handleDownstreamRequest(
+      request("/v1/apps/feedback", "POST", {
+        schemaVersion: 1,
+        signalType: "search_miss",
+        query: "physbone optimizer"
+      }, appToken),
+      store
+    );
+    expect(legacyRes.status).toBe(404);
   });
 
-  test("GET /v1/catalog/random returns sampled entries with optional filters", async () => {
+  test("GET /v1/app/index/random returns sampled entries with optional filters", async () => {
     // Register app
     const reg = await handleDownstreamRequest(
-      request("/v1/apps/register", "POST", { schemaVersion: 1, appName: "Random Explorer" }),
+      request("/v1/app/register", "POST", { schemaVersion: 1, appName: "Random Explorer" }),
       store
     );
     const { appToken } = await reg.json() as { appToken: string };
@@ -147,7 +168,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // Sample random items
     const res = await handleDownstreamRequest(
-      request("/v1/catalog/random?limit=2", "GET", undefined, appToken),
+      request("/v1/app/index/random?limit=2", "GET", undefined, appToken),
       store
     );
     expect(res.status).toBe(200);
@@ -158,7 +179,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // Filter by umbrella
     const toolsRes = await handleDownstreamRequest(
-      request("/v1/catalog/random?umbrella=tools", "GET", undefined, appToken),
+      request("/v1/app/index/random?umbrella=tools", "GET", undefined, appToken),
       store
     );
     expect(toolsRes.status).toBe(200);
@@ -166,12 +187,19 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     for (const item of toolsBody.items) {
       expect(item.umbrella).toBe("tools");
     }
+
+    // Legacy route must return 404
+    const legacyRes = await handleDownstreamRequest(
+      request("/v1/catalog/random?limit=2", "GET", undefined, appToken),
+      store
+    );
+    expect(legacyRes.status).toBe(404);
   });
 
-  test("POST /v1/catalog/search performs text search and keyset pagination", async () => {
+  test("POST /v1/app/index/search performs text search and keyset pagination", async () => {
     // Register app
     const reg = await handleDownstreamRequest(
-      request("/v1/apps/register", "POST", { schemaVersion: 1, appName: "Search Tester" }),
+      request("/v1/app/register", "POST", { schemaVersion: 1, appName: "Search Tester" }),
       store
     );
     const { appToken } = await reg.json() as { appToken: string };
@@ -190,9 +218,10 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // Search query
     const searchRes = await handleDownstreamRequest(
-      request("/v1/catalog/search", "POST", {
+      request("/v1/app/index/search", "POST", {
         schemaVersion: 1,
-        query: "Optimizer"
+        query: "Optimizer",
+        queryOrigin: "user_authored"
       }, appToken),
       store
     );
@@ -204,10 +233,11 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // Search with limit and pagination
     const pageRes = await handleDownstreamRequest(
-      request("/v1/catalog/search", "POST", {
+      request("/v1/app/index/search", "POST", {
         schemaVersion: 1,
         umbrella: "tools",
-        limit: 1
+        limit: 1,
+        queryOrigin: "user_authored"
       }, appToken),
       store
     );
@@ -217,28 +247,14 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     expect(pageBody.nextCursor).toBeDefined();
     expect(pageBody.totalEstimated).toBe(2);
 
-    // Canonical API_ROUTES /v1/app/index/search route
-    const canonicalSearch = await handleDownstreamRequest(
-      request("/v1/app/index/search", "POST", {
+    // Legacy route must return 404
+    const legacySearch = await handleDownstreamRequest(
+      request("/v1/catalog/search", "POST", {
         schemaVersion: 1,
-        query: "Optimizer",
-        queryOrigin: "user_authored"
+        query: "Optimizer"
       }, appToken),
       store
     );
-    expect(canonicalSearch.status).toBe(200);
-    const canonicalBody = await canonicalSearch.json() as any;
-    expect(canonicalBody.items[0].displayName).toBe("Avatar Optimizer");
-
-    // Canonical API_ROUTES /v1/app/reports route
-    const canonicalReport = await handleDownstreamRequest(
-      request("/v1/app/reports", "POST", {
-        schemaVersion: 1,
-        signalType: "search_miss",
-        query: "Nonexistent"
-      }, appToken),
-      store
-    );
-    expect(canonicalReport.status).toBe(200);
+    expect(legacySearch.status).toBe(404);
   });
 });

@@ -1170,4 +1170,18 @@ describe("local coordinator protocol", () => {
       expect(leads).toEqual([{ lead_key: leadKey, discovered_from_item_key: null }]);
     } finally { store.close(); }
   });
+
+  test("autoSeed true initiates profile seeding upon coordinator startup", () => {
+    const store = new LocalCoordinatorStore(":memory:", undefined, true);
+    try {
+      const profiles = store.listSourceAccessProfilesPage(100, null);
+      expect(profiles.profiles.length).toBeGreaterThanOrEqual(5);
+
+      const booth = profiles.profiles.find(p => p.platform === "booth");
+      expect(booth).toBeDefined();
+
+      const jobs = store.db.prepare("SELECT COUNT(*) AS count FROM crawl_jobs").get() as { count: number };
+      expect(jobs.count).toBeGreaterThanOrEqual(2);
+    } finally { store.close(); }
+  });
 });

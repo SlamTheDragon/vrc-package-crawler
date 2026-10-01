@@ -9,6 +9,7 @@ import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
   isSellfyProductTarget, sellfyProductIdentity, isCustomDomainProductTarget } from "../../shared/policy/source_targets.ts";
 import { CRAWLER_USER_AGENT } from "../../shared/robots/crawler_identity.ts";
 import { UnsafeMetadataTarget } from "../client/public_metadata_fetch.ts";
+import { cleanTitle, cleanAuthorName, cleanDescription, cleanTrackingParams } from "../../utils/text/sanitizer.ts";
 
 type Outcome = ResultRequest["outcome"];
 
@@ -61,6 +62,7 @@ function normalizedDate(value: unknown): string | null {
 
 function httpsLinks(values: unknown[]): string[] {
   return [...new Set(values.filter((value): value is string => typeof value === "string")
+    .map((value) => cleanTrackingParams(value))
     .filter((value) => { try { return new URL(value).protocol === "https:"; } catch { return false; } }))].slice(0, 100);
 }
 
@@ -116,9 +118,9 @@ export function parseGitHubRepository(job: CrawlJob, body: string): Observation 
       htmlUrl.toLowerCase() !== `https://github.com/${requestedName}`.toLowerCase()) return null;
   return {
     sourceItemKey: `github:${id}`,
-    title: name.slice(0, 500),
-    author: owner.slice(0, 300),
-    summary: (string(repo.description) || "").slice(0, 1024),
+    title: cleanTitle(name).slice(0, 500),
+    author: cleanAuthorName(owner).slice(0, 300),
+    summary: cleanDescription(string(repo.description) || "").slice(0, 1024),
     outboundLinks: httpsLinks([htmlUrl, repo.homepage]),
     originUpdatedAt: normalizedDate(repo.updated_at)
   };
@@ -239,9 +241,9 @@ function parseVpmRepositoryEvidence(job: CrawlJob, body: string): {
     const platformTags = vpmKeywords(manifests.map(({ manifest }) => manifest?.keywords).find((kw) => Array.isArray(kw)));
     observations.push({
       sourceItemKey: packageId,
-      title: (manifests.map(({ manifest }) => string(manifest?.displayName)).find(Boolean) || packageId).slice(0, 500),
-      author: author.slice(0, 300),
-      summary: (manifests.map(({ manifest }) => string(manifest?.description)).find(Boolean) || "").slice(0, 1024),
+      title: cleanTitle(manifests.map(({ manifest }) => string(manifest?.displayName)).find(Boolean) || packageId).slice(0, 500),
+      author: cleanAuthorName(author).slice(0, 300),
+      summary: cleanDescription(manifests.map(({ manifest }) => string(manifest?.description)).find(Boolean) || "").slice(0, 1024),
       outboundLinks: httpsLinks([repo.url, object(repo.infoLink)?.url, ...manifests.map(({ manifest }) => object(manifest?.author)?.url)]),
       originUpdatedAt: manifests.map(({ manifest }) => normalizedDate(manifest?.updated_at))
         .filter((date): date is string => date !== null).sort().at(-1) || null,
@@ -278,8 +280,8 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
         if (!release) return null;
         const platformTags = vpmKeywords(item.keywords);
         return {
-          sourceItemKey: name, title: String(item.displayName || name).slice(0, 500),
-          author: String(author || "Unknown").slice(0, 300), summary: String(item.description || "").slice(0, 1024),
+          sourceItemKey: name, title: cleanTitle(String(item.displayName || name)).slice(0, 500),
+          author: cleanAuthorName(String(author || "Unknown")).slice(0, 300), summary: cleanDescription(String(item.description || "")).slice(0, 1024),
           outboundLinks: httpsLinks([item.url, item.author?.url]),
           originUpdatedAt: normalizedDate(item.updated_at),
           release,
@@ -316,11 +318,26 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
       return claimed.origin === requested.origin && claimed.pathname === requested.pathname;
     } catch { return false; }
   });
-  const title = String(jsonLd?.name || metadata("og:title") || $(".item-name").first().text() || $("h1").first().text() || "").trim();
+  const rawTitle = String(jsonLd?.name || metadata("og:title") || $(".item-name").first().text() || $("h1").first().text() || "").trim();
+  if (!rawTitle) return null;
+  const title = cleanTitle(rawTitle);
   if (!title) return null;
-  const author = String(jsonLd?.brand?.name || jsonLd?.author?.name || $(".shop-name").first().text() || $(".user-name").first().text() || metadata("author") || "Unknown").trim();
-  const summary = String(jsonLd?.description || metadata("og:description") || $(".item-description, .js-item-description, .description-text").first().text() || metadata("description") || "").trim();
+  const author = cleanAuthorName(String(jsonLd?.brand?.name || jsonLd?.author?.name || $(".shop-name").first().text() || $(".user-name").first().text() || metadata("author") || "Unknown").trim());
+  const summary = cleanDescription(String(jsonLd?.description || metadata("og:description") || $(".item-description, .js-item-description, .description-text").first().text() || metadata("description") || "").trim());
   const descLinks = $(".item-description a[href], .js-item-description a[href], .description-text a[href]").toArray().map((el) => $(el).attr("href"));
+  const rawKeywords = jsonLd?.keywords || metadata("keywords");
+  const extractedTags: string[] = [];
+  if (Array.isArray(rawKeywords)) {
+    for (const k of rawKeywords) {
+      if (typeof k === "string" && k.trim()) extractedTags.push(k.trim());
+    }
+  } else if (typeof rawKeywords === "string" && rawKeywords.trim()) {
+    extractedTags.push(...rawKeywords.split(/[,;]+/).map(k => k.trim()).filter(Boolean));
+  }
+  const tagElements = $(".item-tags a, .tag-list a, .tags a, .tag a").toArray().map((el) => $(el).text().trim()).filter(Boolean);
+  extractedTags.push(...tagElements);
+  const platformTags = extractedTags.length > 0 ? [...new Set(extractedTags)].slice(0, 50) : undefined;
+
   // A page's canonical hint can point at a different product, locale or storefront.
   // Identity stays tied to the fetched URL until a platform-specific equivalence rule is reviewed.
   const identity = requested;
@@ -330,7 +347,8 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
     sourceItemKey, title: title.slice(0, 500),
     author: author.slice(0, 300), summary: summary.slice(0, 1024),
     outboundLinks: httpsLinks([jsonLd?.url, job.url, ...descLinks]),
-    originUpdatedAt: normalizedDate(jsonLd?.dateModified || metadata("article:modified_time") || $(".item-created-date").first().text())
+    originUpdatedAt: normalizedDate(jsonLd?.dateModified || metadata("article:modified_time") || $(".item-created-date").first().text()),
+    ...(platformTags !== undefined ? { platformTags } : {})
   };
 }
 

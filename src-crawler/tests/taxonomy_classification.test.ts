@@ -3,7 +3,8 @@ import {
   DesktopToolSubtypeSchema,
   DesktopToolEvidenceSchema,
   classifyDesktopTool,
-  deriveCategoryFromTags
+  deriveCategoryFromTags,
+  deriveUmbrellaFromTags
 } from "../src/shared/taxonomy/taxonomy.ts";
 import {
   AvatarCompatibilitySchema,
@@ -368,5 +369,35 @@ describe("deriveCategoryFromTags (TAXONOMY-01)", () => {
 
   it("first matching tag wins (avatar before shader in list)", () => {
     expect(deriveCategoryFromTags(["avatar", "shader"], "vpm_package")).toBe("avatar_tool");
+  });
+});
+
+describe("deriveUmbrellaFromTags (TAXONOMY-02)", () => {
+  it("returns defaultUmbrella when platformTags is undefined or empty", () => {
+    expect(deriveUmbrellaFromTags(undefined)).toBe("tools");
+    expect(deriveUmbrellaFromTags([], "assets")).toBe("assets");
+  });
+
+  it("maps tool-related tags to 'tools'", () => {
+    expect(deriveUmbrellaFromTags(["avatar_tool"])).toBe("tools");
+    expect(deriveUmbrellaFromTags(["unity_script"])).toBe("tools");
+    expect(deriveUmbrellaFromTags(["osc_sender"])).toBe("tools");
+    expect(deriveUmbrellaFromTags(["tracking_system"])).toBe("tools");
+  });
+
+  it("maps asset-related tags to 'assets'", () => {
+    expect(deriveUmbrellaFromTags(["liltoon_shader"])).toBe("assets");
+    expect(deriveUmbrellaFromTags(["texture_pack"])).toBe("assets");
+    expect(deriveUmbrellaFromTags(["stage_prop"])).toBe("assets");
+  });
+
+  it("maps avatar-related tags to 'avatars'", () => {
+    expect(deriveUmbrellaFromTags(["avatar_base"])).toBe("avatars");
+    expect(deriveUmbrellaFromTags(["clothing_outfit"])).toBe("avatars");
+    expect(deriveUmbrellaFromTags(["cosmetic_hair"])).toBe("avatars");
+  });
+
+  it("returns defaultUmbrella for unmatched tags", () => {
+    expect(deriveUmbrellaFromTags(["unrelated", "random"], "assets")).toBe("assets");
   });
 });

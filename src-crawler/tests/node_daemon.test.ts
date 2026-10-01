@@ -301,4 +301,99 @@ describe("CrawlerNodeDaemon OOP daemon encapsulation", () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  test("step() fails closed and refuses execution when claimed job lease is already expired", async () => {
+    const nodeStore = new LocalNodeStore(":memory:");
+    let fetchCalled = false;
+    const dummyFetcher = async () => {
+      fetchCalled = true;
+      return new Response("OK");
+    };
+
+    const mockClient = {
+      claim: async () => ({
+        schemaVersion: 1,
+        status: "leased" as const,
+        job: {
+          jobId: "job-expired-1",
+          platform: "vpm" as const,
+          url: "https://vpm.example.com/expired",
+          origin: "https://vpm.example.com",
+          nextFetchAt: new Date().toISOString(),
+          claimedBy: "daemon-node-test",
+          leaseId: "lease-expired-1",
+          leaseExpiresAt: new Date(Date.now() - 30_000).toISOString(), // Expired 30s ago!
+          retainClasses: ["creator_prose"],
+          publishClasses: ["creator_prose"],
+        }
+      }),
+      heartbeat: async () => ({ schemaVersion: 1, status: "ok" as const }),
+      submit: async () => { throw new Error("Should not submit"); }
+    } as any;
+
+    const config: NodeRuntimeConfig = {
+      nodeId: "daemon-node-test",
+      baseUrl: "https://vrc-coordinator.workers.dev",
+      capabilities: ["vpm"],
+      token: "dummy",
+      databasePath: ":memory:",
+    };
+
+    const daemon = new CrawlerNodeDaemon(config, nodeStore, mockClient, {
+      fetchFn: dummyFetcher as any,
+      runOnce: true,
+    });
+
+    const outcome = await daemon.step();
+    expect(outcome).toBe("empty");
+    expect(fetchCalled).toBe(false);
+
+    const tasks = nodeStore.listTasksForRun(daemon.currentRunId);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].status).toBe("failed");
+    expect(tasks[0].errorMessage).toContain("expired before execution");
+    nodeStore.close();
+  });
+
+  test("start() continuous loop backs off safely when coordinator connection is lost", async () => {
+    const nodeStore = new LocalNodeStore(":memory:");
+    const tempDir = createTempDir();
+    const stopFilePath = join(tempDir, "node.stop");
+    let sleepCalls: number[] = [];
+
+    const mockClient = {
+      claim: async () => {
+        throw new Error("Coordinator connection dropped (522 Connection Timed Out)");
+      },
+      heartbeat: async () => {
+        throw new Error("Heartbeat timeout");
+      },
+    } as any;
+
+    const config: NodeRuntimeConfig = {
+      nodeId: "daemon-node-disconnect",
+      baseUrl: "https://vrc-coordinator.workers.dev",
+      capabilities: ["vpm"],
+      token: "dummy",
+      databasePath: ":memory:",
+    };
+
+    const daemon = new CrawlerNodeDaemon(config, nodeStore, mockClient, {
+      runOnce: false,
+      stopFilePath,
+      sleepFn: async (ms) => {
+        sleepCalls.push(ms);
+        // Write stop file after first backoff sleep to cleanly terminate
+        writeFileSync(stopFilePath, "stop\n");
+      }
+    });
+
+    await daemon.start();
+
+    expect(daemon.isStopping).toBe(true);
+    expect(sleepCalls.length).toBeGreaterThanOrEqual(1);
+    expect(sleepCalls[0]).toBe(5_000);
+    nodeStore.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
 });

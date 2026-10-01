@@ -1,0 +1,31 @@
+services:
+  crawler-node:
+    build:
+      context: ..
+      dockerfile: src-crawler/Dockerfile
+    image: ghcr.io/vrc-package-crawler/node:latest
+    container_name: vrc-crawler-node
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NODE_TOKEN=${NODE_TOKEN}
+      - COORDINATOR_URL=${COORDINATOR_URL:-https://vrcp-coordinator.workers.dev}
+      - NODE_ID=${NODE_ID:-vps-node-1}
+      - NODE_CAPABILITIES=${NODE_CAPABILITIES:-booth,github,vpm,gumroad,shopify}
+    stop_grace_period: 30s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: vrc-node-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_POLL_INTERVAL=300
+      - WATCHTOWER_ROLLING_RESTART=true
+    command: --interval 300

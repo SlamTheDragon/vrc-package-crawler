@@ -125,11 +125,11 @@ describe("User Protocol (/v1/user/*) and Unified Delisting", () => {
     }
   });
 
-  test("POST /v1/delist (unauthenticated) requires bio_token or dns_txt proof", async () => {
+  test("POST /v1/user/delist (unauthenticated) requires bio_token or dns_txt proof, while legacy routes 404", async () => {
     const store = new LocalCoordinatorStore(":memory:");
     try {
       // 1. Missing proofKind fails with 400 proof_required
-      const reqNoProof = jsonRequest("/v1/delist", "POST", {
+      const reqNoProof = jsonRequest("/v1/user/delist", "POST", {
         schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
         targetUrl: "https://booth.pm/en/items/999999",
         reason: "Opting out"
@@ -138,7 +138,7 @@ describe("User Protocol (/v1/user/*) and Unified Delisting", () => {
       expect(resNoProof.status).toBe(400);
 
       // 2. manual_notice fails directing to email per LEGAL §9.2
-      const reqManual = jsonRequest("/v1/delist", "POST", {
+      const reqManual = jsonRequest("/v1/user/delist", "POST", {
         schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
         targetUrl: "https://booth.pm/en/items/999999",
         reason: "Opting out",
@@ -147,8 +147,8 @@ describe("User Protocol (/v1/user/*) and Unified Delisting", () => {
       const resManual = await handleUserRequest(reqManual, store);
       expect(resManual.status).toBe(400);
 
-      // 3. storefront_bio_token succeeds
-      const reqValid = jsonRequest("/v1/delist", "POST", {
+      // 3. storefront_bio_token succeeds on canonical route
+      const reqValid = jsonRequest("/v1/user/delist", "POST", {
         schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
         targetUrl: "https://booth.pm/en/items/999999",
         reason: "Opting out",
@@ -160,6 +160,35 @@ describe("User Protocol (/v1/user/*) and Unified Delisting", () => {
       const data = await resValid.json() as any;
       expect(data.status).toBe("accepted");
       expect(data.requesterType).toBe("unauthenticated_creator");
+
+      // 4. Purged legacy routes must return 404
+      const legacyDelist = await handleUserRequest(jsonRequest("/v1/delist", "POST", {
+        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
+        targetUrl: "https://booth.pm/en/items/999999",
+        reason: "Opting out",
+        proofKind: "storefront_bio_token",
+        proofValue: "vrc-delist-token-abc"
+      }), store);
+      expect(legacyDelist.status).toBe(404);
+
+      const legacyRegistrantNodes = await handleUserRequest(jsonRequest("/v1/registrant/nodes", "POST", {
+        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
+        nodeId: "legacy-node"
+      }), store);
+      expect(legacyRegistrantNodes.status).toBe(404);
+
+      const legacyRegistrantApps = await handleUserRequest(jsonRequest("/v1/registrant/apps", "POST", {
+        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
+        appName: "Legacy App"
+      }), store);
+      expect(legacyRegistrantApps.status).toBe(404);
+
+      const legacyRegistrantDelist = await handleUserRequest(jsonRequest("/v1/registrant/delist", "POST", {
+        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
+        canonicalId: "some-pkg",
+        reason: "Legacy delist"
+      }), store);
+      expect(legacyRegistrantDelist.status).toBe(404);
     } finally {
       store.close();
     }

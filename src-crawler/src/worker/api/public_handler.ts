@@ -47,8 +47,8 @@ export async function handlePublicCatalogRequest(
   store: PublicCatalogStore
 ): Promise<Response> {
   const url = new URL(request.url);
-  const isCatalog = request.method === "GET" && (url.pathname === "/v1/app/index" || url.pathname === "/v1/catalog");
-  const isDelta = request.method === "GET" && (url.pathname === "/v1/app/index/delta" || url.pathname === "/v1/catalog/delta");
+  const isCatalog = request.method === "GET" && url.pathname === "/v1/app/index";
+  const isDelta = request.method === "GET" && url.pathname === "/v1/app/index/delta";
 
   if (!isCatalog && !isDelta) {
     return failure(404, "not_found", "Route not found");
@@ -98,7 +98,7 @@ export async function handlePublicCatalogRequest(
 export function createPublicCatalogHandler(store: PublicCatalogStore): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
-    if (path !== "/v1/app/index" && path !== "/v1/app/index/delta" && path !== "/v1/catalog" && path !== "/v1/catalog/delta") return null;
+    if (path !== "/v1/app/index" && path !== "/v1/app/index/delta") return null;
     return handlePublicCatalogRequest(request, store);
   };
 }

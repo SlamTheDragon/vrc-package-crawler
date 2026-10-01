@@ -185,6 +185,16 @@ describe("src-package wire protocols", () => {
     expect(decodeLeadCursor(encLead)).toEqual(leadCursor);
     expect(decodeLeadCursor("invalid-lead-cursor")).toBeNull();
 
+    // Coordinator-style cursor with status and firstSeenAt
+    const coordLeadCursor = {
+      status: "pending_review" as const,
+      firstSeenAt: "2026-10-01T10:00:00.000Z",
+      leadKey: "b".repeat(64)
+    };
+    const encCoordLead = encodeLeadCursor(coordLeadCursor);
+    expect(decodeLeadCursor(encCoordLead, "pending_review")).toEqual(coordLeadCursor);
+    expect(decodeLeadCursor(encCoordLead, "rejected")).toBeNull();
+
     const profileCursor = {
       createdAt: "2026-10-01T12:00:00.000Z",
       profileId: "123e4567-e89b-12d3-a456-426614174000"

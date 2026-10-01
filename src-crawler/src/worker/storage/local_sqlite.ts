@@ -33,8 +33,10 @@ import { isItchSearchUrl } from "../../shared/policy/source_path_policy.ts";
 import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, type OriginRobotsSnapshot } from "../../shared/robots/robots_snapshot.ts";
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
 import { CRAWLER_ROBOTS_TOKEN } from "../../shared/robots/crawler_identity.ts";
-import { deriveCategoryFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../shared/taxonomy/taxonomy.ts";
+import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../shared/taxonomy/taxonomy.ts";
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../shared/taxonomy/avatar_compatibility.ts";
+import { cleanTitle, cleanTrackingParams } from "../../utils/text/sanitizer.ts";
+import { DEFAULT_SOURCE_ACCESS_PROFILES, DEFAULT_SEED_JOBS, DEFAULT_ROBOTS_SNAPSHOTS } from "./default_seeds.ts";
 import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
   IssueNodeCredentialSchema, type IssueNodeCredential,
   encodeLeadCursor, encodeRuleCursor, encodeCatalogCursor, decodeCatalogCursor,
@@ -97,7 +99,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   private readonly now: () => number;
   private readonly robotsMatchers = new Map<string, { snapshotId: string; matcher: CrawlerRules }>();
 
-  constructor(databasePath: string = ":memory:", now: () => number = Date.now) {
+  constructor(databasePath: string = ":memory:", now: () => number = Date.now, autoSeed: boolean = false) {
     if (databasePath !== ":memory:" && databasePath !== "") {
       mkdirSync(dirname(resolve(databasePath)), { recursive: true });
     }
@@ -406,6 +408,40 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       ON source_leads(first_seen_node_id,first_seen_at DESC,lead_key DESC)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_source_leads_last_node
       ON source_leads(last_seen_node_id,last_seen_at DESC,lead_key DESC)`);
+    if (autoSeed) {
+      this.seedInitialProfiles();
+    }
+  }
+
+  seedInitialProfiles(actor = "coordinator-init"): void {
+    this.db.transaction(() => {
+      for (const profile of DEFAULT_SOURCE_ACCESS_PROFILES) {
+        const existing = this.activeSourceAccessProfileForTarget(
+          profile.platform,
+          `${profile.origin}${profile.pathScope}`,
+          profile.purpose
+        );
+        if (!existing) {
+          try {
+            this.createSourceAccessProfile(profile, actor);
+          } catch {
+            // Overlapping or already exists, safe to continue
+          }
+        }
+      }
+
+      for (const snapshot of DEFAULT_ROBOTS_SNAPSHOTS) {
+        try {
+          this.recordRobotsSnapshot(snapshot.origin, snapshot.statusCode, snapshot.body);
+        } catch {}
+      }
+
+      for (const job of DEFAULT_SEED_JOBS) {
+        try {
+          this.seedJob(job.url, job.platform, job.minDelayMs, undefined, job.purpose);
+        } catch {}
+      }
+    }).immediate();
   }
 
   close(): void { this.db.close(true); }
@@ -1328,6 +1364,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         // VPM observation. Non-VPM platforms need operator-reviewed identity links instead.
         if (job.platform === "vpm" && complete) {
           const vpmId = observation.sourceItemKey; // For VPM jobs, sourceItemKey IS the package ID
+          const umbrella = deriveUmbrellaFromTags(observation.platformTags, "tools");
+          const category = deriveCategoryFromTags(observation.platformTags, "vpm_package");
           this.db.prepare(`INSERT INTO canonical_packages
             (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?)
@@ -1335,7 +1373,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
               display_name=excluded.display_name,
               vpm_id=COALESCE(excluded.vpm_id,canonical_packages.vpm_id),
               updated_at=excluded.updated_at`).run(
-              vpmId, "tools", deriveCategoryFromTags(observation.platformTags, "vpm_package"), "active", observation.title, vpmId, now, now);
+              vpmId, umbrella, category, "active", cleanTitle(observation.title), vpmId, now, now);
           this.db.prepare(`INSERT OR IGNORE INTO identity_links
             (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
             VALUES (?,?,?,'vpm_id',1.0,'accepted',?,?)`).run(
@@ -1460,14 +1498,50 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
           }
         }
 
+
+        if (isStorefront && complete && job.platform !== "vpm" && linkedCanonicalIds.size === 0) {
+          const canonicalId = observation.sourceItemKey;
+          const desktopClassification = classifyDesktopTool(
+            observation.title,
+            observation.summary,
+            observation.outboundLinks,
+            observation.platformTags ?? []
+          );
+          const umbrella = desktopClassification.isDesktopTool && desktopClassification.confidence >= 0.8
+            ? "tools"
+            : deriveUmbrellaFromTags(observation.platformTags, "assets");
+          const category = deriveCategoryFromTags(
+            observation.platformTags,
+            desktopClassification.isDesktopTool && desktopClassification.confidence >= 0.8 && desktopClassification.subtype
+              ? desktopClassification.subtype
+              : "storefront_package"
+          );
+          this.db.prepare(`INSERT INTO canonical_packages
+            (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at)
+            VALUES (?,?,?,?,?,NULL,?,?)
+            ON CONFLICT(canonical_id) DO UPDATE SET
+              display_name=excluded.display_name,
+              updated_at=excluded.updated_at`).run(
+              canonicalId, umbrella, category, "active", cleanTitle(observation.title), now, now);
+          this.db.prepare(`INSERT OR IGNORE INTO identity_links
+            (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
+            VALUES (?,?,?,'cross_storefront_link',1.0,'accepted',?,?)`).run(
+              crypto.randomUUID(), sourceKey, canonicalId, now, now);
+          linkedCanonicalIds.add(canonicalId);
+        }
+
         for (const canonicalId of linkedCanonicalIds) {
           if (isStorefront) {
-            this.db.prepare(`INSERT OR IGNORE INTO identity_links
-              (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at)
-              VALUES (?,?,?,'cross_storefront_link',0.8,'provisional',?)`).run(
-                crypto.randomUUID(), sourceKey, canonicalId, now);
+            const hasLink = this.db.prepare(`SELECT 1 FROM identity_links WHERE source_key=? AND canonical_id=?`).get(sourceKey, canonicalId);
+            if (!hasLink) {
+              this.db.prepare(`INSERT INTO identity_links
+                (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at)
+                VALUES (?,?,?,'cross_storefront_link',0.8,'provisional',?)`).run(
+                  crypto.randomUUID(), sourceKey, canonicalId, now);
+            }
 
-            const storefrontUrl = (observation as any).storefrontUrl || job.url;
+            const rawStorefrontUrl = (observation as any).storefrontUrl || job.url;
+            const storefrontUrl = cleanTrackingParams(rawStorefrontUrl);
             this.upsertPackageFront({
               canonicalId,
               sourceKey,
@@ -1520,6 +1594,11 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         for (const item of currentItems) {
           this.db.prepare("UPDATE source_items SET gone_at=? WHERE source_key=?").run(now, item.source_key);
           this.db.prepare("UPDATE package_fronts SET availability='delisted', observed_at=? WHERE source_key=?").run(now, item.source_key);
+          this.db.prepare(`UPDATE canonical_packages SET lifecycle='delisted', updated_at=?
+            WHERE canonical_id IN (SELECT canonical_id FROM package_fronts WHERE source_key=?)
+              AND vpm_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM package_fronts pf2 WHERE pf2.canonical_id = canonical_packages.canonical_id AND pf2.availability = 'available')`)
+            .run(now, item.source_key);
           this.db.prepare(`INSERT INTO source_events
             (job_id,source_key,kind,observed_at,version_id,contributor_node_id,submission_lease_id,source_profile_id)
             VALUES (?,?,'gone',?,NULL,?,?,?)`)

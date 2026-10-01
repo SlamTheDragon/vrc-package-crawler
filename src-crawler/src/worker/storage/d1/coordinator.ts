@@ -27,9 +27,24 @@ import {
 } from "../../../shared/protocol/downstream_protocol.ts";
 import type { UserStore } from "../../api/user_handler.ts";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils.ts";
-import { D1Database, AutoQueueRuleRow, SourceAccessProfileRow, JobRow, D1PreparedStatement, CanonicalUmbrella, CanonicalLifecycle, CanonicalPackage, EvidenceKind, LinkReviewState, IdentityLink } from "./definitions.ts";
-import { deriveCategoryFromTags, type DesktopToolEvidence } from "../../../shared/taxonomy/taxonomy.ts";
+import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../../shared/taxonomy/taxonomy.ts";
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../../shared/taxonomy/avatar_compatibility.ts";
+import { cleanTitle, cleanTrackingParams } from "../../../utils/text/sanitizer.ts";
+import { STOREFRONT_PLATFORMS } from "../../../shared/protocol/node_protocol.ts";
+import { DEFAULT_SOURCE_ACCESS_PROFILES, DEFAULT_SEED_JOBS, DEFAULT_ROBOTS_SNAPSHOTS } from "../default_seeds.ts";
+import type {
+  D1Database,
+  D1PreparedStatement,
+  JobRow,
+  AutoQueueRuleRow,
+  SourceAccessProfileRow,
+  CanonicalUmbrella,
+  CanonicalLifecycle,
+  EvidenceKind,
+  LinkReviewState,
+  CanonicalPackage,
+  IdentityLink
+} from "./definitions.ts";
 
 
 export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatalogStore, UserStore {
@@ -40,8 +55,40 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     readonly now: () => number = Date.now
   ) { }
 
-  async initSchema(): Promise<void> {
+  async seedInitialProfiles(actor = "coordinator-init"): Promise<void> {
+    for (const profile of DEFAULT_SOURCE_ACCESS_PROFILES) {
+      const existing = await this.activeSourceAccessProfileForTarget(
+        profile.platform,
+        `${profile.origin}${profile.pathScope}`,
+        profile.purpose
+      );
+      if (!existing) {
+        try {
+          await this.createSourceAccessProfile(profile, actor);
+        } catch {
+          // Overlap or already exists, safe to continue
+        }
+      }
+    }
+
+    for (const snapshot of DEFAULT_ROBOTS_SNAPSHOTS) {
+      try {
+        await this.recordRobotsSnapshot(snapshot.origin, snapshot.statusCode, snapshot.body);
+      } catch {}
+    }
+
+    for (const job of DEFAULT_SEED_JOBS) {
+      try {
+        await this.seedJob(job.url, job.platform, job.minDelayMs, undefined, job.purpose);
+      } catch {}
+    }
+  }
+
+  async initSchema(autoSeed: boolean = false): Promise<void> {
     await this.db.exec(D1_SCHEMA_SQL);
+    if (autoSeed) {
+      await this.seedInitialProfiles();
+    }
   }
 
   private autoQueueRuleFromRow(row: AutoQueueRuleRow): AutoQueueRule {
@@ -475,6 +522,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
       if (job.platform === "vpm" && complete) {
         const vpmId = observation.sourceItemKey;
+        const umbrella = deriveUmbrellaFromTags(observation.platformTags, "tools");
         batchStmts.push(
           this.db.prepare(`INSERT INTO canonical_packages
             (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at)
@@ -483,7 +531,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
               display_name=excluded.display_name,
               vpm_id=COALESCE(excluded.vpm_id,canonical_packages.vpm_id),
               updated_at=excluded.updated_at`).bind(
-            vpmId, "tools", deriveCategoryFromTags(observation.platformTags, "vpm_package"), "active", observation.title, vpmId, now, now),
+            vpmId, umbrella, deriveCategoryFromTags(observation.platformTags, "vpm_package"), "active", cleanTitle(observation.title), vpmId, now, now),
           this.db.prepare(`INSERT OR IGNORE INTO identity_links
             (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
             VALUES (?,?,?,'vpm_id',1.0,'accepted',?,?)`).bind(
@@ -522,6 +570,197 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
           }
         }
       }
+
+      // G2/G4 package_fronts relational projection:
+      // When an observation has an accepted or provisional identity link to a canonical package
+      // (or if it is a storefront platform with an outbound match), upsert a row into package_fronts.
+      const linkedCanonicalIds = new Set<string>();
+      const existingLinksRes = await this.db.prepare(`
+        SELECT canonical_id FROM identity_links
+        WHERE source_key = ? AND review_state IN ('accepted', 'provisional')
+      `).bind(sourceKey).all<{ canonical_id: string; }>();
+      for (const { canonical_id } of existingLinksRes.results || []) {
+        linkedCanonicalIds.add(canonical_id);
+      }
+
+      const isStorefront = STOREFRONT_PLATFORMS.has(job.platform) || observation.price !== undefined;
+      if (isStorefront) {
+        // Outbound match 1: observation outbound links matching source items or leads linked to a canonical package
+        for (const outbound of observation.outboundLinks) {
+          const normalizedOutbound = outbound.toLowerCase().replace(/\/+$/, "");
+          const matchesRes = await this.db.prepare(`
+            SELECT DISTINCT il.canonical_id
+            FROM identity_links il
+            JOIN source_items si ON si.source_key = il.source_key
+            WHERE LOWER(RTRIM(si.source_url, '/')) = ?
+              AND il.review_state IN ('accepted', 'provisional')
+          `).bind(normalizedOutbound).all<{ canonical_id: string; }>();
+          for (const { canonical_id } of matchesRes.results || []) {
+            linkedCanonicalIds.add(canonical_id);
+          }
+
+          const ghMatch = normalizedOutbound.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)/);
+          if (ghMatch) {
+            const apiGhUrl = `https://api.github.com/repos/${ghMatch[1]}`.toLowerCase();
+            const ghMatchesRes = await this.db.prepare(`
+              SELECT DISTINCT il.canonical_id
+              FROM identity_links il
+              JOIN source_items si ON si.source_key = il.source_key
+              WHERE LOWER(RTRIM(si.source_url, '/')) = ?
+                AND il.review_state IN ('accepted', 'provisional')
+            `).bind(apiGhUrl).all<{ canonical_id: string; }>();
+            for (const { canonical_id } of ghMatchesRes.results || []) {
+              linkedCanonicalIds.add(canonical_id);
+            }
+          }
+
+          const leadMatchesRes = await this.db.prepare(`
+            SELECT DISTINCT il.canonical_id
+            FROM source_leads sl
+            JOIN identity_links il ON (
+              (sl.discovered_from_item_key IS NOT NULL AND (
+                il.canonical_id = sl.discovered_from_item_key
+                OR il.source_key = sl.discovered_from_item_key
+                OR il.source_key = 'vpm:' || sl.discovered_from_url || ':' || sl.discovered_from_item_key
+              ))
+              OR (sl.claimed_package_id IS NOT NULL AND il.canonical_id = sl.claimed_package_id)
+            )
+            WHERE LOWER(RTRIM(sl.target_url, '/')) = ?
+              AND il.review_state IN ('accepted', 'provisional')
+          `).bind(normalizedOutbound).all<{ canonical_id: string; }>();
+          for (const { canonical_id } of leadMatchesRes.results || []) {
+            linkedCanonicalIds.add(canonical_id);
+          }
+        }
+
+        // Outbound match 2: source leads where target_url matches this job URL (e.g. storefront discovered from VPM)
+        const normalizedJobUrl = job.url.toLowerCase().replace(/\/+$/, "");
+        const jobLeadMatchesRes = await this.db.prepare(`
+          SELECT DISTINCT il.canonical_id
+          FROM source_leads sl
+          JOIN identity_links il ON (
+            (sl.discovered_from_item_key IS NOT NULL AND (
+              il.canonical_id = sl.discovered_from_item_key
+              OR il.source_key = sl.discovered_from_item_key
+              OR il.source_key = 'vpm:' || sl.discovered_from_url || ':' || sl.discovered_from_item_key
+            ))
+            OR (sl.claimed_package_id IS NOT NULL AND il.canonical_id = sl.claimed_package_id)
+          )
+          WHERE LOWER(RTRIM(sl.target_url, '/')) = ?
+            AND il.review_state IN ('accepted', 'provisional')
+        `).bind(normalizedJobUrl).all<{ canonical_id: string; }>();
+        for (const { canonical_id } of jobLeadMatchesRes.results || []) {
+          linkedCanonicalIds.add(canonical_id);
+        }
+      }
+
+
+      if (isStorefront && complete && job.platform !== "vpm" && linkedCanonicalIds.size === 0) {
+        const canonicalId = observation.sourceItemKey;
+        const desktopClassification = classifyDesktopTool(
+          observation.title,
+          observation.summary,
+          observation.outboundLinks,
+          observation.platformTags ?? []
+        );
+        const umbrella = desktopClassification.isDesktopTool && desktopClassification.confidence >= 0.8
+          ? "tools"
+          : deriveUmbrellaFromTags(observation.platformTags, "assets");
+        const category = deriveCategoryFromTags(
+          observation.platformTags,
+          desktopClassification.isDesktopTool && desktopClassification.confidence >= 0.8 && desktopClassification.subtype
+            ? desktopClassification.subtype
+            : "storefront_package"
+        );
+        batchStmts.push(
+          this.db.prepare(`INSERT INTO canonical_packages
+            (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at)
+            VALUES (?,?,?,?,?,NULL,?,?)
+            ON CONFLICT(canonical_id) DO UPDATE SET
+              display_name=excluded.display_name,
+              updated_at=excluded.updated_at`).bind(
+            canonicalId, umbrella, category, "active", cleanTitle(observation.title), now, now),
+          this.db.prepare(`INSERT OR IGNORE INTO identity_links
+            (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
+            VALUES (?,?,?,'cross_storefront_link',1.0,'accepted',?,?)`).bind(
+            crypto.randomUUID(), sourceKey, canonicalId, now, now)
+        );
+        linkedCanonicalIds.add(canonicalId);
+      }
+
+      for (const canonicalId of linkedCanonicalIds) {
+        if (isStorefront) {
+          const alreadyLinked = (existingLinksRes.results || []).some(r => r.canonical_id === canonicalId) ||
+            canonicalId === observation.sourceItemKey;
+          if (!alreadyLinked) {
+            batchStmts.push(
+              this.db.prepare(`INSERT OR IGNORE INTO identity_links
+                (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at)
+                VALUES (?,?,?,'cross_storefront_link',0.8,'provisional',?)`).bind(
+                crypto.randomUUID(), sourceKey, canonicalId, now)
+            );
+          }
+
+          const rawStorefrontUrl = (observation as any).storefrontUrl || job.url;
+          const storefrontUrl = cleanTrackingParams(rawStorefrontUrl);
+          const frontId = crypto.randomUUID();
+          const price = observation.price ?? null;
+          const currency = observation.currency ?? null;
+          const availability = observation.availability ?? "available";
+
+          batchStmts.push(
+            this.db.prepare(`
+              INSERT INTO package_fronts
+                (front_id, canonical_id, source_key, platform, storefront_url, price, currency, availability, observed_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(canonical_id, source_key) DO UPDATE SET
+                platform = excluded.platform,
+                storefront_url = excluded.storefront_url,
+                price = excluded.price,
+                currency = excluded.currency,
+                availability = excluded.availability,
+                observed_at = excluded.observed_at
+            `).bind(frontId, canonicalId, sourceKey, job.platform, storefrontUrl, price, currency, availability, now)
+          );
+        }
+      }
+
+      const desktopClassification = classifyDesktopTool(
+        observation.title,
+        observation.summary,
+        observation.outboundLinks,
+        observation.platformTags ?? []
+      );
+      if (desktopClassification.isDesktopTool && desktopClassification.confidence >= 0.8 && desktopClassification.subtype) {
+        const evidenceUrl = (observation as any).storefrontUrl || observation.outboundLinks[0] || `https://github.com/${observation.sourceItemKey}`;
+        const publisherClaim = observation.summary || observation.title;
+        const supportedOS = inferSupportedOS(`${observation.title} ${observation.summary} ${(observation.platformTags ?? []).join(" ")}`);
+        for (const canonicalId of linkedCanonicalIds) {
+          batchStmts.push(
+            this.db.prepare(`
+              INSERT INTO desktop_tool_evidence
+                (canonical_id, tool_subtype, supported_os, particular_vrchat_target, evidence_url, publisher_claim, confidence, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(canonical_id) DO UPDATE SET
+                tool_subtype = excluded.tool_subtype,
+                supported_os = excluded.supported_os,
+                particular_vrchat_target = excluded.particular_vrchat_target,
+                evidence_url = excluded.evidence_url,
+                publisher_claim = excluded.publisher_claim,
+                confidence = excluded.confidence
+            `).bind(
+              canonicalId,
+              desktopClassification.subtype,
+              JSON.stringify(supportedOS),
+              1,
+              evidenceUrl,
+              publisherClaim,
+              desktopClassification.confidence,
+              now
+            )
+          );
+        }
+      }
     }
 
     if (outcome.kind === "gone") {
@@ -531,6 +770,12 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       for (const item of currentItems) {
         batchStmts.push(
           this.db.prepare("UPDATE source_items SET gone_at=? WHERE source_key=?").bind(now, item.source_key),
+          this.db.prepare("UPDATE package_fronts SET availability='delisted', observed_at=? WHERE source_key=?").bind(now, item.source_key),
+          this.db.prepare(`UPDATE canonical_packages SET lifecycle='delisted', updated_at=?
+            WHERE canonical_id IN (SELECT canonical_id FROM package_fronts WHERE source_key=?)
+              AND vpm_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM package_fronts pf2 WHERE pf2.canonical_id = canonical_packages.canonical_id AND pf2.availability = 'available')`)
+            .bind(now, item.source_key),
           this.db.prepare(`INSERT INTO source_events
             (job_id,source_key,kind,observed_at,version_id,contributor_node_id,submission_lease_id,source_profile_id)
             VALUES (?,?,'gone',?,NULL,?,?,?)`)
@@ -1265,6 +1510,11 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       INSERT INTO identity_links (link_id, source_key, canonical_id, evidence_kind, confidence, review_state, created_at, reviewed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(linkId, link.sourceKey, link.canonicalId, link.evidenceKind, link.confidence, reviewState, createdAt, reviewedAt).run();
+
+    if (reviewState === "accepted" || reviewState === "provisional") {
+      await this.syncPackageFrontFromSourceItem(link.canonicalId, link.sourceKey);
+    }
+
     return {
       linkId,
       sourceKey: link.sourceKey,
@@ -1366,6 +1616,145 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   async deleteCanonicalPackage(canonicalId: string): Promise<boolean> {
     const res = await this.db.prepare("DELETE FROM canonical_packages WHERE canonical_id = ?").bind(canonicalId).run();
     return ((res.meta as any)?.changes ?? 0) > 0;
+  }
+
+  async upsertPackageFront(front: {
+    frontId?: string;
+    canonicalId: string;
+    sourceKey: string;
+    platform: Platform;
+    storefrontUrl: string;
+    price?: number | null;
+    currency?: string | null;
+    availability?: "available" | "delisted" | "unknown";
+    observedAt?: string;
+  }): Promise<PackageFront> {
+    const frontId = front.frontId ?? crypto.randomUUID();
+    const now = new Date(this.now()).toISOString();
+    const observedAt = front.observedAt ?? now;
+    const availability = front.availability ?? "available";
+    const price = front.price ?? null;
+    const currency = front.currency ?? null;
+
+    await this.db.prepare(`
+      INSERT INTO package_fronts
+        (front_id, canonical_id, source_key, platform, storefront_url, price, currency, availability, observed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(canonical_id, source_key) DO UPDATE SET
+        platform = excluded.platform,
+        storefront_url = excluded.storefront_url,
+        price = excluded.price,
+        currency = excluded.currency,
+        availability = excluded.availability,
+        observed_at = excluded.observed_at
+    `).bind(frontId, front.canonicalId, front.sourceKey, front.platform, front.storefrontUrl, price, currency, availability, observedAt).run();
+
+    const row = await this.db.prepare(`
+      SELECT front_id, canonical_id, source_key, platform, storefront_url, price, currency, availability, observed_at
+      FROM package_fronts WHERE canonical_id = ? AND source_key = ?
+    `).bind(front.canonicalId, front.sourceKey).first<{
+      front_id: string;
+      canonical_id: string;
+      source_key: string;
+      platform: Platform;
+      storefront_url: string;
+      price: number | null;
+      currency: string | null;
+      availability: "available" | "delisted" | "unknown";
+      observed_at: string;
+    }>();
+
+    return {
+      frontId: row!.front_id,
+      canonicalId: row!.canonical_id,
+      sourceKey: row!.source_key,
+      platform: row!.platform,
+      storefrontUrl: row!.storefront_url,
+      price: row!.price,
+      currency: row!.currency,
+      availability: row!.availability,
+      observedAt: row!.observed_at
+    };
+  }
+
+  async getPackageFrontsForCanonical(canonicalId: string): Promise<PackageFront[]> {
+    const res = await this.db.prepare(`
+      SELECT front_id, canonical_id, source_key, platform, storefront_url, price, currency, availability, observed_at
+      FROM package_fronts WHERE canonical_id = ?
+      ORDER BY observed_at ASC, front_id ASC
+    `).bind(canonicalId).all<{
+      front_id: string;
+      canonical_id: string;
+      source_key: string;
+      platform: Platform;
+      storefront_url: string;
+      price: number | null;
+      currency: string | null;
+      availability: "available" | "delisted" | "unknown";
+      observed_at: string;
+    }>();
+    const rows = res.results || [];
+    return rows.map((r) => ({
+      frontId: r.front_id,
+      canonicalId: r.canonical_id,
+      sourceKey: r.source_key,
+      platform: r.platform,
+      storefrontUrl: r.storefront_url,
+      price: r.price,
+      currency: r.currency,
+      availability: r.availability,
+      observedAt: r.observed_at
+    }));
+  }
+
+  async deletePackageFront(frontId: string): Promise<boolean> {
+    const res = await this.db.prepare("DELETE FROM package_fronts WHERE front_id = ?").bind(frontId).run();
+    return ((res.meta as any)?.changes ?? 0) > 0;
+  }
+
+  private async syncPackageFrontFromSourceItem(canonicalId: string, sourceKey: string): Promise<void> {
+    const item = await this.db.prepare(`
+      SELECT si.platform, si.source_url, si.gone_at, sv.payload_json, sv.observed_at
+      FROM source_items si
+      LEFT JOIN source_versions sv ON sv.source_key = si.source_key AND sv.version_no = si.latest_version_no
+      WHERE si.source_key = ?
+    `).bind(sourceKey).first<{
+      platform: Platform;
+      source_url: string;
+      gone_at: string | null;
+      payload_json: string | null;
+      observed_at: string | null;
+    }>();
+
+    if (!item) return;
+    const isStorefront = STOREFRONT_PLATFORMS.has(item.platform);
+    let price: number | null = null;
+    let currency: string | null = null;
+    let availability: "available" | "delisted" | "unknown" = item.gone_at ? "delisted" : "available";
+    let storefrontUrl = item.source_url;
+
+    if (item.payload_json) {
+      try {
+        const parsed = JSON.parse(item.payload_json);
+        if (parsed.price !== undefined) price = parsed.price;
+        if (parsed.currency !== undefined) currency = parsed.currency;
+        if (parsed.availability !== undefined) availability = parsed.availability;
+        if (parsed.storefrontUrl) storefrontUrl = parsed.storefrontUrl;
+      } catch {}
+    }
+
+    if (isStorefront || price !== null) {
+      await this.upsertPackageFront({
+        canonicalId,
+        sourceKey,
+        platform: item.platform,
+        storefrontUrl: cleanTrackingParams(storefrontUrl),
+        price,
+        currency,
+        availability,
+        observedAt: item.observed_at ?? new Date(this.now()).toISOString()
+      });
+    }
   }
 
   /** Registers a downstream client application with scoped application token. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { cleanTitle, cleanAuthorName, cleanDescription, extractReadmeDescription, unescapeHtml, normalizeListingTitle } from "../src/utils/text/sanitizer.ts";
+import { cleanTitle, cleanAuthorName, cleanDescription, extractReadmeDescription, unescapeHtml, normalizeListingTitle, cleanTrackingParams } from "../src/utils/text/sanitizer.ts";
 
 describe("Phase 1: Front-Stage Sanitization & Normalization", () => {
   it("unescapes HTML entities correctly", () => {
@@ -24,6 +24,8 @@ describe("Phase 1: Front-Stage Sanitization & Normalization", () => {
   it("cleans author names by stripping HTML tags, parentheticals, and twitter handles", () => {
     expect(cleanAuthorName("<b>CreatorName</b> (@TwitterHandle)")).toBe("CreatorName");
     expect(cleanAuthorName("Author &amp; Co.")).toBe("Author & Co.");
+    expect(cleanAuthorName("@SoloDev")).toBe("SoloDev");
+    expect(cleanAuthorName("Creator @handle")).toBe("Creator");
     expect(cleanAuthorName("")).toBe("Unknown");
   });
 
@@ -33,13 +35,29 @@ describe("Phase 1: Front-Stage Sanitization & Normalization", () => {
   });
 
   it("cleanDescription strips discord invites, image markdown, and normalizes spacing while preserving paragraphs", () => {
-    const rawDesc = "A great VRChat utility!<br>Join our server: https://discord.gg/abc1234 &amp; enjoy!\n\n![Screenshot](https://example.com/pic.png)\n\nFeature list here.";
+    const rawDesc = "A great VRChat utility!<br>Join our server: https://discord.gg/abc1234 &amp; enjoy!\nOr https://discord.com/invite/xyz\n\n![Screenshot](https://example.com/pic.png)\n\nFeature list here.";
     const cleaned = cleanDescription(rawDesc);
     expect(cleaned).not.toContain("https://discord.gg/");
+    expect(cleaned).not.toContain("https://discord.com/invite/");
     expect(cleaned).not.toContain("![Screenshot]");
     expect(cleaned).toContain("& enjoy!");
     expect(cleaned).toContain("A great VRChat utility!");
     expect(cleaned).toContain("\n\nFeature list here.");
+  });
+
+  it("cleanTrackingParams strips tracking parameters, analytics IDs, and affiliate tokens (LEGAL.md Section 4.3)", () => {
+    const url = "https://example.com/items/12345?utm_source=twitter&utm_medium=social&aff=xyz&ref=affiliate&fbclid=abc&session_id=s123&keep=true";
+    const cleaned = cleanTrackingParams(url);
+    expect(cleaned).toBe("https://example.com/items/12345?keep=true");
+
+    const cleanPlain = cleanTrackingParams("https://example.com/item/42");
+    expect(cleanPlain).toBe("https://example.com/item/42");
+
+    const cleanRoot = cleanTrackingParams("https://example.com?utm_source=twitter");
+    expect(cleanRoot).toBe("https://example.com");
+
+    const nonUrl = cleanTrackingParams("not-a-url");
+    expect(nonUrl).toBe("not-a-url");
   });
 
   it("extractReadmeDescription strips badges, code blocks, and boilerplate while capturing rich overview and features", () => {

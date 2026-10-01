@@ -17,3 +17,17 @@ export const RegisterNodeResponseSchema = z.strictObject({
   token: z.string().regex(/^vrcp_[0-9a-fA-F]{64}[0-9a-fA-F]{4}$/)
 });
 export type RegisterNodeResponse = z.infer<typeof RegisterNodeResponseSchema>;
+
+export {
+  DOWNSTREAM_PROTOCOL_VERSION as USER_PROTOCOL_VERSION,
+  RegisterAppRequestSchema,
+  type RegisterAppRequest,
+  RegisterAppResponseSchema,
+  type RegisterAppResponse,
+  DelistProofKindSchema,
+  type DelistProofKind,
+  DelistRequestSchema,
+  type DelistRequest,
+  DelistResponseSchema,
+  type DelistResponse
+} from "./downstream.ts";

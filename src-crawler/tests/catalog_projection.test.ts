@@ -199,7 +199,7 @@ describe("G2 canonical projection via VPM observation submission", () => {
     } finally { store.close(); }
   });
 
-  test("non-VPM observation does not create a canonical package", () => {
+  test("non-VPM storefront observation automatically creates canonical package and front", () => {
     const store = new LocalCoordinatorStore();
     try {
       const nodeId = "test-node";
@@ -225,9 +225,15 @@ describe("G2 canonical projection via VPM observation submission", () => {
           }
         }
       }, principal);
-      // No canonical package should be created for non-VPM
+      // Non-VPM storefront observation automatically creates canonical package and package front
       const { packages } = store.listCanonicalPackagesPage(100, null);
-      expect(packages).toHaveLength(0);
+      expect(packages).toHaveLength(1);
+      expect(packages[0].canonicalId).toBe("booth-item-12345");
+      expect(packages[0].displayName).toBe("Cool Shader");
+      expect(packages[0].vpmId).toBeNull();
+      expect(packages[0].fronts).toHaveLength(1);
+      expect(packages[0].fronts[0].platform).toBe("booth");
+      expect(packages[0].fronts[0].storefrontUrl).toBe("https://booth.pm/ja/items/12345");
     } finally { store.close(); }
   });
 
@@ -1129,7 +1135,8 @@ describe("G2/G4 package fronts relational projection", () => {
       const inProcessRes = await handleOperatorRequest(operatorGet("/v1/operator/catalog"), store, OPERATOR_TOKEN);
       expect(inProcessRes.status).toBe(200);
       const inProcessBody = CatalogListResponseSchema.parse(await inProcessRes.json());
-      expect(inProcessBody.packages).toHaveLength(2);
+      expect(inProcessBody.packages).toHaveLength(3);
+      expect(inProcessBody.packages.some(p => p.canonicalId === "item-99001")).toBe(true);
 
       const pkgWithFront = inProcessBody.packages.find(p => p.canonicalId === "com.api.pkg1")!;
       expect(pkgWithFront).toBeDefined();

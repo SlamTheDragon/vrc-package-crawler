@@ -274,3 +274,26 @@ export function deriveCategoryFromTags(
 
   return defaultCategory;
 }
+
+/**
+ * Derives a canonical umbrella ('tools', 'assets', 'avatars') from platform tags.
+ */
+export function deriveUmbrellaFromTags(
+  platformTags: string[] | undefined,
+  defaultUmbrella: "tools" | "assets" | "avatars" = "tools"
+): "tools" | "assets" | "avatars" {
+  if (!platformTags || platformTags.length === 0) return defaultUmbrella;
+  const normalized = platformTags.map(t => (t || "").normalize("NFKC").toLowerCase().trim());
+  for (const tag of normalized) {
+    if (tag === "avatar_tool" || tag === "avatar-tool" || tag.includes("tool") || tag.includes("script") || tag.includes("system") || tag.includes("gimmick") || tag.includes("osc") || tag.includes("tracking")) {
+      return "tools";
+    }
+    if (tag.includes("shader") || tag.includes("texture") || tag.includes("material") || tag.includes("prop") || tag.includes("asset")) {
+      return "assets";
+    }
+    if (tag.includes("avatar") || tag.includes("clothing") || tag.includes("hair") || tag.includes("outfit") || tag.includes("cosmetic")) {
+      return "avatars";
+    }
+  }
+  return defaultUmbrella;
+}

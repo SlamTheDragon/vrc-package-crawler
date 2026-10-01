@@ -30,6 +30,7 @@ coordinator.config.json
 # TypeScript incremental build cache
 tsconfig.tsbuildinfo
 .idea/
+.obsidian/
 
 # Root scratch and temporary files; src-crawler/scratch contains reproducible smoke scripts
 scratch/

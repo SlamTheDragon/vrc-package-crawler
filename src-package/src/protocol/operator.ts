@@ -21,21 +21,68 @@ export const LeadKindSchema = z.enum([
 ]);
 export type LeadKind = z.infer<typeof LeadKindSchema>;
 
-export const LeadRowSchema = z.strictObject({
+export const LeadRowSchema = z.preprocess((val: any) => {
+  if (val && typeof val === "object") {
+    const leadKey = val.leadKey ?? val.lead_key;
+    const leadKind = val.leadKind ?? val.kind;
+    const targetUrl = val.targetUrl ?? val.target_url;
+    const firstSeenAt = val.firstSeenAt ?? val.first_seen_at;
+    const lastSeenAt = val.lastSeenAt ?? val.last_seen_at;
+    const claimedPackageId = val.claimedPackageId ?? val.claimed_package_id ?? null;
+    const discoveredFromUrl = val.discoveredFromUrl ?? val.discovered_from_url ?? null;
+    const discoveredFromItemKey = val.discoveredFromItemKey ?? val.discovered_from_item_key ?? null;
+    return {
+      leadKey,
+      lead_key: leadKey,
+      leadKind,
+      kind: leadKind,
+      targetUrl,
+      target_url: targetUrl,
+      firstSeenAt,
+      first_seen_at: firstSeenAt,
+      lastSeenAt,
+      last_seen_at: lastSeenAt,
+      status: val.status,
+      claimedPackageId,
+      claimed_package_id: claimedPackageId,
+      discoveredFromUrl,
+      discovered_from_url: discoveredFromUrl,
+      discoveredFromItemKey,
+      discovered_from_item_key: discoveredFromItemKey,
+      reviewedAt: val.reviewedAt ?? null,
+      reviewedBy: val.reviewedBy ?? null,
+      reviewReason: val.reviewReason ?? null
+    };
+  }
+  return val;
+}, z.strictObject({
   leadKey: z.string().regex(/^[a-f0-9]{64}$/),
-  leadKind: LeadKindSchema,
-  targetUrl: z.string().url(),
-  firstSeenAt: z.string().datetime(),
-  lastSeenAt: z.string().datetime(),
+  lead_key: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  leadKind: z.string(),
+  kind: z.string().optional(),
+  targetUrl: z.string(),
+  target_url: z.string().optional(),
+  firstSeenAt: z.string(),
+  first_seen_at: z.string().optional(),
+  lastSeenAt: z.string(),
+  last_seen_at: z.string().optional(),
   status: LeadStatusSchema,
-  reviewedAt: z.string().datetime().nullable(),
-  reviewedBy: z.string().nullable(),
-  reviewReason: z.string().nullable()
-});
+  claimedPackageId: z.string().nullable().optional(),
+  claimed_package_id: z.string().nullable().optional(),
+  discoveredFromUrl: z.string().nullable().optional(),
+  discovered_from_url: z.string().nullable().optional(),
+  discoveredFromItemKey: z.string().nullable().optional(),
+  discovered_from_item_key: z.string().nullable().optional(),
+  reviewedAt: z.string().nullable().optional(),
+  reviewedBy: z.string().nullable().optional(),
+  reviewReason: z.string().nullable().optional()
+}));
 export type LeadRow = z.infer<typeof LeadRowSchema>;
 
 export const LeadCursorSchema = z.strictObject({
-  lastSeenAt: z.string().datetime(),
+  status: LeadStatusSchema.optional(),
+  firstSeenAt: z.string().optional(),
+  lastSeenAt: z.string().optional(),
   leadKey: z.string().regex(/^[a-f0-9]{64}$/)
 });
 export type LeadCursor = z.infer<typeof LeadCursorSchema>;
@@ -45,10 +92,13 @@ export function encodeLeadCursor(cursor: LeadCursor): string {
     .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
-export function decodeLeadCursor(value: string, _status?: LeadStatus): LeadCursor | null {
+export function decodeLeadCursor(value: string, status?: LeadStatus): LeadCursor | null {
   if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) return null;
   try {
     const cursor = LeadCursorSchema.parse(JSON.parse(atob(value.replaceAll("-", "+").replaceAll("_", "/"))));
+    if (cursor.status && status && cursor.status !== status) {
+      return null;
+    }
     return encodeLeadCursor(cursor) === value ? cursor : null;
   } catch {
     return null;
@@ -57,7 +107,7 @@ export function decodeLeadCursor(value: string, _status?: LeadStatus): LeadCurso
 
 export const ApproveLeadSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
-  minDelayMs: z.number().int().min(1000).max(86_400_000).optional(),
+  minDelayMs: z.number().int().min(0).max(86_400_000).optional(),
   reason: z.string().trim().min(3).max(300).default("Operator approved")
 });
 export type ApproveLead = z.infer<typeof ApproveLeadSchema>;

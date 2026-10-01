@@ -32,9 +32,10 @@ export function isUserToken(token: string): boolean {
   return USER_TOKEN_REGEX.test(token);
 }
 
-
 /**
- * Admin operator credentials are 64-character hex secrets.
+ * Admin operator credentials are 64-character hex secrets in version 0 wire protocols.
+ * In future web operator panel gates (src-web / Gate G10), Firebase and/or GitHub
+ * will be used for Auth / OAuth identity providers.
  */
 export const OPERATOR_TOKEN_REGEX = /^[0-9a-fA-F]{64}$/;
 

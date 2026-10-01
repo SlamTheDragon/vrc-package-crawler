@@ -36,16 +36,14 @@ import {
   LeadListResponseSchema,
   type LeadActionResponse,
   LeadActionResponseSchema,
-  type CreateSourceAccessProfile,
-  type SourceAccessProfile,
   type SourceAccessProfileListResponse,
   SourceAccessProfileListResponseSchema,
+  type CreateSourceAccessProfile,
   type SourceAccessProfileResponse,
   SourceAccessProfileResponseSchema,
-  type CreateAutoQueueRule,
-  type AutoQueueRule,
   type AutoQueueRuleListResponse,
   AutoQueueRuleListResponseSchema,
+  type CreateAutoQueueRule,
   type AutoQueueRuleResponse,
   AutoQueueRuleResponseSchema,
   type IssueNodeCredential,
@@ -80,7 +78,7 @@ export interface VrcPackagesClientOptions {
   appToken?: string;
   /** User token starting with `vrcp_usr_` */
   userToken?: string;
-  /** Admin operator secret token (64-char hex) */
+  /** Operator token for administrative endpoints */
   operatorToken?: string;
   /** Custom fetch implementation (defaults to global fetch) */
   fetch?: typeof fetch;
@@ -128,7 +126,7 @@ export class VrcPackagesClient {
     path: string,
     method: "GET" | "POST" | "DELETE",
     options: {
-      auth?: "app" | "user" | "operator" | "optional_user" | "app_or_user" | "none";
+      auth?: "app" | "user" | "optional_user" | "operator" | "none";
       body?: unknown;
       queryParams?: Record<string, string | number | undefined>;
     } = {}
@@ -163,12 +161,6 @@ export class VrcPackagesClient {
       headers["Authorization"] = `Bearer ${this.operatorToken}`;
     } else if (options.auth === "optional_user") {
       if (this.userToken) {
-        headers["Authorization"] = `Bearer ${this.userToken}`;
-      }
-    } else if (options.auth === "app_or_user") {
-      if (this.appToken) {
-        headers["Authorization"] = `Bearer ${this.appToken}`;
-      } else if (this.userToken) {
         headers["Authorization"] = `Bearer ${this.userToken}`;
       }
     }
@@ -294,7 +286,7 @@ export class VrcPackagesClient {
      * Gated by user authentication (userToken) or operator token.
      */
     register: async (request: RegisterAppRequest): Promise<RegisterAppResponse> => {
-      const auth = this.operatorToken ? "operator" : "user";
+      const auth = this.userToken ? "user" : (this.operatorToken ? "operator" : "none");
       const res = await this.request<unknown>("/v1/app/register", "POST", {
         auth,
         body: request
@@ -318,18 +310,17 @@ export class VrcPackagesClient {
   };
 
   /* ------------------------------------------------------------------------ */
-  /* User Namespace (/v1/user/* and /v1/delist)                               */
+  /* User Namespace (/v1/user/*)                                              */
   /* ------------------------------------------------------------------------ */
 
   readonly user = {
     /**
-     * Submits a delisting request (POST /v1/user/delist or unauthenticated /v1/delist).
+     * Submits a delisting request (POST /v1/user/delist).
      * If userToken was configured, authenticates as user.
      * If not, submits unauthenticated (requiring proofKind and proofValue).
      */
     delist: async (request: DelistRequest): Promise<DelistResponse> => {
-      const path = this.userToken ? "/v1/user/delist" : "/v1/delist";
-      const res = await this.request<unknown>(path, "POST", {
+      const res = await this.request<unknown>("/v1/user/delist", "POST", {
         auth: "optional_user",
         body: request
       });

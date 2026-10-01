@@ -63,19 +63,19 @@ export function loadNodeRuntimeConfig(cwd: string, env: NodeJS.ProcessEnv): Node
       databasePath,
     };
   }
-  const legacy = NodeRuntimeConfigSchema.safeParse({
+  const envConfig = NodeRuntimeConfigSchema.safeParse({
     schemaVersion: 1,
     nodeId: env.NODE_ID || "",
     coordinatorUrl: env.COORDINATOR_URL || "http://127.0.0.1:8787",
     capabilities: (env.NODE_CAPABILITIES || PlatformSchema.options.join(",")).split(","),
     databaseFile: "node.db",
   });
-  if (!legacy.success) throw new Error("Set NODE_ID and valid NODE_CAPABILITIES/COORDINATOR_URL, or provide node.config.json");
+  if (!envConfig.success) throw new Error("Set NODE_ID and valid NODE_CAPABILITIES/COORDINATOR_URL, or provide node.config.json");
   const databasePath = env.NODE_DB_PATH || join(cwd, "node.db");
   return {
-    nodeId: legacy.data.nodeId,
-    baseUrl: legacy.data.coordinatorUrl,
-    capabilities: legacy.data.capabilities,
+    nodeId: envConfig.data.nodeId,
+    baseUrl: envConfig.data.coordinatorUrl,
+    capabilities: envConfig.data.capabilities,
     token,
     databasePath,
   };

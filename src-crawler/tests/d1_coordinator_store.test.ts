@@ -553,18 +553,293 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     // Test worker_entry.fetch public unauthenticated routes
     const env: Env = { DB: mockDb, OPERATOR_TOKEN: "f".repeat(64) };
 
-    const catReq = new Request("http://coordinator.test/v1/catalog");
+    const catReq = new Request("http://coordinator.test/v1/app/index");
     const catRes = await workerEntry.fetch(catReq, env);
     expect(catRes.status).toBe(200);
     const catJson = await catRes.json() as any;
     expect(catJson.packages).toHaveLength(2);
 
-    const deltaReq = new Request("http://coordinator.test/v1/catalog/delta");
+    const deltaReq = new Request("http://coordinator.test/v1/app/index/delta");
     const deltaHttpRes = await workerEntry.fetch(deltaReq, env);
     expect(deltaHttpRes.status).toBe(200);
     const deltaJson = await deltaHttpRes.json() as any;
     expect(deltaJson.deltas).toHaveLength(2);
     expect(deltaJson.epoch).toBe(epoch2);
   });
+
+  it("seeds initial source access profiles, robots snapshots, and seed jobs when autoSeed is true", async () => {
+    const mockDb = createMockD1Database();
+    const store = new Coordinator(mockDb);
+    await store.initSchema(true);
+
+    const profiles = await store.listSourceAccessProfilesPage(100, null);
+    expect(profiles.profiles.length).toBeGreaterThanOrEqual(5);
+
+    const boothProfile = profiles.profiles.find((p) => p.platform === "booth");
+    expect(boothProfile).toBeDefined();
+    expect(boothProfile?.origin).toBe("https://booth.pm");
+
+    const vpmProfile = profiles.profiles.find((p) => p.platform === "vpm");
+    expect(vpmProfile).toBeDefined();
+  });
+
+  it("supports upserting, retrieving, and deleting package fronts in D1", async () => {
+    const mockDb = createMockD1Database();
+    const store = new Coordinator(mockDb);
+    await store.initSchema();
+
+    await store.upsertCanonicalPackage({
+      canonicalId: "d1-pkg-fronted",
+      umbrella: "tools",
+      category: "vpm_package",
+      lifecycle: "active",
+      displayName: "Fronted D1 Package"
+    });
+
+    await mockDb.exec(`INSERT INTO source_items (source_key, platform, source_url, latest_digest, latest_version_no)
+      VALUES ('booth:https://booth.pm/ja/items/111:111', 'booth', 'https://booth.pm/ja/items/111', 'abc', 1)`);
+
+    const front = await store.upsertPackageFront({
+      canonicalId: "d1-pkg-fronted",
+      sourceKey: "booth:https://booth.pm/ja/items/111:111",
+      platform: "booth",
+      storefrontUrl: "https://booth.pm/ja/items/111",
+      price: 1500,
+      currency: "JPY",
+      availability: "available"
+    });
+    expect(front.canonicalId).toBe("d1-pkg-fronted");
+    expect(front.price).toBe(1500);
+
+    const fronts = await store.getPackageFrontsForCanonical("d1-pkg-fronted");
+    expect(fronts).toHaveLength(1);
+    expect(fronts[0].storefrontUrl).toBe("https://booth.pm/ja/items/111");
+
+    const deleted = await store.deletePackageFront(front.frontId);
+    expect(deleted).toBe(true);
+
+    const remainingFronts = await store.getPackageFrontsForCanonical("d1-pkg-fronted");
+    expect(remainingFronts).toHaveLength(0);
+  });
+
+  it("submitting a non-VPM storefront observation in D1 automatically creates canonical package and front", async () => {
+    const mockDb = createMockD1Database();
+    const store = new Coordinator(mockDb);
+    await store.initSchema();
+
+    const token = await store.issueNodeCredential({
+      schemaVersion: 1,
+      nodeId: "node-booth",
+      capabilities: ["booth"],
+      reason: "Booth crawler node"
+    }, "operator-admin");
+    const principal = (await store.authenticate("node-booth", token))!;
+
+    await store.createSourceAccessProfile({
+      schemaVersion: 1,
+      platform: "booth",
+      origin: "https://booth.pm",
+      pathScope: "/ja/items/",
+      method: "GET",
+      purpose: "metadata",
+      minDelayMs: 1500,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      reviewReference: "REV-BOOTH-01",
+      reason: "Booth metadata profile",
+      retainClasses: ["normalized_facts"],
+      publishClasses: ["normalized_facts"]
+    }, "operator-admin");
+
+    await store.recordRobotsSnapshot("https://booth.pm", 200, "User-agent: *\nAllow: /");
+    const jobId = await store.seedJob("https://booth.pm/ja/items/54321", "booth", 1500, undefined, "metadata");
+
+    const claimRes = await store.claim({
+      schemaVersion: 1,
+      nodeId: "node-booth",
+      capabilities: ["booth"]
+    }, principal);
+    expect(claimRes.status).toBe("leased");
+    if (claimRes.status !== "leased") throw new Error("Expected leased status");
+
+    const submitRes = await store.submit({
+      schemaVersion: 1,
+      nodeId: "node-booth",
+      jobId: claimRes.job.jobId,
+      leaseId: claimRes.job.leaseId,
+      idempotencyKey: "submit-booth-001",
+      outcome: {
+        kind: "changed",
+        observation: {
+          sourceItemKey: "booth.pm/ja/items/54321",
+          title: "Awesome Shader Asset",
+          summary: "",
+          author: "ShaderDev",
+          outboundLinks: [],
+          originUpdatedAt: null,
+          price: 2000,
+          currency: "JPY",
+          availability: "available",
+          platformTags: ["shader"]
+        }
+      }
+    }, principal);
+
+    expect(submitRes.status).toBe("accepted");
+
+    // Canonical package should be automatically created in D1
+    const canonical = await store.getCanonicalPackage("booth.pm/ja/items/54321");
+    expect(canonical).not.toBeNull();
+    expect(canonical?.canonicalId).toBe("booth.pm/ja/items/54321");
+    expect(canonical?.displayName).toBe("Awesome Shader Asset");
+    expect(canonical?.vpmId).toBeNull();
+    expect(canonical?.category).toBe("shader");
+    expect(canonical?.umbrella).toBe("assets");
+
+    // Package front should be automatically created in D1
+    const fronts = await store.getPackageFrontsForCanonical("booth.pm/ja/items/54321");
+    expect(fronts).toHaveLength(1);
+    expect(fronts[0].platform).toBe("booth");
+    expect(fronts[0].storefrontUrl).toBe("https://booth.pm/ja/items/54321");
+    expect(fronts[0].price).toBe(2000);
+    expect(fronts[0].currency).toBe("JPY");
+    expect(fronts[0].availability).toBe("available");
+  });
+
+  it("auto-delists package front and canonical package when storefront source is gone", async () => {
+    const mockDb = createMockD1Database();
+    const store = new Coordinator(mockDb);
+    await store.initSchema();
+
+    const token = await store.issueNodeCredential({
+      schemaVersion: 1,
+      nodeId: "node-delist-test",
+      capabilities: ["booth"],
+      reason: "Booth delist test node"
+    }, "operator-admin");
+    const principal = (await store.authenticate("node-delist-test", token))!;
+
+    await store.createSourceAccessProfile({
+      schemaVersion: 1,
+      platform: "booth",
+      origin: "https://booth.pm",
+      pathScope: "/ja/items/",
+      method: "GET",
+      purpose: "metadata",
+      minDelayMs: 1500,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      reviewReference: "REV-BOOTH-02",
+      reason: "Booth metadata profile",
+      retainClasses: ["normalized_facts"],
+      publishClasses: ["normalized_facts"]
+    }, "operator-admin");
+
+    await store.recordRobotsSnapshot("https://booth.pm", 200, "User-agent: *\nAllow: /");
+    await store.seedJob("https://booth.pm/ja/items/99999", "booth", 1500, undefined, "metadata");
+
+    const claim1 = await store.claim({
+      schemaVersion: 1,
+      nodeId: "node-delist-test",
+      capabilities: ["booth"]
+    }, principal);
+    if (claim1.status !== "leased") throw new Error("Expected leased status");
+
+    await store.submit({
+      schemaVersion: 1,
+      nodeId: "node-delist-test",
+      jobId: claim1.job.jobId,
+      leaseId: claim1.job.leaseId,
+      idempotencyKey: "submit-booth-create",
+      outcome: {
+        kind: "changed",
+        observation: {
+          sourceItemKey: "booth.pm/ja/items/99999",
+          title: "Temporary Prop",
+          summary: "",
+          author: "Artist",
+          outboundLinks: [],
+          originUpdatedAt: null,
+          price: 500,
+          currency: "JPY",
+          availability: "available",
+          platformTags: ["accessory"]
+        }
+      }
+    }, principal);
+
+    let canonical = await store.getCanonicalPackage("booth.pm/ja/items/99999");
+    expect(canonical?.lifecycle).toBe("active");
+    let fronts = await store.getPackageFrontsForCanonical("booth.pm/ja/items/99999");
+    expect(fronts[0].availability).toBe("available");
+
+    // Re-queue for revisit
+    await mockDb.prepare("UPDATE crawl_jobs SET state='pending', next_fetch_at='2020-01-01T00:00:00.000Z' WHERE url=?")
+      .bind("https://booth.pm/ja/items/99999").run();
+    await mockDb.prepare("UPDATE origin_leases SET next_allowed_at='2020-01-01T00:00:00.000Z' WHERE origin=?")
+      .bind("https://booth.pm").run();
+    const claim2 = await store.claim({
+      schemaVersion: 1,
+      nodeId: "node-delist-test",
+      capabilities: ["booth"]
+    }, principal);
+    if (claim2.status !== "leased") throw new Error("Expected leased status");
+
+    // Storefront item returned 404/gone
+    await store.submit({
+      schemaVersion: 1,
+      nodeId: "node-delist-test",
+      jobId: claim2.job.jobId,
+      leaseId: claim2.job.leaseId,
+      idempotencyKey: "submit-booth-gone",
+      outcome: {
+        kind: "gone"
+      }
+    }, principal);
+
+    canonical = await store.getCanonicalPackage("booth.pm/ja/items/99999");
+    expect(canonical?.lifecycle).toBe("delisted");
+    fronts = await store.getPackageFrontsForCanonical("booth.pm/ja/items/99999");
+    expect(fronts[0].availability).toBe("delisted");
+  });
+
+  it("workerEntry fetch handles POST /v1/operator/init and enforces operator auth", async () => {
+    const db = createMockD1Database();
+    const operatorToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const env: Env = { DB: db, OPERATOR_TOKEN: operatorToken };
+
+    // Unauthorized without auth header
+    const unauthReq = new Request("http://localhost/v1/operator/init", {
+      method: "POST",
+      body: JSON.stringify({ autoSeed: true })
+    });
+    const unauthRes = await workerEntry.fetch(unauthReq, env);
+    expect(unauthRes.status).toBe(401);
+
+    // Unauthorized with wrong token
+    const wrongReq = new Request("http://localhost/v1/operator/init", {
+      method: "POST",
+      headers: { authorization: "Bearer wrongtoken" },
+      body: JSON.stringify({ autoSeed: true })
+    });
+    const wrongRes = await workerEntry.fetch(wrongReq, env);
+    expect(wrongRes.status).toBe(401);
+
+    // Authorized init
+    const authReq = new Request("http://localhost/v1/operator/init", {
+      method: "POST",
+      headers: { authorization: `Bearer ${operatorToken}` },
+      body: JSON.stringify({ autoSeed: true })
+    });
+    const authRes = await workerEntry.fetch(authReq, env);
+    expect(authRes.status).toBe(200);
+    const body = await authRes.json() as any;
+    expect(body.status).toBe("ok");
+    expect(body.autoSeed).toBe(true);
+
+    // Subsequent catalog query returns 200 after init
+    const catalogReq = new Request("http://localhost/v1/app/index", { method: "GET" });
+    const catalogRes = await workerEntry.fetch(catalogReq, env);
+    expect(catalogRes.status).toBe(200);
+  });
 });
+
 

@@ -5,6 +5,7 @@ import { createOperatorHandler } from "./api/operator_handler.ts";
 import { createPublicCatalogHandler } from "./api/public_handler.ts";
 import { createDownstreamHandler } from "./api/downstream_handler.ts";
 import { createUserHandler } from "./api/user_handler.ts";
+import { timingSafeEqual } from "./storage/d1/utils.ts";
 import { workerLogger } from "./worker_logger.ts";
 
 export interface Env {
@@ -12,10 +13,36 @@ export interface Env {
   OPERATOR_TOKEN: string;
 }
 
+function isOperatorAuthorized(request: Request, configuredToken: string): boolean {
+  if (!configuredToken || !/^[a-fA-F0-9]{64}$/.test(configuredToken)) return false;
+  const supplied = request.headers.get("authorization") || "";
+  if (!/^Bearer [a-fA-F0-9]{64}$/.test(supplied)) return false;
+  return timingSafeEqual(supplied.slice(7), configuredToken);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
       const store = new Coordinator(env.DB);
+      const url = new URL(request.url);
+
+      if (request.method === "POST" && url.pathname === "/v1/operator/init") {
+        if (!isOperatorAuthorized(request, env.OPERATOR_TOKEN)) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        const body = (await request.json().catch(() => ({}))) as { autoSeed?: boolean };
+        const autoSeed = body?.autoSeed !== false;
+        await store.initSchema(autoSeed);
+        workerLogger.info("Coordinator D1 schema initialized via /v1/operator/init", { autoSeed });
+        return new Response(JSON.stringify({ status: "ok", message: "Schema initialized", autoSeed }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
       const publicHandler = createPublicCatalogHandler(store);
       const downstreamHandler = createDownstreamHandler(store);
       const userHandler = createUserHandler(store);

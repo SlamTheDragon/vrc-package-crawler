@@ -6,9 +6,10 @@
    accepted decision, changed files, tests/builds and dates, negative cases,
    remaining uncertainty, and the next action. Quote concrete evidence.
 3. Reconcile the ledger with `git diff`, current tests,
-   `docs/decisions/current/CONFORMANCE.md`, `docs/decisions/IMPLEMENTATION_PLAN.md`,
-   and `docs/decisions/DEFERRED_OWNER_DECISIONS.md`. If a
-   claim cannot be reproduced, downgrade it to unverified.
+   `docs/scratch/current/CONFORMANCE.md`, `docs/scratch/IMPLEMENTATION_PLAN.md`,
+   `docs/scratch/DEFERRED_OWNER_DECISIONS.md`, and the active
+   `docs/scratch/task_tracker.md`. If a claim cannot be reproduced, downgrade
+   it to unverified.
 4. On a stop hook, save the checkpoint and obey any explicit user pause. Do
    not infer completion from hook success, second-pass confidence, or a
    polished summary. On resume, verify the baseline and continue the next
