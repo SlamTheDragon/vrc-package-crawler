@@ -22,7 +22,7 @@ sequenceDiagram
     participant Coord as Coordinator (vrc-coordinator)
     participant Origin as Target Storefront / Manifest
 
-    Node->>Coord: POST /v1/node/claim (nodeId, capabilities)
+    Node->>Coord: POST /v1/node/jobs/claim (nodeId, capabilities)
     Coord-->>Node: CrawlJob (url, platform, leaseToken, expiresAt)
     loop Every 5 seconds
         Node->>Coord: POST /v1/node/heartbeat (leaseToken)
@@ -31,22 +31,22 @@ sequenceDiagram
     Node->>Origin: Pinned DNS HTTPS Fetch (robots & profile gated)
     Origin-->>Node: Response Payload (HTML / JSON / 304)
     Node->>Node: ObservationAdapter.parse() -> Normalized Facts
-    Node->>Coord: POST /v1/node/result (leaseToken, outcome)
+    Node->>Coord: POST /v1/node/jobs/result (leaseToken, outcome)
     Coord-->>Node: { accepted: true }
     Node->>Node: Record Task to node.db
 ```
 
-1. **Lease Claiming (`POST /v1/node/claim`)**:
+1. **Lease Claiming (`POST /v1/node/jobs/claim`)**:
    - The node polls the coordinator for an available job that matches its declared capabilities (`vpm`, `github`, `booth`, `shopify`).
    - If no jobs are due, the node sleeps for the `retryAfterMs` duration sent by the coordinator.
 2. **Periodic Heartbeat (`POST /v1/node/heartbeat`)**:
    - A timer renews the active lease every 5 seconds.
    - If the coordinator becomes unreachable, the node aborts in-flight processing and fails closed.
 3. **Observation Parsing**:
-   - The node parses outbound responses in memory with `src/node/observation_adapter.ts`.
+   - The node parses outbound responses in memory with `src-crawler/src/node/adapters/observation_adapter.ts`.
    - The node never downloads or stores binary archives (`.unitypackage`, `.zip`, `.fbx`).
    - It limits description length to functional metadata summaries.
-4. **Result Submission (`POST /v1/node/result`)**:
+4. **Result Submission (`POST /v1/node/jobs/result`)**:
    - The node submits structured observation facts, discovered leads, or access failure diagnostics.
 
 ---

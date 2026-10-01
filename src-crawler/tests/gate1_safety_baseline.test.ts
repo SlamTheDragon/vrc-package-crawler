@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { AdaptiveRateLimiter } from "../src/utils/adaptive_limiter.ts";
-import { DomainCircuitBreaker } from "../src/utils/circuit_breaker.ts";
-import { circuitBreaker } from "../src/utils/circuit_breaker.ts";
-import { applyAccessFailure, isChallengeResponse, type AccessStatusSink } from "../src/node/fetch_outcome.ts";
+import { AdaptiveRateLimiter } from "../src/utils/resilience/adaptive_limiter.ts";
+import { DomainCircuitBreaker } from "../src/utils/resilience/circuit_breaker.ts";
+import { circuitBreaker } from "../src/utils/resilience/circuit_breaker.ts";
+import { applyAccessFailure, isChallengeResponse, type AccessStatusSink } from "../src/node/client/fetch_outcome.ts";
 
 describe("Gate 1 safety baseline", () => {
   it("bounds Retry-After so one origin cannot suspend the crawler indefinitely", () => {

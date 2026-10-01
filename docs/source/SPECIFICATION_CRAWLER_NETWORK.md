@@ -21,19 +21,27 @@ Version 1 Zod schemas in `src-crawler/src/shared/node_protocol.ts` and `operator
 ### 2.1 Crawler Node Protocol (`/v1/node/*`)
 Needs `Authorization: Bearer <NODE_TOKEN>`.
 
-- `POST /v1/node/claim`: Issues an origin lease and atomic crawl job to an authorized node. Returns a job payload or `{ status: "empty", retryAfterMs: number }`.
+- `POST /v1/node/jobs/claim`: Issues an origin lease and atomic crawl job to an authorized node. Returns a job payload or `{ status: "empty", retryAfterMs: number }`.
 - `POST /v1/node/heartbeat`: Renews active job leases and confirms node liveness.
-- `POST /v1/node/result`: Submits observation facts, discovered leads, or access failure diagnostics. Transitions job state and updates canonical catalog tables.
+- `POST /v1/node/jobs/result`: Submits observation facts, discovered leads, or access failure diagnostics. Transitions job state and updates canonical catalog tables.
 
 ### 2.2 Operator Control Protocol (`/v1/operator/*`)
 Needs `Authorization: Bearer <OPERATOR_TOKEN>` (256-bit entropy token issued at first boot or set in `coordinator.config.json`).
 
 - `POST /v1/operator/nodes`: Registers a new crawler node and returns a one-time 64-hex bearer token (`no-store`).
-- `GET /v1/operator/profiles` and `POST /v1/operator/profiles`: Audits and provisions scoped source-access profiles.
-- `GET /v1/operator/rules` and `POST /v1/operator/rules`: Configures expiring, path-scoped auto-queue rules for discovered leads.
+- `GET /v1/operator/source-profiles` and `POST /v1/operator/source-profiles`: Audits and provisions scoped source-access profiles.
+- `POST /v1/operator/source-profiles/{profileId}/disable`: Disables an active source-access profile and invalidates active leases.
+- `GET /v1/operator/autoqueue-rules` and `POST /v1/operator/autoqueue-rules`: Configures expiring, path-scoped auto-queue rules for discovered leads.
+- `POST /v1/operator/autoqueue-rules/{ruleId}/disable`: Disables an active auto-queue rule and stops associated fetches.
 - `GET /v1/operator/leads`: Inspects pending discovery leads with keyset pagination.
-- `POST /v1/operator/leads/review`: Approves or rejects pending leads.
+- `POST /v1/operator/leads/{leadKey}/approve` and `POST /v1/operator/leads/{leadKey}/reject`: Approves or rejects pending leads.
 - `GET /v1/operator/catalog`: Queries deduplicated `canonical_packages` with keyset pagination.
+
+### 2.3 Public Consumer Protocol (Planned Gate G4/G6)
+Public, unauthenticated read-only catalog streaming endpoints for downstream package managers (ALCOM, VCC) and web portal (`src-web`):
+
+- `GET /v1/catalog`: Queries projected canonical catalog items.
+- `GET /v1/catalog/delta`: Emits incremental catalog changes and delisting tombstones with epoch preservation.
 
 ---
 

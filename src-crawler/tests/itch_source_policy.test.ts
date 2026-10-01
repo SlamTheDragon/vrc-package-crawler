@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildItchSeedUrls, isItchSearchUrl } from "../src/shared/source_path_policy.ts";
+import { buildItchSeedUrls, isItchSearchUrl } from "../src/shared/policy/source_path_policy.ts";
 
 describe("itch.io source-policy boundary", () => {
   test("default browse seeds do not include the robots-disallowed search prefix", () => {

@@ -7,8 +7,8 @@ Execute this procedure whenever conversational context feels degraded, after a c
    - Run `git status --short` and `git diff --stat` to identify the exact physical changes on disk. Any uncommitted work is treated as ground state.
 
 2. **Re-anchor from canonical normative & descriptive anchors**:
-   - Read the single active gate and owner constraints in [`docs/scratch/decisions/DIRECTION.md`](../../../docs/scratch/decisions/DIRECTION.md) (§1.4–1.5) and [`docs/scratch/decisions/IMPLEMENTATION_PLAN.md`](../../../docs/scratch/decisions/IMPLEMENTATION_PLAN.md).
-   - Read measured reality in [`docs/scratch/decisions/current/CONFORMANCE.md`](../../../docs/scratch/decisions/current/CONFORMANCE.md) and open questions in [`docs/scratch/decisions/DEFERRED_OWNER_DECISIONS.md`](../../../docs/scratch/decisions/DEFERRED_OWNER_DECISIONS.md).
+   - Read the single active gate and owner constraints in [`docs/scratch/DIRECTION.md`](../../../docs/scratch/DIRECTION.md) (§1.4–1.5) and [`docs/scratch/IMPLEMENTATION_PLAN.md`](../../../docs/scratch/IMPLEMENTATION_PLAN.md).
+   - Read measured reality in [`docs/scratch/current/CONFORMANCE.md`](../../../docs/scratch/current/CONFORMANCE.md) and open questions in [`docs/scratch/DEFERRED_OWNER_DECISIONS.md`](../../../docs/scratch/DEFERRED_OWNER_DECISIONS.md).
    - Never extrapolate requirements beyond what is explicitly accepted by the owner.
 
 3. **Triangulate code boundaries (AST over RAG)**:

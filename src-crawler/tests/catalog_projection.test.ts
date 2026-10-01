@@ -3,8 +3,8 @@ import crypto from "node:crypto";
 import { handleOperatorRequest } from "../src/worker/operator_handler.ts";
 import { handleNodeRequest } from "../src/worker/handler.ts";
 import { LocalCoordinatorStore } from "../src/worker/local_sqlite.ts";
-import { OPERATOR_PROTOCOL_VERSION, CatalogListResponseSchema, decodeCatalogCursor } from "../src/shared/operator_protocol.ts";
-import { PROTOCOL_VERSION } from "../src/shared/node_protocol.ts";
+import { OPERATOR_PROTOCOL_VERSION, CatalogListResponseSchema, decodeCatalogCursor } from "../src/shared/protocol/operator_protocol.ts";
+import { PROTOCOL_VERSION } from "../src/shared/protocol/node_protocol.ts";
 import { approveFixtureSource, seedApprovedFixtureJob } from "./helpers/source_access_fixture.ts";
 
 const OPERATOR_TOKEN = "a".repeat(64);

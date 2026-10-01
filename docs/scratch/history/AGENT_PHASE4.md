@@ -3,8 +3,8 @@
 > **Version-0 review note (2026-09-28):** This contract contains Phase 4
 > architecture and historical binary/schema descriptions, some of which no
 > longer match the local coordinator/node split. Use the live-code
-> [pipeline responsibility map](../decisions/current/PIPELINE_RESPONSIBILITY_MAP.md),
-> `../decisions/DIRECTION.md`, `../IMPLEMENTATION_PLAN.md`, and `../CONFORMANCE.md` to check
+> [pipeline responsibility map](../current/PIPELINE_RESPONSIBILITY_MAP.md),
+> `../DIRECTION.md`, `../IMPLEMENTATION_PLAN.md`, and `../current/CONFORMANCE.md` to check
 > current behavior and gate status before implementing from this document.
 > Antigravity's active workspace guardrails are in `.agents/rules/` and its
 > bounded-work procedures are in `.agents/skills/`. A successful stop hook

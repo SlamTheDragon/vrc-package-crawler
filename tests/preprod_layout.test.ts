@@ -16,7 +16,6 @@ describe("Pre-production directory layout and configuration conformance", () => 
       "src-crawler/src/node",
       "docs",
       "docs/scratch",
-      "docs/scratch/decisions",
       "docs/research",
       "docs/source",
     ];
@@ -32,8 +31,8 @@ describe("Pre-production directory layout and configuration conformance", () => 
       "DELEGATES.md",
       "TODO.md",
       "LEGAL.md",
-      "docs/scratch/decisions/DEFERRED_OWNER_DECISIONS.md",
-      "docs/scratch/decisions/DIRECTION.md",
+      "docs/scratch/DEFERRED_OWNER_DECISIONS.md",
+      "docs/scratch/DIRECTION.md",
       "src-crawler/config.json",
     ];
 

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { LocalNodeStore } from "../src/node/local_sqlite.ts";
-import type { CrawlJob, ResultResponse } from "../src/shared/node_protocol.ts";
+import { LocalNodeStore } from "../src/node/storage/local_sqlite.ts";
+import type { CrawlJob, ResultResponse } from "../src/shared/protocol/node_protocol.ts";
+import { getTestOutputDir } from "./helpers/test_directory.ts";
 
-const tempRoot = realpathSync(tmpdir());
+const tempRoot = getTestOutputDir();
 function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrc-node-store-")); }
 function removeFixtureDirectory(directory: string): void {
   if (!realpathSync(directory).startsWith(tempRoot + sep)) throw new Error("Unexpected fixture path");

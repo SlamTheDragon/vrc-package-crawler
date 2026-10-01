@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { normalizeListingTitle } from "../src/utils/sanitizer.ts";
-import { SimHash64 } from "../src/utils/simhash.ts";
+import { normalizeListingTitle } from "../src/utils/text/sanitizer.ts";
+import { SimHash64 } from "../src/utils/text/simhash.ts";
 
 describe("Phase 2 - Task 2.4: Implement CJK Text Normalization & SimHash Bracket Stripping", () => {
   it("normalizes NFKC and strips full-width decorative brackets", () => {

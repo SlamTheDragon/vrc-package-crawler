@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { initializeCoordinatorConfig, loadCoordinatorRuntimeConfig } from "../src/worker/runtime_config.ts";
+import { getTestOutputDir } from "./helpers/test_directory.ts";
 
-const tempRoot = realpathSync(tmpdir());
+const tempRoot = getTestOutputDir();
 function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrc-coordinator-config-")); }
 function removeFixtureDirectory(directory: string): void {
   if (!realpathSync(directory).startsWith(tempRoot + sep)) throw new Error("Unexpected config fixture path");

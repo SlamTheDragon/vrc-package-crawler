@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { RobotsEnforcer } from "../src/utils/robots.ts";
+import { RobotsEnforcer } from "../src/utils/robots/robots.ts";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });

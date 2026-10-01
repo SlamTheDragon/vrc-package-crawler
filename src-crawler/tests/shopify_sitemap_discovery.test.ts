@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { LocalCoordinatorStore } from "../src/worker/local_sqlite.ts";
 import { handleNodeRequest } from "../src/worker/handler.ts";
-import { CoordinatorClient } from "../src/node/coordinator_client.ts";
-import { runLeasedJob } from "../src/node/lease_runner.ts";
-import { fetchJobOutcome } from "../src/node/observation_adapter.ts";
-import { CrawlJobSchema } from "../src/shared/node_protocol.ts";
+import { CoordinatorClient } from "../src/node/client/coordinator_client.ts";
+import { runLeasedJob } from "../src/node/runner/lease_runner.ts";
+import { fetchJobOutcome } from "../src/node/adapters/observation_adapter.ts";
+import { CrawlJobSchema } from "../src/shared/protocol/node_protocol.ts";
 import { approveFixtureSource } from "./helpers/source_access_fixture.ts";
 
 const sitemapUrl = "https://merchant.example/sitemap_products_1.xml?from=1&to=100";

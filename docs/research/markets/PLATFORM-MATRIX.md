@@ -1,6 +1,6 @@
 # Platform Compliance and Legal Status Matrix
 
-This document records the access posture and unresolved policy questions for candidate storefront platforms. It is not a live-source approval or legal opinion. See the dated [source access checkpoint](../../scratch/decisions/current/SOURCE_ACCESS_AND_SAFETY.md) for implementation evidence.
+This document records the access posture and unresolved policy questions for candidate storefront platforms. It is not a live-source approval or legal opinion. See the dated [source access checkpoint](../../scratch/current/SOURCE_ACCESS_AND_SAFETY.md) for implementation evidence.
 
 ---
 

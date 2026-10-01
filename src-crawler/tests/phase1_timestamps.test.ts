@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { cleanTitle, cleanAuthorName } from "../src/utils/sanitizer.ts";
+import { cleanTitle, cleanAuthorName } from "../src/utils/text/sanitizer.ts";
 
 describe("Phase 1 - Task 1.4: Timestamp Invariant & Disallow Crawl Fetch Time for Missing Dates", () => {
   let testDb: Database;

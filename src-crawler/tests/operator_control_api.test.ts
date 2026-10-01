@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { LocalCoordinatorStore } from "../src/worker/local_sqlite.ts";
 import { handleOperatorRequest } from "../src/worker/operator_handler.ts";
 import { handleNodeRequest } from "../src/worker/handler.ts";
-import { OPERATOR_API_JSON_SCHEMAS } from "../src/shared/operator_protocol.ts";
+import { OPERATOR_API_JSON_SCHEMAS } from "../src/shared/protocol/operator_protocol.ts";
 import { approveFixtureSource, seedApprovedFixtureJob } from "./helpers/source_access_fixture.ts";
 
 const operatorToken = "a".repeat(64);

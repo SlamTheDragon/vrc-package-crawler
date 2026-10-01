@@ -1,6 +1,6 @@
 # Indexing the VRChat Asset Ecosystem Across Platform Policies, Crawler Protocols, and Creator Norms
 
-> **Historical research draft, not a current access decision (2026-09-27).** Its claims that all storefronts prohibit crawlers, its BOOTH interpretation, and its API assumptions are superseded by the dated primary-source [source access review](../scratch/decisions/current/SOURCE_ACCESS_AND_SAFETY.md) and [platform matrix](markets/PLATFORM-MATRIX.md). Do not use this draft to authorize live requests, retention, or republication.
+> **Historical research draft, not a current access decision (2026-09-27).** Its claims that all storefronts prohibit crawlers, its BOOTH interpretation, and its API assumptions are superseded by the dated primary-source [source access review](../scratch/current/SOURCE_ACCESS_AND_SAFETY.md) and [platform matrix](markets/PLATFORM-MATRIX.md). Do not use this draft to authorize live requests, retention, or republication.
 
 A discovery engine for the VRChat asset ecosystem must operate within platform terms, perimeter defenses, and creator community norms.
 

@@ -4,8 +4,8 @@ This is the current entry point for agents working in this repository. [`docs/sc
 
 ## Read before changing code
 
-1. Read `docs/scratch/decisions/DIRECTION.md` for owner intent and accepted decisions, especially §1.4–1.5; read `docs/scratch/decisions/IMPLEMENTATION_PLAN.md` for gate order, `TODO.md` for historical and remaining work, and `LEGAL.md` for target covenants. None alone proves runtime behavior.
-2. Read `docs/scratch/decisions/current/CONFORMANCE.md` and `docs/scratch/decisions/current/PIPELINE_RESPONSIBILITY_MAP.md` for the current evidence-backed boundary map. Verify claims against the live code path and tests. Record unresolved owner choices in `docs/scratch/decisions/DEFERRED_OWNER_DECISIONS.md` rather than deciding for the owner.
+1. Read `docs/scratch/DIRECTION.md` for owner intent and accepted decisions, especially §1.4–1.5; read `docs/scratch/IMPLEMENTATION_PLAN.md` for gate order, `TODO.md` for historical and remaining work, and `LEGAL.md` for target covenants. None alone proves runtime behavior.
+2. Read `docs/scratch/current/CONFORMANCE.md` and `docs/scratch/current/PIPELINE_RESPONSIBILITY_MAP.md` for the current evidence-backed boundary map. Verify claims against the live code path and tests. Record unresolved owner choices in `docs/scratch/DEFERRED_OWNER_DECISIONS.md` rather than deciding for the owner.
 3. Use `.agents/rules/` and the relevant `.agents/skills/` for orientation, incremental delivery, checkpointing and reliability review. A stop hook, summary or green test suite is not permission to declare the owner's goal complete.
 
 ## Current target and safety boundaries

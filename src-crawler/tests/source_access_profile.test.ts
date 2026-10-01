@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { CreateSourceAccessProfileSchema, SourceAccessProfileSchema,
-  sourceAccessProfileMatches, type CreateSourceAccessProfile } from "../src/shared/source_access_profile.ts";
+  sourceAccessProfileMatches, type CreateSourceAccessProfile } from "../src/shared/policy/source_access_profile.ts";
 import { LocalCoordinatorStore } from "../src/worker/local_sqlite.ts";
 import { handleOperatorRequest } from "../src/worker/operator_handler.ts";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getTestOutputDir } from "./helpers/test_directory.ts";
 
 const input = {
   schemaVersion: 1 as const, platform: "vpm" as const, origin: "https://packages.example.org",
@@ -251,7 +251,7 @@ describe("source-access profile contract", () => {
   });
 
   test("an older coordinator database gains no implicit grants or valid old leases", () => {
-    const directory = mkdtempSync(join(tmpdir(), "vrc-profile-migration-"));
+    const directory = mkdtempSync(join(getTestOutputDir(), "vrc-profile-migration-"));
     const dbPath = join(directory, "legacy.db");
     const old = new Database(dbPath, { create: true });
     try {
@@ -312,7 +312,7 @@ describe("source-access profile contract", () => {
   });
 
   test("a pre-query profile table gains a nullable query column without a grant", () => {
-    const directory = mkdtempSync(join(tmpdir(), "vrc-query-profile-migration-"));
+    const directory = mkdtempSync(join(getTestOutputDir(), "vrc-query-profile-migration-"));
     const dbPath = join(directory, "old-profile.db");
     const old = new Database(dbPath, { create: true });
     try {

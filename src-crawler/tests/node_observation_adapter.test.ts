@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { parseGitHubRepository, parseObservation, parseVpmListingRecipe, parseVpmRepository, parseCuratedDiscoveryLeads, fetchJobOutcome } from "../src/node/observation_adapter.ts";
-import { CrawlJobSchema, ResultRequestSchema } from "../src/shared/node_protocol.ts";
-import { CRAWLER_USER_AGENT, CRAWLER_ROBOTS_TOKEN } from "../src/shared/crawler_identity.ts";
+import { parseGitHubRepository, parseObservation, parseVpmListingRecipe, parseVpmRepository, parseCuratedDiscoveryLeads, fetchJobOutcome } from "../src/node/adapters/observation_adapter.ts";
+import { CrawlJobSchema, ResultRequestSchema } from "../src/shared/protocol/node_protocol.ts";
+import { CRAWLER_USER_AGENT, CRAWLER_ROBOTS_TOKEN } from "../src/shared/robots/crawler_identity.ts";
 
 const job = CrawlJobSchema.parse({
   jobId: "test", leaseId: "c2dd6562-6fa4-4cd2-84ae-0c090ba29733", platform: "vpm",

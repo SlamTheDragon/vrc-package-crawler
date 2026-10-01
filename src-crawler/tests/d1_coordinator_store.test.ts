@@ -1,14 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { Coordinator } from "../src/worker/d1/coordinator.ts";
+import { Coordinator } from "../src/worker/storage/d1/coordinator.ts";
 import {
   type D1Database,
   type D1PreparedStatement,
   type D1Result,
   type D1ExecResult
-} from "../src/worker/d1/definitions.ts";
+} from "../src/worker/storage/d1/definitions.ts";
 import workerEntry, { type Env } from "../src/worker/worker_entry.ts";
-import { decodeCatalogCursor } from "../src/shared/operator_protocol.ts";
+import { decodeCatalogCursor } from "../src/shared/protocol/operator_protocol.ts";
 
 export function createMockD1Database(db = new Database(":memory:")): D1Database {
   db.run("PRAGMA foreign_keys = ON;");
@@ -508,4 +508,62 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     expect(deleted).toBe(true);
     expect(await store.getDesktopToolEvidence("vrcx-d1")).toBeNull();
   });
+
+  it("supports catalog delta streaming and unauthenticated public endpoints in D1 and worker_entry", async () => {
+    const mockDb = createMockD1Database();
+    const store = new Coordinator(mockDb);
+    await store.initSchema();
+
+    const epoch1 = await store.getCatalogEpoch();
+    expect(epoch1.length).toBeGreaterThan(0);
+
+    // Seed active and delisted packages
+    await store.upsertCanonicalPackage({
+      canonicalId: "d1-pkg-active",
+      umbrella: "tools",
+      category: "tool",
+      lifecycle: "active",
+      displayName: "D1 Active Tool"
+    });
+    await store.upsertCanonicalPackage({
+      canonicalId: "d1-pkg-delisted",
+      umbrella: "tools",
+      category: "tool",
+      lifecycle: "delisted",
+      displayName: "D1 Delisted Tool"
+    });
+
+    const deltaRes = await store.listCatalogDeltasPage(10, null);
+    expect(deltaRes.epoch).toBe(epoch1);
+    expect(deltaRes.deltas).toHaveLength(2);
+
+    const activeDelta = deltaRes.deltas.find((d) => d.canonicalId === "d1-pkg-active");
+    expect(activeDelta?.action).toBe("upsert");
+    expect(activeDelta?.package?.displayName).toBe("D1 Active Tool");
+
+    const delistedDelta = deltaRes.deltas.find((d) => d.canonicalId === "d1-pkg-delisted");
+    expect(delistedDelta?.action).toBe("delist");
+    expect(delistedDelta?.package).toBeUndefined();
+
+    // Verify epoch reset
+    const epoch2 = await store.resetCatalogEpoch();
+    expect(epoch2).not.toBe(epoch1);
+
+    // Test worker_entry.fetch public unauthenticated routes
+    const env: Env = { DB: mockDb, OPERATOR_TOKEN: "f".repeat(64) };
+
+    const catReq = new Request("http://coordinator.test/v1/catalog");
+    const catRes = await workerEntry.fetch(catReq, env);
+    expect(catRes.status).toBe(200);
+    const catJson = await catRes.json() as any;
+    expect(catJson.packages).toHaveLength(2);
+
+    const deltaReq = new Request("http://coordinator.test/v1/catalog/delta");
+    const deltaHttpRes = await workerEntry.fetch(deltaReq, env);
+    expect(deltaHttpRes.status).toBe(200);
+    const deltaJson = await deltaHttpRes.json() as any;
+    expect(deltaJson.deltas).toHaveLength(2);
+    expect(deltaJson.epoch).toBe(epoch2);
+  });
 });
+

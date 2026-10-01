@@ -1,12 +1,12 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { CoordinatorClient } from "./coordinator_client.ts";
-import { CrawlerNodeDaemon } from "./daemon.ts";
-import { initializeNodeConfig, loadNodeRuntimeConfig } from "./runtime_config.ts";
-import { LocalNodeStore } from "./local_sqlite.ts";
-import { NodeIdSchema, PlatformSchema, type Platform } from "../shared/node_protocol.ts";
-import { loadScopedGitHubTokenFromEnvFile } from "./observation_adapter.ts";
-import { logger } from "../utils/logger.ts";
+import { CoordinatorClient } from "./client/coordinator_client.ts";
+import { CrawlerNodeDaemon } from "./runner/daemon.ts";
+import { initializeNodeConfig, loadNodeRuntimeConfig } from "./config/runtime_config.ts";
+import { LocalNodeStore } from "./storage/local_sqlite.ts";
+import { NodeIdSchema, PlatformSchema, type Platform } from "../shared/protocol/node_protocol.ts";
+import { loadScopedGitHubTokenFromEnvFile } from "./adapters/observation_adapter.ts";
+import { logger } from "../utils/logging/logger.ts";
 
 if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
   const fallbackToken = loadScopedGitHubTokenFromEnvFile(process.cwd());
@@ -117,7 +117,7 @@ if (existsSync(stopFile)) {
 }
 
 const client = new CoordinatorClient(baseUrl, token, nodeId, capabilities);
-console.log(`Crawler node ${nodeId} connected to ${baseUrl}; capabilities: ${capabilities.join(",")}; database: ${databasePath}`);
+logger.info(`Crawler node ${nodeId} connected to ${baseUrl}; capabilities: ${capabilities.join(",")}; database: ${databasePath}`);
 
 const daemon = new CrawlerNodeDaemon(config, nodeStore, client, {
   runOnce,
@@ -125,23 +125,43 @@ const daemon = new CrawlerNodeDaemon(config, nodeStore, client, {
 });
 
 let isShuttingDown = false;
-const shutdown = () => {
+const shutdown = async () => {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  daemon.stop();
-  nodeStore.close();
+  try {
+    logger.info("Crawler node daemon shutting down...");
+    daemon.stop();
+  } catch (err) {
+    logger.error("Error stopping daemon", err);
+  }
+  try {
+    nodeStore.close();
+  } catch (err) {
+    logger.error("Error closing node store", err);
+  }
+  try {
+    await logger.close();
+  } catch (_) {}
   process.exit(0);
 };
 
-process.once("SIGINT", shutdown);
-process.once("SIGTERM", shutdown);
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection in crawler node", reason);
+});
+process.on("uncaughtException", (error) => {
+  logger.error("Uncaught exception in crawler node", error);
+  shutdown().finally(() => process.exit(1));
+});
+
+process.once("SIGINT", () => { void shutdown(); });
+process.once("SIGTERM", () => { void shutdown(); });
 if (process.stdin.isTTY === false) {
   process.stdin.resume();
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (data) => {
     const text = String(data).trim();
     if (text === "stop" || text === "exit" || text === "shutdown") {
-      shutdown();
+      void shutdown();
     }
   });
   process.stdin.unref();
@@ -149,6 +169,8 @@ if (process.stdin.isTTY === false) {
 
 try {
   await daemon.start();
+} catch (err) {
+  logger.error("Error running crawler node daemon", err);
 } finally {
-  shutdown();
+  await shutdown();
 }

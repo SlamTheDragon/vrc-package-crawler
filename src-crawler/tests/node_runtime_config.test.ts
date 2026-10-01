@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/node/runtime_config.ts";
-import { coordinatorEndpointAllowed } from "../src/node/coordinator_client.ts";
-import { loadScopedGitHubTokenFromEnvFile } from "../src/node/observation_adapter.ts";
+import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/node/config/runtime_config.ts";
+import { coordinatorEndpointAllowed } from "../src/node/client/coordinator_client.ts";
+import { loadScopedGitHubTokenFromEnvFile } from "../src/node/adapters/observation_adapter.ts";
+import { getTestOutputDir } from "./helpers/test_directory.ts";
 
 const secret = "c".repeat(64);
-const tempRoot = realpathSync(tmpdir());
+const tempRoot = getTestOutputDir();
 function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrc-node-config-")); }
 function removeFixtureDirectory(directory: string): void {
   if (!realpathSync(directory).startsWith(tempRoot + sep)) throw new Error("Unexpected config fixture path");

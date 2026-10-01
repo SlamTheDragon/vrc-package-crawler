@@ -19,4 +19,4 @@ description: "Preserve context window fidelity, resist code bloat, and defeat RA
 
 4. **Externalize state; never trust conversational memory**:
    - Long conversations inevitably suffer from context compaction and recency bias. Never rely on internal conversational memory across turns for critical decisions, active task ledgers, or dependency maps.
-   - Persist active state, gate boundaries, and unresolved questions to durable disk artifacts (`TODO.md`, `docs/scratch/decisions/`, or task ledgers). Re-anchor from disk at the beginning of each slice.
+   - Persist active state, gate boundaries, and unresolved questions to durable disk artifacts (`TODO.md`, `docs/scratch/`, or task ledgers). Re-anchor from disk at the beginning of each slice.

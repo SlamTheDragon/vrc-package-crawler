@@ -1,17 +1,18 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { LocalCoordinatorStore } from "./local_sqlite.ts";
-import { handleNodeRequest } from "./handler.ts";
-import { handleOperatorRequest } from "./operator_handler.ts";
-import { PlatformSchema, type Platform } from "../shared/node_protocol.ts";
-import { LeadStatusSchema, decodeLeadCursor, decodeCatalogCursor } from "../shared/operator_protocol.ts";
+import { LocalCoordinatorStore } from "./storage/local_sqlite.ts";
+import { handleNodeRequest } from "./api/handler.ts";
+import { handleOperatorRequest } from "./api/operator_handler.ts";
+import { handlePublicCatalogRequest } from "./api/public_handler.ts";
+import { PlatformSchema, type Platform } from "../shared/protocol/node_protocol.ts";
+import { LeadStatusSchema, decodeLeadCursor, decodeCatalogCursor } from "../shared/protocol/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, SourcePurposeSchema,
-  decodeProfileCursor } from "../shared/source_access_profile.ts";
-import { fetchPublicMetadata } from "../node/public_metadata_fetch.ts";
+  decodeProfileCursor } from "../shared/policy/source_access_profile.ts";
+import { fetchPublicMetadata } from "../node/client/public_metadata_fetch.ts";
 import { refreshDueRobots, refreshRobotsWithLease, ROBOTS_REFRESH_POLL_MS } from
-  "./robots_refresh_service.ts";
+  "./services/robots_refresh_service.ts";
 import { initializeCoordinatorConfig, loadCoordinatorRuntimeConfig } from
-  "./runtime_config.ts";
+  "./config/runtime_config.ts";
 
 function printUsage(): void {
   console.log("Usage: vrc-coordinator init [listen-port] | serve [port] | register <node-id> [platforms] | revoke <node-id> | seed <platform> <https-url> [min-delay-ms] [metadata|discovery] | profile-create <json> | profile-disable <profile-id> <reason> | profiles [limit] [cursor] | refresh-robots <https-origin> | refresh-queued-robots [limit] | leads [status] [limit] [cursor] | approve-lead <lead-key> [min-delay-ms] | suppress <https-url> <reason> | inspect | node-evidence <node-id> | issues | vpm-evidence | catalog [limit] [cursor]");
@@ -55,9 +56,20 @@ switch (command) {
     const port = args[0] === undefined ? listenPort : Number(args[0]);
     if (args.length > 1 || !Number.isInteger(port) || port < 1 || port > 65535) usage();
     const operatorToken = process.env.COORDINATOR_OPERATOR_TOKEN || "";
-    const server = Bun.serve({ hostname: "127.0.0.1", port, fetch: (request) =>
-      new URL(request.url).pathname.startsWith("/v1/operator/") ?
-        handleOperatorRequest(request, store, operatorToken) : handleNodeRequest(request, store) });
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port,
+      fetch: (request) => {
+        const path = new URL(request.url).pathname;
+        if (path.startsWith("/v1/operator/")) {
+          return handleOperatorRequest(request, store, operatorToken);
+        }
+        if (path === "/v1/catalog" || path === "/v1/catalog/delta") {
+          return handlePublicCatalogRequest(request, store);
+        }
+        return handleNodeRequest(request, store);
+      }
+    });
     console.log(`Local coordinator listening on ${server.url}; database ${databasePath}`);
     const shutdown = new AbortController();
     let activeRefresh: Promise<void> | null = null;

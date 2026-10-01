@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { LocalCoordinatorStore } from "../src/worker/local_sqlite.ts";
 import { handleNodeRequest } from "../src/worker/handler.ts";
-import { CoordinatorClient } from "../src/node/coordinator_client.ts";
-import { runLeasedJob } from "../src/node/lease_runner.ts";
-import { CrawlJobSchema, type ResultResponse } from "../src/shared/node_protocol.ts";
+import { CoordinatorClient } from "../src/node/client/coordinator_client.ts";
+import { runLeasedJob } from "../src/node/runner/lease_runner.ts";
+import { CrawlJobSchema, type ResultResponse } from "../src/shared/protocol/node_protocol.ts";
 import { seedApprovedFixtureJob } from "./helpers/source_access_fixture.ts";
 
 const fixtureJob = CrawlJobSchema.parse({ jobId: "lease-runner-job", leaseId: crypto.randomUUID(),

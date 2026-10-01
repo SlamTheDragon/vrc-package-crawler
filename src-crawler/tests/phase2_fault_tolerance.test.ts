@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { DomainCircuitBreaker } from "../src/utils/circuit_breaker.ts";
+import { DomainCircuitBreaker } from "../src/utils/resilience/circuit_breaker.ts";
 
 describe("Phase 2 - Task 2.7: Autonomous Fault Tolerance Subsystem (Domain Circuit Breaker)", () => {
   describe("Domain Circuit Breaker State Machine", () => {

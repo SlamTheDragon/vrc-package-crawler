@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { fetchPublicMetadata, UnsafeMetadataTarget } from "../src/node/public_metadata_fetch.ts";
-import { fetchJobOutcome } from "../src/node/observation_adapter.ts";
-import { CrawlJobSchema } from "../src/shared/node_protocol.ts";
-import { CoordinatorClient } from "../src/node/coordinator_client.ts";
+import { fetchPublicMetadata, UnsafeMetadataTarget } from "../src/node/client/public_metadata_fetch.ts";
+import { fetchJobOutcome } from "../src/node/adapters/observation_adapter.ts";
+import { CrawlJobSchema } from "../src/shared/protocol/node_protocol.ts";
+import { CoordinatorClient } from "../src/node/client/coordinator_client.ts";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import https from "node:https";

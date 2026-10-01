@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCoordinatorStore } from "../src/worker/local_sqlite.ts";
 import { handleNodeRequest } from "../src/worker/handler.ts";
-import { CoordinatorClient } from "../src/node/coordinator_client.ts";
-import { LocalNodeStore } from "../src/node/local_sqlite.ts";
-import { CrawlerNodeDaemon } from "../src/node/daemon.ts";
-import type { NodeRuntimeConfig } from "../src/node/runtime_config.ts";
+import { CoordinatorClient } from "../src/node/client/coordinator_client.ts";
+import { LocalNodeStore } from "../src/node/storage/local_sqlite.ts";
+import { CrawlerNodeDaemon } from "../src/node/runner/daemon.ts";
+import type { NodeRuntimeConfig } from "../src/node/config/runtime_config.ts";
 import { seedApprovedFixtureJob } from "./helpers/source_access_fixture.ts";
+import { getTestOutputDir } from "./helpers/test_directory.ts";
 
 function createTempDir(): string {
-  return mkdtempSync(join(tmpdir(), "vrc-daemon-test-"));
+  return mkdtempSync(join(getTestOutputDir(), "vrc-daemon-test-"));
 }
 
 describe("CrawlerNodeDaemon OOP daemon encapsulation", () => {

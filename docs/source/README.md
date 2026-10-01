@@ -12,4 +12,4 @@ This directory holds candidate specifications for the accepted post-production a
 
 ---
 
-*Note: Pre-production working decisions, gate statuses, and open operator questions stay in [`docs/scratch/decisions/`](../scratch/decisions/).*
+*Note: Pre-production working decisions, gate statuses, and open operator questions stay in [`docs/scratch/`](../scratch/).*

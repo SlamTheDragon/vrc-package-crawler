@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { unusedLoopbackPort } from "./loopback_port.ts";
-import { loadScopedGitHubTokenFromEnvFile } from "../src/node/observation_adapter.ts";
+import { loadScopedGitHubTokenFromEnvFile } from "../src/node/adapters/observation_adapter.ts";
 
 // One public REST repository metadata request; no search, README, or archive download.
 if (process.env.LIVE_GITHUB_SMOKE !== "1") {

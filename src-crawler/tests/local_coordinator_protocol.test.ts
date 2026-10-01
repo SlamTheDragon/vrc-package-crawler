@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { handleNodeRequest } from "../src/worker/handler.ts";
 import { LocalCoordinatorStore } from "../src/worker/local_sqlite.ts";
-import { ClaimResponseSchema, NODE_API_JSON_SCHEMAS, PROTOCOL_VERSION, ResultResponseSchema } from "../src/shared/node_protocol.ts";
+import { ClaimResponseSchema, NODE_API_JSON_SCHEMAS, PROTOCOL_VERSION, ResultResponseSchema } from "../src/shared/protocol/node_protocol.ts";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import crypto from "node:crypto";
 import { approveFixtureSource, seedApprovedFixtureJob } from "./helpers/source_access_fixture.ts";
-import { fetchJobOutcome } from "../src/node/observation_adapter.ts";
+import { getTestOutputDir } from "./helpers/test_directory.ts";
+import { fetchJobOutcome } from "../src/node/adapters/observation_adapter.ts";
 
 function allowFixtureOrigin(store: LocalCoordinatorStore, ...origins: string[]): void {
   for (const origin of origins) store.recordRobotsSnapshot(origin, 404);
@@ -37,7 +37,7 @@ describe("local coordinator protocol", () => {
   });
 
   test("two coordinator processes lease queued robots refreshes and reject stale completions", () => {
-    const directory = mkdtempSync(join(tmpdir(), "vrc-robots-refresh-"));
+    const directory = mkdtempSync(join(getTestOutputDir(), "vrc-robots-refresh-"));
     const databasePath = join(directory, "coordinator.db");
     let now = Date.parse("2026-09-27T00:00:00.000Z");
     const firstStore = new LocalCoordinatorStore(databasePath, () => now);
@@ -76,7 +76,7 @@ describe("local coordinator protocol", () => {
   });
 
   test("a restarted coordinator reclaims an expired node lease without accepting the old result", () => {
-    const directory = mkdtempSync(join(tmpdir(), "vrc-job-recovery-"));
+    const directory = mkdtempSync(join(getTestOutputDir(), "vrc-job-recovery-"));
     const databasePath = join(directory, "coordinator.db");
     let now = Date.parse("2026-09-27T00:00:00.000Z");
     let store = new LocalCoordinatorStore(databasePath, () => now);
@@ -202,7 +202,7 @@ describe("local coordinator protocol", () => {
   });
 
   test("upgrades existing local evidence tables with nullable provenance markers", () => {
-    const directory = mkdtempSync(join(tmpdir(), "vrc-coordinator-migrate-"));
+    const directory = mkdtempSync(join(getTestOutputDir(), "vrc-coordinator-migrate-"));
     const databasePath = join(directory, "coordinator.db");
     const old = new Database(databasePath, { create: true });
     old.run(`CREATE TABLE crawl_jobs (
