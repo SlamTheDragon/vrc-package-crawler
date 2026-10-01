@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/node/runtime_config.ts";
+import { coordinatorEndpointAllowed } from "../src/node/coordinator_client.ts";
 import { loadScopedGitHubTokenFromEnvFile } from "../src/node/observation_adapter.ts";
 
 const secret = "c".repeat(64);
@@ -113,3 +114,39 @@ describe("standalone node runtime configuration", () => {
     } finally { removeFixtureDirectory(directory); }
   });
 });
+
+describe("coordinatorEndpointAllowed dual-mode Cloudflare endpoint validation", () => {
+  test("accepts valid production Cloudflare Worker URLs over HTTPS", () => {
+    expect(coordinatorEndpointAllowed("https://vrc-coordinator.workers.dev")).toBe(true);
+    expect(coordinatorEndpointAllowed("https://vrc-coordinator.workers.dev/v1/node/jobs/claim")).toBe(true);
+    expect(coordinatorEndpointAllowed("https://custom-coordinator.example.com")).toBe(true);
+    expect(coordinatorEndpointAllowed("https://subdomain.domain.org:8443/api")).toBe(true);
+  });
+
+  test("accepts local coordinator simulation over HTTP strictly on loopback", () => {
+    expect(coordinatorEndpointAllowed("http://localhost:8787")).toBe(true);
+    expect(coordinatorEndpointAllowed("http://127.0.0.1:8787")).toBe(true);
+    expect(coordinatorEndpointAllowed("http://[::1]:8787")).toBe(true);
+    expect(coordinatorEndpointAllowed("http://127.0.0.1")).toBe(true);
+    expect(coordinatorEndpointAllowed("http://localhost")).toBe(true);
+  });
+
+  test("rejects cleartext non-loopback HTTP endpoints to prevent credential leakage", () => {
+    expect(coordinatorEndpointAllowed("http://external-host:8787")).toBe(false);
+    expect(coordinatorEndpointAllowed("http://192.168.1.10:8787")).toBe(false);
+    expect(coordinatorEndpointAllowed("http://10.0.0.1:8787")).toBe(false);
+    expect(coordinatorEndpointAllowed("http://172.16.0.1:8787")).toBe(false);
+    expect(coordinatorEndpointAllowed("http://coordinator.workers.dev")).toBe(false);
+    expect(coordinatorEndpointAllowed("http://example.com")).toBe(false);
+  });
+
+  test("rejects embedded user credentials, URL fragments, and invalid protocols", () => {
+    expect(coordinatorEndpointAllowed("https://user:pass@vrc-coordinator.workers.dev")).toBe(false);
+    expect(coordinatorEndpointAllowed("http://user:pass@127.0.0.1:8787")).toBe(false);
+    expect(coordinatorEndpointAllowed("https://vrc-coordinator.workers.dev#anchor")).toBe(false);
+    expect(coordinatorEndpointAllowed("ws://127.0.0.1:8787")).toBe(false);
+    expect(coordinatorEndpointAllowed("ftp://127.0.0.1:8787")).toBe(false);
+    expect(coordinatorEndpointAllowed("not-a-valid-url")).toBe(false);
+  });
+});
+

@@ -13,7 +13,11 @@ export class CoordinatorClient {
     readonly capabilities: Platform[]
   ) {
     if (!coordinatorEndpointAllowed(baseUrl)) {
-      // FIXME: ORIENT CODEBASE AS IF IT'S WORKING WITH THE TRUE CLOUDFLARE INSTANCE
+      // Validates dual-mode operation:
+      // 1. Remote Cloudflare Worker production instances over HTTPS (https://*)
+      // 2. Local coordinator simulation over HTTP strictly on loopback (http://localhost:*, http://127.0.0.1:*, http://[::1]:*)
+      // Plain HTTP across non-loopback addresses (e.g., http://192.168.1.10:8787 or http://example.com) is rejected
+      // to prevent bearer token leakage over unencrypted networks.
       throw new Error("Coordinator URL must be HTTPS, or HTTP on loopback without credentials");
     }
     if (!token) throw new Error("Node credential is required");
@@ -50,7 +54,14 @@ export class CoordinatorClient {
   }
 }
 
-/** Shared by runtime config and the client so local and remote endpoint rules cannot drift. */
+/**
+ * Shared by runtime config and the client so local and remote endpoint rules cannot drift.
+ * Dual-mode operation:
+ * - Remote Cloudflare Worker production instances over HTTPS (https://*)
+ * - Local coordinator simulation over HTTP strictly on loopback (localhost, 127.0.0.1, [::1])
+ * - Rejects non-loopback plain HTTP (e.g. http://192.168.1.10:8787 or http://external-host:8787)
+ *   and embedded credentials/hashes to prevent bearer token leakage.
+ */
 export function coordinatorEndpointAllowed(baseUrl: string): boolean {
   try {
     const endpoint = new URL(baseUrl);

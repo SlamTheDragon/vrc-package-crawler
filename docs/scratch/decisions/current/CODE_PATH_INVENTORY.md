@@ -1,6 +1,6 @@
 # Code-path inventory and migration boundary
 
-This is a descriptive inventory of the version-0 implementation, not a claim that its behavior is correct. It supports the staged work in `plans/IMPLEMENTATION_PLAN.md`. The owner's clarified target is a local, offline-capable coordinator/catalog with real-source crawler ingestion; the coordinator's contracts should be portable to a future Cloudflare Worker. A standalone crawler-node binary must continue to run on a VPS or desktop. No Cloudflare account is required for the local milestone. The new coordinator database starts empty. `bin/crawler_state.db` is prototype evidence to inspect read-only, while `dist/crawler_state.db` can be created by current imports/tests and is not the intended migration source.
+This is a descriptive inventory of the version-0 implementation, not a claim that its behavior is correct. It supports the staged work in `IMPLEMENTATION_PLAN.md`. The owner's clarified target is a local, offline-capable coordinator/catalog with real-source crawler ingestion; the coordinator's contracts should be portable to a future Cloudflare Worker. A standalone crawler-node binary must continue to run on a VPS or desktop. No Cloudflare account is required for the local milestone. The new coordinator database starts empty. `bin/crawler_state.db` is prototype evidence to inspect read-only, while `dist/crawler_state.db` can be created by current imports/tests and is not the intended migration source.
 
 ## Executable surfaces
 

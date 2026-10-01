@@ -128,7 +128,7 @@ curl -s -X POST http://127.0.0.1:3737/v1/operator/source-profiles \
   }'
 ```
 
-See `docs/decisions/current/access/SOURCE_ACCESS_REVIEW.md` for current source-policy decisions per platform.
+See `docs/decisions/current/SOURCE_ACCESS_AND_SAFETY.md` for current source-policy decisions per platform.
 
 ---
 
@@ -154,7 +154,7 @@ Key operator routes:
 | `POST /v1/operator/nodes` | Issue a node credential |
 | `GET /v1/operator/catalog` | List canonical packages (paginated) |
 
-Full schema is in `src-crawler/src/shared/operator_protocol.ts` and documented in `docs/decisions/current/api/OPERATOR_CONTROL_API.md`.
+Full schema is in `src-crawler/src/shared/operator_protocol.ts` and documented in `docs/decisions/current/OPERATOR_CONTROL_API.md`.
 
 ---
 
@@ -216,7 +216,7 @@ Current baseline: **161 tests, 0 failures, 1344 assertions** (2026-09-30).
 
 The local pre-production stack **simulates** the eventual Cloudflare Worker/coordinator split using loopback HTTP. No Cloudflare account, tunnel, D1 database, R2 bucket, API token, or Worker deployment is required for this milestone.
 
-The `dist/worker/` bundle is built but not deployed. See `docs/research/spikes/CLOUDFLARE_PORTABILITY_SPIKE.md` for the portability assessment.
+The `dist/worker/` bundle is built but not deployed. See `docs/research/SPIKES.md` for the portability assessment.
 
 ---
 

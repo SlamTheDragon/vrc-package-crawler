@@ -6,9 +6,9 @@ each skill folder; those files hold the detailed procedure, and the native
 `SKILL.md` entry point tells Antigravity to read them. These instructions
 apply to future work, not retroactively to previously signed-off phases.
 
-Read `docs/decisions/plans/IMPLEMENTATION_PLAN.md` for gate order,
+Read `docs/decisions/IMPLEMENTATION_PLAN.md` for gate order,
 `docs/decisions/DIRECTION.md` for owner decisions, `TODO.md` for task history,
-and `docs/decisions/current/status/CONFORMANCE.md` for measured status.
+and `docs/decisions/current/CONFORMANCE.md` for measured status.
 None alone proves the system is complete. `docs/decisions/current/PIPELINE_RESPONSIBILITY_MAP.md`
 maps terms and running code paths. Treat older prose and generated summaries
 as hypotheses until checked against source, tests, and the owner's decisions.

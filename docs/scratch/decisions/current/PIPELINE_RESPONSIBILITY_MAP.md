@@ -3,7 +3,7 @@
 Status: live-code map for the current version-0 local coordinator/node split,
 not a claim that the whole roadmap is complete. Review this map whenever a
 contract or entry point changes. `decisions/DIRECTION.md` owns product decisions;
-`plans/IMPLEMENTATION_PLAN.md` owns gate order; `status/CONFORMANCE.md` owns measured exits;
+`IMPLEMENTATION_PLAN.md` owns gate order; `CONFORMANCE.md` owns measured exits;
 `docs/decisions/DEFERRED_OWNER_DECISIONS.md` holds unresolved owner choices. This page
 owns vocabulary and current responsibility mapping, not source-access approval.
 
@@ -43,7 +43,7 @@ self-assign URLs if the coordinator is down.
 | Lease | Short-lived, centrally issued assignment of one approved job to one node, with origin-wide pacing | Claim/heartbeat/result API in `src-crawler/src/worker/handler.ts` and `src-crawler/src/shared/node_protocol.ts`; state in `src-crawler/src/worker/local_sqlite.ts` | A permanent grant, a message queue product, or permission to crawl links freely |
 | Observation / lead | Parsed facts about a fetched item / a URL worth later review | Node result schema and release-shape predicate in `src-crawler/src/shared/node_protocol.ts`; parser in `src-crawler/src/node/observation_adapter.ts`; platform-bound validation and storage in `src-crawler/src/worker/local_sqlite.ts` | A canonical package, public listing, or installable VPM release merely because it was reported. VPM metadata can lack release proof; non-VPM jobs cannot submit it |
 | Evidence class | Which kinds of result the profile may retain and separately publish | `src-crawler/src/shared/evidence_class.ts`, `src-crawler/src/shared/source_access_profile.ts` | Blanket permission to archive raw responses or copied prose |
-| Canonical projection | A later decision about which observed fronts belong to one catalog item | Projection gate, not established by a fetch profile; see `decisions/DIRECTION.md` and `plans/IMPLEMENTATION_PLAN.md` | Safe automatic merge of similar titles or community-directory claims |
+| Canonical projection | A later decision about which observed fronts belong to one catalog item | Projection gate, not established by a fetch profile; see `decisions/DIRECTION.md` and `IMPLEMENTATION_PLAN.md` | Safe automatic merge of similar titles or community-directory claims |
 
 ## Answers and open boundaries from owner review
 
@@ -92,5 +92,5 @@ self-assign URLs if the coordinator is down.
 For a changed row, inspect the production caller and callee, wire schema,
 storage transition, negative path, and consumer consequence. Then run a
 targeted test, transport-equivalence test where relevant, typecheck/build,
-and diff review. If any path is not exercised, mark it open in `status/CONFORMANCE.md`.
+and diff review. If any path is not exercised, mark it open in `CONFORMANCE.md`.
 Passing tests for one row do not close a gate or the owner's entire goal.

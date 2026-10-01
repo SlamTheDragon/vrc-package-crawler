@@ -6,7 +6,7 @@
    accepted decision, changed files, tests/builds and dates, negative cases,
    remaining uncertainty, and the next action. Quote concrete evidence.
 3. Reconcile the ledger with `git diff`, current tests,
-   `docs/decisions/current/status/CONFORMANCE.md`, `docs/decisions/plans/IMPLEMENTATION_PLAN.md`,
+   `docs/decisions/current/CONFORMANCE.md`, `docs/decisions/IMPLEMENTATION_PLAN.md`,
    and `docs/decisions/DEFERRED_OWNER_DECISIONS.md`. If a
    claim cannot be reproduced, downgrade it to unverified.
 4. On a stop hook, save the checkpoint and obey any explicit user pause. Do

@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { parseGitHubRepository, parseObservation, parseVpmListingRecipe, parseVpmRepository, parseCuratedDiscoveryLeads, fetchJobOutcome } from "../src/node/observation_adapter.ts";
 import { CrawlJobSchema, ResultRequestSchema } from "../src/shared/node_protocol.ts";
 import { CRAWLER_USER_AGENT, CRAWLER_ROBOTS_TOKEN } from "../src/shared/crawler_identity.ts";
-import { CONFIG } from "../src/config.ts";
 
 const job = CrawlJobSchema.parse({
   jobId: "test", leaseId: "c2dd6562-6fa4-4cd2-84ae-0c090ba29733", platform: "vpm",
@@ -51,7 +50,6 @@ describe("standalone node observation adapter", () => {
       return new Response("{}", { headers: { "content-type": "application/json" } });
     });
     expect(suppliedHeaders[0]?.get("user-agent")).toBe(CRAWLER_USER_AGENT);
-    expect(CONFIG.userAgent).toBe(CRAWLER_USER_AGENT);
     expect(CRAWLER_USER_AGENT.startsWith(`${CRAWLER_ROBOTS_TOKEN}/`)).toBe(true);
   });
 

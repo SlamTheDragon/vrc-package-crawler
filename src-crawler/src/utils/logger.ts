@@ -2,7 +2,6 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { pipeline } from "stream/promises";
-import { CONFIG } from "../config.ts";
 
 export interface LoggerOptions {
   logsDir?: string;
@@ -31,7 +30,7 @@ export class Logger {
   private hasExplicitInitialDate: boolean = false;
 
   constructor(options: LoggerOptions = {}) {
-    this.logsDir = options.logsDir || CONFIG.logsDir;
+    this.logsDir = options.logsDir || process.env.CRAWLER_LOGS_DIR || path.resolve(process.cwd(), "logs");
     this.archiveDir = options.archiveDir || path.join(this.logsDir, "archive");
     this.sessionId = options.sessionId || `${process.pid}_${Date.now()}`;
     this.hasExplicitInitialDate = !!options.initialDate;

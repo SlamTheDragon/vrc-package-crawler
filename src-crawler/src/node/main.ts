@@ -1,11 +1,10 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { CoordinatorClient } from "./coordinator_client.ts";
-import { runLeasedJob } from "./lease_runner.ts";
-import { fetchPublicMetadata } from "./public_metadata_fetch.ts";
+import { CrawlerNodeDaemon } from "./daemon.ts";
 import { initializeNodeConfig, loadNodeRuntimeConfig } from "./runtime_config.ts";
 import { LocalNodeStore } from "./local_sqlite.ts";
-import { PlatformSchema, type Platform } from "../shared/node_protocol.ts";
+import { NodeIdSchema, PlatformSchema, type Platform } from "../shared/node_protocol.ts";
 import { loadScopedGitHubTokenFromEnvFile } from "./observation_adapter.ts";
 import { logger } from "../utils/logger.ts";
 
@@ -16,24 +15,70 @@ if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
   }
 }
 
-// FIXME: WARNING: Certain hardcoded node identity elements cannot pass pre-production process
-// FIXME: CODEBASE NOT OOP-ORIENTED
-// FIXME: might be better if there's a walk-through or a simple GUI panel for node setup, because the node is a client anyway, and thus its node arch will remain the way it is, but the cloudflare coordinator will be oriented to be coded for worker, while using its methods to emit a local binary to simulate remote cloudflare worker operation. To clarify, the goal is to truly operate as a crawler network, locally ingesting downstream data from sites to be manually verify that what was produced is something expected in cloudflare, before worker migration begins ("full 'final' post-production runtime during the pre-production phase")
+function printSetupGuide(): void {
+  console.log(`=== VRC Package Crawler Node Setup Guide ===
+
+To initialize a new crawler node configuration, specify a unique node identifier:
+
+  vrc-node init <node-id> [coordinator-url] [capabilities]
+
+Parameters:
+  <node-id>
+    Required unique string identifier for this node (e.g. desktop-1, worker-node-01).
+    Must be 3-64 characters matching [a-zA-Z0-9_-].
+
+  [coordinator-url]
+    Coordinator service endpoint URL.
+    Default: http://127.0.0.1:8787 (local loopback)
+    Production: https://<your-coordinator-worker>.workers.dev
+
+  [capabilities]
+    Comma-separated list of platform capabilities.
+    Supported platforms: booth, github, vpm, gumroad, shopify
+    Default: all supported platforms (booth,github,vpm,gumroad,shopify)
+
+Examples:
+  vrc-node init desktop-1
+  vrc-node init worker-prod-1 https://vrc-coordinator.workers.dev
+  vrc-node init gh-node http://127.0.0.1:8787 github,vpm
+
+Next Steps:
+  1. Register this node ID with the coordinator administrator:
+     vrc-coordinator register <node-id>
+  2. Provide the generated bearer token via NODE_TOKEN environment variable or .env:
+     NODE_TOKEN=<token>
+  3. Start the node daemon:
+     vrc-node [--once]
+`);
+}
+
 const args = Bun.argv.slice(2);
 if (args[0] === "help" || args[0] === "--help" || args[0] === "-h") {
-  console.log("Usage: vrc-node init [node-id] [coordinator-url] [comma-separated-capabilities]");
-  console.log("       vrc-node [--once]");
+  printSetupGuide();
   process.exit(0);
 }
 
 if (args[0] === "init") {
+  if (args.length === 1) {
+    console.error("Error: <node-id> argument is required for node initialization.\n");
+    printSetupGuide();
+    process.exit(1);
+  }
   if (args.length > 4) {
-    console.error("Usage: vrc-node init [node-id] [coordinator-url] [comma-separated-capabilities]");
+    console.error("Usage: vrc-node init <node-id> [coordinator-url] [comma-separated-capabilities]");
     process.exit(2);
   }
-  const nodeId = args[1] || "node-1";
+
+  const rawNodeId = args[1];
+  const parsedNodeId = NodeIdSchema.safeParse(rawNodeId);
+  if (!parsedNodeId.success) {
+    console.error(`Error: Invalid node-id '${rawNodeId}'. Must be 3-64 characters [a-zA-Z0-9_-].`);
+    process.exit(2);
+  }
+  const nodeId = parsedNodeId.data;
   const coordinatorUrl = args[2] || "http://127.0.0.1:8787";
-  const capabilities = args[3] ? args[3].split(",") as Platform[] : [...PlatformSchema.options];
+  const capabilities = args[3] ? (args[3].split(",") as Platform[]) : [...PlatformSchema.options];
+
   try {
     const path = initializeNodeConfig(process.cwd(), nodeId, coordinatorUrl, capabilities);
     console.log(`Created non-secret node config at ${path}; set NODE_TOKEN separately before running.`);
@@ -54,7 +99,7 @@ try {
 } catch (error) {
   logger.error(`[Error] ${(error as Error).message}`);
   if (!existsSync(join(process.cwd(), "node.config.json"))) {
-    logger.error("No node.config.json found in this directory. Run 'vrc-node init [node-id]' to initialize.");
+    logger.error("No node.config.json found in this directory. Run 'vrc-node init <node-id>' to initialize.");
   } else if (!process.env.NODE_TOKEN) {
     logger.error("NODE_TOKEN is required. Set it in .env or pass as an environment variable.");
     logger.error("Generate a token using coordinator: 'vrc-coordinator register <node-id>'.");
@@ -66,24 +111,28 @@ const { baseUrl, token, nodeId, capabilities, databasePath } = config;
 const runOnce = Bun.argv.includes("--once");
 
 const nodeStore = new LocalNodeStore(databasePath);
-const runId = nodeStore.startRun(nodeId);
-
 const stopFile = join(process.cwd(), "node.stop");
 if (existsSync(stopFile)) {
   try { unlinkSync(stopFile); } catch {}
 }
 
-let stopping = false;
+const client = new CoordinatorClient(baseUrl, token, nodeId, capabilities);
+console.log(`Crawler node ${nodeId} connected to ${baseUrl}; capabilities: ${capabilities.join(",")}; database: ${databasePath}`);
+
+const daemon = new CrawlerNodeDaemon(config, nodeStore, client, {
+  runOnce,
+  stopFilePath: stopFile,
+});
+
+let isShuttingDown = false;
 const shutdown = () => {
-  if (stopping) return;
-  stopping = true;
-  if (existsSync(stopFile)) {
-    try { unlinkSync(stopFile); } catch {}
-  }
-  nodeStore.finishRun(runId, "completed");
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  daemon.stop();
   nodeStore.close();
   process.exit(0);
 };
+
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
 if (process.stdin.isTTY === false) {
@@ -98,57 +147,8 @@ if (process.stdin.isTTY === false) {
   process.stdin.unref();
 }
 
-const client = new CoordinatorClient(baseUrl, token, nodeId, capabilities);
-console.log(`Crawler node ${nodeId} connected to ${baseUrl}; capabilities: ${capabilities.join(",")}; database: ${databasePath}`);
-
-let lastHeartbeatAt = 0;
-async function heartbeat(): Promise<void> {
-  await client.heartbeat("idle");
-  lastHeartbeatAt = Date.now();
+try {
+  await daemon.start();
+} finally {
+  shutdown();
 }
-
-await heartbeat();
-for (;;) {
-  if (stopping || existsSync(stopFile)) {
-    shutdown();
-    break;
-  }
-  if (Date.now() - lastHeartbeatAt >= 30_000) await heartbeat();
-  const claim = await client.claim();
-  if (claim.status === "empty") {
-    if (runOnce) break;
-    const sleepTarget = Date.now() + claim.retryAfterMs;
-    while (!stopping && Date.now() < sleepTarget) {
-      if (existsSync(stopFile)) {
-        shutdown();
-        break;
-      }
-      await Bun.sleep(Math.min(100, sleepTarget - Date.now()));
-    }
-    continue;
-  }
-  const { job } = claim;
-  console.log(`Fetching ${job.platform} ${job.url}`);
-  const taskId = nodeStore.recordClaimedJob(runId, job);
-  nodeStore.recordTaskProgress(taskId, "fetching");
-  const startTime = performance.now();
-  try {
-    const { outcome, result } = await runLeasedJob(job, client, fetchPublicMetadata);
-    const durationMs = Math.round(performance.now() - startTime);
-    nodeStore.recordTaskSuccess(taskId, outcome.kind, result, { durationMs });
-    console.log(JSON.stringify({
-      jobId: job.jobId,
-      outcome: outcome.kind,
-      accepted: result.status,
-      sourceVersionCreated: result.sourceVersionCreated,
-    }));
-  } catch (error) {
-    const durationMs = Math.round(performance.now() - startTime);
-    nodeStore.recordTaskFailure(taskId, error instanceof Error ? error.message : String(error), { durationMs });
-    throw error;
-  }
-  await heartbeat();
-  if (runOnce) break;
-}
-
-shutdown();

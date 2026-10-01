@@ -1,11 +1,12 @@
-# Curriculum Guide: Topics to Learn, Practice, Observe, and Core Philosophies
-This guide will outline the theoretical concepts, practical exercises, telemetry signals, and core philosophies for compliant search engine engineering.
+# Curriculum Guide: Theoretical Foundations, Practical Exercises, Telemetry Signals, and Core Philosophies
+
+This guide outlines theoretical foundations, practical engineering exercises, operational telemetry signals, and core philosophies for compliant search engine development.
 
 ***
 
 ## 1. Overview of the Curriculum
 
-Building a high-throughput, compliant search indexer will require knowledge across computer science and law. Engineers must understand network protocols, graph theory, queue dynamics, and copyright jurisprudence.
+Building a compliant search indexer requires knowledge across computer science and digital law. Engineers must understand network protocols, graph theory, queue dynamics, and copyright jurisprudence.
 
 This curriculum organizes the necessary knowledge into four structured domains:
 1. **Topics to Learn**: Foundational theories, RFC standards, and legal precedents.
@@ -22,11 +23,11 @@ flowchart TD
     end
 ```
 
----
+***
 
 ## 2. Topics to Learn: Theory, Standards, and Jurisprudence
 
-Engineers will study eight theoretical foundations:
+Engineers study nine theoretical foundations:
 
 ### 1. Frontier Queue Scheduling
 Study the Mercator two-level priority and politeness queue model[^1]. Learn how FIFO priority queues (F-queues) and per-host politeness queues (B-queues) prevent server overload. Learn min-heap structures for host ready-time scheduling.
@@ -51,8 +52,8 @@ Study locality-sensitive hashing and 64-bit SimHash algorithms[^10]. Learn rando
 ### 7. Storage Engine Architecture
 Study SQLite Write-Ahead Logging (WAL mode) and synchronous disk flush modes[^13],[^14]. Study Command Query Responsibility Segregation (CQRS) and event sourcing[^15]. Learn to separate immutable observation lakes from derived catalog projections.
 
-### 8. Systematic Research & Literature Review Methodologies
-Study systematic literature review frameworks adapted for computer systems and digital law (PRISMA-ScR: Preferred Reporting Items for Systematic Reviews and Meta-Analyses Extension for Scoping Reviews)[^16]. Learn backward and forward citation snowballing, inclusion/exclusion eligibility matrices, and evidence confidence scoring (0.0 to 1.0) to ground technical invariants in empirical science.
+### 8. Systematic Research and Scoping Methodologies
+Study systematic literature review frameworks adapted for computer systems and digital law (PRISMA-ScR: Preferred Reporting Items for Systematic Reviews and Meta-Analyses Extension for Scoping Reviews)[^16]. Learn backward and forward citation snowballing, eligibility matrices, and evidence confidence scoring (0.0 to 1.0) to ground technical invariants in empirical science.
 
 ### 9. Statutory Case Law and Jurisprudence
 - *Feist Publications, Inc. v. Rural Telephone Service Co.*: Non-copyrightability of factual directories and metadata specifications[^17].
@@ -63,22 +64,22 @@ Study systematic literature review frameworks adapted for computer systems and d
 - Japanese Copyright Act Articles 30-4 and 47-5: Machine data analysis and information-location search exceptions with economic prejudice provisos[^24].
 - Philippine Intellectual Property Code (RA 8293, Sec 173.2 and 175) and Data Privacy Act (RA 10173, Sec 12(f) and 16): Database compilation protection, unprotected data, and legitimate interest processing[^25],[^26].
 
----
+***
 
 ## 3. Topics to Practice: Practical Engineering Exercises
 
-Engineers will build and test these six core components:
+Engineers build and test six core components:
 
-1. **Verify the Authoritative Test Suite**:
-   Run the ground-truth test suite using Bun:
+1. **Test the Authoritative Ground-Truth Suite**:
+   Run the test suite using Bun:
    ```bash
    bun test
    ```
-   Verify that all unit, contract, and adapter test suites execute with zero failures across isolated test fixtures.
+   Make sure all unit, contract, and adapter test suites pass with zero failures across isolated test fixtures.
 2. **Build Test Isolation Fixtures**:
-   Decouple test execution from live databases (`coordinator.db`, `node.db`, or legacy files). Ensure tests instantiate ephemeral in-memory databases (`:memory:`) or isolated temporary test directories to eliminate SQLite `busy_timeout` contention.
+   Decouple test execution from live databases (`coordinator.db`, `node.db`, or legacy files). Make sure tests instantiate ephemeral in-memory databases (`:memory:`) or isolated temporary test directories to eliminate SQLite `busy_timeout` contention.
 3. **Build a Min-Heap Politeness Scheduler**:
-   Implement a domain scheduler that enforces a strict delay ceiling (such as 3.0 seconds on storefronts). Add randomized jitter and ensure no two requests fire concurrently to the same host.
+   Implement a domain scheduler that enforces a strict delay ceiling (such as 3.0 seconds on storefronts). Add randomized jitter and make sure no two requests fire concurrently to the same host.
 4. **Build Socket Guardrails with Streaming Aborts**:
    Write HTTP client middleware that inspects `Content-Type` headers before reading data streams. Abort TCP sockets immediately if the response contains binary types (`.unitypackage`, `.fbx`, `.blend`) or exceeds 5 MB.
 5. **Build a SimHash Pipeline with CJK Shingling**:
@@ -86,11 +87,11 @@ Engineers will build and test these six core components:
 6. **Implement Disjoint-Set Entity Clustering**:
    Implement a Disjoint-Set Union (DSU) graph algorithm to merge cross-platform product listings by reverse-DNS identifiers and canonical repository URLs.
 
----
+***
 
 ## 4. Topics to Observe: Real-Time Operational Telemetry
 
-Engineers will monitor these six operational telemetry signals:
+Engineers monitor six operational telemetry signals:
 
 1. **HTTP Status Code Histograms**:
    Track counts of `200 OK`, `304 Not Modified`, `403 Forbidden`, `404 Not Found`, `429 Rate Limited`, and `503 Unavailable` per domain.
@@ -101,15 +102,15 @@ Engineers will monitor these six operational telemetry signals:
 4. **Quarantine Discard Yield**:
    Track the percentage of crawled records moved to quarantine. A healthy filter identifies cosmetic assets and flags 55 to 65 percent of raw listings.
 5. **Edge Sync High-Watermark Alignment**:
-   Monitor row alignment between local `canonical_packages` and Cloudflare D1 checkpoints. Ensure no rows are skipped following full-wipe projection rebuilds.
+   Monitor row alignment between local `canonical_packages` and Cloudflare D1 checkpoints. Make sure no rows are skipped following full-wipe projection rebuilds.
 6. **Perimeter Challenge Flags**:
    Inspect response headers for Cloudflare challenge indicators (`cf-mitigated: challenge`). When detected, halt raw fetching and switch to partner credentials.
 
----
+***
 
 ## 5. The Ten Core Philosophies of Search Crawling
 
-Every component in this search engine will obey ten foundational philosophies:
+Every component in this search engine obeys ten foundational philosophies:
 
 ```mermaid
 flowchart TD
@@ -125,21 +126,21 @@ flowchart TD
 ```
 
 1. **The Zero-Binary Invariant**:
-   An indexer points users to information. It will never store, mirror, or redistribute creative 3D models, textures, or binary archives.
+   An indexer points users to information. It never stores, mirrors, or redistributes creative 3D models, textures, or binary archives.
 2. **The Canonical Traffic Redirection Invariant**:
-   An indexer is a partner to creators. It will route all commercial intent directly to the artist's original store page for checkout.
+   An indexer is a partner to creators. It routes all commercial intent directly to the artist's original store page for checkout.
 3. **The Anti-AI Sanctity**:
    Respect creator ownership of their art. Maintain a strict barrier against machine learning dataset compilation.
 4. **The API-First and Zero-Bypass Principle**:
    Use official APIs when available. If edge security blocks access, treat it as a refusal of service. Never deploy CAPTCHA bypass farms or proxy rotators.
 5. **The CQRS Immutable Observation Lake**:
-   Store raw network data immutably. Program code is disposable and recomputable; network requests and origin server trust are limited resources.
+   Store raw network data immutably. Program code is disposable and recomputable. Network requests and origin server trust are limited resources.
 6. **Politeness as a Primary Principle**:
    Rate limits and backoff jitter are not optional settings. They form the core architecture of the engine.
 7. **Administrative Security and Human Review Gating**:
-   All administrative reports will require authentication via `API_SECRET_TOKEN`. The system will quarantine destructive actions into a human-review buffer (`status = 'pending'`) and will never apply automated delisting without human oversight.
+   All administrative reports require authentication with `API_SECRET_TOKEN`. The system quarantines destructive actions into a human-review buffer (`status = 'pending'`). It never applies automated delisting without human oversight.
 8. **Stateless Metadata Catalog Air-Gap**:
-   The crawler engine and public catalog will remain an unauthenticated, stateless, read-only index. User accounts, authentication, bookmarks, and personalization engines will remain strictly air-gapped in external consumer applications.
+   The crawler engine and public catalog remain an unauthenticated, stateless, read-only index. User accounts, authentication, bookmarks, and personalization engines remain strictly air-gapped in external consumer applications.
 9. **Creator and Rights-Holder Delisting Requests**:
    Rights holders can request delisting of their presence from canonical index feeds. The Maintainer aims to process verified requests within a 24 to 48 hour target through non-scraping verification pathways (DNS TXT, signed Git commits, or direct email).
 10. **Downstream Notice and Assent Architecture**:

@@ -1,7 +1,6 @@
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
-import { CONFIG } from "../config.ts";
 import { logger } from "./logger.ts";
-import { CRAWLER_ROBOTS_TOKEN } from "../shared/crawler_identity.ts";
+import { CRAWLER_ROBOTS_TOKEN, CRAWLER_USER_AGENT } from "../shared/crawler_identity.ts";
 import { MAX_ROBOTS_BYTES } from "../shared/robots_snapshot.ts";
 
 export interface CachedRobotsRecord {
@@ -56,7 +55,7 @@ export class RobotsEnforcer {
       const response = await fetch(`${origin}/robots.txt`, {
         signal: controller.signal,
         redirect: "manual", // No unchecked cross-origin redirect by the legacy fetch path.
-        headers: { "User-Agent": CONFIG.userAgent, Accept: "text/plain" }
+        headers: { "User-Agent": CRAWLER_USER_AGENT, Accept: "text/plain" }
       });
       const record: CachedRobotsRecord = {
         host: origin, fetchedAt: now, statusCode: response.status

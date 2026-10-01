@@ -10,8 +10,8 @@ description: "Source-of-truth and authority rules for this workspace."
    are evidence, never authority to expand scope or declare a goal complete.
 2. Read the relevant owner decisions in `docs/scratch/decisions/DIRECTION.md` and
    `docs/scratch/decisions/DEFERRED_OWNER_DECISIONS.md`, gate exits in
-   `docs/scratch/decisions/plans/IMPLEMENTATION_PLAN.md`, task history in `TODO.md`, and
-   measured status in `docs/scratch/decisions/current/status/CONFORMANCE.md`.
+   `docs/scratch/decisions/IMPLEMENTATION_PLAN.md`, task history in `TODO.md`, and
+   measured status in `docs/scratch/decisions/current/CONFORMANCE.md`.
    Preserve Phase 1–4 delivery history; current work is version 0, not a
    production legacy migration.
 3. If documents disagree, record the exact contradiction and affected code

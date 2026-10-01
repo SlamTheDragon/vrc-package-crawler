@@ -4,7 +4,7 @@
 > architecture and historical binary/schema descriptions, some of which no
 > longer match the local coordinator/node split. Use the live-code
 > [pipeline responsibility map](../decisions/current/PIPELINE_RESPONSIBILITY_MAP.md),
-> `../decisions/DIRECTION.md`, `../plans/IMPLEMENTATION_PLAN.md`, and `../status/CONFORMANCE.md` to check
+> `../decisions/DIRECTION.md`, `../IMPLEMENTATION_PLAN.md`, and `../CONFORMANCE.md` to check
 > current behavior and gate status before implementing from this document.
 > Antigravity's active workspace guardrails are in `.agents/rules/` and its
 > bounded-work procedures are in `.agents/skills/`. A successful stop hook
@@ -84,7 +84,7 @@ Every subsystem in the codebase attaches directly to one of these pipeline stage
 - **Delta Sync & In-Memory Media Streaming**: Governs `API` and `Consumer`.
 
 **Agent Invariants**:
-- Agents must not invent speculative layers to solve problems introduced by earlier layers. `../plans/IMPLEMENTATION_PLAN.md` is the current gate order; `TODO.md` retains historical tasks, and `DISAGREEMENTS.md` remains a defect/gap registry rather than a second architecture. Simplification and code deletion are part of each boundary migration, not deferred to an automatic hard freeze.
+- Agents must not invent speculative layers to solve problems introduced by earlier layers. `../IMPLEMENTATION_PLAN.md` is the current gate order; `TODO.md` retains historical tasks, and `DISAGREEMENTS.md` remains a defect/gap registry rather than a second architecture. Simplification and code deletion are part of each boundary migration, not deferred to an automatic hard freeze.
 - **Failing-Closed (Post-v1.0 Crawl Coordinator)**: If the Crawl Coordinator is unreachable, crawler nodes must wait and must NOT self-assign targets or fall back to a local schedule. An unreachable coordinator is a full crawl stop.
 - **Anti-Amplification Invariant**: No crawler node may increase the request rate toward any origin merely because additional crawler capacity becomes available. Additional nodes expand parallel origin *coverage*, not per-origin *frequency*. Rate-limit state is a property of the destination origin and is stored centrally on the Canonical Platform.
 
@@ -105,7 +105,7 @@ To eliminate terminological confusion where the Cloudflare layer is colloquially
 | **Application Credential** | Credential identifying an authorized consumer application | Authorizes application API access without exposing end-user identities |
 
 ### 1.3 Current staged source-code separation
-The owner superseded the old post-Phase-5-only move rule. Boundary extraction begins during the capability gates in `../plans/IMPLEMENTATION_PLAN.md`, while current entry points remain runnable until their replacements have parity tests. The current and intended transitional layout is:
+The owner superseded the old post-Phase-5-only move rule. Boundary extraction begins during the capability gates in `../IMPLEMENTATION_PLAN.md`, while current entry points remain runnable until their replacements have parity tests. The current and intended transitional layout is:
 ```
 vrc-package-crawler/
 ├── src/

@@ -3,8 +3,8 @@
 1. Identify the current user objective and the single active gate. Separate
    owner-approved decisions from proposals, historical delivery claims, and
    measured conformance. Start with `docs/decisions/DIRECTION.md`,
-   `docs/decisions/plans/IMPLEMENTATION_PLAN.md`, `TODO.md`,
-   `docs/decisions/current/status/CONFORMANCE.md`, and `docs/decisions/DEFERRED_OWNER_DECISIONS.md`.
+   `docs/decisions/IMPLEMENTATION_PLAN.md`, `TODO.md`,
+   `docs/decisions/current/CONFORMANCE.md`, and `docs/decisions/DEFERRED_OWNER_DECISIONS.md`.
 2. Inspect `git status --short`; assume dirty changes belong to the user or
    earlier work until proven otherwise. Do not overwrite them.
 3. Use `rg --files` and symbol/reference searches to build a live path map.
