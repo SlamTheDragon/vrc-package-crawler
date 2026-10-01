@@ -35,14 +35,14 @@ export const RejectLeadSchema = z.strictObject({ schemaVersion: z.literal(OPERAT
   reason: z.string().trim().min(3).max(300) });
 export const IssueNodeCredentialSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), nodeId: NodeIdSchema,
-  capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length),
+  capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length).optional(),
   reason: z.string().trim().min(3).max(300)
 });
 export type IssueNodeCredential = z.infer<typeof IssueNodeCredentialSchema>;
 export const NodeCredentialResponseSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), nodeId: NodeIdSchema,
   capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length),
-  token: z.string().regex(/^[a-f0-9]{64}$/)
+  token: z.string().regex(/^vrcp_[0-9a-fA-F]{64}[0-9a-fA-F]{4}$/)
 });
 const RuleOriginSchema = z.url().refine((value) => {
   const url = new URL(value);

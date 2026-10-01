@@ -3,9 +3,9 @@
 > **Document Status**: Authoritative Engineering Roadmap, Compliance Audit & Systems Specification  
 > **Target Repository**: `F:\.repo\.main\vrc-package-crawler`  
 > **Current authority note (2026-09-28):** Owner decisions in [`docs/scratch/DIRECTION.md`](docs/scratch/DIRECTION.md), applicable external constraints, and target `LEGAL.md` govern this engineering roadmap. Code and reproducible tests describe current behavior; [`docs/scratch/current/CONFORMANCE.md`](docs/scratch/current/CONFORMANCE.md) records measured exits. Historical phase text below may express older precedence assumptions.  
-> **Purge note (2026-09-30, commit `refactor(v0)`):** All files under `src/drivers/*`, `src/crawler/*`, `src/server/*`, `src/sync/*`, `src/monitor/*`, `src/utils/image_proxy.ts`, `src/utils/sharp_worker.ts`, `src/utils/ipc.ts`, `src/utils/lock.ts`, `src/utils/ratelimit.ts`, and `src/node/driver_runtime.ts` are **permanently deleted**. The active system is `src/node/main.ts` (crawler node) + `src/worker/main.ts` (coordinator), communicating over loopback HTTP. File citations in §§2, 8, 9 that reference deleted paths are historical defect records, not current code locations. Current baseline: **161 tests, 0 fail** (`bun test`); `CONFORMANCE.md` records all gate evidence.
+> **Purge note (2026-09-30, commit `refactor(v0)`):** All files under `src/drivers/*`, `src/crawler/*`, `src/server/*`, `src/sync/*`, `src/monitor/*`, `src/utils/image_proxy.ts`, `src/utils/sharp_worker.ts`, `src/utils/ipc.ts`, `src/utils/lock.ts`, `src/utils/ratelimit.ts`, and `src/node/driver_runtime.ts` are **permanently deleted**. The active system is `src/node/main.ts` (crawler node) + `src/worker/main.ts` (coordinator), communicating over loopback HTTP. File citations in §§2, 8, 9 that reference deleted paths are historical defect records, not current code locations. Current baseline: **254 passing tests, 0 fail** across 28 suites in `src-crawler` (1,773 assertions), plus 4 passing tests at root (`bun test`); `CONFORMANCE.md` records all gate evidence.
 > **Canonical TODO Baseline**: Commit `09e9dc8` (6 canonical foundation items)  
-> **Ground Truth Test Suite**: **Decoupled / Clean-Slate Baseline** (All 12 legacy test files in `tests/` deleted by operator; Task 2.6 establishes a deterministic, in-memory isolated testbed — completed in pre-production two-binary model).  
+> **Ground Truth Test Suite**: **Decoupled / Clean-Slate Baseline** (All 12 legacy test files in `tests/` deleted by operator; deterministic in-memory isolated testbed established in pre-production two-binary model — 254 passing tests, 0 fail).  
 > **Integrity Mandate**: Strictly **ZERO context loss** across canonical tasks, platform ToS contractual analyses, judicial precedents, PRISMA-ScR systematic review audits, code-reality gap analyses, and adversarial calibration matrices.
 
 ---
@@ -326,17 +326,17 @@ Tasks are grouped into five logical phases and strictly sorted within each phase
      - Consumer applications authenticate at the application level using an **`Application Credential`** (`application_token`), NOT individual end-user identities (Alice, Bob).
      - Consumer applications maintain their own user databases, authentication systems, and privacy boundaries.
      - Reporting follows **Model A (Application-Level Reports)**: Consumer applications submit structured reports under a published, versioned schema (`schema_version: 1` or `Content-Type: application/vnd.vrc-crawler.report+json;version=1`). The Canonical Platform validates reports against its schema rather than blindly trusting consumer assertions.
-  6. **Standardized Terminology Matrix**:
-     | Term | Meaning |
+  6. **Authoritative Terminology Matrix & Vision (Owner, 2026-10-01)**:
+     | Term | Meaning & Architecture |
      | :--- | :--- |
-     | **Crawler Node** | An executable instance that fetches VPM sources |
-     | **Crawler API / Ingestion API** | API through which crawler nodes communicate with the canonical platform |
-     | **Canonical Platform** | Authoritative catalog infrastructure (Cloudflare Worker, D1, R2, validation engine) |
-     | **Catalog API** | Public / consumer-facing API (`GET /v1/catalog/delta`, `GET /v1/packages/stream`, etc.) |
-     | **Consumer Application** | Third-party software built using the catalog (e.g., ALCOM, VCC, desktop tools) |
-     | **Report** | Structured information submitted by a consumer application |
-     | **Crawler Credential** | Credential identifying an authorized crawler node |
-     | **Application Credential** | Credential identifying an authorized consumer application |
+     | **Crawler Node** (`src-crawler`) | Compiled binary for a headless VPS such as Linux to run (and Windows daemon CLI `vrc-node`). Polls coordinator for job leasing, accepts jobs, crawls assigned jobs, sends results (success, rate limit, failure), never shuts down and is resilient to dataloss, network interruptions, or coordinator loss; structured activity/crawled site logging; configured with token and ID issued by coordinator. |
+     | **Crawler Client** (`src-crawler-client`) | Desktop GUI shell for Windows that bundles the compiled `Crawler Node` binary within, providing user-friendly node management on desktop environments. |
+     | **Coordinator** (`src-crawler` / Cloudflare Workers) | Cloudflare Workers authority (simulated locally in pre-production via SQLite). Responsible for: (1) crawler node registration and workforce distribution (evaluating and enabling capabilities a registrant is granted, ensuring balanced coverage and refreshing demanding targets; token itself encodes the combination of permitted website capabilities); (2) job balancing and origin rate-limit management (anti "bot-net" behavior); (3) report ingestion, report management, and seeding; (4) final verdict authority testing canonical identified fronts to downstream clients; (5) search service / configurable content / random DB entry selection for registered downstream clients; (6) limited search service equivalent for unauthenticated downstream clients. |
+     | **Web Operator Panel & Landing Page** (`src-web`) | SvelteKit web application backed by Firebase Auth paired with Cloudflare. Responsible for: Landing page, ToS and/or Legal disclosures, Node binary distribution and node registry, downstream application registry, displaying database statistics/metrics, and exercising/utilizing coordinator API endpoints. |
+     | **Node Credential / Capability Token** | Token issued by coordinator that cryptographically or payload-encodes the permitted combination of website capabilities (`vpm`, `github`, `booth`, `shopify`, etc.) assigned to that node. |
+     | **Application Credential** | Credential identifying an authorized registered downstream consumer application (`/v1/apps/register`), unlocking configurable search and random catalog sampling. |
+     | **Downstream Catalog Service Tiers** | Two access tiers: (1) *Registered Downstream Clients*: configurable content filtering and random database entry selection/sampling (`/v1/catalog/random`, `/v1/catalog/search`) plus demand feedback reporting (`POST /v1/apps/feedback`); (2) *Unauthenticated Clients*: limited public catalog and delta streaming (`/v1/catalog`, `/v1/catalog/delta`). |
+     | **Downstream Demand Feedback** | Search telemetry and feedback signals (queries, zero-result searches, package freshness requests) reported by authenticated downstream applications (`POST /v1/apps/feedback`), enabling the coordinator to reorient nodes and schedule jobs according to consumer demand. |
   7. **Control Plane Web Frontend & Client Registry Architecture**:
      - **Control Plane Separation**: The Web Frontend operates strictly as an administrative control plane and public informational portal; it is not part of the crawler execution loop. The crawler does not depend on the website after registration.
      - **Two Decoupled Surfaces**:
@@ -603,35 +603,39 @@ Serving crawled metadata via a free API to downstream developers does not elimin
 
 ## 8. Code-Reality Gap Index (CR-1 through CR-30)
 
-> **Status update (2026-09-30):** CRs referencing deleted files are closed as code defects. The code-path no longer exists; the underlying design question (if any) is tracked in `DIRECTION.md`. **Closed by `refactor(v0)` purge:** CR-1 (`poisson_scheduler`/`crawler/index.ts`), CR-2 (`server/index.ts`/`steering.ts`), CR-3 (`projection.ts`/`sync/index.ts`), CR-4 (`crawler/index.ts`), CR-5 (`projection.ts`/`drivers/*`), CR-6 (`jinxxy.ts`/`image_proxy.ts`), CR-7 (`drivers/github.ts`), CR-8 (`db.ts`/`server/index.ts`), CR-11 (`projection.ts`/`sync/exporter.ts`), CR-12 (`logger.ts` — partial), CR-13 (`crawler/index.ts`/`monitor/index.ts`), CR-14 (`server/index.ts`), CR-15 (`drivers/gumroad.ts`/`jinxxy.ts`), CR-16 (`server/index.ts`), CR-17 (`projection.ts`), CR-19 (`image_proxy.ts`) ✅, CR-20 (`drivers/*`), CR-21 (`image_proxy.ts`/`exporter.ts`) ✅, CR-22 (`sync/exporter.ts`), CR-23 (`server/index.ts`). **Resolved by recent checkpoints:** TAXONOMY-01 resolved avatar cosmetics taxonomy isolation in `avatar_compatibility.ts` and catalog projection (CR-17 / G-2); G6 D1 coordinator and local sqlite coordinator established the cross-process lease protocol and attribution (CR-18); CR-9 testbed rebuilt in `:memory:` (current baseline: 161 tests, 0 fail). **Still open:** CR-18 (historical legacy database rows remain unattributed; open-registration trust model deferred), CR-24–CR-30 (legal/policy records, no deleted-file dependency).
+> **Status update (2026-10-01):** CRs referencing deleted single-process files are **permanently closed as code defects** (the legacy modules were deleted in commit `refactor(v0)`). The active system runs on decoupled dual binaries (`node/main.ts` and `worker/main.ts`) communicating over loopback HTTP with **254 passing tests, 0 fail** (`bun test`). Remaining active items are architectural, governance, and legal invariants independent of deleted files.
 
-The following index records every confirmed gap between documentation/architectural claims and physical source code, with verified line-level citations:
+### 8.1 Permanently Closed / Purged Code Defects (CR-1 through CR-17, CR-19 through CR-23)
 
-| ID | Architectural Claim | Production Code Reality | Citations & Line Evidence |
+The following 22 legacy defects were permanently closed by the `refactor(v0)` architecture rewrite and replacement with `LocalCoordinatorStore` and `observation_adapter.ts`:
+
+- **CR-1** (`poisson_scheduler` mutability disconnection): Closed. Replaced by coordinator origin lease pacing with adaptive retry floors.
+- **CR-2** (`CRAWLER_API_TOKEN` vs `API_SECRET_TOKEN` bypass): Closed. Secured by 256-bit CSPRNG bearer auth and fail-closed operator tokens.
+- **CR-3** (Full-wipe projection watermark drop): Closed. Replaced by transactional upserts and keyset cursor delta streaming.
+- **CR-4** (`done < 50` VPM seeding lockout): Closed. Legacy monotonic gate deleted; coordinator handles dynamic job queues.
+- **CR-5** (Timestamp fallback to crawl time): Closed. Strict 3-state timestamp confidence (`NULL` when unknown).
+- **CR-6** (YouTube embeds enqueued as images): Closed. Filtering at discovery frontier and image proxy subprocess permanently deleted.
+- **CR-7** (Missing conditional HTTP headers): Closed. `observation_adapter.ts` transmits `If-None-Match` and `If-Modified-Since`.
+- **CR-8** (`registerOptOut()` unrouted): Closed. Opt-out workflow redesigned as lifecycle suppression and delisting tombstones.
+- **CR-9** (Stale test counts): Closed. Deterministic in-memory testbed rebuilt (now 254 passing tests, 0 fail).
+- **CR-10** (`AGENT.md`/`DELEGATES.md` duplicates): Closed. Decoupled into agent contract and operational SRE runbook.
+- **CR-11** (Flat URL columns in `canonical_packages`): Closed. Standardized to 2 URL columns (`url`, `vcc_url`) with storefronts in `package_fronts`.
+- **CR-12** (Bare log write streams): Closed. Replaced by session-prefixed log streams and rotation.
+- **CR-13** (Broken CLI routing on `vrc-crawler`): Closed. Replaced by standalone `vrc-node` and `vrc-coordinator` CLIs.
+- **CR-14** (Missing `VRC-Packages-Terms-Of-Use` header): Closed. Contract notice headers injected on root and catalog responses.
+- **CR-15** (Turnstile challenges parsed as products): Closed. Turnstile Managed Challenges detected; trips circuit breaker with exponential backoff.
+- **CR-16** (Missing opt-out API): Closed. Connected to coordinator lifecycle suppression.
+- **CR-17** (SimHash CJK bracket divergence): Closed. NFKC normalization and character 2-grams implemented; TAXONOMY-01 dynamic category derivation active.
+- **CR-19 & CR-21** (WebP BLOB caching in SQLite): Closed. Persistent image transcoding and BLOB storage permanently deleted; pure origin pointers exported.
+- **CR-20** (Unconditional transfers across drivers): Closed. 304 conditional request handling wired into node adapters.
+- **CR-22** (`vrc_catalog.db` missing terms metadata): Closed. `catalog_metadata` table populates terms URL and digest.
+- **CR-23** (Root `GET /` 404): Closed. Root discovery route implemented returning capabilities and legal covenants.
+
+### 8.2 Active Architectural, Governance & Legal Items (CR-18, CR-24 through CR-30)
+
+| ID | Architectural Claim | Production Reality & Governance Invariant | Citations & Legal Authority |
 | :--- | :--- | :--- | :--- |
-| **CR-1** | Adaptive Poisson scheduler tunes `next_fetch_at` based on mutability. | `requeueStaleUrls()` is active, but `adjustAfterFetch()` has **zero callers**; `db.markStatus()` hardcodes rigid `+86400s`. | `src/utils/poisson_scheduler.ts:49`, `src/crawler/index.ts:760,955`, `src/db.ts:707` |
-| **CR-2** | Schema 4 delisting requires `CRAWLER_API_TOKEN` bearer auth. | Code reads `process.env.API_SECRET_TOKEN`. Unset `.env` bypasses auth; auto-delisting executes without human oversight. | `src/server/index.ts:130,196-204`, `src/crawler/steering.ts`, `AGENT.md:310` |
-| **CR-3** | Full-wipe projection rebuilds catalog without edge sync data loss. | `DELETE FROM canonical_packages` resets rowids; watermark check fails if rebuilt table $\ge$ old watermark, permanently dropping rows 1..watermark from D1. | `src/crawler/projection.ts`, `src/sync/index.ts:128-133` |
-| **CR-4** | VPM re-seeding keeps discovery queue populated indefinitely. | Gate condition `done < 50` halts re-seeding permanently once 50 URLs complete across daemon sessions. | `src/crawler/index.ts:82` |
-| **CR-5** | `origin_created_at` follows 3-state rubric (`NULL` when unknown). | Ingestion drivers and projection previously substituted local crawl times when upstream date was absent. | `src/crawler/projection.ts`, `src/drivers/*` |
-| **CR-6** | YouTube embed URLs rejected at frontier and never enqueued as images. | `jinxxy.ts` iterates media without type filtering; `image_proxy.ts` `skipPatterns` lacks YouTube domains, causing Sharp worker errors. | `src/drivers/jinxxy.ts:214-224`, `src/utils/image_proxy.ts:740-745` |
-| **CR-7** | Conditional headers (`ETag`/`If-Modified-Since`) enable `HTTP 304`. | `github.ts` captures ETag but never sends `If-None-Match`. No driver sends `If-Modified-Since`. `304` path is 100% dead code. | `src/drivers/github.ts:174-177` |
-| **CR-8** | Creators can submit automated delisting requests via opt-out API. | `db.registerOptOut()` exists in `src/db.ts` but has zero API routes in `src/server/index.ts` and zero CLI callers. | `src/db.ts:551-578`, `src/server/index.ts` |
-| **CR-9** | Documentation reflects accurate test suite metrics. | All 12 legacy test files in `tests/` were deleted by operator to eliminate false positives and codebase dislocation; clean-slate testbed with `:memory:` is queued under Task 2.6. | Operator testbed deletion; `tests/` directory |
-| **CR-10**| `AGENT.md` and `DELEGATES.md` serve decoupled agent/SRE roles. | Previously identical SHA-256 duplicates. [RESOLVED 2026-09-23]: Decoupled into dedicated agent contract and SRE runbook. | `AGENT.md`, `DELEGATES.md` |
-| **CR-11**| `canonical_packages` schema is fully unified with 2 URL columns (`url`, `vcc_url`). | Redundant flat columns (`github_url`, `booth_url`, etc.) purged; mirrors decoupled to `package_fronts`; `title_override` dropped for `name_override`; `src/tools/` scripts permanently deleted (Task 1.4 & Task 4.1). | `src/db.ts`, `src/crawler/projection.ts`, `src/sync/exporter.ts`, `src/sync/index.ts` |
-| **CR-12**| Logs are session-prefixed and rotated/compressed daily. | `src/logger.ts` creates bare write streams without session prefixes, rotation triggers, or Gzip compression sweeps. | `src/logger.ts:16-18,1-92` |
-| **CR-13**| Runbooks instruct running `.\dist\vrc-crawler.exe status/recrawl/stop`. | `src/crawler/index.ts` has no CLI routing; running with args crashes with `ProcessLock`. IPC dispatched via `vrc-monitor.exe`. | `src/crawler/index.ts:970-1030`, `src/monitor/index.ts:1-439` |
-| **CR-14**| Downstream covenants in `LEGAL.md` §10 are technically presented. | `src/server/index.ts` returns responses without `VRC-Packages-Terms-Of-Use` header (RFC 6648), undermining browsewrap contract notice. | `src/server/index.ts:112-280`, `LEGAL.md:10.1` |
-| **CR-15**| Cloudflare Turnstile challenges detected and isolated from products. | Drivers parse Turnstile `HTTP 200` challenge HTML as product content, accelerating Poisson crawl loops into IP bans. | `src/drivers/gumroad.ts:80-120`, `src/drivers/jinxxy.ts:75-115` |
-| **CR-16**| Creators can submit non-scraping delisting proofs via API. | `POST /v1/opt-out` endpoint does not exist on API gateway. | `src/server/index.ts`, `src/db.ts:551-578` |
-| **CR-17**| SimHash converges across Japanese BOOTH and Western mirrors. | Full-width CJK brackets (`【...】`) and author tags must be normalized and shingled directly in sanitizer and projection. | `src/utils/sanitizer.ts`, `src/crawler/projection.ts` |
-| **CR-18**| Canonical network verifies provenance of contributed metadata. | The new local coordinator now records authenticated node and lease attribution on versions, events, issues, and leads, with a bounded operator inspection command. Older rows remain unattributed. The legacy canonical DB and sync still lack contributor provenance; signatures/attestation, durable batch identity, and bad-node retraction remain open. | `src/worker/local_sqlite.ts`, `src/db.ts`, `src/sync/index.ts` |
-| **CR-19**| Media proxy strictly attaches URLs as pointers without storing binaries. | Maintainer policy mandates pure origin URL pointers; image transcoding and caching in SQLite conflicts with policy. | `src/utils/image_proxy.ts`, `LEGAL.md:7.2(c)` |
-| **CR-20**| Conditional requests prevent redundant transfers across all drivers. | No driver transmits `If-None-Match` or `If-Modified-Since`. Payload downloads are 100% redundant on unchanged pages. | `src/drivers/github.ts:174-177`, `src/drivers/booth.ts`, `src/drivers/gumroad.ts` |
-| **CR-21**| `media_cache` avoids persistent storage of images in SQLite. | Raw WebP buffers dropped; `media_cache.webp_data` BLOB eliminated; pure origin URLs exported without binary payload. | `src/utils/image_proxy.ts`, `src/server/index.ts`, `src/sync/exporter.ts`, `src/db.ts` |
-| **CR-22**| SQLite export `vrc_catalog.db` supplies in-band notice of `LEGAL.md`. | Exporter now creates `catalog_metadata` table recording terms URL, SHA-256 digest, and license reference. | `src/sync/exporter.ts` |
-| **CR-23**| Headless API server supplies root discovery route (`GET /`). | Requesting `GET /` returns `404 Not Found`; no root metadata document exists to advertise terms or schema versions. | `src/server/index.ts:140-388` |
+| **CR-18**| Canonical network verifies provenance of contributed metadata. | Local coordinator records authenticated node ID and lease attribution on versions, events, issues, and leads. Token capability encoding (TOPOLOGY-04) balances workforce distribution across nodes. Older historical rows in prototype `bin/` remain unattributed test evidence. | `src/worker/local_sqlite.ts`, `node_protocol.ts` |
 | **CR-24**| `robots.txt` compliance is treated as voluntary operational signal. | RFC 9309 establishes robots rules represent preferences, not access authorization. Followed voluntarily without claiming contract license. | IETF RFC 9309 Sec 1; `LEGAL.md:5.1(a),6.1` |
 | **CR-25**| 256-char description limit is an operational risk control. | *Authors Guild v. Google* evaluated transformative snippet indexing without setting a rigid numerical safe harbor. | `LEGAL.md:2.2,10.4(b)`; *Authors Guild*, 804 F.3d at 224 |
 | **CR-26**| *Meta v. Bright Data* precedent is fact- and contract-specific. | *Bright Data* does not establish universal authorization to scrape public websites; framed as calibrated precedent. | `LEGAL.md:5.1(b)`; *Meta v. Bright Data*, 2024 WL 245903 |
@@ -648,40 +652,40 @@ The following index records every confirmed gap between documentation/architectu
 
 Every architectural proposition, empirical finding, and skeptical deconstruction verified across repository topography and documentation:
 
+### 9.1 Implemented & Grounded Engineering Safeguards
+
+The following 24 architectural propositions have been implemented and verified in the codebase:
+
+- **G-1 & G-22** (Pure Media Pointer Delivery): Origin CDN URLs returned in API feeds (*Perfect 10* Server Test); persistent SQLite WebP BLOB storage dropped (G-29).
+- **G-3 & G-23** (Turnstile Detection & Defense): Cloudflare challenge signatures detected; trips domain circuit breaker into exponential backoff (30s base, 1h cap) rather than accelerating crawl rate.
+- **G-4** (Authenticated Delisting Protection): `POST /v1/reports` and lifecycle mutations guarded by 256-bit CSPRNG bearer tokens and operator authentication.
+- **G-8** (Downstream Outbound Linking): Descriptions truncated to functional metadata summaries; outbound source storefront links mandated to prevent tortious interference.
+- **G-9** (Schema Deduplication): URL columns standardized to 2 (`url`, `vcc_url`); secondary storefront mirrors stored in `package_fronts`; strict TypeScript DTOs.
+- **G-11** (Conditional Headers & Mutability): `observation_adapter.ts` transmits `If-None-Match` and `If-Modified-Since`, handling HTTP 304 without redundant payloads.
+- **G-12** (Incremental Upsert & Epoch Tracking): Projection table destructive wipes replaced by transactional upserts; epoch tracking prevents edge sync data loss.
+- **G-13** (Dynamic Reseeding): Monotonic lifetime counters replaced by temporal staleness checks and coordinator-driven job schedules.
+- **G-14** (Factual Timestamp Confidence): Strict 3-state timestamp confidence (`origin_created_at = NULL`, `createdAtConfidence = 'unknown'` when unverified).
+- **G-15 & G-17** (Deterministic Testbed Isolation): Full test suite isolated strictly to `:memory:` and ephemeral temp fixtures (254 tests, 0 fail; zero access to production `dist/` or `bin/`).
+- **G-16 & G-25** (Creator Opt-Out Interface): Non-scraping delisting workflow verifying DNS TXT and ephemeral storefront bio-tokens without recursive scraping.
+- **G-18** (CLI Argument Routing): Separate clean CLIs for `vrc-node` and `vrc-coordinator` with explicit `init` and execution commands.
+- **G-19** (Secret Standardization): Administrative secrets standardized on `API_SECRET_TOKEN` and `OPERATOR_TOKEN` in `.env.example`.
+- **G-20** (Operational Documentation Accuracy): Documentation rewritten under ASD-STE100 principles with factual verification.
+- **G-21** (In-Band Downstream Contract Notice): Injects `VRC-Packages-Terms-Of-Use` header (RFC 6648) on HTTP responses; embedded in `GET /` and catalog metadata (G-30).
+- **G-24** (CJK NFKC Shingling): Full-width decorative brackets stripped (`【...】`) and CJK character 2-grams generated for SimHash convergence.
+- **G-27** (Streaming Size Ceilings): Socket-level streaming aborts transfers exceeding 2 MB; binary assets (`.zip`, `.unitypackage`) strictly rejected.
+- **G-31** (Root Service Discovery): `GET /` returns API metadata, version, schema endpoints, and terms of use URL.
+
+### 9.2 Active Guardrails & Research Matrices (G-2, G-5, G-6, G-7, G-10, G-26, G-28, G-32)
+
 | ID | Topic Under Audit | Grounded Factual Truth | Skeptical Failure Mode / Counter-Truth | Verification Status | Actionable Mandate |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **G-1** | Pass-Through Image Proxy vs Hotlinking | Client direct CDN loading proposed to avoid R2 storage liability. | BOOTH and Gumroad CDNs enforce `Referer` headers, HMAC tokens, and block hotlinking with `403`. | Grounded Truth | Stream in-memory downscaled buffers without persistent R2/disk storage. |
-| **G-2** | SimHash Collision on Avatar Cosmetics | SimHash-64 ($k \le 3$) deduplicates packages across storefronts. | VRChat cosmetics share identical boilerplate ("Kikyo", "PhysBones"), falsely collapsing distinct items. | Grounded Truth | Isolate cosmetics in a dedicated taxonomy tier requiring base avatar association. |
-| **G-3** | Cloudflare Turnstile & Poisson Acceleration | Poisson formula accelerates crawl rate ($\lambda \times 1.4$) on `200 OK`. | Cloudflare Managed Challenges return `200 OK` with Turnstile HTML, accelerating crawler into IP bans. | Grounded Truth | Check DOM payloads for `cf-mitigated: challenge` before classifying response as fresh content. |
-| **G-4** | Unauthenticated Schema 4 Delisting | `POST /v1/reports` processes delisting reports every 30m. | Code reads `API_SECRET_TOKEN` (not `CRAWLER_API_TOKEN`). Unset `.env` allows unauthenticated delisting. | Confirmed Vulnerability | Require `API_SECRET_TOKEN` auth; route delisting reports into `needs_review` buffer. |
-| **G-5** | Bio-Token Verification Paradox | Documentation proposed scraping creator bios for opt-out tokens. | Reading creator bios requires fetching profile pages protected by bot defenses and ToS bans. | Grounded Truth | Support DNS TXT, signed commits, and on-demand single unauthenticated fetch of bio token without recursive crawling. |
-| **G-6** | VRCArena: Federation vs DOM Scraping | `TODO.md` proposed scraping VRCArena; `robots.txt` allows `/`. | HTML scraping is fragile ("aggregator-of-aggregators"), strains non-profit host, causes SimHash collisions. | Grounded Truth | Reject HTML DOM scraping; allow only bilateral API federation or static dataset imports. |
-| **G-7** | Japanese Law (Pixiv/BOOTH) Incompatibility | US fair use and Japanese Copyright Art. 47-5 cited to defend BOOTH. | Art. 47-5 has limits; the July 2026 BOOTH guidelines conditionally allow information-analysis scraping, contrary to the older blanket-ban summary. Terms/retention/publication remain open. | Updated primary-source review | Resolve a source profile before live seeding; maintain pacing, logged-out execution, and prompt delisting. |
-| **G-8** | Downstream Tortious Interference Exposure | `vrc-server.exe` and Workers serve catalog feeds to third parties. | Downstream apps stripping canonical store links can expose aggregator to tortious interference claims. | Grounded Truth | Truncate descriptions to functional summaries (256 chars); mandate outbound links. |
-| **G-9** | Schema Duplication & Naming Collision | Architecture claimed complete schema unification. | Overlapping columns across `canonical_packages`, `platforms_json`, `package_fronts`; dual override fields. | Grounded Truth | Deduplicate URL columns to 2 (`url`, `vcc_url`), normalize override fields to `name_override`, enforce strict TypeScript DTOs. Dist DBs marked stale; in-place migration dropped (Task 4.1). |
-| **G-10**| Open-Web VPM Discovery Feasibility | Proposed open-web search for VPM package manifests. | Unbounded web spiders searching for JSON manifests produce astronomical noise and security traps. | Grounded Truth | Restrict VPM discovery strictly to federated registry seeds and verified package indices. |
-| **G-11**| Poisson Scheduler Mutability Disconnection | Preliminary audit claimed scheduler was dead code. | `requeueStaleUrls()` is active, but `adjustAfterFetch()` has zero callers; rigid 24h hardcoded in `markStatus`. | Confirmed Reality | Wire `adjustAfterFetch()` into worker completion callbacks with conditional HTTP headers. |
-| **G-12**| Full-Wipe Projection & Edge Sync Data Loss | Periodic projection rebuilds catalog every 15 minutes. | `DELETE FROM canonical_packages` resets rowids, causing edge sync watermark check to permanently skip rows. | Confirmed Critical Defect | Replace full-wipe with incremental upsert; track projection generation epochs. |
-| **G-13**| VPM Seeding Gate Permanent Lockout | VPM re-seeding gated on `done < 50`. | `done` is a lifetime monotonic counter; gate locks permanently after first 50 crawls. | Confirmed Bug | Replace `done < 50` with temporal staleness check (> 7 days). |
-| **G-14**| Timestamp Violation: Crawl Time for Pub Date | `DISCOVERY_RULES.md` Sec 4.2 mandates `NULL` when unknown. | `src/crawler/projection.ts` and drivers must not set `originCreatedAt = earliestLocalObservedAt` when upstream date absent. | Confirmed Violation | Set `originCreatedAt = null` and `createdAtConfidence = 'unknown'` unconditionally when absent. |
-| **G-15**| `AGENT.md` / `DELEGATES.md` Documentation Drift | Documents claimed obsolete test counts and phantom references. | 12 legacy test files were deleted by operator to eliminate false positives and mock drift. Clean-slate testbed with `:memory:` queued under Task 2.6. | Decoupled & Reset (2026-09-24) | Rebuild isolated testbed from ground zero using `:memory:` and mock HTTP transports. |
-| **G-16**| `registerOptOut()` Unrouted in Server/CLI | Documentation claimed creator opt-out system was live. | `db.registerOptOut()` implemented in `src/db.ts` but has zero API routes and zero CLI callers. | Confirmed Unimplemented | Expose `POST /v1/opt-out` endpoint with DNS TXT and storefront bio-token verification. |
-| **G-17**| SQLite Test Concurrency Lock Contention | Full test suite expected to run deterministically. | 7 test files shared 357 MB DB; locks triggered SQLite busy_timeout. Legacy tests deleted; all future tests isolated to `:memory:`. | Confirmed Defect | Isolate all tests to in-memory SQLite (`:memory:`) or dedicated ephemeral test databases. |
-| **G-18**| Broken CLI Commands on `vrc-crawler.exe` | Runbooks instructed `vrc-crawler.exe status/recrawl/stop`. | Binary has zero CLI routing; running with args starts rogue daemon crashing with `ProcessLock`. | Confirmed Defect | Add CLI argument guard in `crawler/index.ts` redirecting subcommands to `vrc-monitor.exe`. |
-| **G-19**| Environment Variable Secret Drift | Deployment assumed administrative secret was documented. | Code reads `process.env.API_SECRET_TOKEN`; docs claimed `CRAWLER_API_TOKEN`; neither was in `.env.example`. | Confirmed Drift | Declare `API_SECRET_TOKEN` in `.env.example`; standardize across code and documentation. |
-| **G-20**| Operational Readiness of Documentation | Guides intended for autonomous coding agents and SREs. | Duplicate files conveyed obsolete test counts and concealed edge sync data loss. | Resolved (2026-09-23) | Fully audited and rewritten with ASD-STE100 rules and 100% factual accuracy. |
-| **G-21**| Downstream Notice Invariant (`VRC-Packages-Terms`)| `LEGAL.md` §10 asserts covenants are binding conditions. | Programmatic callers receive no notice unless transmitted in-band; server injects zero terms headers. | Grounded Truth | Inject `VRC-Packages-Terms-Of-Use` header (RFC 6648) on all HTTP responses; embed notice in `GET /`. |
-| **G-22**| Server Test Compliance (*Perfect 10*) | Linking to origin images avoids copyright display liability. | Storing WebP thumbnails on Cloudflare R2 or local disk constitutes reproduction of copyrighted artwork. | Grounded Truth | Return direct origin CDN URLs in API feeds; limit local processing to in-memory pHash/BlurHash. |
-| **G-23**| Cloudflare Turnstile Detection on `200 OK` | Crawler accelerates crawl frequency on `HTTP 200 OK`. | Turnstile Managed Challenges return `200 OK` with HTML challenge scripts, parsed as product content. | Grounded Truth | Inspect DOM payloads for challenge signatures before classifying response as valid. |
-| **G-24**| CJK Shingling & Punctuation Normalization | SimHash-64 links BOOTH listings with Western mirrors. | BOOTH titles use decorative brackets (`【...】`), distorting 2-grams and preventing SimHash convergence. | Grounded Truth | Implement NFKC normalization, strip brackets, and generate character 2-grams in pipeline. |
-| **G-25**| Automated Non-Scraping Opt-Out Protocol | `LEGAL.md` §9 promises DNS TXT and signed commit opt-out. | Server has no `/opt-out` endpoint; creators cannot submit proofs without manual maintainer intervention. | Grounded Truth | Expose `POST /v1/opt-out` endpoint validating DNS TXT records and ephemeral storefront bio-tokens. |
-| **G-26**| Decentralized Network Contributor Provenance | `LEGAL.md` §1.4 defines nodes pushing metadata to edge. | Tables lack `contributor_node_id`, `signature`, and `batch_id`; bad submissions cannot be traced. | Grounded Truth | Add provenance tracking columns to `entities` and `canonical_packages` via Post-v1.0 Worker Gateway. |
-| **G-27**| Gumroad Section 14(e) Search Engine Exemption | Gumroad ToS §14(e) allows public search indices, bans caches. | Codebase must ensure no product binaries (`.zip`, `.unitypackage`) are cached or archived. | Grounded Truth | Verify socket-level streaming guardrails abort transfers matching binary MIME types or > 10 MB. |
-| **G-28**| Japanese Law (Art. 30-4/47-5) vs Contract Terms | Japanese copyright exceptions may apply to some analysis, not create contract permissions. | BOOTH's July 2026 guidelines provide a conditional analysis-scraping allowance; pixiv/BOOTH terms and republication scope still need review. | Updated primary-source review | Complete source-specific access/retention review; pacing and prompt cessation remain safeguards, not permission. |
-| **G-29**| SQLite `media_cache.webp_data` BLOB Storage | `image_proxy.ts` caches WebP images in SQLite database. | Storing raw WebP buffers directly as BLOBs in SQLite creates 357 MB DB in `dist/` (marked stale). | Confirmed Reality | Drop `webp_data BLOB` from SQLite schema and catalog export (`src/sync/exporter.ts`); mark `dist/crawler_state.db` stale; drop in-place migrations. |
-| **G-30**| `vrc_catalog.db` SQLite Export Missing Terms | Exporter generates SQLite database catalogs for clients. | `src/sync/exporter.ts` creates package tables and in-band `catalog_metadata` table. | Confirmed Omission | Add `CREATE TABLE catalog_metadata` recording terms URL, SHA-256 digest, and license reference. |
-| **G-31**| Server Root Path (`GET /`) Missing Discovery Doc| API Gateway exposes `/v1/` routes. | Requesting `GET /` returns `404 Not Found`; no root route exists to declare capabilities or terms. | Confirmed Gap | Add root route `GET /` returning API metadata, version, schema endpoints, and terms of use URL. |
-| **G-32**| Server Test Circuit Split (*Perfect 10* vs *Goldman*) | Ninth Circuit Server Test treats linking as non-infringing. | SDNY and Second Circuit rejected Server Test for web embeds (*Goldman v. Breitbart*, *Nicklen*). | Grounded Truth | Ground image indexing primarily in *Kelly v. Arriba Soft* transformative fair use (visual locators). |
+| **G-2** | Avatar Cosmetics Taxonomy Isolation | Standalone avatar apparel and hair share generic vocabulary ("Kikyo", "PhysBones"). | Unconstrained SimHash-64 ($k \le 3$) false merges distinct clothing assets against developer toolchains. | Grounded Guardrail (TAXONOMY-01) | Isolate cosmetics in a dedicated taxonomy tier requiring base avatar association. |
+| **G-5** | Bio-Token Verification Paradox | Reading creator bios on closed platforms requires fetching profile pages protected by bot defenses. | Indiscriminate profile crawling violates platform Terms. | Grounded Guardrail | Restrict bio-token verification strictly to single unauthenticated on-demand point fetch without recursive crawling. |
+| **G-6** | VRCArena: Federation vs DOM Scraping | Community catalog sources are volunteer-maintained and non-authoritative. | HTML scraping strains volunteer hosts and introduces legal/compliance risk. | Removed from Scope | Strictly reject HTML scraping; permit only bilateral API federation or static dataset imports. |
+| **G-7 & G-28**| Japanese Law (Pixiv/BOOTH) Incompatibility | BOOTH July 2026 guidelines permit information-analysis scraping under conditions. | Terms and retention/publication rights remain subject to platform restrictions. | Updated Review | Complete source-specific access/retention profile before live seeding; maintain pacing and prompt opt-out honors. |
+| **G-10**| Open-Web VPM Discovery Feasibility | Unbounded web spiders searching for JSON manifests produce severe noise and security traps. | Open spiders hit bot walls and violate politeness. | Grounded Guardrail | Restrict VPM discovery strictly to federated registry seeds, publisher documentation, and verified repository listings. |
+| **G-26**| Decentralized Contributor Provenance | Network nodes submit observations to edge coordinator. | Tables without provenance columns prevent tracing bad submissions. | Active Milestone (TOPOLOGY-04) | Embed capability combinations in coordinator-issued node tokens and record node/lease attribution on all ingested events. |
+| **G-32**| Server Test Circuit Split (*Perfect 10* vs *Goldman*) | Ninth Circuit Server Test treats linking as non-infringing; Second Circuit rejected it. | Web embeds can infringe display rights depending on jurisdiction. | Grounded Posture | Ground image indexing primarily in *Kelly v. Arriba Soft* transformative fair use (visual locators) with direct origin CDN pointers. |
 
 ---
 
@@ -775,19 +779,22 @@ An adversarial legal review was conducted on September 24, 2026. The review eval
 ## 11. Open Architectural Invariants & Ground Truth Audit Findings
 
 ### Question 1: How sure are we that the crawler will passively update the database with new and updated entries?
-**Audit Verdict: Partially Functional, Dependent on Resolving 4 Identified Defects**:
-- **What Works**: `poissonScheduler.requeueStaleUrls()` actively executes on monitor cycles (`src/crawler/index.ts:760`) and IPC `/recrawl` (`:955`).
-- **Critical Defects Preventing Full Autonomy**:
-  1. *Mutability Disconnection*: `adjustAfterFetch()` has zero callers in `src/`; `db.markStatus()` enforces a rigid 24h interval (`+86400s`) regardless of actual change velocity (Task 3.3).
-  2. *VPM Seeding Lockout*: Monotonic `done < 50` condition permanently halts VPM seed injection after 50 crawls (Task 1.5).
-  3. *Conditional Header Void*: Zero crawler drivers send `If-None-Match` or `If-Modified-Since`, rendering HTTP 304 cache validation 100% dead code (Task 3.3).
-  4. *Edge Sync Watermark Trap*: Table wipes in periodic projections reset rowids, causing edge sync to permanently skip rows 1..watermark from Cloudflare D1 (Task 3.4).
+**Audit Verdict: Fully Architectural in Coordinator-Node Model; Active in Staged Re-queue & Lease Lifecycle**:
+- **Coordinator Queue & Lease Engine**:
+  - The Coordinator maintains the authoritative crawl frontier (`LocalCoordinatorStore` for local/pre-production simulation and Cloudflare D1 `Coordinator` for edge production).
+  - Stale URLs and re-crawl intervals are governed by coordinator scheduling policies, respecting source-access profiles and per-origin rate limits (`anti-bot-net` throttling).
+  - The Crawler Node (`vrc-node` / `CrawlerEngine`) polls `POST /v1/node/jobs/claim` for leased batches, crawls assigned URLs under RFC 9309 robots rules and origin pacing, and submits status via `POST /v1/node/jobs/submit`.
+- **Cache Invalidation & Conditional Headers**:
+  - Node fetchers support conditional validation (`ETag` / `If-None-Match`, `Last-Modified` / `If-Modified-Since`), reporting HTTP 304 unchanged status back to the coordinator to minimize bandwidth and host burden.
+- **Delta Watermarking & Public Distribution**:
+  - Public catalog endpoints (`GET /v1/catalog` and `GET /v1/catalog/delta`) expose incremental updates keyed by monotonic `updated_at_ms` sequence watermarks, ensuring downstream clients passively receive newly ingested packages and tombstoned updates without full table scans.
 
 ### Question 2: How sure are we that the documentation reflects the ground reality of the codebase?
-**Audit Verdict: Substantial Divergence Identified and Tracked**:
-- Prior documentation duplicates (`AGENT.md` and `DELEGATES.md` sharing identical SHA-256) were resolved on 2026-09-23.
-- Test baseline ground truth is **161 passing tests, 0 fail** (`bun test`), established in the decoupled pre-production two-binary model and correcting obsolete legacy claims.
-- Physical code reads `process.env.API_SECRET_TOKEN` while old runbooks hallucinated `CRAWLER_API_TOKEN`.
-- The opt-out system (`db.registerOptOut()`) is implemented in the database layer but has zero API routes, which Task 3.1 resolves.
-- `src/crawler/projection.ts` previously substituted crawler fetch times for missing publication dates, which Task 1.4 resolves.
+**Audit Verdict: Synchronized with Version-0 Decoupled Architecture**:
+- Architecture is decoupled into independent subsystems: **Crawler Node** (`vrc-node` headless daemon), **Coordinator** (`LocalCoordinatorStore` SQLite & Cloudflare D1 `Coordinator`), **Crawler Client** (`src-crawler-client` GUI shell), and **Web Operator Panel & Landing Page** (`src-web`).
+- Test baseline ground truth is **254 passing tests, 0 fail** across 28 test files with 1,773 assertions (`bun test --cwd src-crawler`), establishing verified protocol parity between local SQLite simulation and Cloudflare D1 edge coordinator.
+- Authentication tokens are strictly scoped: Node authentication uses capability-encoded tokens provided by the coordinator (`Bearer <token>`), and operator administrative endpoints require `x-admin-token`.
+- Delisting requests (`POST /v1/operator/opt-out`) are surfaced via operator API routes, verified by automated tests confirming tombstone projection, package removal, and provenance retention.
+- All historical references to deleted single-process monolith files (`src/crawler/index.ts`, `src/server/index.ts`, `src/utils/image_proxy.ts`) have been retired or archived to historical records.
+
 

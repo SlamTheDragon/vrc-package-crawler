@@ -225,11 +225,11 @@ Requests should include:
 The Project provides automated, machine-verifiable non-scraping verification pathways:
 - **Domain DNS TXT Verification (`dns_txt`):** Querying `_vrc-opt-out.<creatorDomain>` for `vrc-opt-out=<vendorId>` via standard DNS resolvers.
 - **Storefront Profile Bio Token (`storefront_bio_token`):** For creators on hosted platforms (BOOTH, Gumroad, Jinxxy) lacking custom domain control, the creator temporarily places a verification token (`#vrc-opt-out-<vendorId>`) in their public store profile bio. The Gateway executes an ephemeral, single-shot HTTP verification probe with strict SSRF guards, streams the body until the token substring is detected, and immediately discards the payload without performing structural HTML parsing, indexing, or persistent storage. Once verified, the creator may immediately remove the token.
-- **Cryptographic Commit Signature (`signed_commit`):** For Git repository authors, verifying a digital signature against the author's published public key.
-- **Direct Email Notice:** Direct manual verification from an official domain via the contact in Section 9.2.
+- **Direct Manual Notice (`manual_notice`):** Direct manual verification from an official contact domain via the contact in Section 9.2.
+- **Authenticated Registrant Self-Service:** Registered creators and application registrants authenticate directly to perform delisting on their behalf without external DNS or bio tokens.
 
-9.5. **Automated Delisting Route (`POST /v1/opt-out`).**  
-The API Gateway exposes an automated, unauthenticated endpoint at `POST /v1/opt-out` gated by the technical verification proofs specified in Section 9.4. This endpoint enforces strict anti-abuse protections, including a sliding-window rate limit (5 verification requests per minute per IP), domain whitelisting, and private-IP SSRF rejection. Upon successful validation, the system immediately records the opt-out in `creator_opt_outs` and transitions all associated packages to `lifecycle = 'delisted'`, removing them from canonical feeds and future catalog exports. Manual requests sent to the designated contact in Section 9.2 continue to be honored concurrently.
+9.5. **Unified Delisting & Takedown Route (`POST /v1/delist` & `POST /v1/opt-out`).**  
+The Coordinator API exposes a unified delisting endpoint supporting both unauthenticated creator takedown requests (validated via `dns_txt`, `storefront_bio_token`, or `manual_notice`) and authenticated registrant self-service delisting on their behalf. This endpoint enforces strict anti-abuse protections, rate limits, and private-IP SSRF rejection. Upon successful validation, the system immediately records the action in `creator_opt_outs` and transitions all associated packages to `lifecycle = 'delisted'`, suppressing active crawl jobs and removing them from canonical feeds and future catalog exports. Manual requests sent to the designated contact in Section 9.2 continue to be honored concurrently.
 
 9.6. **Delisting Response Target and Scope.**  
 The Maintainer aims to process verified requests within a voluntary 24 to 48 hour operational target.

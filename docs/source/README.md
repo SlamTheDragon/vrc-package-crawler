@@ -6,9 +6,9 @@ This directory holds candidate specifications for the accepted post-production a
 
 | Subsystem | Scope and Role | Specification Link |
 |---|---|---|
-| **Crawler Network** | Cloudflare Worker coordinator, operator control plane (`/v1/operator/*`), lease arbitration, and catalog projection | [`SPECIFICATION_CRAWLER_NETWORK.md`](SPECIFICATION_CRAWLER_NETWORK.md) |
-| **Crawler Client** | Standalone decentralized crawler node (`vrc-node`), local telemetry (`node.db`), egress safety, and observation adapters | [`SPECIFICATION_CRAWLER_CLIENT.md`](SPECIFICATION_CRAWLER_CLIENT.md) |
-| **Website and Control Plane** | SvelteKit operator dashboard (`src-web`), public informational portal, creator opt-out tracker, and auth bridge | [`SPECIFICATION_WEBSITE.md`](SPECIFICATION_WEBSITE.md) |
+| **Crawler Network (Coordinator)** | Cloudflare Worker coordinator, workforce distribution, capability tokens, anti-bot origin pacing, report ingestion, downstream search/sampling, and canonical catalog projection | [`SPECIFICATION_CRAWLER_NETWORK.md`](SPECIFICATION_CRAWLER_NETWORK.md) |
+| **Crawler Node & Crawler Client** | Headless VPS/Linux daemon (`vrc-node`), local telemetry (`node.db`), and Windows desktop GUI shell (`src-crawler-client`) bundling Crawler Node | [`SPECIFICATION_CRAWLER_CLIENT.md`](SPECIFICATION_CRAWLER_CLIENT.md) |
+| **Web Platform & Operator Panel** | SvelteKit landing page (`src-web`), ToS/Legal, node binary distribution, downstream application registry, DB statistics, and Firebase Auth bridge | [`SPECIFICATION_WEBSITE.md`](SPECIFICATION_WEBSITE.md) |
 
 ---
 

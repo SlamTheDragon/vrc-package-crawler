@@ -10,6 +10,7 @@ import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   SourceAccessProfileListResponseSchema, SourceAccessProfileResponseSchema,
   decodeProfileCursor, type CreateSourceAccessProfile, type SourceAccessProfile,
   type ProfileCursor } from "../../shared/policy/source_access_profile.ts";
+import { parseCapabilityToken } from "../../shared/protocol/capability_token.ts";
 import { workerLogger } from "../worker_logger.ts";
 
 /** Runtime-neutral boundary for local SQLite now and a future Worker storage adapter. */
@@ -152,8 +153,9 @@ export async function handleOperatorRequest(
       const parsed = IssueNodeCredentialSchema.safeParse(body);
       if (!parsed.success) return failure(400, "invalid_payload", "Node credential body is invalid");
       const token = await store.issueNodeCredential(parsed.data, "operator-api");
+      const capabilities = parseCapabilityToken(token)?.capabilities ?? parsed.data.capabilities ?? ["vpm"];
       return json(NodeCredentialResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
-        nodeId: parsed.data.nodeId, capabilities: parsed.data.capabilities, token }), 201);
+        nodeId: parsed.data.nodeId, capabilities, token }), 201);
     }
     if (profileCreate) {
       const parsed = CreateSourceAccessProfileSchema.safeParse(body);

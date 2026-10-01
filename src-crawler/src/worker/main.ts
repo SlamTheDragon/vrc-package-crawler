@@ -4,6 +4,8 @@ import { LocalCoordinatorStore } from "./storage/local_sqlite.ts";
 import { handleNodeRequest } from "./api/handler.ts";
 import { handleOperatorRequest } from "./api/operator_handler.ts";
 import { handlePublicCatalogRequest } from "./api/public_handler.ts";
+import { handleDownstreamRequest } from "./api/downstream_handler.ts";
+import { handleRegistrantRequest } from "./api/registrant_handler.ts";
 import { PlatformSchema, type Platform } from "../shared/protocol/node_protocol.ts";
 import { LeadStatusSchema, decodeLeadCursor, decodeCatalogCursor } from "../shared/protocol/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, SourcePurposeSchema,
@@ -66,6 +68,12 @@ switch (command) {
         }
         if (path === "/v1/catalog" || path === "/v1/catalog/delta") {
           return handlePublicCatalogRequest(request, store);
+        }
+        if (path.startsWith("/v1/apps/") || path === "/v1/catalog/search" || path === "/v1/catalog/random") {
+          return handleDownstreamRequest(request, store);
+        }
+        if (path.startsWith("/v1/registrant/") || path === "/v1/delist") {
+          return handleRegistrantRequest(request, store);
         }
         return handleNodeRequest(request, store);
       }

@@ -8,27 +8,38 @@
 
 ## 1. Overview and Architectural Role
 
-The **Crawler Network** (coordinator) orchestrates discovery and catalog compilation for the VRChat package ecosystem. It operates in two environments:
+The **Crawler Network** (coordinator) orchestrates decentralized discovery, workforce distribution, and canonical catalog compilation for the VRChat package ecosystem:
 1. **Pre-Production Local Simulation:** Runs locally as `dist/local-coordinator/vrc-coordinator.exe`. It listens on loopback HTTP (default `127.0.0.1:3737`), reads `coordinator.config.json`, and stores state in `coordinator.db`.
-2. **Production Deployment:** Deploys as a Cloudflare Worker with identical request/response schemas, DTOs, and protocol validators.
+2. **Production Deployment:** Deploys as Cloudflare Workers backed by D1/R2 once the local simulation is proven to match edge semantics identically.
+
+The Coordinator is the central authority responsible for:
+- **Crawler Node & Client Registration**: Provisioning node credentials and evaluating registrant capacity.
+- **Workforce Distribution**: Evaluating platform coverage demands and enabling specific website capabilities for Crawler Nodes and Crawler Clients to balance network coverage and route capacity dynamically toward demanding targets requiring immediate data freshness.
+- **Capability-Encoded Tokens**: The coordinator-issued token contains/encodes the combination of permitted website capabilities that a node provides or is authorized to accept.
+- **Anti-"Bot-Net" Job & Rate-Limit Management**: Centralized origin lease scheduler enforcing origin-wide politeness floors, preventing multi-node traffic amplification against third-party storefronts.
+- **Report Ingestion & Moderation**: Ingesting structured consumer reports, managing report state, and seeding the crawl frontier.
+- **Canonical Front Arbiter**: Testing and determining the final verdict on canonical identified package fronts delivered to downstream clients.
+- **Downstream Consumer Services**:
+  - *Registered Downstream Service*: Search and configurable content retrieval endpoints allowing registered downstream applications to query or randomly select/sample database entries.
+  - *Unauthenticated Downstream Service*: Limited public catalog search and delta streaming for anonymous consumers.
 
 ---
 
 ## 2. Protocol Boundaries and Endpoints
 
-Version 1 Zod schemas in `src-crawler/src/shared/node_protocol.ts` and `operator_protocol.ts` validate all network payloads.
+Version 1 Zod schemas in `src-crawler/src/shared/node_protocol.ts`, `operator_protocol.ts`, and `catalog_protocol.ts` validate all network payloads.
 
 ### 2.1 Crawler Node Protocol (`/v1/node/*`)
-Needs `Authorization: Bearer <NODE_TOKEN>`.
+Needs `Authorization: Bearer <NODE_TOKEN>`. The bearer token encodes the node's assigned capability set.
 
-- `POST /v1/node/jobs/claim`: Issues an origin lease and atomic crawl job to an authorized node. Returns a job payload or `{ status: "empty", retryAfterMs: number }`.
+- `POST /v1/node/jobs/claim`: Issues an origin lease and atomic crawl job to an authorized node whose token permits that platform capability. Returns a job payload or `{ status: "empty", retryAfterMs: number }`.
 - `POST /v1/node/heartbeat`: Renews active job leases and confirms node liveness.
 - `POST /v1/node/jobs/result`: Submits observation facts, discovered leads, or access failure diagnostics. Transitions job state and updates canonical catalog tables.
 
 ### 2.2 Operator Control Protocol (`/v1/operator/*`)
 Needs `Authorization: Bearer <OPERATOR_TOKEN>` (256-bit entropy token issued at first boot or set in `coordinator.config.json`).
 
-- `POST /v1/operator/nodes`: Registers a new crawler node and returns a one-time 64-hex bearer token (`no-store`).
+- `POST /v1/operator/nodes`: Registers a new crawler node or client, evaluates workforce balance, and returns a capability-encoded one-time 64-hex bearer token (`no-store`).
 - `GET /v1/operator/source-profiles` and `POST /v1/operator/source-profiles`: Audits and provisions scoped source-access profiles.
 - `POST /v1/operator/source-profiles/{profileId}/disable`: Disables an active source-access profile and invalidates active leases.
 - `GET /v1/operator/autoqueue-rules` and `POST /v1/operator/autoqueue-rules`: Configures expiring, path-scoped auto-queue rules for discovered leads.
@@ -37,11 +48,18 @@ Needs `Authorization: Bearer <OPERATOR_TOKEN>` (256-bit entropy token issued at 
 - `POST /v1/operator/leads/{leadKey}/approve` and `POST /v1/operator/leads/{leadKey}/reject`: Approves or rejects pending leads.
 - `GET /v1/operator/catalog`: Queries deduplicated `canonical_packages` with keyset pagination.
 
-### 2.3 Public Consumer Protocol (Planned Gate G4/G6)
-Public, unauthenticated read-only catalog streaming endpoints for downstream package managers (ALCOM, VCC) and web portal (`src-web`):
+### 2.3 Downstream Consumer Protocol (`/v1/catalog/*`, `/v1/apps/*`)
 
-- `GET /v1/catalog`: Queries projected canonical catalog items.
-- `GET /v1/catalog/delta`: Emits incremental catalog changes and delisting tombstones with epoch preservation.
+#### A. Registered Downstream Applications (Authenticated via `Authorization: Bearer <APP_TOKEN>`)
+- `POST /v1/apps/register`: Registers a downstream client application (e.g. desktop managers, ALCOM, VCC) to receive application credentials.
+- `POST /v1/catalog/search`: Offers full configurable search, multi-facet filtering, and custom content extraction across canonical packages.
+- `GET /v1/catalog/random`: Allows registered clients to randomly sample/select database entries based on configurable filter criteria (e.g. for showcase discovery or random feed exploration).
+- `POST /v1/apps/feedback`: Ingests downstream search activities, query telemetry, cache-miss signals, and freshness demand signals, enabling the coordinator to reorient node workforce allocation and prioritize crawl frontier scheduling for high-demand packages.
+- `POST /v1/reports`: Ingests structured application-level curation/error reports.
+
+#### B. Unauthenticated Public Catalog (Read-Only)
+- `GET /v1/catalog`: Queries projected canonical catalog items with keyset pagination and public caching headers (`max-age=60`).
+- `GET /v1/catalog/delta`: Emits keyset-paginated incremental catalog deltas and delisting tombstones with epoch preservation.
 
 ---
 

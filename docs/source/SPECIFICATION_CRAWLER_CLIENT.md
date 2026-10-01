@@ -1,16 +1,31 @@
-# Crawler Client Specification (Candidate)
+# Crawler Node & Crawler Client Specification (Candidate)
 
 > **Document Status:** Post-Production Candidate Specification  
-> **Target Subsystem:** Crawler Node Client Architecture and Local Node Telemetry  
+> **Target Subsystem:** Headless Crawler Node Daemon (`src-crawler`) and Desktop GUI Crawler Client (`src-crawler-client`)  
 > **Source Directory:** `src-crawler/src/node/` and `src-crawler-client/`
 
 ---
 
-## 1. Overview and Architectural Role
+## 1. Overview and Terminology Disambiguation
 
-The **Crawler Client** (crawler node) is a lightweight background worker. It executes outbound HTTP fetches leased by the coordinator. It runs as a standalone binary:
-- **Executable:** `dist/local-node/vrc-node.exe` (Windows x64) / `vrc-node-linux`
-- **Working Directory Files:** Emits `node.config.json` and `node.db` in its launch directory. It runs next to the coordinator without filename or lock contention.
+This specification distinguishes between two operational deployment models:
+
+### 1.1 Crawler Node (`src-crawler`)
+- **Role:** Compiled binary for a headless VPS such as Linux to run (and Windows daemon CLI `dist/local-node/vrc-node.exe`).
+- **Core Behaviors:**
+  - Authenticated polling of the coordinator for job leasing via `/v1/node/jobs/claim`.
+  - Accepts jobs leased by the coordinator matching its capability profile.
+  - Crawls assigned jobs under strict origin pacing, pinned DNS, and robots adherence.
+  - Sends execution results to coordinator: success (normalized facts), rate limit (429 backoff), or failure (diagnostics).
+  - **Zero-Downtime Resilience**: Designed to never shut down; resilient against dataloss, network interruptions, or coordinator unavailability (failing closed without generating uncoordinated traffic spikes).
+  - **Comprehensive Structured Logging**: All activities, actions, and crawled websites are systematically recorded to local logs (`logs/`).
+  - Configured via `node.config.json` with node ID and capability-encoded secret token provided by the coordinator.
+  - Emits local telemetry to `node.db` (`node_runs`, `node_tasks`).
+
+### 1.2 Crawler Client (`src-crawler-client`)
+- **Role:** Desktop GUI shell for Windows that bundles the compiled `Crawler Node` binary within.
+- **Purpose:** Enables community contributors to run a node on personal Windows desktop machines without interacting with a headless terminal or manually configuring JSON files.
+- **Architecture:** Wraps `vrc-node.exe` as a supervised child process, exposes intuitive setup/status panels, displays live crawl progress and local metrics, and manages token provisioning from the coordinator portal.
 
 ---
 

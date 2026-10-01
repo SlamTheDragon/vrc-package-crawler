@@ -8,18 +8,24 @@
 
 ## 1. Overview and Architectural Role
 
-The **Web Platform** (`src-web`) gives a two-surface user interface and operator control plane for the discovery engine:
-1. **Public Informational Portal (Unauthenticated)**:
-   - Homepage that describes engine purpose, scope, and zero-binary principles.
-   - Transparent policies: RFC 9309 robots compliance, `User-Agent` contact details, and creator rights covenants.
-   - Creator self-service opt-out steps and automated delisting status tracker.
-   - Public API documentation and terms notice (`LEGAL.md`).
-2. **Authenticated Operator Dashboard**:
-   - Live telemetry and health metrics of active coordinator instances and decentralized crawler nodes.
-   - Discovery lead triage: interface to review, approve, or reject pending candidate leads.
-   - Auto-queue rules editor: configures path-scoped, rate-limited, expiring rules.
-   - Source-access profile manager: grants reviewed permissions for specific target domains and paths.
-   - Canonical catalog explorer: inspects projected packages, versions, and multi-storefront identity links.
+The **Web Platform** (`src-web`) serves as the public landing page, legal portal, and authenticated Operator Control Panel:
+
+1. **Public Informational Portal & Landing Page (Unauthenticated)**:
+   - **Landing Page**: Explains the discovery engine's purpose, scope, unauthenticated indexing architecture, and zero-binary principles.
+   - **Terms of Service (ToS) & Legal Disclosures**: Publishes in-band covenants, RFC 9309 robots compliance, `User-Agent` contact details, and fair-use indexing boundaries (`LEGAL.md`).
+   - **Node Binary Distribution**: Distributes compiled headless Crawler Node binaries (`vrc-node` for Linux VPS and Windows CLI) and the Windows GUI Crawler Client.
+   - **Database Statistics**: Displays live aggregated statistics and metrics of the canonical database (package counts, platform fronts, freshness, and crawl coverage).
+   - **Creator Self-Service Opt-Out**: Provides instructions and validation tracking for non-scraping delisting requests.
+   - **Public API Documentation**: Documents the public catalog endpoints (`/v1/catalog`, `/v1/catalog/delta`).
+
+2. **Authenticated Web Operator Panel (Firebase Auth + Cloudflare Bridge)**:
+   - **Node Registration & Workforce Management**: Provisions new Crawler Nodes and Crawler Clients, evaluates coverage needs, and issues capability-encoded tokens.
+   - **Downstream Application Registry**: Registers and manages downstream consumer applications (desktop managers, ALCOM, VCC), issuing application tokens for search/sampling APIs.
+   - **Endpoint Utilization**: Exercises and utilizes the coordinator's API surface (`/v1/operator/*`, `/v1/catalog/*`).
+   - **Discovery Lead Triage**: Interface to review, approve, or reject pending candidate leads.
+   - **Auto-Queue Rules Editor**: Configures path-scoped, rate-limited, expiring rules.
+   - **Source-Access Profile Manager**: Grants reviewed permissions for specific target domains and paths.
+   - **Canonical Catalog Explorer**: Inspects projected packages, versions, and multi-storefront identity links.
 
 ---
 

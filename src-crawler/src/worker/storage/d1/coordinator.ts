@@ -2,7 +2,7 @@ import { type CrawlerRules, compileRobotsText } from "@trybyte/robotstxt-parser"
 import { CRAWLER_ROBOTS_TOKEN } from "../../../shared/robots/crawler_identity.ts";
 import { isPrivateOrReservedIp } from "../../../shared/policy/ip_policy.ts";
 import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema } from "../../../shared/protocol/node_protocol.ts";
-import { type AutoQueueRule, AutoQueueRuleSchema, type IssueNodeCredential, IssueNodeCredentialSchema, type LeadCursor, type LeadRow, encodeLeadCursor, type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema, type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront, encodeCatalogCursor } from "../../../shared/protocol/operator_protocol.ts";
+import { type AutoQueueRule, AutoQueueRuleSchema, type IssueNodeCredential, IssueNodeCredentialSchema, type LeadCursor, type LeadRow, encodeLeadCursor, type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema, type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront, encodeCatalogCursor, decodeCatalogCursor } from "../../../shared/protocol/operator_protocol.ts";
 import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema } from "../../../shared/robots/robots_snapshot.ts";
 import { type SourceAccessProfile, SourceAccessProfileSchema, sourceAccessProfileMatches, type SourcePurpose, type ProfileCursor, encodeProfileCursor, type CreateSourceAccessProfile, CreateSourceAccessProfileSchema, sourcePathScopesOverlap } from "../../../shared/policy/source_access_profile.ts";
 import { isItchSearchUrl } from "../../../shared/policy/source_path_policy.ts";
@@ -11,13 +11,28 @@ import { type CoordinatorStore, type NodePrincipal, CoordinatorConflict } from "
 import type { OperatorStore } from "../../api/operator_handler.ts";
 import type { PublicCatalogStore } from "../../api/public_handler.ts";
 import { type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor } from "../../../shared/protocol/catalog_protocol.ts";
+import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../../shared/protocol/capability_token.ts";
+import {
+  RegisterAppRequestSchema,
+  DownstreamFeedbackRequestSchema,
+  CatalogSearchRequestSchema,
+  DOWNSTREAM_PROTOCOL_VERSION,
+  type RegisterAppRequest,
+  type RegisterAppResponse,
+  type DownstreamFeedbackRequest,
+  type DownstreamFeedbackResponse,
+  type CatalogSearchRequest,
+  type CatalogSearchResponse,
+  type DelistResponse
+} from "../../../shared/protocol/downstream_protocol.ts";
+import type { RegistrantStore } from "../../api/registrant_handler.ts";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils.ts";
 import { D1Database, AutoQueueRuleRow, SourceAccessProfileRow, JobRow, D1PreparedStatement, CanonicalUmbrella, CanonicalLifecycle, CanonicalPackage, EvidenceKind, LinkReviewState, IdentityLink } from "./definitions.ts";
 import { deriveCategoryFromTags, type DesktopToolEvidence } from "../../../shared/taxonomy/taxonomy.ts";
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../../shared/taxonomy/avatar_compatibility.ts";
 
 
-export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatalogStore {
+export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatalogStore, RegistrantStore {
   private readonly robotsMatchers = new Map<string, { snapshotId: string; matcher: CrawlerRules; }>();
 
   constructor(
@@ -154,9 +169,20 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const suppliedHash = await sha256Hex(bearer);
     if (!timingSafeEqual(suppliedHash, row.token_hash)) return null;
 
+    const storedCapabilities = JSON.parse(row.capabilities_json) as Platform[];
+    if (isCapabilityToken(bearer)) {
+      const parsed = parseCapabilityToken(bearer);
+      if (!parsed) return null;
+      const parsedSet = new Set(parsed.capabilities);
+      const storedSet = new Set(storedCapabilities);
+      if (parsedSet.size !== storedSet.size || [...parsedSet].some((c) => !storedSet.has(c))) {
+        return null;
+      }
+    }
+
     return {
       nodeId,
-      capabilities: JSON.parse(row.capabilities_json) as Platform[],
+      capabilities: storedCapabilities,
       credentialVersion: row.token_hash
     };
   }
@@ -615,7 +641,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   // --- OperatorStore Methods ---
   async createNodeCredential(nodeId: string, capabilities: Platform[]): Promise<string> {
     ClaimRequestSchema.parse({ schemaVersion: PROTOCOL_VERSION, nodeId, capabilities });
-    const token = generateToken();
+    const token = formatCapabilityToken(capabilities);
     const hash = await sha256Hex(token);
     await this.db.prepare(`
       INSERT INTO node_credentials(node_id,token_hash,capabilities_json,revoked_at)
@@ -626,10 +652,79 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     return token;
   }
 
+  /**
+   * Workforce Distribution Evaluator (Edge/D1):
+   * Balances workforce across platforms by comparing pending/stale jobs and downstream demand
+   * against active node coverage, preventing bot-net clustering on single platforms.
+   */
+  async evaluateWorkforceDistribution(candidateCapabilities?: Platform[]): Promise<Platform[]> {
+    const candidates = candidateCapabilities && candidateCapabilities.length > 0
+      ? [...new Set(candidateCapabilities)]
+      : [...PlatformSchema.options];
+    const now = new Date(this.now()).toISOString();
+    const activeCutoff = new Date(this.now() - 15 * 60 * 1000).toISOString();
+
+    const jobsByPlatform = new Map<string, number>();
+    const jobRes = await this.db.prepare(`
+      SELECT platform, COUNT(*) as cnt FROM crawl_jobs
+      WHERE (state IN ('pending', 'backoff') OR (state = 'done' AND next_fetch_at <= ?))
+      GROUP BY platform
+    `).bind(now).all<{ platform: string; cnt: number }>();
+    for (const row of (jobRes.results || [])) {
+      jobsByPlatform.set(row.platform, row.cnt);
+    }
+
+    const demandByPlatform = new Map<string, number>();
+    const demandRes = await this.db.prepare(`
+      SELECT requested_platform, COUNT(*) as cnt FROM downstream_demand_signals
+      WHERE resolved_at IS NULL AND requested_platform IS NOT NULL
+      GROUP BY requested_platform
+    `).all<{ requested_platform: string; cnt: number }>();
+    for (const row of (demandRes.results || [])) {
+      demandByPlatform.set(row.requested_platform, row.cnt);
+    }
+
+    const activeNodesByPlatform = new Map<string, number>();
+    const activeRes = await this.db.prepare(`
+      SELECT c.capabilities_json FROM node_heartbeats h
+      JOIN node_credentials c ON c.node_id = h.node_id
+      WHERE h.last_seen_at >= ? AND c.revoked_at IS NULL
+    `).bind(activeCutoff).all<{ capabilities_json: string }>();
+    for (const row of (activeRes.results || [])) {
+      try {
+        const caps = JSON.parse(row.capabilities_json) as string[];
+        for (const cap of caps) {
+          activeNodesByPlatform.set(cap, (activeNodesByPlatform.get(cap) || 0) + 1);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const scored = candidates.map((platform) => {
+      const pendingJobs = jobsByPlatform.get(platform) || 0;
+      const demandSignals = demandByPlatform.get(platform) || 0;
+      const activeWorkers = activeNodesByPlatform.get(platform) || 0;
+      const score = ((pendingJobs * 2) + (demandSignals * 5) + 1) / (activeWorkers + 1);
+      return { platform, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+
+    if (candidateCapabilities && candidateCapabilities.length > 0) {
+      return scored.map((s) => s.platform);
+    }
+    const count = Math.min(3, scored.length);
+    return scored.slice(0, count).map((s) => s.platform);
+  }
+
   async issueNodeCredential(input: IssueNodeCredential, actor: string): Promise<string> {
     const parsed = IssueNodeCredentialSchema.parse(input);
     if (!actor.trim()) throw new Error("Operator actor required");
-    const token = await this.createNodeCredential(parsed.nodeId, parsed.capabilities);
+    const capabilities = parsed.capabilities && parsed.capabilities.length > 0
+      ? await this.evaluateWorkforceDistribution(parsed.capabilities)
+      : await this.evaluateWorkforceDistribution();
+    const token = await this.createNodeCredential(parsed.nodeId, capabilities);
     await this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
       VALUES (?,?,'issue',?,?)`).bind(parsed.nodeId, actor, parsed.reason, new Date(this.now()).toISOString()).run();
     return token;
@@ -1271,5 +1366,309 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   async deleteCanonicalPackage(canonicalId: string): Promise<boolean> {
     const res = await this.db.prepare("DELETE FROM canonical_packages WHERE canonical_id = ?").bind(canonicalId).run();
     return ((res.meta as any)?.changes ?? 0) > 0;
+  }
+
+  /** Registers a downstream client application with scoped application token. */
+  async registerApp(input: RegisterAppRequest): Promise<RegisterAppResponse> {
+    const parsed = RegisterAppRequestSchema.parse(input);
+    const appId = crypto.randomUUID();
+    const appToken = "vrcp_app_" + (await sha256Hex(crypto.randomUUID() + Date.now().toString())).slice(0, 64);
+    const tokenHash = await sha256Hex(appToken);
+    const now = new Date(this.now()).toISOString();
+    const permissions = ["catalog:read", "catalog:search", "catalog:random", "demand:feedback"];
+
+    await this.db.prepare(`
+      INSERT INTO registered_apps (app_id, app_name, token_hash, contact_email, permissions_json, created_at, revoked_at)
+      VALUES (?, ?, ?, ?, ?, ?, NULL)
+    `).bind(appId, parsed.appName, tokenHash, parsed.contactEmail || null, JSON.stringify(permissions), now).run();
+
+    return {
+      schemaVersion: 1,
+      appId,
+      appName: parsed.appName,
+      appToken,
+      permissions
+    };
+  }
+
+  /** Authenticates a downstream application bearer token. */
+  async authenticateApp(appToken: string): Promise<{ appId: string; appName: string; permissions: string[] } | null> {
+    if (!/^vrcp_app_[a-f0-9]{64}$/.test(appToken)) return null;
+    const tokenHash = await sha256Hex(appToken);
+    const row = await this.db.prepare(`
+      SELECT app_id, app_name, permissions_json, revoked_at
+      FROM registered_apps
+      WHERE token_hash = ?
+    `).bind(tokenHash).first<{ app_id: string; app_name: string; permissions_json: string; revoked_at: string | null }>();
+    if (!row || row.revoked_at) return null;
+    return {
+      appId: row.app_id,
+      appName: row.app_name,
+      permissions: JSON.parse(row.permissions_json) as string[]
+    };
+  }
+
+  /** Ingests search activity and demand feedback signals from authenticated downstream clients. */
+  async recordDownstreamFeedback(appId: string, input: DownstreamFeedbackRequest): Promise<DownstreamFeedbackResponse> {
+    const parsed = DownstreamFeedbackRequestSchema.parse(input);
+    const signalId = crypto.randomUUID();
+    const recordedAt = new Date(this.now()).toISOString();
+
+    await this.db.prepare(`
+      INSERT INTO downstream_demand_signals (
+        signal_id, app_id, signal_type, query, zero_hits, requested_platform,
+        target_url, category, metadata_json, recorded_at, resolved_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    `).bind(
+      signalId,
+      appId,
+      parsed.signalType,
+      parsed.query || null,
+      parsed.zeroHits ? 1 : 0,
+      parsed.requestedPlatform || null,
+      parsed.targetUrl || null,
+      parsed.category || null,
+      parsed.metadata ? JSON.stringify(parsed.metadata) : null,
+      recordedAt
+    ).run();
+
+    return {
+      schemaVersion: 1,
+      status: "accepted",
+      signalId,
+      recordedAt
+    };
+  }
+
+  /** Randomly samples catalog packages matching optional filter criteria. */
+  async getRandomCatalogPackages(
+    limit: number,
+    filter?: { umbrella?: string; category?: string; platform?: Platform }
+  ): Promise<CatalogPackage[]> {
+    const safeLimit = Math.min(Math.max(limit, 1), 50);
+    const conditions = ["p.lifecycle != 'delisted'"];
+    const params: (string | number)[] = [];
+
+    if (filter?.umbrella) {
+      conditions.push("p.umbrella = ?");
+      params.push(filter.umbrella);
+    }
+    if (filter?.category) {
+      conditions.push("p.category = ?");
+      params.push(filter.category);
+    }
+    if (filter?.platform) {
+      conditions.push("EXISTS (SELECT 1 FROM package_fronts pf WHERE pf.canonical_id = p.canonical_id AND pf.platform = ?)");
+      params.push(filter.platform);
+    }
+
+    const whereClause = conditions.join(" AND ");
+    params.push(safeLimit);
+
+    const res = await this.db.prepare(`
+      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at
+      FROM canonical_packages p
+      WHERE ${whereClause}
+      ORDER BY RANDOM()
+      LIMIT ?
+    `).bind(...params).all<{
+      canonical_id: string; umbrella: string; category: string; lifecycle: string;
+      display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+    }>();
+
+    const rows = res.results || [];
+    const packages: CatalogPackage[] = [];
+    for (const row of rows) {
+      packages.push(await this.buildCatalogPackage(row));
+    }
+    return packages;
+  }
+
+  /** Configurable search across canonical packages for registered downstream applications. */
+  async searchCatalogPackages(input: CatalogSearchRequest): Promise<CatalogSearchResponse> {
+    const parsed = CatalogSearchRequestSchema.parse(input);
+    const limit = Math.min(Math.max(parsed.limit ?? 50, 1), 100);
+    const conditions = ["p.lifecycle != 'delisted'"];
+    const params: (string | number)[] = [];
+
+    if (parsed.umbrella) {
+      conditions.push("p.umbrella = ?");
+      params.push(parsed.umbrella);
+    }
+    if (parsed.category) {
+      conditions.push("p.category = ?");
+      params.push(parsed.category);
+    }
+    if (parsed.platform) {
+      conditions.push("EXISTS (SELECT 1 FROM package_fronts pf WHERE pf.canonical_id = p.canonical_id AND pf.platform = ?)");
+      params.push(parsed.platform);
+    }
+    if (parsed.query && parsed.query.trim()) {
+      const term = `%${parsed.query.trim()}%`;
+      conditions.push("(p.display_name LIKE ? OR p.category LIKE ? OR p.vpm_id LIKE ?)");
+      params.push(term, term, term);
+    }
+
+    if (parsed.cursor) {
+      const decoded = decodeCatalogCursor(parsed.cursor);
+      if (decoded) {
+        conditions.push("(p.created_at < ? OR (p.created_at = ? AND p.canonical_id < ?))");
+        params.push(decoded.createdAt, decoded.createdAt, decoded.canonicalId);
+      }
+    }
+
+    const whereClause = conditions.join(" AND ");
+    const countRes = await this.db.prepare(`
+      SELECT COUNT(*) as total FROM canonical_packages p WHERE ${whereClause}
+    `).bind(...params).first<{ total: number }>();
+
+    const queryParams = [...params, limit + 1];
+    const res = await this.db.prepare(`
+      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at
+      FROM canonical_packages p
+      WHERE ${whereClause}
+      ORDER BY p.created_at DESC, p.canonical_id DESC
+      LIMIT ?
+    `).bind(...queryParams).all<{
+      canonical_id: string; umbrella: string; category: string; lifecycle: string;
+      display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+    }>();
+
+    const rows = res.results || [];
+    const hasMore = rows.length > limit;
+    const visible = hasMore ? rows.slice(0, limit) : rows;
+    const last = visible.at(-1);
+
+    const items: CatalogPackage[] = [];
+    for (const row of visible) {
+      items.push(await this.buildCatalogPackage(row));
+    }
+
+    const nextCursor = hasMore && last
+      ? encodeCatalogCursor({ createdAt: last.created_at, canonicalId: last.canonical_id })
+      : null;
+
+    return {
+      schemaVersion: 1,
+      items,
+      nextCursor,
+      totalEstimated: countRes?.total ?? 0
+    };
+  }
+
+  /** Issues a `vrcp_reg_` token for a new or returning registrant. */
+  async issueRegistrantToken(registrantName: string, contactEmail?: string): Promise<{
+    registrantId: string; registrantName: string; token: string;
+  }> {
+    if (!registrantName.trim()) throw new Error("Registrant name required");
+    const registrantId = crypto.randomUUID();
+    const entropy = generateToken();
+    const token = `vrcp_reg_${entropy}`;
+    const tokenHash = await sha256Hex(token);
+    const now = new Date(this.now()).toISOString();
+    await this.db.prepare(`
+      INSERT INTO registered_registrants (registrant_id, registrant_name, token_hash, contact_email, created_at, revoked_at)
+      VALUES (?, ?, ?, ?, ?, NULL)
+    `).bind(registrantId, registrantName.trim(), tokenHash, contactEmail || null, now).run();
+    return { registrantId, registrantName: registrantName.trim(), token };
+  }
+
+  /** Authenticates a registrant bearer token. */
+  async authenticateRegistrant(token: string): Promise<{ registrantId: string; registrantName: string } | null> {
+    if (!/^vrcp_reg_[a-f0-9]{64}$/.test(token)) return null;
+    const tokenHash = await sha256Hex(token);
+    const row = await this.db.prepare(`
+      SELECT registrant_id, registrant_name, revoked_at FROM registered_registrants WHERE token_hash = ?
+    `).bind(tokenHash).first<{ registrant_id: string; registrant_name: string; revoked_at: string | null }>();
+    if (!row || row.revoked_at) return null;
+    return { registrantId: row.registrant_id, registrantName: row.registrant_name };
+  }
+
+  /**
+   * Records a creator/registrant delisting request and immediately suppresses the target.
+   * Unauthenticated creators use proof verification pathways (dns_txt, storefront_bio_token, manual_notice).
+   * Authenticated registrants may self-service delist on their behalf without external proof.
+   */
+  async submitDelistRequest(input: {
+    targetUrl?: string;
+    canonicalId?: string;
+    reason: string;
+    requesterType: "unauthenticated_creator" | "registrant" | "admin_operator";
+    requesterId?: string;
+    proofKind?: "storefront_bio_token" | "dns_txt" | "manual_notice";
+    proofValue?: string;
+    contactEmail?: string;
+  }): Promise<DelistResponse> {
+    if (!input.targetUrl && !input.canonicalId) {
+      throw new Error("Either targetUrl or canonicalId must be provided");
+    }
+    const takedownId = crypto.randomUUID();
+    const recordedAt = new Date(this.now()).toISOString();
+    const target = input.targetUrl || input.canonicalId!;
+
+    await this.db.prepare(`
+      INSERT INTO creator_opt_outs (
+        takedown_id, target_url, canonical_id, requester_type, requester_id,
+        reason, proof_kind, proof_value, contact_email, recorded_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      takedownId,
+      input.targetUrl || null,
+      input.canonicalId || null,
+      input.requesterType,
+      input.requesterId || null,
+      input.reason,
+      input.proofKind || null,
+      input.proofValue || null,
+      input.contactEmail || null,
+      recordedAt
+    ).run();
+
+    // Suppress the URL in the crawl queue if a targetUrl was given
+    if (input.targetUrl) {
+      try {
+        const normalized = new URL(input.targetUrl).href;
+        await this.db.prepare(
+          "INSERT OR REPLACE INTO suppressed_urls(url,reason,suppressed_at) VALUES (?,?,?)"
+        ).bind(normalized, `Delisting request ${takedownId}: ${input.reason}`, recordedAt).run();
+        const job = await this.db.prepare(
+          "SELECT job_id,origin FROM crawl_jobs WHERE url=?"
+        ).bind(normalized).first<{ job_id: string; origin: string }>();
+        if (job) {
+          await this.db.prepare(
+            "UPDATE crawl_jobs SET state='blocked',claimed_by=NULL,lease_id=NULL,lease_expires_at=NULL WHERE job_id=?"
+          ).bind(job.job_id).run();
+          await this.db.prepare(
+            "UPDATE origin_leases SET active_job_id=NULL,lease_expires_at=NULL WHERE origin=? AND active_job_id=?"
+          ).bind(job.origin, job.job_id).run();
+        }
+      } catch { /* URL may not exist in queue; suppression is best-effort */ }
+    }
+
+    // Transition matching canonical packages to delisted lifecycle
+    if (input.canonicalId) {
+      await this.db.prepare(`
+        UPDATE canonical_packages SET lifecycle = 'delisted', updated_at = ?
+        WHERE canonical_id = ? AND lifecycle != 'delisted'
+      `).bind(recordedAt, input.canonicalId).run();
+    }
+    if (input.targetUrl) {
+      await this.db.prepare(`
+        UPDATE canonical_packages SET lifecycle = 'delisted', updated_at = ?
+        WHERE canonical_id IN (
+          SELECT DISTINCT pf.canonical_id FROM package_fronts pf WHERE pf.storefront_url = ?
+        ) AND lifecycle != 'delisted'
+      `).bind(recordedAt, input.targetUrl).run();
+    }
+
+    return {
+      schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
+      status: "accepted",
+      takedownId,
+      target,
+      action: "delisted",
+      requesterType: input.requesterType,
+      recordedAt
+    };
   }
 }

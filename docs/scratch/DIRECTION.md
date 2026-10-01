@@ -63,6 +63,41 @@ The target is two separately runnable binaries (crawler node and coordinator), e
 
 The owner requires the repository layout to separate `.agents/`, `scratch/`, `src-web/`, `src-crawler/`, `worker/`, `node/`, and `docs/` (including decisions, research, audits, plans, status and source references), with `AGENTS.md`, `DELEGATES.md`, `TODO.md` and `LEGAL.md` at root. This is an authoritative structural constraint, not an optional naming proposal. Migrate imports, builds, tests, runtime file placement and ownership in verified slices; a directory move alone does not prove architectural separation. The worker/coordinator and crawler node come before the web UI; any monorepo package boundaries or separate `node_modules` trees need a dependency and build spike before adoption. The precise contents of the node's second database and credential-registration trust model remain deferred decisions.
 
+### 1.7 Expected Architectural Vision and Terminology Disambiguation (Owner, 2026-10-01)
+
+The repository aims to produce four clearly demarcated subsystems with strict role separation:
+
+1. **Crawler Node (`src-crawler`)**:
+   - Pertains to a compiled binary for a headless VPS such as Linux to run (and Windows daemon CLI `dist/local-node/vrc-node.exe`).
+   - Polls the coordinator for job leasing via authenticated loopback/remote HTTP.
+   - Accepts assigned jobs and executes bounded, profile-gated fetches.
+   - Submits execution results: success (normalized observation facts), rate limit (429 / backoff), or failure (diagnostics).
+   - Never shuts down; engineered to be strictly resilient against dataloss, network interruptions, or temporary coordinator unavailability (failing closed without generating uncoordinated traffic spikes).
+   - Comprehensive structured logging: all activities, actions, and crawled websites are recorded into persistent local logs (`logs/`).
+   - Configured with node ID and secret token provided by the coordinator during registration.
+
+2. **Coordinator (`src-crawler` / Cloudflare Workers)**:
+   - Deployed on Cloudflare Workers once the local pre-production coordinator simulation is proven to match Workers, D1, and edge systems.
+   - Central authority for crawler node registration and **workforce distribution**: evaluates and enables which capabilities a registrant is granted when registering Crawler Nodes or Crawler Clients. This balances workforce allocation across target platforms and dynamically routes capacity toward demanding areas requiring immediate data freshness.
+   - **Capability-Encoded Tokens**: The coordinator-issued credential contains/encodes the combination of website capabilities that the node is authorized to provide or accept.
+   - Responsible for global job balancing and origin rate-limit management (strictly preventing "bot-net" amplification across distributed nodes).
+   - Responsible for ingesting reports, report management, and crawl frontier seeding.
+   - **Downstream Search Activities & Demand Feedback Ingestion**: Ingests search query telemetry, cache-miss signals, and feedback reports from authenticated downstream clients via a dedicated endpoint (`POST /v1/apps/feedback`). Reorients crawler nodes and prioritizes crawl frontier scheduling toward demanding targets where downstream users actively search or experience data staleness.
+   - Serves as the sole authoritative arbiter delivering the final verdict on "canonical" identified fronts and package projections.
+   - Offers downstream search and retrieval endpoints:
+     - *Registered Downstream Clients*: Configurable content filtering and random database entry selection/sampling (`/v1/catalog/random`, `/v1/catalog/search`).
+     - *Unauthenticated Downstream Clients*: Limited public catalog and search equivalent (`/v1/catalog`, `/v1/catalog/delta`).
+
+3. **Crawler Client (`src-crawler-client`)**:
+   - Pertains to a desktop GUI shell for Windows that bundles the compiled `Crawler Node` binary within, providing user-friendly node management on desktop environments.
+
+4. **Web Operator Panel & Landing Page (`src-web`)**:
+   - Hosts public informational surfaces: Landing Page, Terms of Service (ToS), and Legal disclosures.
+   - Handles distribution of compiled Node binaries and provides the web portal for node registration.
+   - Maintains the downstream application client registry and displays live database statistics and crawl metrics.
+   - Exercises and utilizes coordinator API endpoints.
+   - Backed by Firebase Auth stack paired with Cloudflare infrastructure.
+
 ## 2. System intent versus current shape
 
 ### 2.1 Working product statement

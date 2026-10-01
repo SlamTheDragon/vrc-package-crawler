@@ -227,6 +227,54 @@ CREATE TABLE IF NOT EXISTS desktop_tool_evidence (
   created_at TEXT NOT NULL,
   FOREIGN KEY (canonical_id) REFERENCES canonical_packages(canonical_id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS registered_apps (
+  app_id TEXT PRIMARY KEY,
+  app_name TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  contact_email TEXT,
+  permissions_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_registered_apps_token_hash ON registered_apps(token_hash);
+CREATE TABLE IF NOT EXISTS downstream_demand_signals (
+  signal_id TEXT PRIMARY KEY,
+  app_id TEXT NOT NULL,
+  signal_type TEXT NOT NULL CHECK(signal_type IN ('search_miss','refresh_demand','popularity_signal')),
+  query TEXT,
+  zero_hits INTEGER NOT NULL DEFAULT 0,
+  requested_platform TEXT,
+  target_url TEXT,
+  category TEXT,
+  metadata_json TEXT,
+  recorded_at TEXT NOT NULL,
+  resolved_at TEXT,
+  FOREIGN KEY (app_id) REFERENCES registered_apps(app_id)
+);
+CREATE INDEX IF NOT EXISTS idx_downstream_demand_platform ON downstream_demand_signals(requested_platform, resolved_at);
+CREATE TABLE IF NOT EXISTS registered_registrants (
+  registrant_id TEXT PRIMARY KEY,
+  registrant_name TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  contact_email TEXT,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_registered_registrants_token ON registered_registrants(token_hash);
+CREATE TABLE IF NOT EXISTS creator_opt_outs (
+  takedown_id TEXT PRIMARY KEY,
+  target_url TEXT,
+  canonical_id TEXT,
+  requester_type TEXT NOT NULL CHECK(requester_type IN ('unauthenticated_creator','registrant','admin_operator')),
+  requester_id TEXT,
+  reason TEXT NOT NULL,
+  proof_kind TEXT CHECK(proof_kind IN ('storefront_bio_token','dns_txt','manual_notice')),
+  proof_value TEXT,
+  contact_email TEXT,
+  recorded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_opt_outs_target_url ON creator_opt_outs(target_url);
+CREATE INDEX IF NOT EXISTS idx_opt_outs_canonical_id ON creator_opt_outs(canonical_id);
 `;
 
 export const INIT_SQL = D1_SCHEMA_SQL;

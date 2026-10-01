@@ -280,13 +280,15 @@ This slice gives concrete evidence for database, driver, and coordinator choices
 
 ## 8. Current code change priorities (audited 2026-10-01)
 
-Following the readiness audit of the worker coordinator and crawler node against candidate specifications and prototype commit `7fa1244`, the remaining engineering tasks are prioritized as follows:
+Following the delivery and verification of P1 (API Specification Alignment) and P2 (Public Consumer Catalog Endpoints with Keyset Cursors and Delisting Tombstones), the engineering backlog is updated to reflect the authoritative architectural vision (workforce distribution, capability-encoded tokens, and downstream sampling/search endpoints):
 
-| Priority | Focus Area | Gate | Scope & Tasks |
-| :--- | :--- | :--- | :--- |
-| **P1** | **API Specification Alignment** | G5/G6 | Align post-production candidate specifications (`SPECIFICATION_CRAWLER_NETWORK.md`, `SPECIFICATION_CRAWLER_CLIENT.md`) with authoritative wire routes (`/v1/node/jobs/claim`, `/v1/node/jobs/result`, `/v1/operator/source-profiles`, `/v1/operator/autoqueue-rules`, `/v1/operator/leads/{leadKey}/(approve\|reject)`). |
-| **P2** | **Public Consumer Catalog Endpoints** | G4/G6 | Implement unauthenticated public catalog read routes (`GET /v1/catalog`, `GET /v1/catalog/delta`) on `LocalCoordinatorStore` and D1 `Coordinator` with cursor/epoch preservation so downstream consumers (`src-web`, ALCOM, VCC) can query projected items without operator credentials. |
-| **P3** | **Creator Opt-Out & Delisting Route** | G1/G2 | Expose an authenticated/verified coordinator HTTP route (`POST /v1/creator/optout`) connecting bio-token redirect verification to immediate database suppression and delisting tombstones. |
-| **P4** | **Auto-Queue Retroactive Reconciliation** | G3/G5 | Add a bounded background or operator-triggered action to reconcile existing `pending_review` leads against newly created auto-queue rules. |
-| **P5** | **Multi-Platform Live Ingestion Smokes** | G3/G5 | Transition beyond VPM/GitHub to opt-in, profile-reviewed live smokes for BOOTH browse, Shopify storefronts, Gumroad, and Sellfy. |
+| Priority | Focus Area | Gate | Scope & Tasks | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **P1** | **API Specification Alignment** | G5/G6 | Aligned post-production candidate specifications (`SPECIFICATION_CRAWLER_NETWORK.md`, `SPECIFICATION_CRAWLER_CLIENT.md`, `SPECIFICATION_WEBSITE.md`) with authoritative wire routes (`/v1/node/jobs/*`, `/v1/operator/*`, `/v1/catalog*`). | **COMPLETED & VERIFIED** |
+| **P2** | **Public Consumer Catalog Endpoints** | G4/G6 | Implemented unauthenticated public catalog read routes (`GET /v1/catalog`, `GET /v1/catalog/delta`) on `LocalCoordinatorStore` and D1 `Coordinator` with cursor/epoch preservation so downstream consumers (`src-web`, ALCOM, VCC) query projected items without operator credentials. | **COMPLETED & VERIFIED** |
+| **P3** | **Capability-Encoded Node Tokens & Workforce Balancing** | G5 | Implement coordinator workforce distribution logic (evaluating demanding areas needing immediate data freshness) and embed/encode permitted website capabilities directly in coordinator-issued node credentials. Enforce capability matching at lease claim time. | **NEXT UP** |
+| **P4** | **Downstream Client Registration, Sampling/Search & Feedback Signals** | G4/G6 | Implement downstream app registration (`/v1/apps/register`), authenticated consumer endpoints for configurable content filtering and random database entry selection/sampling (`GET /v1/catalog/random`, `POST /v1/catalog/search`), and downstream search activity/demand feedback signal ingestion (`POST /v1/apps/feedback`) to reorient crawler workforce distribution. | **QUEUED** |
+| **P5** | **Creator Opt-Out & Delisting Route** | G1/G2 | Expose an authenticated/verified coordinator HTTP route (`POST /v1/creator/optout`) connecting bio-token redirect verification to immediate database suppression and delisting tombstones. | **QUEUED** |
+| **P6** | **Auto-Queue Retroactive Reconciliation** | G3/G5 | Add a bounded background or operator-triggered action to reconcile existing `pending_review` leads against newly created auto-queue rules. | **QUEUED** |
+| **P7** | **Multi-Platform Live Ingestion Smokes** | G3/G5 | Transition beyond VPM/GitHub to opt-in, profile-reviewed live smokes for BOOTH browse, Shopify storefronts, Gumroad, and Sellfy. | **QUEUED** |
 

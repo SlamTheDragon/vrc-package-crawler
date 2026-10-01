@@ -79,7 +79,8 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     }, "operator-admin");
 
     expect(typeof token).toBe("string");
-    expect(token.length).toBe(64);
+    expect(token).toMatch(/^vrcp_[0-9a-fA-F]{64}[0-9a-fA-F]{4}$/);
+    expect(token.length).toBe(73);
 
     const principal = await store.authenticate("node-alpha", token);
     expect(principal).not.toBeNull();
@@ -87,7 +88,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     expect(principal?.capabilities).toEqual(["vpm", "github"]);
     expect(typeof principal?.credentialVersion).toBe("string");
 
-    const wrongTokenAuth = await store.authenticate("node-alpha", "0".repeat(64));
+    const wrongTokenAuth = await store.authenticate("node-alpha", "vrcp_" + "0".repeat(64) + "0006");
     expect(wrongTokenAuth).toBeNull();
 
     const unknownNodeAuth = await store.authenticate("node-unknown", token);

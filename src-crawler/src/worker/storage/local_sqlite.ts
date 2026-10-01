@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import crypto from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { isIP } from "node:net";
@@ -11,6 +11,20 @@ import {
 import { CoordinatorConflict, type CoordinatorStore, type NodePrincipal } from "../api/handler.ts";
 import { type PublicCatalogStore } from "../api/public_handler.ts";
 import { type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor } from "../../shared/protocol/catalog_protocol.ts";
+import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../shared/protocol/capability_token.ts";
+import {
+  RegisterAppRequestSchema,
+  DownstreamFeedbackRequestSchema,
+  CatalogSearchRequestSchema,
+  DOWNSTREAM_PROTOCOL_VERSION,
+  type RegisterAppRequest,
+  type RegisterAppResponse,
+  type DownstreamFeedbackRequest,
+  type DownstreamFeedbackResponse,
+  type CatalogSearchRequest,
+  type CatalogSearchResponse,
+  type DelistResponse
+} from "../../shared/protocol/downstream_protocol.ts";
 import { isPrivateOrReservedIp } from "../../shared/policy/ip_policy.ts";
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
   isShopifyProductSitemapTarget, shopifyProductLead, isSellfyProductTarget } from "../../shared/policy/source_targets.ts";
@@ -22,7 +36,7 @@ import { deriveCategoryFromTags, classifyDesktopTool, inferSupportedOS, type Des
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../shared/taxonomy/avatar_compatibility.ts";
 import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
   IssueNodeCredentialSchema, type IssueNodeCredential,
-  encodeLeadCursor, encodeRuleCursor, encodeCatalogCursor,
+  encodeLeadCursor, encodeRuleCursor, encodeCatalogCursor, decodeCatalogCursor,
   type AutoQueueRule, type CreateAutoQueueRule,
   type CatalogCursor, type CatalogPackage, type CatalogIdentityLink,
   PackageFrontSchema, type PackageFront,
@@ -277,6 +291,54 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS registered_apps (
+        app_id TEXT PRIMARY KEY,
+        app_name TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        contact_email TEXT,
+        permissions_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_registered_apps_token_hash ON registered_apps(token_hash);
+      CREATE TABLE IF NOT EXISTS downstream_demand_signals (
+        signal_id TEXT PRIMARY KEY,
+        app_id TEXT NOT NULL,
+        signal_type TEXT NOT NULL CHECK(signal_type IN ('search_miss','refresh_demand','popularity_signal')),
+        query TEXT,
+        zero_hits INTEGER NOT NULL DEFAULT 0,
+        requested_platform TEXT,
+        target_url TEXT,
+        category TEXT,
+        metadata_json TEXT,
+        recorded_at TEXT NOT NULL,
+        resolved_at TEXT,
+        FOREIGN KEY (app_id) REFERENCES registered_apps(app_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_downstream_demand_platform ON downstream_demand_signals(requested_platform, resolved_at);
+      CREATE TABLE IF NOT EXISTS registered_registrants (
+        registrant_id TEXT PRIMARY KEY,
+        registrant_name TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        contact_email TEXT,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_registered_registrants_token ON registered_registrants(token_hash);
+      CREATE TABLE IF NOT EXISTS creator_opt_outs (
+        takedown_id TEXT PRIMARY KEY,
+        target_url TEXT,
+        canonical_id TEXT,
+        requester_type TEXT NOT NULL CHECK(requester_type IN ('unauthenticated_creator','registrant','admin_operator')),
+        requester_id TEXT,
+        reason TEXT NOT NULL,
+        proof_kind TEXT CHECK(proof_kind IN ('storefront_bio_token','dns_txt','manual_notice')),
+        proof_value TEXT,
+        contact_email TEXT,
+        recorded_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_opt_outs_target_url ON creator_opt_outs(target_url);
+      CREATE INDEX IF NOT EXISTS idx_opt_outs_canonical_id ON creator_opt_outs(canonical_id);
       CREATE INDEX IF NOT EXISTS idx_canonical_packages_updated ON canonical_packages(updated_at ASC, canonical_id ASC);
       CREATE INDEX IF NOT EXISTS idx_canonical_packages_created ON canonical_packages(created_at DESC, canonical_id DESC);
     `);
@@ -533,7 +595,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   /** Local operator action; never exposed on the crawler-node API. */
   createNodeCredential(nodeId: string, capabilities: Platform[]): string {
     ClaimRequestSchema.parse({ schemaVersion: PROTOCOL_VERSION, nodeId, capabilities });
-    const token = crypto.randomBytes(32).toString("hex");
+    const token = formatCapabilityToken(capabilities);
     const hash = crypto.createHash("sha256").update(token).digest("hex");
     this.db.prepare(`
       INSERT INTO node_credentials(node_id,token_hash,capabilities_json,revoked_at)
@@ -544,12 +606,81 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     return token;
   }
 
+  /**
+   * Workforce Distribution Evaluator:
+   * Balances workforce across platforms by comparing pending/stale jobs and downstream demand
+   * against active node coverage, preventing bot-net clustering on single platforms.
+   */
+  evaluateWorkforceDistribution(candidateCapabilities?: Platform[]): Platform[] {
+    const candidates = candidateCapabilities && candidateCapabilities.length > 0
+      ? [...new Set(candidateCapabilities)]
+      : [...PlatformSchema.options];
+    const now = new Date(this.now()).toISOString();
+    const activeCutoff = new Date(this.now() - 15 * 60 * 1000).toISOString();
+
+    const jobsByPlatform = new Map<string, number>();
+    const jobRows = this.db.prepare(`
+      SELECT platform, COUNT(*) as cnt FROM crawl_jobs
+      WHERE (state IN ('pending', 'backoff') OR (state = 'done' AND next_fetch_at <= ?))
+      GROUP BY platform
+    `).all(now) as { platform: string; cnt: number }[];
+    for (const row of jobRows) {
+      jobsByPlatform.set(row.platform, row.cnt);
+    }
+
+    const demandByPlatform = new Map<string, number>();
+    const demandRows = this.db.prepare(`
+      SELECT requested_platform, COUNT(*) as cnt FROM downstream_demand_signals
+      WHERE resolved_at IS NULL AND requested_platform IS NOT NULL
+      GROUP BY requested_platform
+    `).all() as { requested_platform: string; cnt: number }[];
+    for (const row of demandRows) {
+      demandByPlatform.set(row.requested_platform, row.cnt);
+    }
+
+    const activeNodesByPlatform = new Map<string, number>();
+    const activeRows = this.db.prepare(`
+      SELECT c.capabilities_json FROM node_heartbeats h
+      JOIN node_credentials c ON c.node_id = h.node_id
+      WHERE h.last_seen_at >= ? AND c.revoked_at IS NULL
+    `).all(activeCutoff) as { capabilities_json: string }[];
+    for (const row of activeRows) {
+      try {
+        const caps = JSON.parse(row.capabilities_json) as string[];
+        for (const cap of caps) {
+          activeNodesByPlatform.set(cap, (activeNodesByPlatform.get(cap) || 0) + 1);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const scored = candidates.map((platform) => {
+      const pendingJobs = jobsByPlatform.get(platform) || 0;
+      const demandSignals = demandByPlatform.get(platform) || 0;
+      const activeWorkers = activeNodesByPlatform.get(platform) || 0;
+      const score = ((pendingJobs * 2) + (demandSignals * 5) + 1) / (activeWorkers + 1);
+      return { platform, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+
+    if (candidateCapabilities && candidateCapabilities.length > 0) {
+      return scored.map((s) => s.platform);
+    }
+    const count = Math.min(3, scored.length);
+    return scored.slice(0, count).map((s) => s.platform);
+  }
+
   /** Authenticated operator issuance; the cleartext token is returned once and never audited. */
   issueNodeCredential(input: IssueNodeCredential, actor: string): string {
     const parsed = IssueNodeCredentialSchema.parse(input);
     if (!actor.trim()) throw new Error("Operator actor required");
+    const capabilities = parsed.capabilities && parsed.capabilities.length > 0
+      ? this.evaluateWorkforceDistribution(parsed.capabilities)
+      : this.evaluateWorkforceDistribution();
     return this.db.transaction(() => {
-      const token = this.createNodeCredential(parsed.nodeId, parsed.capabilities);
+      const token = this.createNodeCredential(parsed.nodeId, capabilities);
       this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
         VALUES (?,?,'issue',?,?)`).run(parsed.nodeId, actor, parsed.reason, new Date(this.now()).toISOString());
       return token;
@@ -588,7 +719,18 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     const supplied = crypto.createHash("sha256").update(bearer).digest();
     const expected = Buffer.from(row.token_hash, "hex");
     if (supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) return null;
-    return { nodeId, capabilities: JSON.parse(row.capabilities_json) as Platform[], credentialVersion: row.token_hash };
+
+    const storedCapabilities = JSON.parse(row.capabilities_json) as Platform[];
+    if (isCapabilityToken(bearer)) {
+      const parsed = parseCapabilityToken(bearer);
+      if (!parsed) return null;
+      const parsedSet = new Set(parsed.capabilities);
+      const storedSet = new Set(storedCapabilities);
+      if (parsedSet.size !== storedSet.size || [...parsedSet].some((c) => !storedSet.has(c))) {
+        return null;
+      }
+    }
+    return { nodeId, capabilities: storedCapabilities, credentialVersion: row.token_hash };
   }
 
   private assertCurrentPrincipal(principal: NodePrincipal): void {
@@ -2021,6 +2163,286 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       nextCursor: pkgRows.length > limit && last
         ? encodeCatalogDeltaCursor({ updatedAt: last.updated_at, canonicalId: last.canonical_id })
         : null
+    };
+  }
+
+  /** Registers a downstream client application with scoped application token. */
+  registerApp(input: RegisterAppRequest): RegisterAppResponse {
+    const parsed = RegisterAppRequestSchema.parse(input);
+    const appId = crypto.randomUUID();
+    const appToken = "vrcp_app_" + crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(appToken).digest("hex");
+    const now = new Date(this.now()).toISOString();
+    const permissions = ["catalog:read", "catalog:search", "catalog:random", "demand:feedback"];
+
+    this.db.prepare(`
+      INSERT INTO registered_apps (app_id, app_name, token_hash, contact_email, permissions_json, created_at, revoked_at)
+      VALUES (?, ?, ?, ?, ?, ?, NULL)
+    `).run(appId, parsed.appName, tokenHash, parsed.contactEmail || null, JSON.stringify(permissions), now);
+
+    return {
+      schemaVersion: 1,
+      appId,
+      appName: parsed.appName,
+      appToken,
+      permissions
+    };
+  }
+
+  /** Authenticates a downstream application bearer token. */
+  authenticateApp(appToken: string): { appId: string; appName: string; permissions: string[] } | null {
+    if (!/^vrcp_app_[a-f0-9]{64}$/.test(appToken)) return null;
+    const tokenHash = crypto.createHash("sha256").update(appToken).digest("hex");
+    const row = this.db.prepare(`
+      SELECT app_id, app_name, permissions_json, revoked_at
+      FROM registered_apps
+      WHERE token_hash = ?
+    `).get(tokenHash) as { app_id: string; app_name: string; permissions_json: string; revoked_at: string | null } | null;
+    if (!row || row.revoked_at) return null;
+    return {
+      appId: row.app_id,
+      appName: row.app_name,
+      permissions: JSON.parse(row.permissions_json) as string[]
+    };
+  }
+
+  /** Ingests search activity and demand feedback signals from authenticated downstream clients. */
+  recordDownstreamFeedback(appId: string, input: DownstreamFeedbackRequest): DownstreamFeedbackResponse {
+    const parsed = DownstreamFeedbackRequestSchema.parse(input);
+    const signalId = crypto.randomUUID();
+    const recordedAt = new Date(this.now()).toISOString();
+
+    this.db.prepare(`
+      INSERT INTO downstream_demand_signals (
+        signal_id, app_id, signal_type, query, zero_hits, requested_platform,
+        target_url, category, metadata_json, recorded_at, resolved_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    `).run(
+      signalId,
+      appId,
+      parsed.signalType,
+      parsed.query || null,
+      parsed.zeroHits ? 1 : 0,
+      parsed.requestedPlatform || null,
+      parsed.targetUrl || null,
+      parsed.category || null,
+      parsed.metadata ? JSON.stringify(parsed.metadata) : null,
+      recordedAt
+    );
+
+    return {
+      schemaVersion: 1,
+      status: "accepted",
+      signalId,
+      recordedAt
+    };
+  }
+
+  /** Randomly samples catalog packages matching optional filter criteria. */
+  getRandomCatalogPackages(
+    limit: number,
+    filter?: { umbrella?: string; category?: string; platform?: Platform }
+  ): CatalogPackage[] {
+    const safeLimit = Math.min(Math.max(limit, 1), 50);
+    const conditions = ["p.lifecycle != 'delisted'"];
+    const params: SQLQueryBindings[] = [];
+
+    if (filter?.umbrella) {
+      conditions.push("p.umbrella = ?");
+      params.push(filter.umbrella);
+    }
+    if (filter?.category) {
+      conditions.push("p.category = ?");
+      params.push(filter.category);
+    }
+    if (filter?.platform) {
+      conditions.push("EXISTS (SELECT 1 FROM package_fronts pf WHERE pf.canonical_id = p.canonical_id AND pf.platform = ?)");
+      params.push(filter.platform);
+    }
+
+    const whereClause = conditions.join(" AND ");
+    const rows = this.db.prepare(`
+      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at
+      FROM canonical_packages p
+      WHERE ${whereClause}
+      ORDER BY RANDOM()
+      LIMIT ?
+    `).all(...params, safeLimit) as {
+      canonical_id: string; umbrella: string; category: string; lifecycle: string;
+      display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+    }[];
+
+    return rows.map((row) => this.buildCatalogPackage(row));
+  }
+
+  /** Configurable search across canonical packages for registered downstream applications. */
+  searchCatalogPackages(input: CatalogSearchRequest): CatalogSearchResponse {
+    const parsed = CatalogSearchRequestSchema.parse(input);
+    const limit = Math.min(Math.max(parsed.limit ?? 50, 1), 100);
+    const conditions = ["p.lifecycle != 'delisted'"];
+    const params: SQLQueryBindings[] = [];
+
+    if (parsed.umbrella) {
+      conditions.push("p.umbrella = ?");
+      params.push(parsed.umbrella);
+    }
+    if (parsed.category) {
+      conditions.push("p.category = ?");
+      params.push(parsed.category);
+    }
+    if (parsed.platform) {
+      conditions.push("EXISTS (SELECT 1 FROM package_fronts pf WHERE pf.canonical_id = p.canonical_id AND pf.platform = ?)");
+      params.push(parsed.platform);
+    }
+    if (parsed.query && parsed.query.trim()) {
+      const term = `%${parsed.query.trim()}%`;
+      conditions.push("(p.display_name LIKE ? OR p.category LIKE ? OR p.vpm_id LIKE ?)");
+      params.push(term, term, term);
+    }
+
+    if (parsed.cursor) {
+      const decoded = decodeCatalogCursor(parsed.cursor);
+      if (decoded) {
+        conditions.push("(p.created_at < ? OR (p.created_at = ? AND p.canonical_id < ?))");
+        params.push(decoded.createdAt, decoded.createdAt, decoded.canonicalId);
+      }
+    }
+
+    const whereClause = conditions.join(" AND ");
+    const countRow = this.db.prepare(`
+      SELECT COUNT(*) as total FROM canonical_packages p WHERE ${whereClause}
+    `).get(...params) as { total: number };
+
+    const rows = this.db.prepare(`
+      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at
+      FROM canonical_packages p
+      WHERE ${whereClause}
+      ORDER BY p.created_at DESC, p.canonical_id DESC
+      LIMIT ?
+    `).all(...params, limit + 1) as {
+      canonical_id: string; umbrella: string; category: string; lifecycle: string;
+      display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+    }[];
+
+    const hasMore = rows.length > limit;
+    const visible = hasMore ? rows.slice(0, limit) : rows;
+    const last = visible.at(-1);
+
+    const items = visible.map((row) => this.buildCatalogPackage(row));
+    const nextCursor = hasMore && last
+      ? encodeCatalogCursor({ createdAt: last.created_at, canonicalId: last.canonical_id })
+      : null;
+
+    return {
+      schemaVersion: 1,
+      items,
+      nextCursor,
+      totalEstimated: countRow.total
+    };
+  }
+
+  /** Issues a `vrcp_reg_` token for a new or returning registrant. */
+  issueRegistrantToken(registrantName: string, contactEmail?: string): {
+    registrantId: string; registrantName: string; token: string;
+  } {
+    if (!registrantName.trim()) throw new Error("Registrant name required");
+    const registrantId = crypto.randomUUID();
+    const entropy = crypto.randomBytes(32).toString("hex");
+    const token = `vrcp_reg_${entropy}`;
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const now = new Date(this.now()).toISOString();
+    this.db.prepare(`
+      INSERT INTO registered_registrants (registrant_id, registrant_name, token_hash, contact_email, created_at, revoked_at)
+      VALUES (?, ?, ?, ?, ?, NULL)
+    `).run(registrantId, registrantName.trim(), tokenHash, contactEmail || null, now);
+    return { registrantId, registrantName: registrantName.trim(), token };
+  }
+
+  /** Authenticates a registrant bearer token. */
+  authenticateRegistrant(token: string): { registrantId: string; registrantName: string } | null {
+    if (!/^vrcp_reg_[a-f0-9]{64}$/.test(token)) return null;
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const row = this.db.prepare(`
+      SELECT registrant_id, registrant_name, revoked_at FROM registered_registrants WHERE token_hash = ?
+    `).get(tokenHash) as { registrant_id: string; registrant_name: string; revoked_at: string | null } | null;
+    if (!row || row.revoked_at) return null;
+    return { registrantId: row.registrant_id, registrantName: row.registrant_name };
+  }
+
+  /**
+   * Records a creator/registrant delisting request and immediately suppresses the target.
+   * Unauthenticated creators use proof verification pathways (dns_txt, storefront_bio_token, manual_notice).
+   * Authenticated registrants may self-service delist on their behalf without external proof.
+   */
+  submitDelistRequest(input: {
+    targetUrl?: string;
+    canonicalId?: string;
+    reason: string;
+    requesterType: "unauthenticated_creator" | "registrant" | "admin_operator";
+    requesterId?: string;
+    proofKind?: "storefront_bio_token" | "dns_txt" | "manual_notice";
+    proofValue?: string;
+    contactEmail?: string;
+  }): DelistResponse {
+    if (!input.targetUrl && !input.canonicalId) {
+      throw new Error("Either targetUrl or canonicalId must be provided");
+    }
+    const takedownId = crypto.randomUUID();
+    const recordedAt = new Date(this.now()).toISOString();
+    const target = input.targetUrl || input.canonicalId!;
+
+    this.db.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO creator_opt_outs (
+          takedown_id, target_url, canonical_id, requester_type, requester_id,
+          reason, proof_kind, proof_value, contact_email, recorded_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        takedownId,
+        input.targetUrl || null,
+        input.canonicalId || null,
+        input.requesterType,
+        input.requesterId || null,
+        input.reason,
+        input.proofKind || null,
+        input.proofValue || null,
+        input.contactEmail || null,
+        recordedAt
+      );
+
+      // Suppress the URL in the crawl queue if a targetUrl was given
+      if (input.targetUrl) {
+        try {
+          this.suppressUrl(input.targetUrl, `Delisting request ${takedownId}: ${input.reason}`);
+        } catch { /* URL may not exist in queue; suppression is best-effort */ }
+      }
+
+      // Transition matching canonical packages to delisted lifecycle
+      if (input.canonicalId) {
+        this.db.prepare(`
+          UPDATE canonical_packages SET lifecycle = 'delisted', updated_at = ?
+          WHERE canonical_id = ? AND lifecycle != 'delisted'
+        `).run(recordedAt, input.canonicalId);
+      }
+      if (input.targetUrl) {
+        // Delist all packages whose fronts point to this URL
+        this.db.prepare(`
+          UPDATE canonical_packages SET lifecycle = 'delisted', updated_at = ?
+          WHERE canonical_id IN (
+            SELECT DISTINCT pf.canonical_id FROM package_fronts pf WHERE pf.storefront_url = ?
+          ) AND lifecycle != 'delisted'
+        `).run(recordedAt, input.targetUrl);
+      }
+    }).immediate();
+
+    return {
+      schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
+      status: "accepted",
+      takedownId,
+      target,
+      action: "delisted",
+      requesterType: input.requesterType,
+      recordedAt
     };
   }
 }

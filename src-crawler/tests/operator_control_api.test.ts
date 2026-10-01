@@ -47,7 +47,7 @@ describe("separate operator control API", () => {
       expect(first.headers.get("cache-control")).toBe("no-store");
       const firstBody = await first.json() as { token: string; nodeId: string };
       expect(firstBody.nodeId).toBe(input.nodeId);
-      expect(firstBody.token).toMatch(/^[a-f0-9]{64}$/);
+      expect(firstBody.token).toMatch(/^vrcp_[0-9a-fA-F]{64}[0-9a-fA-F]{4}$/);
       expect((await claim(firstBody.token)).status).toBe(200);
       expect((await handleOperatorRequest(operatorRequest(path, "POST", input, firstBody.token),
         store, operatorToken)).status).toBe(401);
@@ -83,7 +83,7 @@ describe("separate operator control API", () => {
       const issued = await fetch(`http://127.0.0.1:${server.port}${path}`,
         operatorRequest(path, "POST", valid));
       expect(issued.status).toBe(201);
-      expect((await issued.json() as { token: string }).token).toMatch(/^[a-f0-9]{64}$/);
+      expect((await issued.json() as { token: string }).token).toMatch(/^vrcp_[0-9a-fA-F]{64}[0-9a-fA-F]{4}$/);
     } finally { server.stop(true); store.close(); }
   });
 
