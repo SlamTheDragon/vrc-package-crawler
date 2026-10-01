@@ -237,6 +237,18 @@ function parseVpmRepositoryEvidence(job: CrawlJob, body: string): {
     }
     if (issues.length > 100) return null;
     if (manifests.length === 0) continue;
+    const manifestLinks: unknown[] = [];
+    for (const { manifest } of manifests) {
+      if (manifest.url) manifestLinks.push(manifest.url);
+      if (manifest.repo) manifestLinks.push(manifest.repo);
+      if (manifest.repository) {
+        manifestLinks.push(typeof manifest.repository === "string" ? manifest.repository : object(manifest.repository)?.url);
+      }
+      if (manifest.homepage) manifestLinks.push(manifest.homepage);
+      if (manifest.documentation) manifestLinks.push(manifest.documentation);
+      if (manifest.documentationLink) manifestLinks.push(manifest.documentationLink);
+      if (object(manifest.author)?.url) manifestLinks.push(object(manifest.author)?.url);
+    }
     const author = manifests.map(({ manifest }) => authorName(manifest?.author)).find(Boolean) || authorName(repo.author) || "Unknown";
     const platformTags = vpmKeywords(manifests.map(({ manifest }) => manifest?.keywords).find((kw) => Array.isArray(kw)));
     observations.push({
@@ -244,7 +256,7 @@ function parseVpmRepositoryEvidence(job: CrawlJob, body: string): {
       title: cleanTitle(manifests.map(({ manifest }) => string(manifest?.displayName)).find(Boolean) || packageId).slice(0, 500),
       author: cleanAuthorName(author).slice(0, 300),
       summary: cleanDescription(manifests.map(({ manifest }) => string(manifest?.description)).find(Boolean) || "").slice(0, 1024),
-      outboundLinks: httpsLinks([repo.url, object(repo.infoLink)?.url, ...manifests.map(({ manifest }) => object(manifest?.author)?.url)]),
+      outboundLinks: httpsLinks([repo.url, object(repo.infoLink)?.url, ...manifestLinks]),
       originUpdatedAt: manifests.map(({ manifest }) => normalizedDate(manifest?.updated_at))
         .filter((date): date is string => date !== null).sort().at(-1) || null,
       releases: manifests.map(({ release }) => release),
@@ -279,10 +291,19 @@ export function parseObservation(job: CrawlJob, body: string, contentType: strin
         const release = releaseEvidence(version, item);
         if (!release) return null;
         const platformTags = vpmKeywords(item.keywords);
+        const singleItemLinks = [
+          item.url,
+          item.repo,
+          typeof item.repository === "string" ? item.repository : object(item.repository)?.url,
+          item.homepage,
+          item.documentation,
+          item.documentationLink,
+          typeof item.author === "object" ? item.author?.url : null
+        ];
         return {
           sourceItemKey: name, title: cleanTitle(String(item.displayName || name)).slice(0, 500),
           author: cleanAuthorName(String(author || "Unknown")).slice(0, 300), summary: cleanDescription(String(item.description || "")).slice(0, 1024),
-          outboundLinks: httpsLinks([item.url, item.author?.url]),
+          outboundLinks: httpsLinks(singleItemLinks),
           originUpdatedAt: normalizedDate(item.updated_at),
           release,
           ...(platformTags !== undefined ? { platformTags } : {})

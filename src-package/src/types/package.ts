@@ -30,6 +30,9 @@ export const PackageFrontSchema = z.object({
 });
 export type PackageFront = z.infer<typeof PackageFrontSchema>;
 
+export const TimestampConfidenceSchema = z.enum(["confirmed", "inferred", "observed"]);
+export type TimestampConfidence = z.infer<typeof TimestampConfidenceSchema>;
+
 /** One canonical package item. */
 export const CatalogPackageSchema = z.strictObject({
   canonicalId: z.string().min(1).max(500),
@@ -40,6 +43,8 @@ export const CatalogPackageSchema = z.strictObject({
   vpmId: z.string().min(1).max(200).nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  publishedAt: z.string().datetime().nullable().optional(),
+  timestampConfidence: TimestampConfidenceSchema.nullable().optional(),
   acceptedLinks: z.array(CatalogIdentityLinkSchema),
   fronts: z.array(PackageFrontSchema).default([])
 });

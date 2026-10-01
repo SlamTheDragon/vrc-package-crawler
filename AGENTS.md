@@ -1,24 +1,25 @@
 # Agent entry point — version-0 pre-production
 
-This is the current entry point for agents working in this repository. [`docs/scratch/history/AGENT_PHASE4.md`](docs/scratch/history/AGENT_PHASE4.md) is the archived Phase-4 contract with known stale binary, database and test-count claims; consult it for history, not as a current conformance assertion. `DELEGATES.md` is the operational handoff/runbook. Do not copy stale claims forward.
+This is the current entry point for agents working in this repository. `DELEGATES.md` is the operational runbook for downstream developers and node operators.
 
 ## Read before changing code
 
-1. Read `docs/scratch/DIRECTION.md` for owner intent and accepted decisions, especially §1.4–1.5; read `docs/scratch/IMPLEMENTATION_PLAN.md` for gate order, `TODO.md` for historical and remaining work, and `LEGAL.md` for target covenants. None alone proves runtime behavior.
-2. Read `docs/scratch/current/CONFORMANCE.md` and `docs/scratch/current/PIPELINE_RESPONSIBILITY_MAP.md` for the current evidence-backed boundary map. Verify claims against the live code path and tests. Record unresolved owner choices in `docs/scratch/DEFERRED_OWNER_DECISIONS.md` rather than deciding for the owner.
-3. Use `.agents/rules/` and the relevant `.agents/skills/` for orientation, incremental delivery, checkpointing and reliability review. A stop hook, summary or green test suite is not permission to declare the owner's goal complete.
+1. Read [`docs/scratch/IMPLEMENTATION_PLAN.md`](docs/scratch/IMPLEMENTATION_PLAN.md) for core architectural covenants, gate orders, delivered baselines, and recovered canonical decisions; read [`LEGAL.md`](LEGAL.md) for legal covenants and platform access boundaries.
+2. Read [`docs/scratch/UNMERGED_IMPLEMENTATION_PLAN.md`](docs/scratch/UNMERGED_IMPLEMENTATION_PLAN.md) for proposed iterations, milestone gates, and accepted owner decisions.
+3. Read [`docs/scratch/task_tracker.md`](docs/scratch/task_tracker.md) for the active bounded vertical slice before making edits.
+4. Follow `.agents/rules/` (`00` through `04`) for authority, vertical slicing (2–3 files constraint), review discipline, stop integrity, and anti-bloat context preservation.
 
 ## Current target and safety boundaries
 
-- The pre-production target is two separate binaries, configs and local databases: coordinator and crawler node communicate through validated versioned API payloads over localhost while ingesting only reviewed real sources. Cloudflare account setup is not required. The worker/coordinator and node come before `src-web/`.
-- The owner requires `.agents/`, `scratch/`, `src-web/`, `src-crawler/`, `worker/`, `node/`, and organized `docs/` as the destination layout. Preserve runnable entry points while moving one tested code path at a time. Do not create a monorepo or duplicate dependency trees merely to satisfy the directory diagram.
-- A queued URL, selected driver capability, auto-queue rule or robots allowance does not authorize a live content fetch. Both manual and automatic jobs need a separate, active, scoped source-access profile before robots preflight and a lease. Nodes fetch only coordinator-leased jobs; coordinator loss stops new fetches. Preserve origin-wide pacing and the exact access checks at claim, heartbeat and submission.
-- Never expose or copy credentials from `bin/`, logs, databases or environment files into output or test fixtures. The existing GitHub token may only serve its intended scoped GitHub use; it is not a coordinator registration key or Cloudflare credential. Unknown nodes do not self-register until the trust model is decided.
-- Treat third-party directories as discovery leads, not authoritative product records. Preserve source provenance and ambiguous identities. Do not promote creator prose or media to public output merely because a fetch was permitted.
+- **Topology & Communication**: The system operates as a Cloudflare Worker Edge Coordinator (`src-crawler/src/worker/`) backed by Cloudflare D1 storage, communicating over HTTPS with autonomous, containerized Crawler Nodes (`src-crawler/src/node/`) and downstream consumer applications via the typed client SDK (`src-package/`, `vrc-packages-api`).
+- **Leased-Only Ingestion**: Crawler nodes fetch strictly under unexpired coordinator leases (`/v1/node/jobs/claim`). Coordinator loss halts all fetching (fails closed).
+- **Source Access Profiles & Robots Preflight**: A queued URL does not authorize fetching. Both manual and automatic jobs require an active, scoped source-access profile and RFC 9309 `robots.txt` compliance before claiming a lease.
+- **Credential Protection**: Node credentials use capability-encoded tokens (`vrcp_<token><capability>`) stored strictly as SHA-256 hashes. GitHub tokens serve only scoped API requests. Never expose secrets or hardcode tokens into fixtures or logs.
+- **Provenance & Zero Binary Downloads**: Third-party directories serve as discovery leads, not authoritative product records. Zero executable or archive binary crawling (`.zip`, `.unitypackage`).
 
 ## Delivery discipline
 
-- Pick one capability gate and one bounded vertical slice. Map every touched code path and preservation invariant, add a failing fixture, implement the smallest change, then run targeted tests, full tests, typecheck, applicable builds and process smoke. Report what those checks do *not* prove.
-- Before a codebase-wide move or new package, check existing libraries, measured need, Worker portability, license, security and maintenance impact. Document a rejected dependency as well as an adopted one when the decision is material.
-- Keep tests isolated from `bin/crawler_state.db` and any live user database. Real-source smokes are opt-in, source-reviewed, bounded and visibly separate from offline tests.
-- At a pause, stop hook or context reset, record changed files, observed evidence, open risks, unanswered owner choices and the next smallest safe slice. Never convert a confident continuation summary into a completion claim.
+- Pick one capability gate and one bounded vertical slice touching strictly 2–3 files.
+- Add failing fixtures, implement minimal changes, run targeted and full test suites, typecheck (`tsc --noEmit`), and verify diffs.
+- Keep scratch footprint minimal: maintain strictly 2–3 files in `docs/scratch/` (`IMPLEMENTATION_PLAN.md`, `UNMERGED_IMPLEMENTATION_PLAN.md`, `task_tracker.md`).
+- At a pause, record evidence, open risks, and next steps in `docs/scratch/task_tracker.md`.

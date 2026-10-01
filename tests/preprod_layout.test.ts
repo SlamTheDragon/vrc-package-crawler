@@ -9,11 +9,8 @@ describe("Pre-production directory layout and configuration conformance", () => 
     const requiredDirs = [
       ".agents",
       "src-web",
-      "src-web/scratch",
       "src-crawler",
-      "src-crawler/scratch",
-      "src-crawler/src/worker",
-      "src-crawler/src/node",
+      "src-package",
       "docs",
       "docs/scratch",
       "docs/research",
@@ -25,14 +22,16 @@ describe("Pre-production directory layout and configuration conformance", () => 
     }
   });
 
-  test("contains required governance and operator documents", () => {
+  test("contains required governance and operator documents with minimal scratch footprint", () => {
     const requiredFiles = [
       "AGENTS.md",
       "DELEGATES.md",
-      "TODO.md",
       "LEGAL.md",
-      "docs/scratch/DEFERRED_OWNER_DECISIONS.md",
-      "docs/scratch/DIRECTION.md",
+      "LICENSE.md",
+      "README.md",
+      "docs/scratch/IMPLEMENTATION_PLAN.md",
+      "docs/scratch/UNMERGED_IMPLEMENTATION_PLAN.md",
+      "docs/scratch/task_tracker.md",
       "src-crawler/config.json",
     ];
 
@@ -54,8 +53,9 @@ describe("Pre-production directory layout and configuration conformance", () => 
     expect(raw.platforms).toContain("github");
   });
 
-  test("worker and node implementation entry points exist and are loadable", () => {
-    expect(existsSync(join(rootDir, "src-crawler", "src", "worker", "main.ts"))).toBe(true);
+  test("worker, node, and package SDK implementation entry points exist and are loadable", () => {
+    expect(existsSync(join(rootDir, "src-crawler", "src", "worker", "worker_entry.ts"))).toBe(true);
     expect(existsSync(join(rootDir, "src-crawler", "src", "node", "main.ts"))).toBe(true);
+    expect(existsSync(join(rootDir, "src-package", "src", "index.ts"))).toBe(true);
   });
 });

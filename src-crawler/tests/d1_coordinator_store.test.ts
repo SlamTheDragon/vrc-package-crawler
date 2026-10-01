@@ -801,6 +801,139 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     expect(fronts[0].availability).toBe("delisted");
   });
 
+  it("extracts cross-source storefront and repository leads from VPM manifests and links verification jobs", async () => {
+    const mockDb = createMockD1Database();
+    const store = new Coordinator(mockDb);
+    await store.initSchema();
+
+    const nodeToken = await store.issueNodeCredential({
+      schemaVersion: 1,
+      nodeId: "node-vpm-verifier",
+      capabilities: ["vpm", "github", "custom_domain"],
+      reason: "VPM verification test node"
+    }, "operator-admin");
+    const principal = (await store.authenticate("node-vpm-verifier", nodeToken))!;
+
+    await store.createSourceAccessProfile({
+      schemaVersion: 1,
+      platform: "vpm",
+      origin: "https://vpm.example.com",
+      pathScope: "/index.json",
+      method: "GET",
+      purpose: "discovery",
+      minDelayMs: 1000,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      reviewReference: "REV-VPM-01",
+      reason: "VPM repo profile",
+      retainClasses: ["normalized_facts"],
+      publishClasses: ["normalized_facts"]
+    }, "operator-admin");
+
+    await store.createSourceAccessProfile({
+      schemaVersion: 1,
+      platform: "custom_domain",
+      origin: "https://store.vrcfury.com",
+      pathScope: "/tools/",
+      method: "GET",
+      purpose: "metadata",
+      minDelayMs: 2000,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      reviewReference: "REV-CUSTOM-01",
+      reason: "Custom domain profile",
+      retainClasses: ["normalized_facts"],
+      publishClasses: ["normalized_facts"]
+    }, "operator-admin");
+
+    await store.recordRobotsSnapshot("https://vpm.example.com", 200, "User-agent: *\nAllow: /");
+    await store.recordRobotsSnapshot("https://store.vrcfury.com", 200, "User-agent: *\nAllow: /");
+
+    await store.seedJob("https://vpm.example.com/index.json", "vpm", 1000, undefined, "discovery");
+    const claim1 = await store.claim({
+      schemaVersion: 1,
+      nodeId: "node-vpm-verifier",
+      capabilities: ["vpm"]
+    }, principal);
+    if (claim1.status !== "leased") throw new Error("Expected leased status");
+
+    await store.submit({
+      schemaVersion: 1,
+      nodeId: "node-vpm-verifier",
+      jobId: claim1.job.jobId,
+      leaseId: claim1.job.leaseId,
+      idempotencyKey: "submit-vpm-vrcfury",
+      outcome: {
+        kind: "changed",
+        observation: {
+          sourceItemKey: "com.vrcfury.vrcfury",
+          title: "VRCFury",
+          summary: "",
+          author: "VRCFury Contributors",
+          outboundLinks: [
+            "https://github.com/vrcfury/vrcfury",
+            "https://store.vrcfury.com/tools/vrcfury"
+          ],
+          originUpdatedAt: null,
+          platformTags: ["tool"]
+        }
+      }
+    }, principal);
+
+    const canonical = await store.getCanonicalPackage("com.vrcfury.vrcfury");
+    expect(canonical).not.toBeNull();
+    expect(canonical?.vpmId).toBe("com.vrcfury.vrcfury");
+
+    const leadsRes = await store.listLeadsPage("pending_review", 10, null);
+    expect(leadsRes.leads.length).toBeGreaterThanOrEqual(2);
+    const ghLead = leadsRes.leads.find((l) => l.kind === "github_repository");
+    expect(ghLead).toBeDefined();
+    expect(ghLead?.claimed_package_id).toBe("com.vrcfury.vrcfury");
+
+    const storefrontLead = leadsRes.leads.find((l) => l.target_url === "https://store.vrcfury.com/tools/vrcfury");
+    expect(storefrontLead).toBeDefined();
+    expect(storefrontLead?.claimed_package_id).toBe("com.vrcfury.vrcfury");
+
+    const verifyJobId = await store.approveVpmListingLead(storefrontLead!.lead_key, 2000, "operator-test", "Verifying VRCFury custom domain");
+    expect(verifyJobId).toBeDefined();
+
+    const claim2 = await store.claim({
+      schemaVersion: 1,
+      nodeId: "node-vpm-verifier",
+      capabilities: ["custom_domain"]
+    }, principal);
+    expect(claim2.status).toBe("leased");
+    if (claim2.status !== "leased") throw new Error("Expected leased verification job");
+    expect(claim2.job.url).toBe("https://store.vrcfury.com/tools/vrcfury");
+
+    await store.submit({
+      schemaVersion: 1,
+      nodeId: "node-vpm-verifier",
+      jobId: claim2.job.jobId,
+      leaseId: claim2.job.leaseId,
+      idempotencyKey: "submit-custom-vrcfury",
+      outcome: {
+        kind: "changed",
+        observation: {
+          sourceItemKey: "store.vrcfury.com/tools/vrcfury",
+          title: "VRCFury Tool Suite",
+          summary: "",
+          author: "VRCFury",
+          outboundLinks: ["https://github.com/vrcfury/vrcfury"],
+          originUpdatedAt: null,
+          price: 0,
+          currency: "USD",
+          availability: "available",
+          platformTags: ["tool"]
+        }
+      }
+    }, principal);
+
+    const fronts = await store.getPackageFrontsForCanonical("com.vrcfury.vrcfury");
+    expect(fronts).toHaveLength(1);
+    expect(fronts[0].platform).toBe("custom_domain");
+    expect(fronts[0].storefrontUrl).toBe("https://store.vrcfury.com/tools/vrcfury");
+    expect(fronts[0].canonicalId).toBe("com.vrcfury.vrcfury");
+  });
+
   it("workerEntry fetch handles POST /v1/operator/init and enforces operator auth", async () => {
     const db = createMockD1Database();
     const operatorToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -839,6 +972,115 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     const catalogReq = new Request("http://localhost/v1/app/index", { method: "GET" });
     const catalogRes = await workerEntry.fetch(catalogReq, env);
     expect(catalogRes.status).toBe(200);
+  });
+
+  it("enforces canonical timestamp confidence hierarchy and bulk tag query timestamp ordering", async () => {
+    const store = new Coordinator(createMockD1Database());
+    await store.initSchema(true);
+
+    const nodeToken = await store.issueNodeCredential({
+      schemaVersion: 1,
+      nodeId: "node-timestamps",
+      capabilities: ["vpm", "booth"],
+      reason: "Test node"
+    }, "operator-timestamps");
+    const principal = await store.authenticate("node-timestamps", nodeToken);
+    expect(principal).not.toBeNull();
+
+    const app = await store.registerApp({
+      schemaVersion: 1,
+      appName: "TagSearchApp",
+      description: "Downstream App for Tag Search"
+    });
+
+    // Package A (old package, published 2021-01-01, submitted with confirmed upstream date)
+    const olderTime = "2021-01-01T00:00:00.000Z";
+    await store.upsertCanonicalPackage({
+      canonicalId: "com.example.older-tool",
+      umbrella: "tools",
+      category: "avatar_tool",
+      lifecycle: "active",
+      displayName: "Older Avatar Tool",
+      publishedAt: olderTime,
+      timestampConfidence: "confirmed",
+      createdAt: "2026-10-01T10:00:00.000Z"
+    });
+
+    // Package B (newer package, published 2024-06-15, submitted with confirmed upstream date)
+    const newerTime = "2024-06-15T12:00:00.000Z";
+    await store.upsertCanonicalPackage({
+      canonicalId: "com.example.newer-tool",
+      umbrella: "tools",
+      category: "avatar_tool",
+      lifecycle: "active",
+      displayName: "Newer Avatar Tool",
+      publishedAt: newerTime,
+      timestampConfidence: "confirmed",
+      createdAt: "2026-10-01T08:00:00.000Z"
+    });
+
+    // Package C (observed fallback without publisher timestamp)
+    const observedTime = "2023-03-20T00:00:00.000Z";
+    await store.upsertCanonicalPackage({
+      canonicalId: "com.example.observed-tool",
+      umbrella: "tools",
+      category: "avatar_tool",
+      lifecycle: "active",
+      displayName: "Observed Avatar Tool",
+      createdAt: observedTime
+    });
+
+    // Verify confidence hierarchy on retrieval
+    const pkgA = await store.getCanonicalPackage("com.example.older-tool");
+    expect(pkgA?.publishedAt).toBe(olderTime);
+    expect(pkgA?.timestampConfidence).toBe("confirmed");
+
+    const pkgC = await store.getCanonicalPackage("com.example.observed-tool");
+    expect(pkgC?.publishedAt).toBeNull();
+    expect(pkgC?.timestampConfidence).toBe("observed");
+
+    // Perform bulk tag search with tags: ["avatar_tool"] without keyword query
+    const tagSearch = await store.searchCatalogPackages({
+      schemaVersion: 1,
+      queryOrigin: "user_authored",
+      tags: ["avatar_tool"],
+      limit: 10
+    });
+
+    expect(tagSearch.items).toHaveLength(3);
+    // Mandatory timestamp ordering: Newer (2024) -> Observed fallback (2023) -> Older (2021)
+    expect(tagSearch.items[0].canonicalId).toBe("com.example.newer-tool");
+    expect(tagSearch.items[0].publishedAt).toBe(newerTime);
+    expect(tagSearch.items[0].timestampConfidence).toBe("confirmed");
+
+    expect(tagSearch.items[1].canonicalId).toBe("com.example.observed-tool");
+    expect(tagSearch.items[1].timestampConfidence).toBe("observed");
+
+    expect(tagSearch.items[2].canonicalId).toBe("com.example.older-tool");
+    expect(tagSearch.items[2].publishedAt).toBe(olderTime);
+    expect(tagSearch.items[2].timestampConfidence).toBe("confirmed");
+
+    // Test pagination cursor with timestamp ordering
+    const page1 = await store.searchCatalogPackages({
+      schemaVersion: 1,
+      queryOrigin: "user_authored",
+      tags: ["avatar_tool"],
+      limit: 2
+    });
+    expect(page1.items).toHaveLength(2);
+    expect(page1.items[0].canonicalId).toBe("com.example.newer-tool");
+    expect(page1.items[1].canonicalId).toBe("com.example.observed-tool");
+    expect(page1.nextCursor).not.toBeNull();
+
+    const page2 = await store.searchCatalogPackages({
+      schemaVersion: 1,
+      queryOrigin: "user_authored",
+      tags: ["avatar_tool"],
+      cursor: page1.nextCursor,
+      limit: 2
+    });
+    expect(page2.items).toHaveLength(1);
+    expect(page2.items[0].canonicalId).toBe("com.example.older-tool");
   });
 });
 

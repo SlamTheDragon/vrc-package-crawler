@@ -1,7 +1,7 @@
 import { type CrawlerRules, compileRobotsText } from "@trybyte/robotstxt-parser";
 import { CRAWLER_ROBOTS_TOKEN } from "../../../shared/robots/crawler_identity.ts";
 import { isPrivateOrReservedIp } from "../../../shared/policy/ip_policy.ts";
-import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema } from "../../../shared/protocol/node_protocol.ts";
+import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "../../../shared/protocol/node_protocol.ts";
 import { type AutoQueueRule, AutoQueueRuleSchema, type IssueNodeCredential, IssueNodeCredentialSchema, type LeadCursor, type LeadRow, encodeLeadCursor, type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema, type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront, encodeCatalogCursor, decodeCatalogCursor, encodeTakedownCursor, type TakedownCursor, type TakedownRecord } from "../../../shared/protocol/operator_protocol.ts";
 import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema } from "../../../shared/robots/robots_snapshot.ts";
 import { type SourceAccessProfile, SourceAccessProfileSchema, sourceAccessProfileMatches, type SourcePurpose, type ProfileCursor, encodeProfileCursor, type CreateSourceAccessProfile, CreateSourceAccessProfileSchema, sourcePathScopesOverlap } from "../../../shared/policy/source_access_profile.ts";
@@ -46,6 +46,35 @@ import type {
   IdentityLink
 } from "./definitions.ts";
 
+export function classifyOutboundLeadKind(targetUrl: string): DiscoveryLead["kind"] | null {
+  try {
+    const url = new URL(targetUrl);
+    if (url.protocol !== "https:") return null;
+    if (url.username || url.password || (url.port && url.port !== "443")) return null;
+    const pathLower = url.pathname.toLowerCase();
+    if (pathLower.endsWith(".zip") || pathLower.endsWith(".unitypackage") || pathLower.endsWith(".tar.gz")) {
+      return null;
+    }
+    if (url.hostname === "github.com") {
+      const match = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:\/.*)?$/.exec(url.pathname);
+      if (match && match[1] !== "." && match[2] !== ".") {
+        return "github_repository";
+      }
+    }
+    if (url.hostname === "booth.pm" || url.hostname === "gumroad.com" ||
+        url.hostname === "jinxxy.com" || url.hostname.endsWith(".itch.io") ||
+        url.hostname === "sellfy.com" || url.hostname === "payhip.com") {
+      return "storefront_product";
+    }
+    if (!url.hostname.includes("localhost") && !url.hostname.endsWith(".internal") &&
+        !url.hostname.endsWith(".local") && url.hostname.includes(".")) {
+      return "publisher_site";
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatalogStore, UserStore {
   private readonly robotsMatchers = new Map<string, { snapshotId: string; matcher: CrawlerRules; }>();
@@ -86,6 +115,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
   async initSchema(autoSeed: boolean = false): Promise<void> {
     await this.db.exec(D1_SCHEMA_SQL);
+    try { await this.db.exec("ALTER TABLE canonical_packages ADD COLUMN published_at TEXT;"); } catch {}
+    try { await this.db.exec("ALTER TABLE canonical_packages ADD COLUMN timestamp_confidence TEXT;"); } catch {}
     if (autoSeed) {
       await this.seedInitialProfiles();
     }
@@ -523,20 +554,53 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       if (job.platform === "vpm" && complete) {
         const vpmId = observation.sourceItemKey;
         const umbrella = deriveUmbrellaFromTags(observation.platformTags, "tools");
+        const originUpdated = observation.originUpdatedAt;
+        const publishedAt = originUpdated ?? null;
+        const timestampConfidence = originUpdated ? "confirmed" : "observed";
         batchStmts.push(
           this.db.prepare(`INSERT INTO canonical_packages
-            (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at)
-            VALUES (?,?,?,?,?,?,?,?)
+            (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at,published_at,timestamp_confidence)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(canonical_id) DO UPDATE SET
               display_name=excluded.display_name,
               vpm_id=COALESCE(excluded.vpm_id,canonical_packages.vpm_id),
-              updated_at=excluded.updated_at`).bind(
-            vpmId, umbrella, deriveCategoryFromTags(observation.platformTags, "vpm_package"), "active", cleanTitle(observation.title), vpmId, now, now),
+              updated_at=excluded.updated_at,
+              published_at=COALESCE(excluded.published_at, canonical_packages.published_at),
+              timestamp_confidence=CASE
+                WHEN excluded.timestamp_confidence = 'confirmed' THEN 'confirmed'
+                WHEN canonical_packages.timestamp_confidence = 'confirmed' THEN 'confirmed'
+                WHEN excluded.timestamp_confidence = 'inferred' THEN 'inferred'
+                ELSE COALESCE(canonical_packages.timestamp_confidence, excluded.timestamp_confidence)
+              END`).bind(
+            vpmId, umbrella, deriveCategoryFromTags(observation.platformTags, "vpm_package"), "active", cleanTitle(observation.title), vpmId, now, now, publishedAt, timestampConfidence),
           this.db.prepare(`INSERT OR IGNORE INTO identity_links
             (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
             VALUES (?,?,?,'vpm_id',1.0,'accepted',?,?)`).bind(
             crypto.randomUUID(), sourceKey, vpmId, now, now)
         );
+
+        for (const outbound of observation.outboundLinks) {
+          const leadKind = classifyOutboundLeadKind(outbound);
+          if (leadKind) {
+            const identity = [job.url, vpmId, leadKind, outbound, vpmId];
+            const leadKey = await sha256Hex(JSON.stringify(identity));
+            batchStmts.push(
+              this.db.prepare(`INSERT INTO source_leads
+                (lead_key,discovered_from_url,discovered_from_job_id,discovered_from_item_key,
+                  kind,target_url,claimed_package_id,status,
+                  first_seen_at,last_seen_at,first_seen_node_id,first_seen_lease_id,first_seen_profile_id,
+                  last_seen_node_id,last_seen_lease_id,last_seen_profile_id)
+                VALUES (?,?,?,?,?,?,?,'pending_review',?,?,?,?,?,?,?,?)
+                ON CONFLICT(lead_key) DO UPDATE SET last_seen_at=excluded.last_seen_at,
+                  last_seen_node_id=excluded.last_seen_node_id,last_seen_lease_id=excluded.last_seen_lease_id,
+                  last_seen_profile_id=excluded.last_seen_profile_id`)
+                .bind(leadKey, job.url, job.job_id, vpmId,
+                  leadKind, outbound, vpmId,
+                  now, now, principal.nodeId, request.leaseId, sourceProfile.profileId,
+                  principal.nodeId, request.leaseId, sourceProfile.profileId)
+            );
+          }
+        }
       }
 
       if (job.platform === "github" && complete) {
@@ -672,14 +736,24 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
             ? desktopClassification.subtype
             : "storefront_package"
         );
+        const originUpdated = observation.originUpdatedAt;
+        const publishedAt = originUpdated ?? null;
+        const timestampConfidence = originUpdated ? "confirmed" : "observed";
         batchStmts.push(
           this.db.prepare(`INSERT INTO canonical_packages
-            (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at)
-            VALUES (?,?,?,?,?,NULL,?,?)
+            (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at,published_at,timestamp_confidence)
+            VALUES (?,?,?,?,?,NULL,?,?,?,?)
             ON CONFLICT(canonical_id) DO UPDATE SET
               display_name=excluded.display_name,
-              updated_at=excluded.updated_at`).bind(
-            canonicalId, umbrella, category, "active", cleanTitle(observation.title), now, now),
+              updated_at=excluded.updated_at,
+              published_at=COALESCE(excluded.published_at, canonical_packages.published_at),
+              timestamp_confidence=CASE
+                WHEN excluded.timestamp_confidence = 'confirmed' THEN 'confirmed'
+                WHEN canonical_packages.timestamp_confidence = 'confirmed' THEN 'confirmed'
+                WHEN excluded.timestamp_confidence = 'inferred' THEN 'inferred'
+                ELSE COALESCE(canonical_packages.timestamp_confidence, excluded.timestamp_confidence)
+              END`).bind(
+            canonicalId, umbrella, category, "active", cleanTitle(observation.title), now, now, publishedAt, timestampConfidence),
           this.db.prepare(`INSERT OR IGNORE INTO identity_links
             (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
             VALUES (?,?,?,'cross_storefront_link',1.0,'accepted',?,?)`).bind(
@@ -1003,9 +1077,41 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const lead = await this.db.prepare("SELECT kind,status,target_url FROM source_leads WHERE lead_key=?")
       .bind(leadKey).first<{ kind: string; status: string; target_url: string; }>();
     if (!lead) throw new Error("Lead not found");
-    if (lead.kind !== "vpm_listing") throw new Error("Only published VPM listing leads can become VPM crawl jobs");
     if (lead.status === "rejected") throw new Error("Rejected lead cannot be approved");
-    const jobId = await this.seedJob(lead.target_url, "vpm", minDelayMs, sourceRuleId, "discovery");
+    let platform: Platform = "vpm";
+    let purpose: SourcePurpose = "discovery";
+    let jobUrl = lead.target_url;
+    let delay = minDelayMs;
+
+    if (lead.kind === "vpm_listing") {
+      platform = "vpm";
+      purpose = "discovery";
+    } else if (lead.kind === "github_repository") {
+      platform = "github";
+      purpose = "metadata";
+      const match = lead.target_url.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)/);
+      if (match) {
+        jobUrl = `https://api.github.com/repos/${match[1].replace(/\.git$/, "")}`;
+      }
+      delay = Math.max(delay, 60000);
+    } else if (lead.kind === "storefront_product") {
+      purpose = "metadata";
+      const urlObj = new URL(lead.target_url);
+      if (urlObj.hostname === "booth.pm") platform = "booth";
+      else if (urlObj.hostname === "gumroad.com") platform = "gumroad";
+      else if (urlObj.hostname === "jinxxy.com") platform = "jinxxy";
+      else if (urlObj.hostname === "sellfy.com") platform = "sellfy";
+      else platform = "custom_domain";
+      delay = Math.max(delay, 1500);
+    } else if (lead.kind === "publisher_site") {
+      platform = "custom_domain";
+      purpose = "metadata";
+      delay = Math.max(delay, 2000);
+    } else {
+      throw new Error("Only published VPM listing leads can become VPM crawl jobs");
+    }
+
+    const jobId = await this.seedJob(jobUrl, platform, delay, sourceRuleId, purpose);
     if (lead.status !== "approved") {
       await this.db.batch([
         this.db.prepare("UPDATE source_leads SET status='approved' WHERE lead_key=?").bind(leadKey),
@@ -1203,6 +1309,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   private async buildCatalogPackage(pkg: {
     canonical_id: string; umbrella: string; category: string; lifecycle: string;
     display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+    published_at?: string | null; timestamp_confidence?: string | null;
   }): Promise<CatalogPackage> {
     const linkRes = await this.db.prepare(`SELECT link_id,source_key,evidence_kind,confidence,created_at
       FROM identity_links WHERE canonical_id=? AND review_state='accepted'
@@ -1244,6 +1351,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       vpmId: pkg.vpm_id,
       createdAt: pkg.created_at,
       updatedAt: pkg.updated_at,
+      publishedAt: pkg.published_at ?? null,
+      timestampConfidence: (pkg.timestamp_confidence as any) ?? "observed",
       acceptedLinks,
       fronts
     };
@@ -1442,29 +1551,35 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     vpmId?: string | null;
     createdAt?: string;
     updatedAt?: string;
-  }): Promise<CanonicalPackage> {
+    publishedAt?: string | null;
+    timestampConfidence?: "confirmed" | "inferred" | "observed" | null;
+  }): Promise<CanonicalPackage & { publishedAt?: string | null; timestampConfidence?: string | null }> {
     const now = new Date(this.now()).toISOString();
     const createdAt = pkg.createdAt ?? now;
     const updatedAt = pkg.updatedAt ?? now;
     const vpmId = pkg.vpmId ?? null;
+    const publishedAt = pkg.publishedAt ?? null;
+    const timestampConfidence = pkg.timestampConfidence ?? (publishedAt ? "confirmed" : "observed");
     await this.db.prepare(`
-      INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at, published_at, timestamp_confidence)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(canonical_id) DO UPDATE SET
         umbrella = excluded.umbrella,
         category = excluded.category,
         lifecycle = excluded.lifecycle,
         display_name = excluded.display_name,
         vpm_id = COALESCE(excluded.vpm_id, canonical_packages.vpm_id),
-        updated_at = excluded.updated_at
-    `).bind(pkg.canonicalId, pkg.umbrella, pkg.category, pkg.lifecycle, pkg.displayName, vpmId, createdAt, updatedAt).run();
+        updated_at = excluded.updated_at,
+        published_at = COALESCE(excluded.published_at, canonical_packages.published_at),
+        timestamp_confidence = COALESCE(excluded.timestamp_confidence, canonical_packages.timestamp_confidence)
+    `).bind(pkg.canonicalId, pkg.umbrella, pkg.category, pkg.lifecycle, pkg.displayName, vpmId, createdAt, updatedAt, publishedAt, timestampConfidence).run();
     const result = await this.getCanonicalPackage(pkg.canonicalId);
     return result!;
   }
 
-  async getCanonicalPackage(canonicalId: string): Promise<CanonicalPackage | null> {
+  async getCanonicalPackage(canonicalId: string): Promise<(CanonicalPackage & { publishedAt?: string | null; timestampConfidence?: string | null }) | null> {
     const row = await this.db.prepare(
-      "SELECT canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at FROM canonical_packages WHERE canonical_id = ?"
+      "SELECT canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at, published_at, timestamp_confidence FROM canonical_packages WHERE canonical_id = ?"
     ).bind(canonicalId).first<{
       canonical_id: string;
       umbrella: CanonicalUmbrella;
@@ -1474,6 +1589,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       vpm_id: string | null;
       created_at: string;
       updated_at: string;
+      published_at: string | null;
+      timestamp_confidence: string | null;
     }>();
     if (!row) return null;
     return {
@@ -1484,7 +1601,9 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       displayName: row.display_name,
       vpmId: row.vpm_id,
       createdAt: row.created_at,
-      updatedAt: row.updated_at
+      updatedAt: row.updated_at,
+      publishedAt: row.published_at,
+      timestampConfidence: row.timestamp_confidence
     };
   }
 
@@ -1855,7 +1974,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     params.push(safeLimit);
 
     const res = await this.db.prepare(`
-      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at
+      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at, p.published_at, p.timestamp_confidence
       FROM canonical_packages p
       WHERE ${whereClause}
       ORDER BY RANDOM()
@@ -1863,6 +1982,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     `).bind(...params).all<{
       canonical_id: string; umbrella: string; category: string; lifecycle: string;
       display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+      published_at: string | null; timestamp_confidence: string | null;
     }>();
 
     const rows = res.results || [];
@@ -1898,11 +2018,38 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       params.push(term, term, term);
     }
 
+    if (parsed.tags && parsed.tags.length > 0) {
+      for (const tag of parsed.tags) {
+        const cleanTag = tag.trim().toLowerCase();
+        if (!cleanTag) continue;
+        const tagPattern = `%${cleanTag}%`;
+        conditions.push(`(
+          p.category LIKE ? OR
+          p.umbrella = ? OR
+          EXISTS (
+            SELECT 1 FROM identity_links il
+            JOIN avatar_compatibilities ac ON ac.source_key = il.source_key
+            WHERE il.canonical_id = p.canonical_id AND il.review_state = 'accepted'
+              AND (ac.target_avatar_base LIKE ? OR ac.scope LIKE ?)
+          ) OR
+          p.display_name LIKE ?
+        )`);
+        params.push(tagPattern, cleanTag, tagPattern, tagPattern, tagPattern);
+      }
+    }
+
+    const hasKeywordQuery = Boolean(parsed.query && parsed.query.trim());
+
     if (parsed.cursor) {
       const decoded = decodeCatalogCursor(parsed.cursor);
       if (decoded) {
-        conditions.push("(p.created_at < ? OR (p.created_at = ? AND p.canonical_id < ?))");
-        params.push(decoded.createdAt, decoded.createdAt, decoded.canonicalId);
+        if (!hasKeywordQuery) {
+          conditions.push("(COALESCE(p.published_at, p.created_at) < ? OR (COALESCE(p.published_at, p.created_at) = ? AND p.canonical_id < ?))");
+          params.push(decoded.createdAt, decoded.createdAt, decoded.canonicalId);
+        } else {
+          conditions.push("(p.created_at < ? OR (p.created_at = ? AND p.canonical_id < ?))");
+          params.push(decoded.createdAt, decoded.createdAt, decoded.canonicalId);
+        }
       }
     }
 
@@ -1911,16 +2058,21 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       SELECT COUNT(*) as total FROM canonical_packages p WHERE ${whereClause}
     `).bind(...params).first<{ total: number }>();
 
+    const orderClause = hasKeywordQuery
+      ? "ORDER BY p.created_at DESC, p.canonical_id DESC"
+      : "ORDER BY COALESCE(p.published_at, p.created_at) DESC, p.canonical_id DESC";
+
     const queryParams = [...params, limit + 1];
     const res = await this.db.prepare(`
-      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at
+      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at, p.published_at, p.timestamp_confidence
       FROM canonical_packages p
       WHERE ${whereClause}
-      ORDER BY p.created_at DESC, p.canonical_id DESC
+      ${orderClause}
       LIMIT ?
     `).bind(...queryParams).all<{
       canonical_id: string; umbrella: string; category: string; lifecycle: string;
       display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+      published_at: string | null; timestamp_confidence: string | null;
     }>();
 
     const rows = res.results || [];
@@ -1934,7 +2086,10 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     }
 
     const nextCursor = hasMore && last
-      ? encodeCatalogCursor({ createdAt: last.created_at, canonicalId: last.canonical_id })
+      ? encodeCatalogCursor({
+          createdAt: !hasKeywordQuery ? (last.published_at || last.created_at) : last.created_at,
+          canonicalId: last.canonical_id
+        })
       : null;
 
     return {
