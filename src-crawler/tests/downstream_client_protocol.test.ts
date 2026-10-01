@@ -216,5 +216,29 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     expect(pageBody.items.length).toBe(1);
     expect(pageBody.nextCursor).toBeDefined();
     expect(pageBody.totalEstimated).toBe(2);
+
+    // Canonical API_ROUTES /v1/app/index/search route
+    const canonicalSearch = await handleDownstreamRequest(
+      request("/v1/app/index/search", "POST", {
+        schemaVersion: 1,
+        query: "Optimizer",
+        queryOrigin: "user_authored"
+      }, appToken),
+      store
+    );
+    expect(canonicalSearch.status).toBe(200);
+    const canonicalBody = await canonicalSearch.json() as any;
+    expect(canonicalBody.items[0].displayName).toBe("Avatar Optimizer");
+
+    // Canonical API_ROUTES /v1/app/reports route
+    const canonicalReport = await handleDownstreamRequest(
+      request("/v1/app/reports", "POST", {
+        schemaVersion: 1,
+        signalType: "search_miss",
+        query: "Nonexistent"
+      }, appToken),
+      store
+    );
+    expect(canonicalReport.status).toBe(200);
   });
 });

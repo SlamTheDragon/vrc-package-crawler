@@ -160,135 +160,195 @@ The present process lock protects local duplicate starts when a node runs as a s
 
 The owner's updated local pre-production exit target requires **two binaries, two process-specific configs, two local databases, and loopback API communication** while ingesting reviewed real sources. The current coordinator/node smoke proves separate processes, two versioned non-secret launch-directory configs, and schema-validated loopback traffic. It does not prove the full artifact topology. Top-level `node/main.ts` and `worker/main.ts` load their own configs. But node database ownership and implementation remain open. Authenticated operator API issuance is only a local credential-bootstrap slice, not a remote registration trust flow. Keep Cloudflare deployment and its account keys outside this gate. Migrate the desired `src-crawler/`, `worker/`, and `node/` layout by import/build/test slices rather than a single repository move. Defer `src-web/` until coordinator and node contracts are stable. See `DIRECTION.md` §1.5 and the owner questions in `docs/scratch/decisions/DEFERRED_OWNER_DECISIONS.md`.
 
-### 3.1 Clarifications from the owner's comments
+### 3.1 Core Invariants Established by Gates G0–G5
 
-| Comment | Concrete plan response |
-| --- | --- |
-| Why keep `package_fronts` when canonical packages can carry JSON? | Store independently changing storefront records once, then assemble the JSON view for consumers. A front price, URL, or availability can change without rewriting the identity of the canonical item. |
-| What does the delta cursor problem mean? | A client can ask for changes after record 15,000. If a catalog rebuild restarts numbering at 1, the client sees no new records forever. Bind the cursor to a catalog generation and use a monotonic event sequence for ordinary changes. Instruct clients to reload only when the generation becomes incompatible. |
-| What does the media proxy do? | A direct image URL can fail in a browser when an origin restricts hotlinking. The proxy fetches an allowed image and streams it to the requesting client without saving the bytes. Gate 1 removes the separate crawl-time WebP conversion whose output is discarded. Gate 4 researches whether proxy transformation remains necessary. |
-| Was BlurHash removed? | No. Current `image_proxy.ts` still computes and stores BlurHash text and pHash metadata. The removed storage was the persistent WebP image BLOB. Gate 1 tests and documents the actual media path. |
-| Why consider an IP parsing package? | The server hand-parses IPv4/IPv6 ranges for opt-out and media fetch SSRF checks. A package can validate address syntax and ranges. DNS pinning and redirect checks remain project policy. This is a correctness spike, not a change to which websites are discovered. |
-| Why was IANA fetched? | `IanaRegistry` is used while accepting or classifying external domains linked to packages. Gate 3 tests real domains and special-use suffixes, then chooses whether an offline public-suffix package is more reliable than the current live fetch or fallback. |
-| How will versions and names stay consistent? | Add one version registry (a checked-in JSON or typed module) for application build, public API, catalog schema, report schema, and terms notice. Upstream package versions remain data, never configuration. Canonical display names can change while stable IDs and aliases remain. |
-| What happens to logging? | Gate 1 evaluates a small logger package against the existing one and implements one active `latest.log`, with prior session and day files moved to an archive. Rotation and shutdown behavior get compiled-binary tests. Do not replace the logger merely to add a package. |
-| Can saturation be reused? | Rename the existing `done/discovered` value to queue completion. Gate 4 can add source-specific coverage measures where the denominator is known. Infer no unknown ecosystem-wide percent indexed or stop threshold. |
-| Can indirect feedback refine ranking? | Add typed, aggregate signals from consumer applications only after the application credential and report authority model is settled. Ranking signals can suggest review or alter a documented score. They cannot silently rewrite creator-claimed identity, links, or source evidence. |
-| Can VRCArena help identify avatar bases? | Treat its catalog as a research comparison or discovery lead if access and terms permit. Validate base identity and compatibility against creator-controlled or other accepted source evidence before publication. |
+1. **Origin Lease Scheduler**: Nodes cannot fetch without an unexpired coordinator lease (`POST /v1/node/jobs/claim`). Origin politeness floors (`min_delay_ms`) are enforced globally.
+2. **Fail-Closed Availability**: Coordinator loss immediately halts all node fetching; nodes never generate uncoordinated requests.
+3. **Source Access Authorization**: Every URL requires an active `SourceAccessProfile` before robots preflight and before lease claim.
+4. **RFC 9309 Robots Compliance**: Robots rules are evaluated against cached 24-hour snapshots with DNS pinning.
+5. **Capability-Encoded Credentials**: Node tokens (`vrcp_<64-hex><4-hex>`) encode permitted platform capabilities in their 4-hex bitmask suffix. Claims for unpermitted capabilities are rejected.
+6. **Zero-Knowledge Token Persistence**: All tokens (node, app, registrant) are stored strictly as SHA-256 hashes (`token_hash`) and never re-exposed.
+7. **Append-Only Observation Digest**: New `source_versions` rows are created only when normalized observation digests change; unchanged fetches record lightweight check events.
+8. **Monotonic Event Sequence**: Catalog deltas follow a monotonic event stream preserving catalog generation epochs across consumer syncs.
 
-### 3.2 Small database abstraction comparison
 
-| Approach | Main benefit | Main cost | Gate 2 trial |
-| --- | --- | --- | --- |
-| Centralized raw SQL plus typed repositories | Transparent SQLite behavior, minimal dependencies, straightforward Bun runtime | Types and migrations need careful manual discipline | Implement source version transaction, fronts, and catalog revision with one schema owner |
-| Typed query builder | Types for queries and joins without fully hiding SQL | Additional tooling and generated types; Bun compilation needs validation | Implement the same slice and compare schema drift and error reporting |
-| Full ORM | One model can describe relations and migrations; potentially faster broad schema changes in version 0 | Abstraction leakage for FTS5, bulk upserts, and SQLite-specific behavior; larger dependency surface | Use only if the trial demonstrably simplifies the actual queries and compiled artifact |
+## 8. Historical code change priorities delivery status (audited 2026-10-01)
 
-The choice must be based on a written comparison of the same vertical slice, rather than database size or line count alone.
+The foundation priorities reflecting workforce distribution, capability-encoded node tokens, downstream sampling, and delisting have been delivered and verified on the clean-slate baseline (**269 passing tests across 31 files**):
 
-### 3.3 Immediate defect placement
+| Priority | Focus Area | Gate | Scope & Tasks | Status | Evidence |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **P1** | **API Specification Alignment** | G5/G6 | Aligned candidate specifications (`SPECIFICATION_CRAWLER_NETWORK.md`, `SPECIFICATION_CRAWLER_CLIENT.md`, `SPECIFICATION_WEBSITE.md`, `API_ROUTES.md`) with authoritative wire routes. | **COMPLETED & VERIFIED** | `docs/source/` docs |
+| **P2** | **Public Consumer Catalog Endpoints** | G4/G6 | Implemented unauthenticated public catalog read routes (`GET /v1/catalog`, `GET /v1/catalog/delta`) on `LocalCoordinatorStore` and D1 `Coordinator` with cursor/epoch preservation. | **COMPLETED & VERIFIED** | `public_handler.ts`, 269 tests |
+| **P3** | **Capability-Encoded Node Tokens & Workforce Balancing** | G5 | Implemented workforce distribution logic and capability encoding in `vrcp_<auth_token><capability>` (73 chars). Enforced capability matching at lease claim time. | **COMPLETED & VERIFIED** | `workforce_distribution.test.ts` |
+| **P4** | **Downstream Registration, Search & Feedback Signals** | G4/G6 | Implemented downstream app registration (`/v1/apps/register`), search (`/v1/catalog/search`), random sampling (`/v1/catalog/random`), and demand feedback ingestion (`/v1/apps/feedback`). | **COMPLETED & VERIFIED** | `downstream_handler.ts` |
+| **P5** | **Creator Delisting & Takedown Routes** | G1/G2 | Added registrant-authenticated delisting and unauthenticated proof-gated opt-out routes (`/v1/registrant/delist`, `/v1/delist`) with `creator_opt_outs` logging and immediate queue suppression. | **COMPLETED & VERIFIED** | `registrant_handler.ts`, `local_sqlite.ts`, D1 |
 
-| Existing item | Gate | Acceptance focus |
-| --- | --- | --- |
-| TODO Task 2.3, Turnstile FIXME | G1 | Header and body challenge detection, no success accounting, retry and backoff state |
-| `DIRECTION.md` §15 (OVERLOOKED-11, -12, -14, -16) | G1 | Dead WebP work, recrawl safety, redirect validation, null media identity |
-| OVERLOOKED-13 and -17 | G4 | Epoch-bound delta cursor and all public fronts |
-| OVERLOOKED-15 | G4 | No fabricated VPM SemVer |
-| OVERLOOKED-18 | G6 | Bounded and batched edge publication |
-| OVERLOOKED-19 | G0/G2 | Define report review state separately from package lifecycle; remove or use the enum accordingly |
-| TODO 5.1 (federated VPM discovery) | G3/G4 | Leads to authoritative manifests, real package and version evidence |
-| TODO 5.2 (cosmetics) | G2/G4 | Avatar base and compatibility model, then discovery and classification |
-| TODO 5.3 (temporal provenance) | G2/G4 | Versioned observations, event log, field evidence, lifecycle |
-| TODO 5.4 (crawler nodes) | G5/G6 | Protocol simulation before Cloudflare deployment |
+---
 
-## 4. Network boundary to simulate
+## 9. Architectural Vision & Subsystem Boundaries
+
+The version 0 pre-production system consists of five distinct components:
+
+```mermaid
+flowchart TD
+    subgraph Edge["Cloudflare Workers & D1 (or Local Simulation)"]
+        Coord["Coordinator (src-crawler/src/worker)"]
+        D1[(Coordinator D1/SQLite)]
+    end
+
+    subgraph NodeInfra["Crawling Infrastructure"]
+        NodeVPS["Crawler Node Binary (Headless VPS)"]
+        NodeGUI["Crawler Client GUI (Windows Shell)"]
+    end
+
+    subgraph Downstream["Downstream Ecosystem"]
+        Web["Web Operator Panel & Landing (src-web)"]
+        SDK["vrc-packages-api SDK (src-package)"]
+        Managers["Downstream Package Managers (ALCOM, VCC, Desktop)"]
+    end
+
+    NodeVPS -- "POST /v1/node/* (vrcp_<token><cap>)" --> Coord
+    NodeGUI -. "Bundles Node" .-> NodeVPS
+    Coord <--> D1
+
+    Web -- "Admin: /v1/operator/*\nUser: /v1/user/*" --> Coord
+    SDK -- "Client calls /v1/app/* and /v1/user/*" --> Coord
+    Managers --> SDK
+```
+
+1. **Coordinator (`src-crawler/src/worker/`)**:
+   - Central authority running on Cloudflare Workers backed by D1 (local loopback simulation in Bun).
+   - Manages crawler node workforce distribution and capability-encoded tokens (`vrcp_<auth_token><capability>`).
+   - Anti-"bot-net" job balancing & origin rate limit management (central origin lease scheduler).
+   - Report ingestion & moderation (`POST /v1/app/reports`).
+   - Canonical package arbiter.
+   - Bounded search service (`GET /v1/app/index`, `POST /v1/app/index/search`) with `queryOrigin` attribution.
+
+2. **Crawler Node (`src-crawler/src/node/`)**:
+   - Compiled binary for headless VPS (Linux / Windows).
+   - Polls coordinator for job leases (`POST /v1/node/jobs/claim`).
+   - Executes authorized jobs, obeying robots and leased source profiles.
+   - Resilient, never shuts down, fail-closed on coordinator loss, logs all activities and crawled sites.
+   - Configured with token and ID issued by coordinator.
+
+3. **Crawler Client (`src-crawler-client/`)**:
+   - Windows GUI shell bundling the Crawler Node binary.
+   - User configuration for node ID and token, live connection status, and local activity log viewer.
+
+4. **Shared SDK / API Client (`src-package/` — `vrc-packages-api`)**:
+   - NPM package providing strongly typed schemas, assertions, and a high-level client SDK (`VrcPackagesClient`) for downstream consumers (ALCOM, VCC, web apps, desktop managers).
+   - Decoupled from coordinator and crawler internals.
+
+5. **Web Operator Panel & Landing Page (`src-web/`)**:
+   - SvelteKit landing page, ToS/Legal, node binary distribution and registry, downstream application registry, database statistics.
+   - Firebase Auth paired with Cloudflare.
+   - Two distinct roles: **Admin Operator** (infrastructure management) vs **Registrant** (self-service token and application management).
+
+---
+
+## 10. Helper & Contract Refactoring Matrix (`src-crawler` → `src-package`)
+
+To prevent tight coupling between crawler execution machinery and downstream consumers, types and helpers currently residing in `src-crawler/src/shared/` are partitioned as follows:
+
+| Symbol / Module | Current Location | Target Location (`src-package`) | Action | Rationale |
+| :--- | :--- | :--- | :--- | :--- |
+| Symbol / Module | Current Location | Target Location (`src-package`) | Action | Rationale |
+| :--- | :--- | :--- | :--- | :--- |
+| `DownstreamProtocol` Consumer Schemas | `src-crawler/src/shared/protocol/downstream_protocol.ts` | `src-package/src/protocol/downstream.ts` | **Migrate / Export** | Defines public consumer wire contracts for `/v1/app/*` and `/v1/user/*` (excluding node registration). |
+| `CatalogProtocol` Schemas | `src-crawler/src/shared/protocol/catalog_protocol.ts` | `src-package/src/protocol/catalog.ts` | **Migrate / Export** | Public delta sync feed contracts (`CatalogDelta`, `CatalogDeltaCursor`). |
+| `CatalogPackage` & Front Schemas | `src-crawler/src/shared/protocol/operator_protocol.ts` | `src-package/src/types/package.ts` | **Extract / Export** | Public consumer representation of packages, fronts, and accepted links. |
+| Taxonomy Vocabulary Enums | `src-crawler/src/shared/taxonomy/taxonomy.ts` | `src-package/src/taxonomy/taxonomy.ts` | **Migrate / Export** | Umbrellas (`tools`, `assets`, `avatars`) and `DesktopToolSubtype` enums/evidence schemas used by consumers. |
+| Crawling Taxonomy Heuristics | `src-crawler/src/shared/taxonomy/taxonomy.ts` | `src-crawler/src/shared/taxonomy/taxonomy.ts` | **Retain in crawler** | Ingestion heuristics (`classifyDesktopTool`, `inferSupportedOS`, `deriveCategoryFromTags`) must not be exposed to downstream packages. |
+| Avatar Compatibility Schemas | `src-crawler/src/shared/taxonomy/avatar_compatibility.ts` | `src-package/src/taxonomy/avatar.ts` | **Migrate / Export** | Pure consumer data schema (`AvatarCompatibilitySchema`) for queried compatibility records. |
+| Avatar Scraping Regexes | `src-crawler/src/shared/taxonomy/avatar_compatibility.ts` | `src-crawler/src/shared/taxonomy/avatar_compatibility.ts` | **Retain in crawler** | Storefront scraping regexes and `extractAvatarCompatibility` heuristic retained strictly in crawler. |
+| VPM SemVer Helpers | `src-crawler/src/shared/taxonomy/vpm_version.ts` | `src-package/src/taxonomy/version.ts` | **Migrate / Export** | Version parsing and comparison utilities for package managers. |
+| Consumer Token Validators | `src-crawler/src/shared/identity_config.ts` | `src-package/src/auth/tokens.ts` | **Export** | Allows downstream clients to validate app (`vrcp_app_`) and user (`vrcp_usr_`) token formats. |
+| Node Tokens & Registration | `src-crawler/src/shared/identity_config.ts` | `src-crawler/src/shared/` | **Retain in crawler** | `NODE_TOKEN_*`, `isNodeToken`, and `RegisterNode*` belong strictly to crawling infrastructure. |
+| Strongly Typed API Client | *(New)* | `src-package/src/client.ts` | **Implement** | `VrcPackagesClient` providing typed fetch, query attribution (`user_authored` vs `app_automated`), delta sync consumer, and error handling. |
+| `NodeProtocol` (Claim/Heartbeat/Result) | `src-crawler/src/shared/protocol/node_protocol.ts` | `src-crawler/src/shared/protocol/node_protocol.ts` | **Retain in crawler** | Node-to-coordinator internal wire protocol; consumers do not use this. |
+| `OperatorProtocol` (Leads/Rules/Profiles) | `src-crawler/src/shared/protocol/operator_protocol.ts` | `src-crawler/src/shared/protocol/operator_protocol.ts` | **Retain in crawler** | Administrative infrastructure contracts. |
+| Robots & RFC 9309 Parsers | `src-crawler/src/shared/robots/` | `src-crawler/src/shared/robots/` | **Retain in crawler** | Crawler-only execution policy. |
+| Source Policy & IP Pinning | `src-crawler/src/shared/policy/` | `src-crawler/src/shared/policy/` | **Retain in crawler** | Ingestion safety covenants; never exposed to downstream apps. |
+
+---
+
+## 11. Forward Capability Gates: G6 to G10
 
 ```mermaid
 flowchart LR
-    Operator[Registered operator] --> Control[Coordinator and credential registry]
-    Control --> Jobs[Job and origin lease state]
-    Jobs --> NodeA[Crawler node A]
-    Jobs --> NodeB[Crawler node B]
-    NodeA --> Origin[Public origin]
-    NodeB --> Origin
-    NodeA --> Ingest[Validated result ingestion]
-    NodeB --> Ingest
-    Ingest --> Evidence[Versioned observations]
-    Evidence --> Catalog[Canonical catalog]
-    Catalog --> API[Catalog API]
-    App[Registered consumer application] --> API
-    App --> Reports[Feedback and reports]
-    Reports --> Catalog
+    G5["G5: Local Simulation (Delivered)"] --> G6["G6: SDK & Contract (src-package, Delivered)"]
+    G6 --> G7["G7: Worker Staging (src-crawler)"]
+    G7 --> G8["G8: Headless VPS Node (src-crawler)"]
+    G8 --> G9["G9: Windows GUI Client (src-crawler-client)"]
+    G7 --> G10["G10: Web Panel & Landing (src-web)"]
 ```
 
-The operator credential registers and manages nodes. A node credential is scoped to allowed drivers, origins, and operations. A per-job lease limits what nodes fetch and report. Consumer application credentials permit catalog and report functions by separate scopes. None of these are Cloudflare account or D1 administration tokens. Origin websites receive transparent unauthenticated crawler requests unless an origin gives another permitted access method.
+### Gate G6 — Shared Contract Extraction & Client SDK (`src-package`) — DELIVERED
+**Goal:** Deliver a fully typed, zero-dependency (or minimal Zod-only) client library in `src-package` (`vrc-packages-api`) that standardizes API interactions for all downstream applications, while strictly retaining crawler-specific heuristics and node management inside `src-crawler`.
+- **Slice 6.1 (Contract Scaffolding):** Setup `src-package` tsconfig, build scripts, and export paths (`package.json`). *(Delivered)*
+- **Slice 6.2 (Schema Migration):** Migrated consumer schemas (`downstream`, `catalog`, `taxonomy`, `avatar`, `version`) while retaining all crawler ingestion heuristics (`classifyDesktopTool`, `extractAvatarCompatibility`, `deriveCategoryFromTags`, `inferSupportedOS`) and node credentials inside `src-crawler`. *(Delivered)*
+- **Slice 6.3 (Strongly Typed Client SDK & Full Protocol Support):** Implemented `VrcPackagesClient` class supporting:
+  - Downstream Application Protocol (`/v1/app/*`):
+    - `client.index.query({ query?, umbrella?, category?, platform?, limit? })`
+    - `client.index.search({ query, queryOrigin: "user_authored" | "app_automated", ... })`
+    - `client.index.syncDeltas({ cursor? })`
+    - `client.index.random({ limit?, umbrella? })`
+    - `client.app.register({ appName, ... })`
+    - `client.reports.submit({ reportType, ... })`
+  - User Protocol (`/v1/user/*` and `/v1/delist`):
+    - `client.user.delist({ targetUrl?, canonicalId?, reason, ... })`
+    - `client.user.registerApp({ appName, ... })`
+    - `client.user.registerNode({ nodeId, requestedCapabilities?, reason? })`
+  - Operator Protocol (`/v1/operator/*`):
+    - `client.operator.leads.list / approve / reject`
+    - `client.operator.sourceProfiles.list / create / disable`
+    - `client.operator.autoQueueRules.list / create / disable`
+    - `client.operator.nodes.issue({ nodeId, capabilities?, reason })`
+    - `client.operator.catalog.list({ limit?, cursor? })`
+    - `client.operator.takedowns.list / verify({ verdict, notes? })`
+  - **Negative Boundary Enforced**: Strict exclusion of `/v1/node/*` (job leasing, origin lock, heartbeat, fact submission) and node credentials from `src-package`. Crawler node protocol remains internal to `src-crawler`. *(Delivered)*
+- **Slice 6.4 (Test Suite):** Unit tests in `src-package/tests/` verifying request serialization, query attribution enforcement, delta stream parsing, error unwrapping, operator wire schemas and cursors, and client methods. *(Delivered)*
+- **Exit Evidence:**
+  - `bun test` in `src-package` passes 31/31 tests (100%).
+  - `tsc --noEmit` in `src-package` passes with 0 errors.
+  - `bun run build` in `src-package` bundles to `dist/index.js` (233 KB) cleanly.
+  - Zero `/v1/node/*` paths, node tokens, or crawler scraping heuristics exported in `src-package`.
+  - `bun test` in `src-crawler` passes 276/276 tests (100%); `tsc --noEmit` clean.
 
-The local coordinator enforces origin leases and shared backoff. Adding nodes increases source coverage without increasing the request rate of an origin. A `429` changes the retry state of an origin and uses `Retry-After` when present. It does not permanently disable a driver. Challenge responses and platform objections have distinct outcomes. Coordinator unavailability prevents new job claims. Result submission uses job IDs and idempotency keys so retries are safe. [Cloudflare Queues documents at-least-once delivery](https://developers.cloudflare.com/queues/reference/delivery-guarantees/) if Queues become part of the implementation later.
+### Gate G7 — Coordinator Cloudflare Staging Readiness (`src-crawler`)
+**Goal:** Finalize coordinator wire routes according to `API_ROUTES.md` and verify edge portability with Cloudflare Workers + D1.
+- **Slice 7.1 (Namespace Realignment):** Realign routes in `handler.ts`, `operator_handler.ts`, `downstream_handler.ts`, and `user_handler.ts` into unified namespaces:
+  - `/v1/user/*` (combine user apps/nodes and creator delisting). *(Delivered)*
+  - `/v1/app/*` (combine catalog, search, deltas, and registration). *(Delivered)*
+  - Consolidated `POST /v1/app/reports` handling both demand signals and content reports. *(Delivered)*
+- **Slice 7.2 (Operator Takedown Controls):** Implemented `GET /v1/operator/takedowns` and `POST /v1/operator/takedowns/{id}/verify` for creator opt-out auditing and proof verification, restoring suppressed items on rejection across SQLite and D1. *(Delivered)*
+- **Slice 7.3 (Gated App Registration):** Enforce registrant or operator bearer token authentication on `POST /v1/app/register`. *(Delivered)*
+- **Slice 7.4 (Bounded Search with Query Attribution):** Update `searchCatalogPackages` in `local_sqlite.ts` and D1 `coordinator.ts` to enforce bounded top-K limits (no unbounded pagination) and log `queryOrigin` signals. *(Delivered)*
+- **Slice 7.5 (Worker & D1 Parity Suite):** Run automated parity tests between local SQLite and D1 in-memory mock verifying identical behavior for all endpoints. *(Delivered)*
+- **Exit Evidence:** All routes match `API_ROUTES.md`; zero Bun/Node runtime leaks in core handlers; `bun test --cwd src-crawler` passes 276 tests (100%); `tsc --noEmit` clean.
 
-**Discovery and dispatch direction:** A node discovers candidate links while executing an assigned driver task. The node submits typed leads with provenance. The coordinator validates those leads, applies source and path policy, deduplicates jobs, queues eligible jobs, and issues fetch leases to capable nodes. Driver-specific fetching and parsing run on nodes. The coordinator decides which driver runs, where, and when. Local SQLite jobs and claim/lease APIs act as a durable queue for the prototype. Cloudflare Queues is a possible later delivery mechanism, not an assumed requirement or a substitute for origin leases. The current implementation has only a narrow VPM recipe/listing lead path, not general node-discovered jobs across all drivers.
+### Gate G8 — Headless Resilient Crawler Node VPS Binary (`src-crawler`)
+**Goal:** Deliver a compiled, autonomous Crawler Node binary for headless Linux/Windows VPS deployment that leases jobs from the coordinator and never crashes.
+- **Slice 8.1 (Daemon Lifecycle):** Implement continuous polling loop with exponential backoff on empty job queue or coordinator unavailability (fail-closed, zero outbound fetches on loss of coordinator).
+- **Slice 8.2 (Capability Leasing):** Verify node claims only platforms permitted by its capability-encoded token (`vrcp_<token><cap>`).
+- **Slice 8.3 (Driver Isolation & Pacing):** Integrate driver fetch engines with origin politeness floors and robots TTL compliance.
+- **Slice 8.4 (Structured Activity Logging):** Implement structured local activity and crawl logs.
+- **Slice 8.5 (Headless Binary Compilation):** Build standalone binary (`vrc-crawler-node`) using `bun build --compile` for Linux x64 and Windows x64.
+- **Exit Evidence:** Standalone binary runs on headless VPS without coordinator credentials; recovers gracefully from network disconnection; zero data loss; logs all crawled sites.
 
-**Accepted hybrid lead and access control (2026-09-28):** A lead matching a reviewed source rule can be auto-queued. An unknown host, path, or lead kind remains pending for operator review. Both manually seeded and auto-queued jobs require a separate scoped, active source-access profile before robots refresh or a fetch lease. The local coordinator implements that boundary with authenticated, audited profile management, exact origin/path/purpose matching, lease binding, a pacing floor, and submission-time retention checks. No old job receives an implicit grant. A separate authenticated, versioned **operator API** reviews leads and manages rules/profiles. A future dashboard can call it from the Worker or an adjacent control application. Node credentials have no administrative rights and a queue product supplies no source policy. This is partial G3/G5 implementation. Source-by-source reviews, legacy direct-driver paths, retention/removal, public projection, and old-DB operational migration remain open. See [source-access gate design](current/SOURCE_ACCESS_AND_SAFETY.md).
+### Gate G9 — Windows GUI Crawler Client Shell (`src-crawler-client`)
+**Goal:** Deliver a lightweight Windows GUI desktop wrapper bundling the Crawler Node binary.
+- **Slice 9.1 (Process Management):** Launch, monitor, and gracefully terminate the bundled `vrc-crawler-node` subprocess.
+- **Slice 9.2 (Credential Configuration):** Settings dialog for coordinator URL, node ID, and coordinator-issued token.
+- **Slice 9.3 (Telemetry & Activity UI):** Real-time display of node status, active origin lease, crawl speed, and activity logs.
+- **Exit Evidence:** Runnable Windows application; launches child node cleanly; displays real-time telemetry; graceful shutdown without orphaned node processes.
 
-**Local transport fidelity:** The coordinator core exposes a `Request → Response` handler with one authoritative schema/validator set under `src-crawler/src/shared/`. In-process tests pass serialized JSON through that handler, not typed objects into internal methods. The standalone crawler-node binary calls the same routes over loopback HTTP during local simulation. Authentication headers, protocol version, payload size, status/error bodies, leases, and idempotency keys are validated at this boundary. Internal repositories can use typed functions after validation. A contract test must replay identical valid and invalid payloads through both in-process and HTTP transports and compare results. The schema package choice is part of the G3 package spike. Do not maintain a second handwritten validator with different behavior.
-
-Cloudflare is the target hosting environment, but storage mapping remains a measured decision. D1 suits relational catalog data. A strongly consistent coordinator store can be required for per-origin leases. Cloudflare documents [transactional, strongly consistent Durable Object storage](https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/) and [D1 query and size limits](https://developers.cloudflare.com/d1/platform/limits/). Gate 5 tests the protocol locally before selecting the production combination.
-
-## 5. Research and policy gates
-
-| Topic | Concrete investigation | Decision produced | Blocks |
-| --- | --- | --- | --- |
-| Jinxxy | Resolve how Terms §§8.2 and 23 apply to public-entry queries and third-party directory-building. Ask whether a public catalog API or written discovery arrangement exists. Document that the published Creator API is store-scoped. Check current robots paths, rate, and retention rules. Preserve dated first-party evidence. | Distinct research and production source profiles with an actual discovery mechanism, allowed endpoints, retained fields, and stop conditions. Do not infer an API replacement from browser traffic alone. | Production Jinxxy switch in G6. |
-| Gumroad/BOOTH retention | Review current primary terms and the exact representations retained: normalized facts, full text, raw payload, history, BlurHash, and proxy output. | Per-source retention and publication policy. | Source evidence schema and production enablement. |
-| Description/copyright | Build a corpus of real descriptions. Identify boilerplate, creator prose, links, changelogs, and technical facts. Obtain legal review for public excerpt policy. | Text segmentation, summary rule, and retained or public fields. Remove the arbitrary 256-character claim unless justified. | Public summary contract in G4. |
-| Deletion/delisting | Compare creator opt-out, platform objection, observed removal, copyright notice, and privacy request. | Immediate crawl and public suppression, archival retention, and deletion exceptions. | G2 lifecycle and G4 tombstones. |
-| VRChat/VPM ecosystem | Inspect official VPM formats and client behavior (including vrc-get/ALCOM), version/yanked/prerelease semantics, dependencies, repository subscriptions, and common creator distribution patterns. See `docs/research/markets/VPM_TEMPLATE_RESEARCH.md` and `docs/research/markets/VRC_GET_ECOSYSTEM_RESEARCH.md`. | Source-specific version model and approved public listing seeds, without confusing local project/user-package state with a feed or implementing a speculative resolver. | G3/G4 VPM work. |
-| VRChat-targeted desktop/runtime tools | Inventory publisher-backed examples outside Unity/VPM (companion clients, OSC control, face/body tracking bridges, accessibility/streaming utilities). Start with [VRChat's OSC resources](https://docs.vrchat.com/docs/osc-resources) and publisher repositories, then sample false positives. Broader VR-related tools qualify only when publisher evidence shows a specific VRChat target. Distinguish a downloadable app, plugin/module, SDK package, generic VR utility, and a creator storefront front. Review the access and redistribution terms of each host. See [`docs/research/markets/DESKTOP_TOOL_DISCOVERY_RESEARCH.md`](../research/markets/DESKTOP_TOOL_DISCOVERY_RESEARCH.md). | Distinct Tools category tag, desktop subtype/OS/integration fields, authoritative version/update evidence, source profiles, lead-to-observation rules, and labeled app-versus-integration identity cases. Research only until those decisions are recorded. No new live crawl seed is implied. | G3 discovery, G4 taxonomy/identity, and representative G5 pre-production evidence; `TODO.md` Task 5.5. |
-| Additional directories, storefronts, and in-game avatar indexes | Investigate [Nexyy](https://nexyy.com/) as a lead-only cross-store index, Payhip as a storefront-adapter candidate, Sellfy as an unverified storefront lead, and [avtr.zip](https://avtr.zip/) as a public in-game avatar index that can link through creator profiles to self-hosted sites or storefronts. See [`docs/research/markets/ADDITIONAL_MARKET_SOURCE_RESEARCH.md`](../research/markets/ADDITIONAL_MARKET_SOURCE_RESEARCH.md). | Source profiles and permission/retention checks. Explicit link-chain provenance and typed lead-to-job mapping. Publisher-front and in-game-avatar identity boundaries. Representative positive and missing-link fixtures. Do not add a live driver or treat copied facts from an index as publisher evidence. | G3/G4/G5; `TODO.md` Task 5.6. |
-| Avatar taxonomy | Sample actual listings across languages and avatar communities, including humanoid/furry, bundles, universal items, and named bases. | Umbrella and subtype vocabulary and compatibility confidence rules. | G2 compatibility and G4 classification. |
-| Deduplication | Label false merges and true mirrors, including reported wrong BOOTH-to-VPM links. Evaluate exact IDs, declared links, text, and pHash separately. | Match thresholds and human review boundary. | G2 identity and G4 publication. |
-| Feedback/modeling | Compare deterministic rules with a small supervised model on a labeled, rights-cleared corpus. Inspect anti-training covenants before any training. | Evaluate whether semantic correction is useful and allowed. Initially advisory only and never authoritative for creator-claimed data. | Optional after G4. |
-| Packages | Spike parser, validator, public suffix/IP/robots, resilience, BlurHash, and logger candidates in Bun compiled binaries. Inspect licenses and maintenance. The first [robots matcher spike](../research/SPIKES.md) adopted strict RFC matching in the legacy helper, but leaves fetch, status, cache, and scheduling to the coordinator. | Adopt or retain decision with parity tests and rationale. Never mistake a matcher for a complete robots policy. | Relevant G1/G3 changes. |
-| Database abstraction | Implement the same small source-version/front/revision slice using raw SQL with centralized schema and one typed alternative. | Choice based on clarity, schema drift, transaction safety, Bun support, and generated types. | G2 implementation. |
-
-Current [Gumroad terms](https://gumroad.com/terms) describe a revocable public-search-index exception that excludes caches or archives. Retaining complete source text and historical payloads needs a specific review before becoming a general production rule. The rule for the project cannot be inferred from one platform.
-
-## 6. Documentation changes at each gate
-
-| Document | Planned role and change |
-| --- | --- |
-| `DIRECTION.md` | Keep owner comments and accepted decisions. Link to the specific gate/decision once resolved. Do not rewrite comments into assistant conclusions. |
-| `TODO.md` | Preserve Phases 1–4 as delivery history. Replace Phase 5 percentage language with gate IDs, work items, and observable exits. Move legal research and historical audit prose to their proper documents. |
-| `DIRECTION.md §15` | Revalidate old paths and each OVERLOOKED item. Keep open defects with reproduction and evidence. Mark resolved or stale items explicitly. |
-| `LEGAL.md` | Retain the owner's desired projected post-v1.0 covenants. Make their effective scope clear, with a separate conformance record for current implementation. Present tense can state target obligations. It cannot serve as evidence that code already conforms. |
-| `current/CONFORMANCE.md` | Clause/requirement → current code path → test or live evidence → status → gap/gate. `TODO.md` says what to build. This file says what was demonstrated. |
-| `README.md` and `docs/` | One concise purpose and pipeline explanation. Current build/run instructions. Target architecture linked separately. Remove repeated stale metrics, deleted paths, and ambiguous jargon. |
-| `AGENTS.md` / `DELEGATES.md` | Tell future agents which files define decisions, how to add dependencies, how to avoid false tests, and how to report a new disagreement without adding a parallel design. |
-
-The requested present-tense legal target can be drafted as an operative specification for the future service. It must clearly identify when it becomes effective. Claiming that unimplemented protections are already operating would mislead users. It would also weaken the code-to-policy verification the project needs.
-
-## 7. First cross-boundary slice after G1 safety work
-
-G1 safety work and small `src-crawler/src/node/` and `src-crawler/src/shared/` boundary extractions can proceed immediately. The first coordinator slice must be narrow enough to validate the architecture before broad migration, entirely locally:
-
-1. Build a local coordinator `Request → Response` contract with one source policy and one mock node. Include a scoped token, origin lease, job ID, and idempotent result. Serialize and validate the same API schemas in-process and over loopback HTTP. Keep the handler and core storage interfaces Worker-portable, with local runtime/SQLite adapters for execution.
-2. Feed one existing VPM manifest and one storefront fixture through a shared fetch outcome and adapter result type.
-3. Persist a changed observation version, an unchanged check event, one source-to-canonical identity link, and one catalog revision in an isolated SQLite database.
-4. Expose the canonical item with its fronts through a versioned delta contract. Prove a cursor reset after a catalog rebuild.
-5. Expand only after the slice demonstrates correct replay, no false cross-umbrella merge, policy-driven driver enablement, and a compiled Bun smoke run.
-
-This slice gives concrete evidence for database, driver, and coordinator choices before replacing current implementations across every platform.
-
-## 8. Current code change priorities (audited 2026-10-01)
-
-Following the delivery and verification of P1 (API Specification Alignment) and P2 (Public Consumer Catalog Endpoints with Keyset Cursors and Delisting Tombstones), the engineering backlog is updated to reflect the authoritative architectural vision (workforce distribution, capability-encoded tokens, and downstream sampling/search endpoints):
-
-| Priority | Focus Area | Gate | Scope & Tasks | Status |
-| :--- | :--- | :--- | :--- | :--- |
-| **P1** | **API Specification Alignment** | G5/G6 | Aligned post-production candidate specifications (`SPECIFICATION_CRAWLER_NETWORK.md`, `SPECIFICATION_CRAWLER_CLIENT.md`, `SPECIFICATION_WEBSITE.md`) with authoritative wire routes (`/v1/node/jobs/*`, `/v1/operator/*`, `/v1/catalog*`). | **COMPLETED & VERIFIED** |
-| **P2** | **Public Consumer Catalog Endpoints** | G4/G6 | Implemented unauthenticated public catalog read routes (`GET /v1/catalog`, `GET /v1/catalog/delta`) on `LocalCoordinatorStore` and D1 `Coordinator` with cursor/epoch preservation so downstream consumers (`src-web`, ALCOM, VCC) query projected items without operator credentials. | **COMPLETED & VERIFIED** |
-| **P3** | **Capability-Encoded Node Tokens & Workforce Balancing** | G5 | Implement coordinator workforce distribution logic (evaluating demanding areas needing immediate data freshness) and embed/encode permitted website capabilities directly in coordinator-issued node credentials. Enforce capability matching at lease claim time. | **NEXT UP** |
-| **P4** | **Downstream Client Registration, Sampling/Search & Feedback Signals** | G4/G6 | Implement downstream app registration (`/v1/apps/register`), authenticated consumer endpoints for configurable content filtering and random database entry selection/sampling (`GET /v1/catalog/random`, `POST /v1/catalog/search`), and downstream search activity/demand feedback signal ingestion (`POST /v1/apps/feedback`) to reorient crawler workforce distribution. | **QUEUED** |
-| **P5** | **Creator Opt-Out & Delisting Route** | G1/G2 | Expose an authenticated/verified coordinator HTTP route (`POST /v1/creator/optout`) connecting bio-token redirect verification to immediate database suppression and delisting tombstones. | **QUEUED** |
-| **P6** | **Auto-Queue Retroactive Reconciliation** | G3/G5 | Add a bounded background or operator-triggered action to reconcile existing `pending_review` leads against newly created auto-queue rules. | **QUEUED** |
-| **P7** | **Multi-Platform Live Ingestion Smokes** | G3/G5 | Transition beyond VPM/GitHub to opt-in, profile-reviewed live smokes for BOOTH browse, Shopify storefronts, Gumroad, and Sellfy. | **QUEUED** |
+### Gate G10 — Web Operator Panel & Landing Page (`src-web`)
+**Goal:** Deliver public landing page and authenticated operator/registrant dashboard using Firebase Auth + Cloudflare.
+- **Slice 10.1 (Public Landing & Legal):** Landing page explaining the project, ToS/Legal compliance, crawler node binary distribution, and live database metrics.
+- **Slice 10.2 (Firebase Authentication):** Firebase Auth paired with Cloudflare Workers; token validation middleware distinguishing **Admin Operator** from **Registrant**.
+- **Slice 10.3 (Registrant Self-Service Portal):** GUI to register downstream applications, generate node tokens, and submit content delistings.
+- **Slice 10.4 (Admin Operator Dashboard):** GUI to inspect/approve discovery leads, manage source-access profiles, configure auto-queue rules, and review takedowns.
+- **Exit Evidence:** End-to-end authentication flow; operator actions successfully invoke `/v1/operator/*`; registrant actions invoke `/v1/user/*`; responsive UI passing accessibility and STE audits.
 

@@ -4,7 +4,7 @@ import { createCoordinatorHandler } from "./api/handler.ts";
 import { createOperatorHandler } from "./api/operator_handler.ts";
 import { createPublicCatalogHandler } from "./api/public_handler.ts";
 import { createDownstreamHandler } from "./api/downstream_handler.ts";
-import { createRegistrantHandler } from "./api/registrant_handler.ts";
+import { createUserHandler } from "./api/user_handler.ts";
 import { workerLogger } from "./worker_logger.ts";
 
 export interface Env {
@@ -18,12 +18,12 @@ export default {
       const store = new Coordinator(env.DB);
       const publicHandler = createPublicCatalogHandler(store);
       const downstreamHandler = createDownstreamHandler(store);
-      const registrantHandler = createRegistrantHandler(store);
+      const userHandler = createUserHandler(store);
       const nodeHandler = createCoordinatorHandler(store);
       const operatorHandler = createOperatorHandler(store, env.OPERATOR_TOKEN);
       const handled = (await publicHandler(request)) ??
         (await downstreamHandler(request)) ??
-        (await registrantHandler(request)) ??
+        (await userHandler(request)) ??
         (await nodeHandler(request)) ??
         (await operatorHandler(request));
       if (handled) return handled;

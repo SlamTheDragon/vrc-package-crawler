@@ -53,10 +53,10 @@ export async function handleDownstreamRequest(
   const url = new URL(request.url);
   const path = url.pathname;
 
-  const isRegister = request.method === "POST" && path === "/v1/apps/register";
-  const isFeedback = request.method === "POST" && path === "/v1/apps/feedback";
-  const isSearch = request.method === "POST" && path === "/v1/catalog/search";
-  const isRandom = request.method === "GET" && path === "/v1/catalog/random";
+  const isRegister = request.method === "POST" && (path === "/v1/app/register" || path === "/v1/apps/register");
+  const isFeedback = request.method === "POST" && (path === "/v1/app/reports" || path === "/v1/apps/feedback");
+  const isSearch = request.method === "POST" && (path === "/v1/app/index/search" || path === "/v1/catalog/search");
+  const isRandom = request.method === "GET" && (path === "/v1/app/index/random" || path === "/v1/catalog/random");
 
   if (!isRegister && !isFeedback && !isSearch && !isRandom) {
     return failure(404, "not_found", "Route not found");
@@ -202,7 +202,12 @@ export async function handleDownstreamRequest(
 export function createDownstreamHandler(store: DownstreamStore): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
-    if (path.startsWith("/v1/apps/") || path === "/v1/catalog/search" || path === "/v1/catalog/random") {
+    if (
+      path.startsWith("/v1/app/") ||
+      path.startsWith("/v1/apps/") ||
+      path === "/v1/catalog/search" ||
+      path === "/v1/catalog/random"
+    ) {
       return handleDownstreamRequest(request, store);
     }
     return null;

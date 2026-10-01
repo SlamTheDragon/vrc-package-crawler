@@ -1,136 +1,146 @@
 # API Route Reference (Candidate Source Document)
 
-> **Document Status:** Candidate Source — v0 Pre-Production  
+> **Document Status:** Candidate Source — v0 Pre-Production Architecture  
 > **Last Updated:** 2026-10-01  
-> **Source:** `src-crawler/src/worker/api/` · `src-crawler/src/shared/protocol/`  
-> **Status:** ✅ Implemented · 🔲 Planned · ⚠️ Partial
+> **Target Subsystems:** `src-crawler` (Coordinator & Worker) · `src-package` (`vrc-packages-api` SDK)  
+> **Status Legend:** ✅ Implemented · 🔲 Planned · ⚠️ In Transition · ⏸️ On Hold / Redefining
 
 ---
 
-## Token Types
+## 1. Architectural Roles & Credentials
 
-| Token | Format | Length | Issued By | Scope |
+The system operates across four discrete principal boundaries. Tokens must never be cross-used or exposed across role boundaries.
+
+| Principal Tier | Token Format | Length | Issued By | Scope & Boundaries |
 |---|---|---|---|---|
-| Node | `vrcp_<64-hex><4-hex>` | 73 chars | Coordinator (operator or registrant) | Crawler Node — platform capability bitmask in final 4 hex chars |
-| Downstream App | `vrcp_app_<64-hex>` | 73 chars | Coordinator (registrant or open registration) | Catalog read, search, random, demand feedback |
-| Registrant | `vrcp_reg_<64-hex>` | 73 chars | Web Operator Panel (Firebase Auth) | Node issuance, app registration, self-service delist |
-| Admin Operator | `COORDINATOR_OPERATOR_TOKEN` (64-hex env) | 64 chars | Set at `init` time | Full infrastructure control |
+| **Crawler Node** | `vrcp_<64-hex><4-hex>` | 73 chars | User (`/v1/user/nodes`) or Operator (`/v1/operator/nodes`) | Leases crawl jobs; capability bitmask encoded in final 4 hex characters; fails closed without lease. |
+| **Downstream App** | `vrcp_app_<64-hex>` | 73 chars | User / Operator (`/v1/app/register` or `/v1/user/apps`) | Search index, delta streaming, and telemetry/demand reporting. |
+| **User** | `vrcp_usr_<64-hex>` | 73 chars | Web Operator Panel (Firebase Auth) | Self-service node issuance, downstream app registration, and own-content delisting. |
+| **Admin Operator** | `COORDINATOR_OPERATOR_TOKEN` | 64 chars | Environment / Secret config | Infrastructure oversight: source profiles, auto-queue rules, lead triage, catalog oversight, node issuance. |
 
-All tokens are stored as SHA-256 hashes. Plaintext is returned once at issuance, never logged or re-readable.
+> [!NOTE]
+> All tokens are stored as irreversible SHA-256 digests. Raw token values are emitted exactly once upon creation and are never logged, inspected, or echoed back in administration listings.
 
 ---
 
-## Routes
+## 2. API Routes
 
-### §1 — Crawler Node Protocol `/v1/node/*`
+### §2.1 Crawler Node Protocol (`/v1/node/*`)
 
-Auth: `Authorization: Bearer <NODE_TOKEN>` (`vrcp_<64-hex><4-hex>`)  
-Handler: `handler.ts` · Schema: `node_protocol.ts`
+**Auth:** `Authorization: Bearer <NODE_TOKEN>` (`vrcp_<64-hex><4-hex>`)  
+**Handler:** `src-crawler/src/worker/api/handler.ts` · **Schema:** `node_protocol.ts`
 
-| Method | Path | Status | Description | Request body fields | Response (2xx) |
+| Method | Path | Status | Description | Request Payload | Response (2xx) |
 |---|---|:---:|---|---|---|
-| `POST` | `/v1/node/jobs/claim` | ✅ | Request an origin lease and crawl job. The coordinator checks capability mask, robots, source-access profile, and active lease state. | `nodeId`, `leaseId` (uuid), `platform` | `200` `{ status: "leased", jobId, leaseId, url, platform, minDelayMs, origin, leaseExpiresAt }` or `{ status: "empty", retryAfterMs }` |
-| `POST` | `/v1/node/heartbeat` | ✅ | Renew active job lease and confirm liveness. | `nodeId`, `jobId`, `leaseId` | `200` `{ status: "ok", leaseExpiresAt }` |
-| `POST` | `/v1/node/jobs/result` | ✅ | Submit crawl observation, discovered leads, or access failure. Transitions job state and updates canonical catalog. | `nodeId`, `jobId`, `leaseId`, `outcome`, `observations[]`, `discoveredLeads[]` | `200` `{ status: "accepted", jobId }` |
+| `POST` | `/v1/node/jobs/claim` | ✅ | Requests an origin lease and atomic crawl job. Validates token capability bitmask, robots snapshot, and active `SourceAccessProfile`. | `{ schemaVersion: 1, nodeId, leaseId, platform }` | `200` `{ status: "leased", jobId, leaseId, url, platform, minDelayMs, origin, leaseExpiresAt }`<br>or `{ status: "empty", retryAfterMs }` |
+| `POST` | `/v1/node/heartbeat` | ✅ | Renews active origin lease and reports node liveness. | `{ schemaVersion: 1, nodeId, jobId, leaseId }` | `200` `{ status: "ok", leaseExpiresAt }` |
+| `POST` | `/v1/node/jobs/result` | ✅ | Submits crawl facts, discovered leads, or access failure diagnostics. Updates canonical package graph. | `{ schemaVersion: 1, nodeId, jobId, leaseId, outcome, observations[], discoveredLeads[] }` | `200` `{ status: "accepted", jobId }` |
 
 ---
 
-### §2 — Admin Operator Protocol `/v1/operator/*`
+### §2.2 Admin Operator Protocol (`/v1/operator/*`)
 
-Auth: `Authorization: Bearer <COORDINATOR_OPERATOR_TOKEN>` (64-hex env, constant-time compare)  
-Handler: `operator_handler.ts` · Schema: `operator_protocol.ts`
+**Auth:** `Authorization: Bearer <COORDINATOR_OPERATOR_TOKEN>` (Constant-time secret comparison)  
+**Handler:** `src-crawler/src/worker/api/operator_handler.ts` · **Schema:** `operator_protocol.ts`
 
-| Method | Path | Status | Description | Key request body fields | Response (2xx) |
+| Method | Path | Status | Description | Request / Query | Response (2xx) |
 |---|---|:---:|---|---|---|
-| `POST` | `/v1/operator/nodes` | ✅ | Issue a capability-encoded node credential. Auto-selects most underserved platform set when `capabilities` is omitted. | `nodeId`, `capabilities[]` (optional), `reason` (optional) | `201` `{ nodeId, capabilities[], token: "vrcp_<64><4>" }` |
-| `GET` | `/v1/operator/leads` | ✅ | List pending discovery leads with keyset pagination. | Query: `status`, `limit`, `cursor` | `200` `{ leads[], nextCursor }` |
-| `POST` | `/v1/operator/leads/{leadKey}/approve` | ✅ | Approve a pending lead and seed it into the crawl queue. | `minDelayMs` | `200` `{ status: "approved" }` |
-| `POST` | `/v1/operator/leads/{leadKey}/reject` | ✅ | Permanently reject a pending lead. | `reason` (optional) | `200` `{ status: "rejected" }` |
-| `GET` | `/v1/operator/source-profiles` | ✅ | Page through all source-access profiles. | Query: `limit`, `cursor` | `200` `{ profiles[], nextCursor }` |
-| `POST` | `/v1/operator/source-profiles` | ✅ | Create a scoped source-access profile. Required before any live URL fetch. | `origin`, `pathScope`, `purpose`, `minDelayMs`, `allowedEvidenceClasses[]`, `reason`, `expiresAt` | `201` `{ profile }` |
-| `POST` | `/v1/operator/source-profiles/{profileId}/disable` | ✅ | Disable a source-access profile and block new leases. | `reason` | `200` `{ status: "disabled" }` |
-| `GET` | `/v1/operator/autoqueue-rules` | ✅ | List auto-queue rules. | Query: `limit`, `cursor` | `200` `{ rules[], nextCursor }` |
-| `POST` | `/v1/operator/autoqueue-rules` | ✅ | Create an expiring, path-scoped auto-queue rule. Seeds incoming leads automatically without individual approval. | `leadKind`, `origin`, `pathScope`, `minDelayMs`, `expiresAt`, `reviewReference`, `reason` | `201` `{ rule }` |
-| `POST` | `/v1/operator/autoqueue-rules/{ruleId}/disable` | ✅ | Disable an active auto-queue rule. | `reason` | `200` `{ status: "disabled" }` |
-| `GET` | `/v1/operator/catalog` | ✅ | Page canonical package catalog (newest-first). Operator view; public version is `GET /v1/catalog`. | Query: `limit`, `cursor` | `200` `{ packages[], nextCursor }` |
-| `POST` | `/v1/operator/registrants` | 🔲 | Issue a registrant token directly (invite-only onboarding path). | `registrantName`, `contactEmail` (optional) | `201` `{ registrantId, registrantName, token: "vrcp_reg_<64>" }` |
-| `GET` | `/v1/operator/registrants` | 🔲 | List registered registrants with pagination. | Query: `limit`, `cursor` | `200` `{ registrants[], nextCursor }` |
-| `POST` | `/v1/operator/registrants/{registrantId}/revoke` | 🔲 | Revoke a registrant token. Issued node and app tokens remain valid until separately revoked. | `reason` | `200` `{ status: "revoked" }` |
-| `GET` | `/v1/operator/takedowns` | 🔲 | List all `creator_opt_outs` records, filterable by `requester_type` and review status. | Query: `requesterType`, `limit`, `cursor` | `200` `{ records[], nextCursor }` |
-| `POST` | `/v1/operator/takedowns/{takedownId}/verify` | 🔲 | Mark an unauthenticated creator takedown as operator-verified after manual review. Triggers lifecycle transition if not already applied. | `verdict: "accepted" | "rejected"`, `notes` (optional) | `200` `{ status }` |
+| `GET` | `/v1/operator/leads` | ✅ | Lists pending, approved, or rejected discovery leads. | Query: `status`, `limit`, `cursor` | `200` `{ leads[], nextCursor }` |
+| `POST` | `/v1/operator/leads/{leadKey}/approve` | ✅ | Approves a pending discovery lead into the crawl queue. | `{ schemaVersion: 1, minDelayMs? }` | `200` `{ status: "approved" }` |
+| `POST` | `/v1/operator/leads/{leadKey}/reject` | ✅ | Permanently archives/rejects a pending lead. | `{ schemaVersion: 1, reason? }` | `200` `{ status: "rejected" }` |
+| `GET` | `/v1/operator/source-profiles` | ✅ | Lists active and disabled origin access profiles. | Query: `limit`, `cursor` | `200` `{ profiles[], nextCursor }` |
+| `POST` | `/v1/operator/source-profiles` | ✅ | Authorizes an origin + path scope for crawling. Required before any live fetch lease can be granted. | `{ schemaVersion: 1, platform, origin, pathScope, purpose, minDelayMs, retainClasses[], publishClasses[], reviewReference, reason, expiresAt }` | `201` `{ profile }` |
+| `POST` | `/v1/operator/source-profiles/{id}/disable` | ✅ | Disables a source-access profile and immediately blocks new leases. | `{ schemaVersion: 1, reason }` | `200` `{ status: "disabled" }` |
+| `GET` | `/v1/operator/autoqueue-rules` | ✅ | Lists automated lead ingestion rules. | Query: `limit`, `cursor` | `200` `{ rules[], nextCursor }` |
+| `POST` | `/v1/operator/autoqueue-rules` | ✅ | Creates an auto-queue rule that automatically enqueues matching discovery leads without manual operator triage. | `{ schemaVersion: 1, leadKind, origin, pathScope, minDelayMs, expiresAt, reviewReference, reason }` | `201` `{ rule }` |
+| `POST` | `/v1/operator/autoqueue-rules/{id}/disable` | ✅ | Disables an auto-queue rule. | `{ schemaVersion: 1, reason }` | `200` `{ status: "disabled" }` |
+| `POST` | `/v1/operator/nodes` | ✅ | Issues an audited, capability-encoded node credential. | `{ schemaVersion: 1, nodeId, capabilities[]?, reason }` | `201` `{ nodeId, capabilities[], token }` |
+| `GET` | `/v1/operator/catalog` | ✅ | Lists canonical packages with operator oversight and cursor pagination. | Query: `limit`, `cursor` | `200` `{ packages[], nextCursor }` |
+| `GET` | `/v1/operator/takedowns` | ✅ | Audits all recorded creator delistings and opt-outs. | Query: `requesterType`, `limit`, `cursor` | `200` `{ records[], nextCursor }` |
+| `POST` | `/v1/operator/takedowns/{id}/verify` | ✅ | Verifies an unauthenticated creator's ownership proof (DNS/bio). | `{ schemaVersion: 1, verdict: "accepted" \| "rejected", notes? }` | `200` `{ status }` |
 
 ---
 
-### §3 — Registrant Protocol `/v1/registrant/*` and `/v1/delist`
+### §2.3 User Protocol (`/v1/user/*`)
 
-Auth: `Authorization: Bearer <REGISTRANT_TOKEN>` (`vrcp_reg_<64-hex>`)  
-Handler: `registrant_handler.ts` · Schema: `downstream_protocol.ts`
+**Auth:** `Authorization: Bearer <USER_TOKEN>` (`vrcp_usr_<64-hex>`) for authenticated user endpoints; anonymous with verification proof for unauthenticated creator delisting.  
+**Consolidation:** Combines all former registrant routes and `/v1/delist` into a unified namespace.
 
-Registrants are distinct from admin operators (infrastructure control) and downstream apps (catalog consumers). Registrant tokens are issued by the Web Operator Panel after Firebase Auth identity verification.
-
-| Method | Path | Auth | Status | Description | Key request body fields | Response (2xx) |
+| Method | Path | Auth | Status | Description | Request Payload | Response (2xx) |
 |---|---|:---:|:---:|---|---|---|
-| `POST` | `/v1/registrant/nodes` | `vrcp_reg_` | ✅ | Issue a capability-encoded Crawler Node token on behalf of the registrant. Coordinator may restrict capabilities based on workforce distribution. | `nodeId`, `requestedCapabilities[]` (optional), `reason` (optional) | `201` `{ nodeId, capabilities[], token: "vrcp_<64><4>" }` |
-| `POST` | `/v1/registrant/apps` | `vrcp_reg_` | ✅ | Register a downstream application and issue a `vrcp_app_` credential. | `appName`, `contactEmail` (optional), `description` (optional) | `201` `{ appId, appName, appToken: "vrcp_app_<64>", permissions[] }` |
-| `POST` | `/v1/registrant/delist` | `vrcp_reg_` | ✅ | Self-service delisting for content the registrant owns. Auth is proof — no external `proofKind` required. Immediately transitions packages to `lifecycle=delisted`. | `targetUrl` (or `canonicalId`), `reason`, `contactEmail` (optional) | `202` `{ status: "accepted", takedownId, target, action: "delisted", requesterType: "registrant", recordedAt }` |
-| `GET` | `/v1/registrant/me` | `vrcp_reg_` | 🔲 | Return the registrant's profile: registered nodes, apps, and takedown history. | — | `200` `{ registrantId, registrantName, nodes[], apps[], takedowns[] }` |
-| `DELETE` | `/v1/registrant/nodes/{nodeId}` | `vrcp_reg_` | 🔲 | Revoke a node credential issued by this registrant. | — | `200` `{ status: "revoked" }` |
-| `DELETE` | `/v1/registrant/apps/{appId}` | `vrcp_reg_` | 🔲 | Revoke a downstream app credential issued by this registrant. | — | `200` `{ status: "revoked" }` |
-| `POST` | `/v1/delist` | None (proof-gated) | ✅ | Unauthenticated creator takedown. Requires `proofKind: storefront_bio_token | dns_txt`. `manual_notice` is rejected — use the email channel (LEGAL.md §9.2). Proof *verification* is deferred to operator review. | `targetUrl` (or `canonicalId`), `reason`, `proofKind`, `proofValue`, `contactEmail` (optional) | `202` same envelope with `requesterType: "unauthenticated_creator"` |
+| `POST` | `/v1/user/nodes` | `vrcp_usr_` | ✅ | Provisions a capability-encoded node token for a VPS or Crawler Client. | `{ schemaVersion: 1, nodeId, requestedCapabilities[]?, reason? }` | `201` `{ nodeId, capabilities[], token: "vrcp_<64><4>" }` |
+| `POST` | `/v1/user/apps` | `vrcp_usr_` | ✅ | Registers a downstream application under this user's account. | `{ schemaVersion: 1, appName, contactEmail?, description? }` | `201` `{ appId, appName, appToken: "vrcp_app_<64>", permissions[] }` |
+| `POST` | `/v1/user/delist` | Optional (`vrcp_usr_` or None) | ✅ | Unified delisting route. Authenticated users delist on their own behalf (auth is proof). Unauthenticated creators require `proofKind` (`dns_txt` \| `storefront_bio_token`). | `{ schemaVersion: 1, targetUrl?, canonicalId?, reason, contactEmail?, proofKind?, proofValue? }` | `202` `{ status: "accepted", takedownId, target, action: "delisted", requesterType, recordedAt }` |
+| `GET` | `/v1/user/me` | `vrcp_usr_` | 🔲 | Returns current user profile, active nodes, registered apps, and takedown records. | None | `200` `{ userId, email, nodes[], apps[], takedowns[] }` |
+| `DELETE` | `/v1/user/nodes/{nodeId}` | `vrcp_usr_` | 🔲 | Revokes a node credential owned by this user. | None | `200` `{ status: "revoked" }` |
+| `DELETE` | `/v1/user/apps/{appId}` | `vrcp_usr_` | 🔲 | Revokes an application credential owned by this user. | None | `200` `{ status: "revoked" }` |
 
 ---
 
-### §4 — Downstream Consumer Protocol `/v1/apps/*`, `/v1/catalog/*`
+### §2.4 Downstream Application Protocol (`/v1/app/*`)
 
-Auth (authenticated routes): `Authorization: Bearer <APP_TOKEN>` (`vrcp_app_<64-hex>`)  
-Handler: `downstream_handler.ts` · Schema: `downstream_protocol.ts`
+**Auth:** Public for read index and delta sync; `Authorization: Bearer <APP_TOKEN>` (`vrcp_app_<64-hex>`) for search and reporting.  
+**Consolidation:** Unifies all catalog querying, delta streaming, application registration, and feedback/report ingestion.
 
-| Method | Path | Auth | Status | Description | Key request/query fields | Response (2xx) |
+| Method | Path | Auth | Status | Description | Request / Query | Response (2xx) |
 |---|---|:---:|:---:|---|---|---|
-| `POST` | `/v1/apps/register` | None (open) | ⚠️ | Register a downstream app and issue catalog credentials. **Open registration — registrant gate planned.** Use `/v1/registrant/apps` for the gated path. | `appName`, `contactEmail` (optional), `description` (optional) | `200` `{ appId, appName, appToken: "vrcp_app_<64>", permissions[] }` |
-| `POST` | `/v1/apps/feedback` | `vrcp_app_` | ✅ | Ingest search activity, cache-miss, and demand signals. Used to reorient workforce and bump crawl priority for high-demand packages. | `signalType`, `query`, `zeroHits`, `requestedPlatform`, `targetUrl`, `category`, `metadata` | `200` `{ status: "accepted", signalId, recordedAt }` |
-| `POST` | `/v1/catalog/search` | `vrcp_app_` | ✅ | Full-text and faceted catalog search with keyset pagination. | `query`, `umbrella`, `category`, `platform`, `limit`, `cursor` | `200` `{ items[], nextCursor, totalEstimated }` |
-| `GET` | `/v1/catalog/random` | `vrcp_app_` | ✅ | Randomly sample catalog entries for discovery feeds. | Query: `limit` (1–50), `umbrella`, `category`, `platform` | `200` `{ items[] }` |
-| `POST` | `/v1/reports` | `vrcp_app_` | 🔲 | Submit a curation or error report about a specific package (broken link, wrong metadata, misclassified). Distinct from demand feedback. | `canonicalId` (or `targetUrl`), `reportKind`, `description`, `contactEmail` | `202` `{ status: "accepted", reportId, recordedAt }` |
-| `GET` | `/v1/catalog` | None | ✅ | Public paginated catalog read. `Cache-Control: public, max-age=60`. Excludes `delisted` packages. | Query: `limit` (1–100), `cursor` | `200` `{ packages[], nextCursor }` |
-| `GET` | `/v1/catalog/delta` | None | ✅ | Incremental delta feed ordered `updated_at ASC`. Emits `upsert` and `delist` envelopes. Stable epoch across restarts for client sync resume. | Query: `limit` (1–100), `cursor` | `200` `{ epoch, deltas[], nextCursor }` |
+| `POST` | `/v1/app/register` | `vrcp_usr_` or Operator | ✅ | Registers a downstream application. Gated by user or operator auth. | `{ schemaVersion: 1, appName, contactEmail?, description? }` | `201` `{ appId, appName, appToken: "vrcp_app_<64>", permissions[] }` |
+| `GET` | `/v1/app/index` | Public | ✅ | Core package catalog projection. Bounded search without unbounded pagination. | Query: `query?`, `category?`, `umbrella?`, `platform?`, `limit?` (max 50) | `200` `{ packages[], count }` |
+| `GET` | `/v1/app/index/delta` | Public | ✅ | Continuous incremental sync feed for package managers (VCC/ALCOM). Emits `upsert` and `delist` events. | Query: `cursor?`, `limit?` (max 100) | `200` `{ epoch, deltas[], nextCursor }` |
+| `POST` | `/v1/app/index/search` | `vrcp_app_` | ✅ | Bounded search with query attribution. Distinguishes direct human searches from automated background engine queries. | `{ schemaVersion: 1, query, queryOrigin: "user_authored" \| "app_automated", category?, umbrella?, platform?, tags[]?, limit? }` | `200` `{ items[], count, queryOrigin }` |
+| `GET` | `/v1/app/index/random` | `vrcp_app_` | ⏸️ | Random package sampling for discovery showcases. | Query: `umbrella?`, `category?`, `platform?`, `limit?` | *On Hold / Redefining* |
+| `POST` | `/v1/app/reports` | `vrcp_app_` | ✅ | Consolidated reporting route: ingests search demand signals (`search_miss`, `refresh_demand`, `popularity_signal`) and content/quality reports (`broken_link`, `wrong_metadata`, `misclassified`, `inappropriate`). | `{ schemaVersion: 1, reportType: "demand_signal" \| "issue_report", signalKind?, reportKind?, targetUrl?, canonicalId?, query?, zeroHits?, metadata? }` | `200` `{ status: "accepted", reportId, recordedAt }` |
 
 ---
 
-## Role × Route Matrix
+## 3. Role × Route Access Matrix
 
-| Route | Admin Operator | Registrant | Downstream App | Node | Public |
+| Route | Admin Operator | User | Downstream App | Crawler Node | Public Anonymous |
 |---|:---:|:---:|:---:|:---:|:---:|
-| `POST /v1/node/jobs/claim` | | | | ✅ | |
-| `POST /v1/node/heartbeat` | | | | ✅ | |
-| `POST /v1/node/jobs/result` | | | | ✅ | |
-| `POST /v1/operator/nodes` | ✅ | | | | |
-| `GET /v1/operator/leads` | ✅ | | | | |
-| `POST /v1/operator/leads/{key}/approve` | ✅ | | | | |
-| `POST /v1/operator/leads/{key}/reject` | ✅ | | | | |
-| `GET /v1/operator/source-profiles` | ✅ | | | | |
-| `POST /v1/operator/source-profiles` | ✅ | | | | |
-| `POST /v1/operator/source-profiles/{id}/disable` | ✅ | | | | |
-| `GET /v1/operator/autoqueue-rules` | ✅ | | | | |
-| `POST /v1/operator/autoqueue-rules` | ✅ | | | | |
-| `POST /v1/operator/autoqueue-rules/{id}/disable` | ✅ | | | | |
-| `GET /v1/operator/catalog` | ✅ | | | | |
-| `POST /v1/operator/registrants` 🔲 | ✅ | | | | |
-| `GET /v1/operator/registrants` 🔲 | ✅ | | | | |
-| `POST /v1/operator/registrants/{id}/revoke` 🔲 | ✅ | | | | |
-| `GET /v1/operator/takedowns` 🔲 | ✅ | | | | |
-| `POST /v1/operator/takedowns/{id}/verify` 🔲 | ✅ | | | | |
-| `POST /v1/registrant/nodes` | | ✅ | | | |
-| `POST /v1/registrant/apps` | | ✅ | | | |
-| `POST /v1/registrant/delist` | | ✅ | | | |
-| `GET /v1/registrant/me` 🔲 | | ✅ | | | |
-| `DELETE /v1/registrant/nodes/{id}` 🔲 | | ✅ | | | |
-| `DELETE /v1/registrant/apps/{id}` 🔲 | | ✅ | | | |
-| `POST /v1/delist` (proof-gated) | | | | | ✅ |
-| `POST /v1/apps/register` ⚠️ (open) | | | | | ✅ |
-| `POST /v1/apps/feedback` | | | ✅ | | |
-| `POST /v1/catalog/search` | | | ✅ | | |
-| `GET /v1/catalog/random` | | | ✅ | | |
-| `POST /v1/reports` 🔲 | | | ✅ | | |
-| `GET /v1/catalog` | | | | | ✅ |
-| `GET /v1/catalog/delta` | | | | | ✅ |
+| `POST /v1/node/jobs/claim` | — | — | — | ✅ | — |
+| `POST /v1/node/heartbeat` | — | — | — | ✅ | — |
+| `POST /v1/node/jobs/result` | — | — | — | ✅ | — |
+| `GET /v1/operator/leads` | ✅ | — | — | — | — |
+| `POST /v1/operator/leads/{key}/approve` | ✅ | — | — | — | — |
+| `POST /v1/operator/leads/{key}/reject` | ✅ | — | — | — | — |
+| `GET /v1/operator/source-profiles` | ✅ | — | — | — | — |
+| `POST /v1/operator/source-profiles` | ✅ | — | — | — | — |
+| `POST /v1/operator/source-profiles/{id}/disable` | ✅ | — | — | — | — |
+| `GET /v1/operator/autoqueue-rules` | ✅ | — | — | — | — |
+| `POST /v1/operator/autoqueue-rules` | ✅ | — | — | — | — |
+| `POST /v1/operator/autoqueue-rules/{id}/disable` | ✅ | — | — | — | — |
+| `POST /v1/operator/nodes` | ✅ | — | — | — | — |
+| `GET /v1/operator/catalog` | ✅ | — | — | — | — |
+| `GET /v1/operator/takedowns` | ✅ | — | — | — | — |
+| `POST /v1/operator/takedowns/{id}/verify` | ✅ | — | — | — | — |
+| `POST /v1/user/nodes` | — | ✅ | — | — | — |
+| `POST /v1/user/apps` | — | ✅ | — | — | — |
+| `POST /v1/user/delist` | — | ✅ | — | — | ✅ (proof-gated) |
+| `GET /v1/user/me` 🔲 | — | ✅ | — | — | — |
+| `DELETE /v1/user/nodes/{id}` 🔲 | — | ✅ | — | — | — |
+| `DELETE /v1/user/apps/{id}` 🔲 | — | ✅ | — | — | — |
+| `POST /v1/app/register` | ✅ | ✅ | — | — | — |
+| `GET /v1/app/index` | — | — | — | — | ✅ |
+| `GET /v1/app/index/delta` | — | — | — | — | ✅ |
+| `POST /v1/app/index/search` | — | — | ✅ | — | — |
+| `GET /v1/app/index/random` ⏸️ | — | — | ✅ | — | — |
+| `POST /v1/app/reports` | — | — | ✅ | — | — |
+
+---
+
+## 4. Deep-Dive Design Clarifications
+
+### 4.1 Why Plaintext Tokens Are Never Exposed to Admin Operators
+
+In traditional architectures, admin panels often allow viewing or re-copying API keys. In this system:
+1. **Zero-Knowledge Token Persistence:** All credentials (`node`, `app`, `registrant`) are hashed with SHA-256 upon issuance. The database stores `token_hash`, not the token.
+2. **Role Separation:** An Admin Operator manages infrastructure (routes, rate limits, rules, storage). Node provisioning belongs to the **User/Registrant** tier.
+3. **Anti-Leak Invariant:** Tokens are emitted strictly once in the creation response (`no-store` HTTP headers). If lost, the token must be revoked and re-issued.
+
+### 4.2 Search Design: Bounded Results & Query Attribution
+
+Downstream apps (e.g. desktop managers, ALCOM, VCC, curation tools) frequently perform both human-initiated and background-automated searches:
+- **No Unbounded Pagination:** Search queries return bounded top-K result slices (`limit <= 50`). This prevents scrapers from using search endpoints to dump the entire catalog and focuses resources on relevant matching packages. Complete catalog replication is handled exclusively by `/v1/app/index/delta`.
+- **Query Attribution (`queryOrigin`):**
+  - `"user_authored"`: A human typed the query into a search bar. The coordinator treats search misses or popularity trends here as high-priority signals to lease crawler nodes toward missing content.
+  - `"app_automated"`: Triggered by background recommendation algorithms, cache pre-warming, or dependency resolution. Logged for analytics, but prevented from skewing organic human workforce distribution.

@@ -5,7 +5,7 @@ import { handleNodeRequest } from "./api/handler.ts";
 import { handleOperatorRequest } from "./api/operator_handler.ts";
 import { handlePublicCatalogRequest } from "./api/public_handler.ts";
 import { handleDownstreamRequest } from "./api/downstream_handler.ts";
-import { handleRegistrantRequest } from "./api/registrant_handler.ts";
+import { handleUserRequest } from "./api/user_handler.ts";
 import { PlatformSchema, type Platform } from "../shared/protocol/node_protocol.ts";
 import { LeadStatusSchema, decodeLeadCursor, decodeCatalogCursor } from "../shared/protocol/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, SourcePurposeSchema,
@@ -66,14 +66,19 @@ switch (command) {
         if (path.startsWith("/v1/operator/")) {
           return handleOperatorRequest(request, store, operatorToken);
         }
-        if (path === "/v1/catalog" || path === "/v1/catalog/delta") {
+        if (path === "/v1/app/index" || path === "/v1/app/index/delta" || path === "/v1/catalog" || path === "/v1/catalog/delta") {
           return handlePublicCatalogRequest(request, store);
         }
-        if (path.startsWith("/v1/apps/") || path === "/v1/catalog/search" || path === "/v1/catalog/random") {
+        if (
+          path.startsWith("/v1/app/") ||
+          path.startsWith("/v1/apps/") ||
+          path === "/v1/catalog/search" ||
+          path === "/v1/catalog/random"
+        ) {
           return handleDownstreamRequest(request, store);
         }
-        if (path.startsWith("/v1/registrant/") || path === "/v1/delist") {
-          return handleRegistrantRequest(request, store);
+        if (path.startsWith("/v1/user/") || path.startsWith("/v1/registrant/") || path === "/v1/delist") {
+          return handleUserRequest(request, store);
         }
         return handleNodeRequest(request, store);
       }
@@ -273,6 +278,13 @@ switch (command) {
     const cursor = args[1] ? decodeCatalogCursor(args[1]) : null;
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (args[1] && !cursor)) usage();
     console.log(JSON.stringify(store.listCanonicalPackagesPage(limit, cursor), null, 2));
+    store.close();
+    break;
+  }
+  case "issue-user": {
+    if (!args[0]) usage();
+    const userRes = store.issueUserToken(args[0], args[1]);
+    console.log(JSON.stringify(userRes, null, 2));
     store.close();
     break;
   }

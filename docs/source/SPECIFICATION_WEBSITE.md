@@ -18,14 +18,19 @@ The **Web Platform** (`src-web`) serves as the public landing page, legal portal
    - **Creator Self-Service Opt-Out**: Provides instructions and validation tracking for non-scraping delisting requests.
    - **Public API Documentation**: Documents the public catalog endpoints (`/v1/catalog`, `/v1/catalog/delta`).
 
-2. **Authenticated Web Operator Panel (Firebase Auth + Cloudflare Bridge)**:
-   - **Node Registration & Workforce Management**: Provisions new Crawler Nodes and Crawler Clients, evaluates coverage needs, and issues capability-encoded tokens.
-   - **Downstream Application Registry**: Registers and manages downstream consumer applications (desktop managers, ALCOM, VCC), issuing application tokens for search/sampling APIs.
-   - **Endpoint Utilization**: Exercises and utilizes the coordinator's API surface (`/v1/operator/*`, `/v1/catalog/*`).
-   - **Discovery Lead Triage**: Interface to review, approve, or reject pending candidate leads.
-   - **Auto-Queue Rules Editor**: Configures path-scoped, rate-limited, expiring rules.
-   - **Source-Access Profile Manager**: Grants reviewed permissions for specific target domains and paths.
-   - **Canonical Catalog Explorer**: Inspects projected packages, versions, and multi-storefront identity links.
+2. **Authenticated Web Platform (Firebase Auth + Cloudflare Bridge)**:
+   - **Registrant Self-Service Portal (`/v1/user/*`)**:
+     - **Node Token Issuance**: Generates capability-encoded node tokens (`vrcp_<token><cap>`) for contributor VPS instances or Windows Crawler Clients.
+     - **Downstream Application Registry**: Registers downstream applications and issues application credentials (`vrcp_app_`).
+     - **Self-Service Delisting**: Enables creators to delist packages they own directly on their behalf (authenticated identity serves as proof).
+   - **Admin Operator Control Panel (`/v1/operator/*`)**:
+     - **Crawl Permission Oversight**: Reviews and manages scoped `SourceAccessProfile` records.
+     - **Auto-Queue Rules Editor**: Configures expiring, path-scoped lead promotion rules.
+     - **Discovery Lead Triage**: Interface to review, approve, or reject pending candidate leads.
+     - **Takedown Review**: Reviews proof for unauthenticated creator delisting submissions.
+     - **Cloudflare & Edge Infrastructure Oversight**: Manages worker bindings and deployment parameters.
+
+For route specifics and request/response payloads, see [`API_ROUTES.md`](API_ROUTES.md).
 
 ---
 

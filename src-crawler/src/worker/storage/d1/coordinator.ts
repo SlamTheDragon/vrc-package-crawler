@@ -2,7 +2,7 @@ import { type CrawlerRules, compileRobotsText } from "@trybyte/robotstxt-parser"
 import { CRAWLER_ROBOTS_TOKEN } from "../../../shared/robots/crawler_identity.ts";
 import { isPrivateOrReservedIp } from "../../../shared/policy/ip_policy.ts";
 import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema } from "../../../shared/protocol/node_protocol.ts";
-import { type AutoQueueRule, AutoQueueRuleSchema, type IssueNodeCredential, IssueNodeCredentialSchema, type LeadCursor, type LeadRow, encodeLeadCursor, type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema, type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront, encodeCatalogCursor, decodeCatalogCursor } from "../../../shared/protocol/operator_protocol.ts";
+import { type AutoQueueRule, AutoQueueRuleSchema, type IssueNodeCredential, IssueNodeCredentialSchema, type LeadCursor, type LeadRow, encodeLeadCursor, type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema, type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront, encodeCatalogCursor, decodeCatalogCursor, encodeTakedownCursor, type TakedownCursor, type TakedownRecord } from "../../../shared/protocol/operator_protocol.ts";
 import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema } from "../../../shared/robots/robots_snapshot.ts";
 import { type SourceAccessProfile, SourceAccessProfileSchema, sourceAccessProfileMatches, type SourcePurpose, type ProfileCursor, encodeProfileCursor, type CreateSourceAccessProfile, CreateSourceAccessProfileSchema, sourcePathScopesOverlap } from "../../../shared/policy/source_access_profile.ts";
 import { isItchSearchUrl } from "../../../shared/policy/source_path_policy.ts";
@@ -25,14 +25,14 @@ import {
   type CatalogSearchResponse,
   type DelistResponse
 } from "../../../shared/protocol/downstream_protocol.ts";
-import type { RegistrantStore } from "../../api/registrant_handler.ts";
+import type { UserStore } from "../../api/user_handler.ts";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils.ts";
 import { D1Database, AutoQueueRuleRow, SourceAccessProfileRow, JobRow, D1PreparedStatement, CanonicalUmbrella, CanonicalLifecycle, CanonicalPackage, EvidenceKind, LinkReviewState, IdentityLink } from "./definitions.ts";
 import { deriveCategoryFromTags, type DesktopToolEvidence } from "../../../shared/taxonomy/taxonomy.ts";
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../../shared/taxonomy/avatar_compatibility.ts";
 
 
-export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatalogStore, RegistrantStore {
+export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatalogStore, UserStore {
   private readonly robotsMatchers = new Map<string, { snapshotId: string; matcher: CrawlerRules; }>();
 
   constructor(
@@ -1556,44 +1556,44 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     };
   }
 
-  /** Issues a `vrcp_reg_` token for a new or returning registrant. */
-  async issueRegistrantToken(registrantName: string, contactEmail?: string): Promise<{
-    registrantId: string; registrantName: string; token: string;
+  /** Issues a `vrcp_usr_` token for a new or returning user. */
+  async issueUserToken(userName: string, contactEmail?: string): Promise<{
+    userId: string; userName: string; token: string;
   }> {
-    if (!registrantName.trim()) throw new Error("Registrant name required");
-    const registrantId = crypto.randomUUID();
+    if (!userName.trim()) throw new Error("User name required");
+    const userId = crypto.randomUUID();
     const entropy = generateToken();
-    const token = `vrcp_reg_${entropy}`;
+    const token = `vrcp_usr_${entropy}`;
     const tokenHash = await sha256Hex(token);
     const now = new Date(this.now()).toISOString();
     await this.db.prepare(`
-      INSERT INTO registered_registrants (registrant_id, registrant_name, token_hash, contact_email, created_at, revoked_at)
+      INSERT INTO registered_users (user_id, user_name, token_hash, contact_email, created_at, revoked_at)
       VALUES (?, ?, ?, ?, ?, NULL)
-    `).bind(registrantId, registrantName.trim(), tokenHash, contactEmail || null, now).run();
-    return { registrantId, registrantName: registrantName.trim(), token };
+    `).bind(userId, userName.trim(), tokenHash, contactEmail || null, now).run();
+    return { userId, userName: userName.trim(), token };
   }
 
-  /** Authenticates a registrant bearer token. */
-  async authenticateRegistrant(token: string): Promise<{ registrantId: string; registrantName: string } | null> {
-    if (!/^vrcp_reg_[a-f0-9]{64}$/.test(token)) return null;
+  /** Authenticates a user bearer token. */
+  async authenticateUser(token: string): Promise<{ userId: string; userName: string } | null> {
+    if (!/^vrcp_usr_[a-f0-9]{64}$/.test(token)) return null;
     const tokenHash = await sha256Hex(token);
     const row = await this.db.prepare(`
-      SELECT registrant_id, registrant_name, revoked_at FROM registered_registrants WHERE token_hash = ?
-    `).bind(tokenHash).first<{ registrant_id: string; registrant_name: string; revoked_at: string | null }>();
+      SELECT user_id, user_name, revoked_at FROM registered_users WHERE token_hash = ?
+    `).bind(tokenHash).first<{ user_id: string; user_name: string; revoked_at: string | null }>();
     if (!row || row.revoked_at) return null;
-    return { registrantId: row.registrant_id, registrantName: row.registrant_name };
+    return { userId: row.user_id, userName: row.user_name };
   }
 
   /**
-   * Records a creator/registrant delisting request and immediately suppresses the target.
+   * Records a creator/user delisting request and immediately suppresses the target.
    * Unauthenticated creators use proof verification pathways (dns_txt, storefront_bio_token, manual_notice).
-   * Authenticated registrants may self-service delist on their behalf without external proof.
+   * Authenticated users may self-service delist on their behalf without external proof.
    */
   async submitDelistRequest(input: {
     targetUrl?: string;
     canonicalId?: string;
     reason: string;
-    requesterType: "unauthenticated_creator" | "registrant" | "admin_operator";
+    requesterType: "unauthenticated_creator" | "user" | "admin_operator";
     requesterId?: string;
     proofKind?: "storefront_bio_token" | "dns_txt" | "manual_notice";
     proofValue?: string;
@@ -1605,12 +1605,13 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const takedownId = crypto.randomUUID();
     const recordedAt = new Date(this.now()).toISOString();
     const target = input.targetUrl || input.canonicalId!;
+    const reviewStatus = input.requesterType === "unauthenticated_creator" ? "pending" : "accepted";
 
     await this.db.prepare(`
       INSERT INTO creator_opt_outs (
         takedown_id, target_url, canonical_id, requester_type, requester_id,
-        reason, proof_kind, proof_value, contact_email, recorded_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        reason, proof_kind, proof_value, contact_email, recorded_at, review_status, review_notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     `).bind(
       takedownId,
       input.targetUrl || null,
@@ -1621,7 +1622,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       input.proofKind || null,
       input.proofValue || null,
       input.contactEmail || null,
-      recordedAt
+      recordedAt,
+      reviewStatus
     ).run();
 
     // Suppress the URL in the crawl queue if a targetUrl was given
@@ -1669,6 +1671,147 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       action: "delisted",
       requesterType: input.requesterType,
       recordedAt
+    };
+  }
+
+  async listTakedownsPage(
+    requesterType?: string,
+    limit = 100,
+    cursor: TakedownCursor | null = null
+  ): Promise<{ records: TakedownRecord[]; nextCursor: string | null; }> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Takedown limit must be 1..100");
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (requesterType) {
+      conditions.push("requester_type = ?");
+      params.push(requesterType);
+    }
+    if (cursor) {
+      conditions.push("(recorded_at, takedown_id) < (?, ?)");
+      params.push(cursor.recordedAt, cursor.takedownId);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    params.push(limit + 1);
+
+    const res = await this.db.prepare(`
+      SELECT takedown_id, target_url, canonical_id, requester_type, requester_id,
+             reason, proof_kind, proof_value, contact_email, review_status, review_notes, recorded_at
+      FROM creator_opt_outs
+      ${where}
+      ORDER BY recorded_at DESC, takedown_id DESC
+      LIMIT ?
+    `).bind(...params).all<{
+      takedown_id: string;
+      target_url: string | null;
+      canonical_id: string | null;
+      requester_type: "unauthenticated_creator" | "user" | "admin_operator";
+      requester_id: string | null;
+      reason: string;
+      proof_kind: "storefront_bio_token" | "dns_txt" | "manual_notice" | null;
+      proof_value: string | null;
+      contact_email: string | null;
+      review_status: "pending" | "accepted" | "rejected";
+      review_notes: string | null;
+      recorded_at: string;
+    }>();
+
+    const rows = res.results || [];
+    const visible = rows.slice(0, limit);
+    const last = visible.at(-1);
+
+    const records: TakedownRecord[] = visible.map((row) => ({
+      takedownId: row.takedown_id,
+      targetUrl: row.target_url,
+      canonicalId: row.canonical_id,
+      requesterType: row.requester_type,
+      requesterId: row.requester_id,
+      reason: row.reason,
+      proofKind: row.proof_kind,
+      proofValue: row.proof_value,
+      contactEmail: row.contact_email,
+      reviewStatus: row.review_status,
+      reviewNotes: row.review_notes,
+      recordedAt: row.recorded_at
+    }));
+
+    return {
+      records,
+      nextCursor: rows.length > limit && last ? encodeTakedownCursor({
+        recordedAt: last.recorded_at,
+        takedownId: last.takedown_id
+      }) : null
+    };
+  }
+
+  async verifyTakedown(
+    takedownId: string,
+    verdict: "accepted" | "rejected",
+    actor: string,
+    notes?: string
+  ): Promise<{ takedownId: string; status: "accepted" | "rejected"; updatedAt: string; }> {
+    const row = await this.db.prepare(`
+      SELECT takedown_id, target_url, canonical_id, requester_type, review_status
+      FROM creator_opt_outs
+      WHERE takedown_id = ?
+    `).bind(takedownId).first<{
+      takedown_id: string;
+      target_url: string | null;
+      canonical_id: string | null;
+      requester_type: string;
+      review_status: string;
+    }>();
+
+    if (!row) {
+      throw new Error("Takedown not found");
+    }
+
+    const updatedAt = new Date(this.now()).toISOString();
+    const batchStatements: D1PreparedStatement[] = [
+      this.db.prepare(`
+        UPDATE creator_opt_outs
+        SET review_status = ?, review_notes = ?
+        WHERE takedown_id = ?
+      `).bind(verdict, notes || null, takedownId)
+    ];
+
+    if (verdict === "rejected") {
+      if (row.canonical_id) {
+        batchStatements.push(
+          this.db.prepare(`
+            UPDATE canonical_packages
+            SET lifecycle = 'active', updated_at = ?
+            WHERE canonical_id = ? AND lifecycle = 'delisted'
+          `).bind(updatedAt, row.canonical_id)
+        );
+      }
+      if (row.target_url) {
+        try {
+          const normalized = new URL(row.target_url).href;
+          batchStatements.push(
+            this.db.prepare("DELETE FROM suppressed_urls WHERE url = ?").bind(normalized),
+            this.db.prepare("UPDATE crawl_jobs SET state = 'pending' WHERE url = ? AND state = 'blocked'").bind(normalized)
+          );
+        } catch { /* URL normalization best-effort */ }
+
+        batchStatements.push(
+          this.db.prepare(`
+            UPDATE canonical_packages
+            SET lifecycle = 'active', updated_at = ?
+            WHERE canonical_id IN (
+              SELECT DISTINCT pf.canonical_id FROM package_fronts pf WHERE pf.storefront_url = ?
+            ) AND lifecycle = 'delisted'
+          `).bind(updatedAt, row.target_url)
+        );
+      }
+    }
+
+    await this.db.batch(batchStatements);
+
+    return {
+      takedownId,
+      status: verdict,
+      updatedAt
     };
   }
 }

@@ -25,6 +25,7 @@ import {
   type CatalogSearchResponse,
   type DelistResponse
 } from "../../shared/protocol/downstream_protocol.ts";
+import { type UserStore, type UserPrincipal } from "../api/user_handler.ts";
 import { isPrivateOrReservedIp } from "../../shared/policy/ip_policy.ts";
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
   isShopifyProductSitemapTarget, shopifyProductLead, isSellfyProductTarget } from "../../shared/policy/source_targets.ts";
@@ -37,6 +38,7 @@ import { extractAvatarCompatibility, type AvatarCompatibility } from "../../shar
 import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
   IssueNodeCredentialSchema, type IssueNodeCredential,
   encodeLeadCursor, encodeRuleCursor, encodeCatalogCursor, decodeCatalogCursor,
+  encodeTakedownCursor, type TakedownCursor, type TakedownRecord,
   type AutoQueueRule, type CreateAutoQueueRule,
   type CatalogCursor, type CatalogPackage, type CatalogIdentityLink,
   PackageFrontSchema, type PackageFront,
@@ -90,7 +92,7 @@ export type IdentityLink = {
   reviewedAt: string | null;
 };
 
-export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogStore {
+export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogStore, UserStore {
   readonly db: Database;
   private readonly now: () => number;
   private readonly robotsMatchers = new Map<string, { snapshotId: string; matcher: CrawlerRules }>();
@@ -316,26 +318,28 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         FOREIGN KEY (app_id) REFERENCES registered_apps(app_id)
       );
       CREATE INDEX IF NOT EXISTS idx_downstream_demand_platform ON downstream_demand_signals(requested_platform, resolved_at);
-      CREATE TABLE IF NOT EXISTS registered_registrants (
-        registrant_id TEXT PRIMARY KEY,
-        registrant_name TEXT NOT NULL,
+      CREATE TABLE IF NOT EXISTS registered_users (
+        user_id TEXT PRIMARY KEY,
+        user_name TEXT NOT NULL,
         token_hash TEXT NOT NULL,
         contact_email TEXT,
         created_at TEXT NOT NULL,
         revoked_at TEXT
       );
-      CREATE INDEX IF NOT EXISTS idx_registered_registrants_token ON registered_registrants(token_hash);
+      CREATE INDEX IF NOT EXISTS idx_registered_users_token ON registered_users(token_hash);
       CREATE TABLE IF NOT EXISTS creator_opt_outs (
         takedown_id TEXT PRIMARY KEY,
         target_url TEXT,
         canonical_id TEXT,
-        requester_type TEXT NOT NULL CHECK(requester_type IN ('unauthenticated_creator','registrant','admin_operator')),
+        requester_type TEXT NOT NULL CHECK(requester_type IN ('unauthenticated_creator','user','admin_operator')),
         requester_id TEXT,
         reason TEXT NOT NULL,
         proof_kind TEXT CHECK(proof_kind IN ('storefront_bio_token','dns_txt','manual_notice')),
         proof_value TEXT,
         contact_email TEXT,
-        recorded_at TEXT NOT NULL
+        recorded_at TEXT NOT NULL,
+        review_status TEXT NOT NULL DEFAULT 'accepted' CHECK(review_status IN ('pending','accepted','rejected')),
+        review_notes TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_opt_outs_target_url ON creator_opt_outs(target_url);
       CREATE INDEX IF NOT EXISTS idx_opt_outs_canonical_id ON creator_opt_outs(canonical_id);
@@ -367,6 +371,9 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       addColumnIfMissing("source_leads", "first_seen_profile_id");
       addColumnIfMissing("source_leads", "last_seen_profile_id");
       addColumnIfMissing("source_leads", "discovered_from_item_key");
+      addColumnIfMissing("creator_opt_outs", "review_status");
+      addColumnIfMissing("creator_opt_outs", "review_notes");
+      this.db.run("UPDATE creator_opt_outs SET review_status = 'accepted' WHERE review_status IS NULL");
       const jobColumns = this.db.prepare("PRAGMA table_info(crawl_jobs)").all() as { name: string }[];
       if (!jobColumns.some((column) => column.name === "robots_deferred_until")) {
         this.db.run("ALTER TABLE crawl_jobs ADD COLUMN robots_deferred_until TEXT");
@@ -2341,44 +2348,44 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     };
   }
 
-  /** Issues a `vrcp_reg_` token for a new or returning registrant. */
-  issueRegistrantToken(registrantName: string, contactEmail?: string): {
-    registrantId: string; registrantName: string; token: string;
+  /** Issues a `vrcp_usr_` token for a new or returning user. */
+  issueUserToken(userName: string, contactEmail?: string): {
+    userId: string; userName: string; token: string;
   } {
-    if (!registrantName.trim()) throw new Error("Registrant name required");
-    const registrantId = crypto.randomUUID();
+    if (!userName.trim()) throw new Error("User name required");
+    const userId = crypto.randomUUID();
     const entropy = crypto.randomBytes(32).toString("hex");
-    const token = `vrcp_reg_${entropy}`;
+    const token = `vrcp_usr_${entropy}`;
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const now = new Date(this.now()).toISOString();
     this.db.prepare(`
-      INSERT INTO registered_registrants (registrant_id, registrant_name, token_hash, contact_email, created_at, revoked_at)
+      INSERT INTO registered_users (user_id, user_name, token_hash, contact_email, created_at, revoked_at)
       VALUES (?, ?, ?, ?, ?, NULL)
-    `).run(registrantId, registrantName.trim(), tokenHash, contactEmail || null, now);
-    return { registrantId, registrantName: registrantName.trim(), token };
+    `).run(userId, userName.trim(), tokenHash, contactEmail || null, now);
+    return { userId, userName: userName.trim(), token };
   }
 
-  /** Authenticates a registrant bearer token. */
-  authenticateRegistrant(token: string): { registrantId: string; registrantName: string } | null {
-    if (!/^vrcp_reg_[a-f0-9]{64}$/.test(token)) return null;
+  /** Authenticates a user bearer token. */
+  authenticateUser(token: string): { userId: string; userName: string } | null {
+    if (!/^vrcp_usr_[a-f0-9]{64}$/.test(token)) return null;
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const row = this.db.prepare(`
-      SELECT registrant_id, registrant_name, revoked_at FROM registered_registrants WHERE token_hash = ?
-    `).get(tokenHash) as { registrant_id: string; registrant_name: string; revoked_at: string | null } | null;
+      SELECT user_id, user_name, revoked_at FROM registered_users WHERE token_hash = ?
+    `).get(tokenHash) as { user_id: string; user_name: string; revoked_at: string | null } | null;
     if (!row || row.revoked_at) return null;
-    return { registrantId: row.registrant_id, registrantName: row.registrant_name };
+    return { userId: row.user_id, userName: row.user_name };
   }
 
   /**
-   * Records a creator/registrant delisting request and immediately suppresses the target.
+   * Records a creator/user delisting request and immediately suppresses the target.
    * Unauthenticated creators use proof verification pathways (dns_txt, storefront_bio_token, manual_notice).
-   * Authenticated registrants may self-service delist on their behalf without external proof.
+   * Authenticated users may self-service delist on their behalf without external proof.
    */
   submitDelistRequest(input: {
     targetUrl?: string;
     canonicalId?: string;
     reason: string;
-    requesterType: "unauthenticated_creator" | "registrant" | "admin_operator";
+    requesterType: "unauthenticated_creator" | "user" | "admin_operator";
     requesterId?: string;
     proofKind?: "storefront_bio_token" | "dns_txt" | "manual_notice";
     proofValue?: string;
@@ -2390,13 +2397,14 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     const takedownId = crypto.randomUUID();
     const recordedAt = new Date(this.now()).toISOString();
     const target = input.targetUrl || input.canonicalId!;
+    const reviewStatus = input.requesterType === "unauthenticated_creator" ? "pending" : "accepted";
 
     this.db.transaction(() => {
       this.db.prepare(`
         INSERT INTO creator_opt_outs (
           takedown_id, target_url, canonical_id, requester_type, requester_id,
-          reason, proof_kind, proof_value, contact_email, recorded_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          reason, proof_kind, proof_value, contact_email, recorded_at, review_status, review_notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
       `).run(
         takedownId,
         input.targetUrl || null,
@@ -2407,7 +2415,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         input.proofKind || null,
         input.proofValue || null,
         input.contactEmail || null,
-        recordedAt
+        recordedAt,
+        reviewStatus
       );
 
       // Suppress the URL in the crawl queue if a targetUrl was given
@@ -2443,6 +2452,141 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       action: "delisted",
       requesterType: input.requesterType,
       recordedAt
+    };
+  }
+
+  /** Keyset paginated listing of creator takedowns / opt-outs for operator audit. */
+  listTakedownsPage(
+    requesterType?: string,
+    limit = 100,
+    cursor: TakedownCursor | null = null
+  ): { records: TakedownRecord[]; nextCursor: string | null } {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Takedown limit must be 1..100");
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (requesterType) {
+      conditions.push("requester_type = ?");
+      params.push(requesterType);
+    }
+    if (cursor) {
+      conditions.push("(recorded_at, takedown_id) < (?, ?)");
+      params.push(cursor.recordedAt, cursor.takedownId);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    params.push(limit + 1);
+
+    const rows = this.db.prepare(`
+      SELECT takedown_id, target_url, canonical_id, requester_type, requester_id,
+             reason, proof_kind, proof_value, contact_email, review_status, review_notes, recorded_at
+      FROM creator_opt_outs
+      ${where}
+      ORDER BY recorded_at DESC, takedown_id DESC
+      LIMIT ?
+    `).all(...params) as {
+      takedown_id: string;
+      target_url: string | null;
+      canonical_id: string | null;
+      requester_type: "unauthenticated_creator" | "user" | "admin_operator";
+      requester_id: string | null;
+      reason: string;
+      proof_kind: "storefront_bio_token" | "dns_txt" | "manual_notice" | null;
+      proof_value: string | null;
+      contact_email: string | null;
+      review_status: "pending" | "accepted" | "rejected";
+      review_notes: string | null;
+      recorded_at: string;
+    }[];
+
+    const visible = rows.slice(0, limit);
+    const last = visible.at(-1);
+
+    const records: TakedownRecord[] = visible.map((row) => ({
+      takedownId: row.takedown_id,
+      targetUrl: row.target_url,
+      canonicalId: row.canonical_id,
+      requesterType: row.requester_type,
+      requesterId: row.requester_id,
+      reason: row.reason,
+      proofKind: row.proof_kind,
+      proofValue: row.proof_value,
+      contactEmail: row.contact_email,
+      reviewStatus: row.review_status,
+      reviewNotes: row.review_notes,
+      recordedAt: row.recorded_at
+    }));
+
+    return {
+      records,
+      nextCursor: rows.length > limit && last ? encodeTakedownCursor({
+        recordedAt: last.recorded_at,
+        takedownId: last.takedown_id
+      }) : null
+    };
+  }
+
+  /** Verifies or rejects an unauthenticated creator's proof of ownership; rejection restores suppressed targets. */
+  verifyTakedown(
+    takedownId: string,
+    verdict: "accepted" | "rejected",
+    actor: string,
+    notes?: string
+  ): { takedownId: string; status: "accepted" | "rejected"; updatedAt: string } {
+    const row = this.db.prepare(`
+      SELECT takedown_id, target_url, canonical_id, requester_type, review_status
+      FROM creator_opt_outs
+      WHERE takedown_id = ?
+    `).get(takedownId) as {
+      takedown_id: string;
+      target_url: string | null;
+      canonical_id: string | null;
+      requester_type: string;
+      review_status: string;
+    } | null;
+
+    if (!row) {
+      throw new Error("Takedown not found");
+    }
+
+    const updatedAt = new Date(this.now()).toISOString();
+
+    this.db.transaction(() => {
+      this.db.prepare(`
+        UPDATE creator_opt_outs
+        SET review_status = ?, review_notes = ?
+        WHERE takedown_id = ?
+      `).run(verdict, notes || null, takedownId);
+
+      if (verdict === "rejected") {
+        if (row.canonical_id) {
+          this.db.prepare(`
+            UPDATE canonical_packages
+            SET lifecycle = 'active', updated_at = ?
+            WHERE canonical_id = ? AND lifecycle = 'delisted'
+          `).run(updatedAt, row.canonical_id);
+        }
+        if (row.target_url) {
+          try {
+            const normalized = new URL(row.target_url).href;
+            this.db.prepare("DELETE FROM suppressed_urls WHERE url = ?").run(normalized);
+            this.db.prepare("UPDATE crawl_jobs SET state = 'pending' WHERE url = ? AND state = 'blocked'").run(normalized);
+          } catch { /* URL normalization best-effort */ }
+
+          this.db.prepare(`
+            UPDATE canonical_packages
+            SET lifecycle = 'active', updated_at = ?
+            WHERE canonical_id IN (
+              SELECT DISTINCT pf.canonical_id FROM package_fronts pf WHERE pf.storefront_url = ?
+            ) AND lifecycle = 'delisted'
+          `).run(updatedAt, row.target_url);
+        }
+      }
+    }).immediate();
+
+    return {
+      takedownId,
+      status: verdict,
+      updatedAt
     };
   }
 }

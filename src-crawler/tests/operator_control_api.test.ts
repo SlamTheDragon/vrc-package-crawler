@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { LocalCoordinatorStore } from "../src/worker/local_sqlite.ts";
 import { handleOperatorRequest } from "../src/worker/operator_handler.ts";
 import { handleNodeRequest } from "../src/worker/handler.ts";
-import { OPERATOR_API_JSON_SCHEMAS } from "../src/shared/protocol/operator_protocol.ts";
+import { OPERATOR_API_JSON_SCHEMAS, TakedownListResponseSchema, VerifyTakedownResponseSchema } from "../src/shared/protocol/operator_protocol.ts";
 import { approveFixtureSource, seedApprovedFixtureJob } from "./helpers/source_access_fixture.ts";
 
 const operatorToken = "a".repeat(64);
@@ -24,6 +24,9 @@ describe("separate operator control API", () => {
     expect(OPERATOR_API_JSON_SCHEMAS.autoQueueRuleResponse.type).toBe("object");
     expect(OPERATOR_API_JSON_SCHEMAS.issueNodeCredential.type).toBe("object");
     expect(OPERATOR_API_JSON_SCHEMAS.nodeCredentialResponse.type).toBe("object");
+    expect(OPERATOR_API_JSON_SCHEMAS.takedownListResponse.type).toBe("object");
+    expect(OPERATOR_API_JSON_SCHEMAS.verifyTakedownRequest.type).toBe("object");
+    expect(OPERATOR_API_JSON_SCHEMAS.verifyTakedownResponse.type).toBe("object");
   });
 
   test("only the operator can issue an audited node key; rotation invalidates the old key", async () => {
@@ -383,5 +386,213 @@ describe("separate operator control API", () => {
       expect((store.db.prepare("SELECT count(*) AS n FROM source_leads WHERE status='approved'")
         .get() as { n: number }).n).toBe(1);
     } finally { store.close(); }
+  });
+
+  test("GET /v1/operator/takedowns lists recorded creator opt-outs and supports requesterType filter and pagination", async () => {
+    const store = new LocalCoordinatorStore(":memory:");
+    try {
+      // 1. Submit takedowns
+      const t1 = store.submitDelistRequest({
+        targetUrl: "https://booth.pm/en/items/111",
+        reason: "Creator bio opt-out",
+        requesterType: "unauthenticated_creator",
+        proofKind: "storefront_bio_token",
+        proofValue: "proof-bio-111"
+      });
+      const t2 = store.submitDelistRequest({
+        canonicalId: "canonical-pkg-222",
+        reason: "User requested removal",
+        requesterType: "user",
+        requesterId: "user-dan"
+      });
+      const t3 = store.submitDelistRequest({
+        targetUrl: "https://example.org/bad-pkg",
+        reason: "Malware removal",
+        requesterType: "admin_operator"
+      });
+
+      // 2. Query all takedowns
+      const resAll = await handleOperatorRequest(operatorRequest("/v1/operator/takedowns"), store, operatorToken);
+      expect(resAll.status).toBe(200);
+      const dataAll = await resAll.json() as any;
+      expect(dataAll.schemaVersion).toBe(1);
+      expect(dataAll.records.length).toBe(3);
+      // Verify reviewStatus values
+      const rec1 = dataAll.records.find((r: any) => r.takedownId === t1.takedownId);
+      const rec2 = dataAll.records.find((r: any) => r.takedownId === t2.takedownId);
+      const rec3 = dataAll.records.find((r: any) => r.takedownId === t3.takedownId);
+      expect(rec1.reviewStatus).toBe("pending");
+      expect(rec2.reviewStatus).toBe("accepted");
+      expect(rec3.reviewStatus).toBe("accepted");
+
+      // Validate response against schema
+      expect(() => TakedownListResponseSchema.parse(dataAll)).not.toThrow();
+
+      // 3. Filter by requesterType
+      const resFiltered = await handleOperatorRequest(
+        operatorRequest("/v1/operator/takedowns?requesterType=unauthenticated_creator"),
+        store,
+        operatorToken
+      );
+      expect(resFiltered.status).toBe(200);
+      const dataFiltered = await resFiltered.json() as any;
+      expect(dataFiltered.records.length).toBe(1);
+      expect(dataFiltered.records[0].takedownId).toBe(t1.takedownId);
+
+      // 4. Test pagination
+      const resPage1 = await handleOperatorRequest(
+        operatorRequest("/v1/operator/takedowns?limit=2"),
+        store,
+        operatorToken
+      );
+      expect(resPage1.status).toBe(200);
+      const dataPage1 = await resPage1.json() as any;
+      expect(dataPage1.records.length).toBe(2);
+      expect(dataPage1.nextCursor).toBeTruthy();
+
+      const resPage2 = await handleOperatorRequest(
+        operatorRequest(`/v1/operator/takedowns?limit=2&cursor=${dataPage1.nextCursor}`),
+        store,
+        operatorToken
+      );
+      expect(resPage2.status).toBe(200);
+      const dataPage2 = await resPage2.json() as any;
+      expect(dataPage2.records.length).toBe(1);
+      expect(dataPage2.nextCursor).toBeNull();
+
+      // 5. Invalid query parameters
+      expect((await handleOperatorRequest(
+        operatorRequest("/v1/operator/takedowns?requesterType=invalid_type"),
+        store,
+        operatorToken
+      )).status).toBe(400);
+
+      expect((await handleOperatorRequest(
+        operatorRequest("/v1/operator/takedowns?limit=0"),
+        store,
+        operatorToken
+      )).status).toBe(400);
+
+      expect((await handleOperatorRequest(
+        operatorRequest("/v1/operator/takedowns?cursor=invalid_base64!"),
+        store,
+        operatorToken
+      )).status).toBe(400);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("POST /v1/operator/takedowns/{id}/verify allows operator to accept or reject creator proof and restore lifecycle on rejection", async () => {
+    const store = new LocalCoordinatorStore(":memory:");
+    try {
+      // 1. Seed a canonical package and storefront front
+      const canonicalId = "pkg-verification-target";
+      const storefrontUrl = "https://booth.pm/en/items/888888";
+      store.db.prepare(`
+        INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at)
+        VALUES (?, 'tools', 'editor_tool', 'active', 'Target Package', 'com.target.pkg', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')
+      `).run(canonicalId);
+      // 2. Creator submits delist request
+      const delist = store.submitDelistRequest({
+        canonicalId,
+        targetUrl: storefrontUrl,
+        reason: "Suspected copyright infringement",
+        requesterType: "unauthenticated_creator",
+        proofKind: "storefront_bio_token",
+        proofValue: "claim-bio-123"
+      });
+
+      // Package lifecycle is currently delisted and URL is suppressed
+      const pkgRowDelisted = store.db.prepare("SELECT lifecycle FROM canonical_packages WHERE canonical_id = ?").get(canonicalId) as any;
+      expect(pkgRowDelisted.lifecycle).toBe("delisted");
+      const suppressedRow = store.db.prepare("SELECT reason FROM suppressed_urls WHERE url = ?").get(storefrontUrl) as any;
+      expect(suppressedRow).toBeTruthy();
+
+      // 3. Validation errors
+      // Missing token
+      const reqNoAuth = operatorRequest(`/v1/operator/takedowns/${delist.takedownId}/verify`, "POST", {
+        schemaVersion: 1,
+        verdict: "rejected"
+      }, "");
+      expect((await handleOperatorRequest(reqNoAuth, store, operatorToken)).status).toBe(401);
+
+      // Invalid verdict
+      const reqBadBody = operatorRequest(`/v1/operator/takedowns/${delist.takedownId}/verify`, "POST", {
+        schemaVersion: 1,
+        verdict: "maybe"
+      });
+      expect((await handleOperatorRequest(reqBadBody, store, operatorToken)).status).toBe(400);
+
+      // Nonexistent takedown ID
+      const reqNotFound = operatorRequest(`/v1/operator/takedowns/${crypto.randomUUID()}/verify`, "POST", {
+        schemaVersion: 1,
+        verdict: "rejected"
+      });
+      expect((await handleOperatorRequest(reqNotFound, store, operatorToken)).status).toBe(404);
+
+      // 4. Operator rejects unauthenticated takedown (false claim)
+      const reqReject = operatorRequest(`/v1/operator/takedowns/${delist.takedownId}/verify`, "POST", {
+        schemaVersion: 1,
+        verdict: "rejected",
+        notes: "Bio token did not match storefront profile"
+      });
+      const resReject = await handleOperatorRequest(reqReject, store, operatorToken);
+      expect(resReject.status).toBe(200);
+      const dataReject = await resReject.json() as any;
+      expect(dataReject.status).toBe("rejected");
+      expect(dataReject.takedownId).toBe(delist.takedownId);
+      expect(() => VerifyTakedownResponseSchema.parse(dataReject)).not.toThrow();
+
+      // Verification: review_status and review_notes updated in DB
+      const takedownRow = store.db.prepare("SELECT review_status, review_notes FROM creator_opt_outs WHERE takedown_id = ?")
+        .get(delist.takedownId) as any;
+      expect(takedownRow.review_status).toBe("rejected");
+      expect(takedownRow.review_notes).toBe("Bio token did not match storefront profile");
+
+      // Verification: package lifecycle restored to 'active'
+      const pkgRowRestored = store.db.prepare("SELECT lifecycle FROM canonical_packages WHERE canonical_id = ?").get(canonicalId) as any;
+      expect(pkgRowRestored.lifecycle).toBe("active");
+
+      // Verification: URL unsuppressed
+      const suppressedAfter = store.db.prepare("SELECT reason FROM suppressed_urls WHERE url = ?").get(storefrontUrl);
+      expect(suppressedAfter).toBeNull();
+
+      // 5. Operator accepts a legitimate takedown
+      const canonicalId2 = "pkg-legit-target";
+      store.db.prepare(`
+        INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at)
+        VALUES (?, 'tools', 'editor_tool', 'active', 'Legit Target', 'com.legit.pkg', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')
+      `).run(canonicalId2);
+
+      const delist2 = store.submitDelistRequest({
+        canonicalId: canonicalId2,
+        reason: "Valid creator withdrawal",
+        requesterType: "unauthenticated_creator",
+        proofKind: "dns_txt",
+        proofValue: "valid-txt-record"
+      });
+
+      const reqAccept = operatorRequest(`/v1/operator/takedowns/${delist2.takedownId}/verify`, "POST", {
+        schemaVersion: 1,
+        verdict: "accepted",
+        notes: "DNS TXT record verified"
+      });
+      const resAccept = await handleOperatorRequest(reqAccept, store, operatorToken);
+      expect(resAccept.status).toBe(200);
+      const dataAccept = await resAccept.json() as any;
+      expect(dataAccept.status).toBe("accepted");
+
+      const takedownRow2 = store.db.prepare("SELECT review_status, review_notes FROM creator_opt_outs WHERE takedown_id = ?")
+        .get(delist2.takedownId) as any;
+      expect(takedownRow2.review_status).toBe("accepted");
+      expect(takedownRow2.review_notes).toBe("DNS TXT record verified");
+
+      // Package remains delisted
+      const pkgRow2 = store.db.prepare("SELECT lifecycle FROM canonical_packages WHERE canonical_id = ?").get(canonicalId2) as any;
+      expect(pkgRow2.lifecycle).toBe("delisted");
+    } finally {
+      store.close();
+    }
   });
 });

@@ -17,30 +17,30 @@ import { IssueNodeCredentialSchema, type IssueNodeCredential } from "../../share
 import { readJson, CoordinatorConflict } from "./handler.ts";
 import { workerLogger } from "../worker_logger.ts";
 
-export interface RegistrantPrincipal {
-  registrantId: string;
-  registrantName: string;
+export interface UserPrincipal {
+  userId: string;
+  userName: string;
 }
 
 /**
- * Boundary for registrant-scoped storage operations.
- * Registrants are distinct from admin operators (infrastructure control)
- * and from downstream apps (catalog consumers). Registrants register nodes
+ * Boundary for user-scoped storage operations.
+ * Users are distinct from admin operators (infrastructure control)
+ * and from downstream apps (catalog consumers). Users register nodes
  * and apps on their behalf, and submit delisting requests for content they own.
  */
-export interface RegistrantStore {
-  /** Authenticates a vrcp_reg_ bearer token. */
-  authenticateRegistrant(token: string): Promise<RegistrantPrincipal | null> | RegistrantPrincipal | null;
-  /** Registers a downstream application on behalf of the authenticated registrant. */
+export interface UserStore {
+  /** Authenticates a vrcp_usr_ bearer token. */
+  authenticateUser(token: string): Promise<UserPrincipal | null> | UserPrincipal | null;
+  /** Registers a downstream application on behalf of the authenticated user. */
   registerApp(input: RegisterAppRequest): Promise<RegisterAppResponse> | RegisterAppResponse;
-  /** Issues a capability-encoded node token on behalf of the authenticated registrant. */
+  /** Issues a capability-encoded node token on behalf of the authenticated user. */
   issueNodeCredential(input: IssueNodeCredential, actor: string): Promise<string> | string;
   /** Records a delisting / takedown request and immediately suppresses the target. */
   submitDelistRequest(input: {
     targetUrl?: string;
     canonicalId?: string;
     reason: string;
-    requesterType: "unauthenticated_creator" | "registrant" | "admin_operator";
+    requesterType: "unauthenticated_creator" | "user" | "admin_operator";
     requesterId?: string;
     proofKind?: "storefront_bio_token" | "dns_txt" | "manual_notice";
     proofValue?: string;
@@ -63,27 +63,27 @@ function failure(status: number, code: string, message: string): Response {
 }
 
 /**
- * Handles all /v1/registrant/* and unauthenticated /v1/delist (opt-out) routes.
+ * Handles all /v1/user/* (and /v1/registrant/*) and unauthenticated /v1/delist (opt-out) routes.
  *
  * Route map:
- *   POST /v1/registrant/nodes       — issue a capability-encoded node token        [vrcp_reg_ auth required]
- *   POST /v1/registrant/apps        — register a downstream application             [vrcp_reg_ auth required]
- *   POST /v1/registrant/delist      — self-service delisting on their behalf        [vrcp_reg_ auth required]
+ *   POST /v1/user/nodes             — issue a capability-encoded node token        [vrcp_usr_ auth required]
+ *   POST /v1/user/apps              — register a downstream application             [vrcp_usr_ auth required]
+ *   POST /v1/user/delist            — self-service delisting on their behalf        [vrcp_usr_ auth required]
  *   POST /v1/delist                 — unauthenticated creator opt-out (proof-gated) [no auth]
  */
-export async function handleRegistrantRequest(
+export async function handleUserRequest(
   request: Request,
-  store: RegistrantStore
+  store: UserStore
 ): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  const isNodeIssue = request.method === "POST" && path === "/v1/registrant/nodes";
-  const isAppRegister = request.method === "POST" && path === "/v1/registrant/apps";
-  const isRegistrantDelist = request.method === "POST" && path === "/v1/registrant/delist";
+  const isNodeIssue = request.method === "POST" && (path === "/v1/user/nodes" || path === "/v1/registrant/nodes");
+  const isAppRegister = request.method === "POST" && (path === "/v1/user/apps" || path === "/v1/registrant/apps");
+  const isUserDelist = request.method === "POST" && (path === "/v1/user/delist" || path === "/v1/registrant/delist");
   const isPublicDelist = request.method === "POST" && path === "/v1/delist";
 
-  if (!isNodeIssue && !isAppRegister && !isRegistrantDelist && !isPublicDelist) {
+  if (!isNodeIssue && !isAppRegister && !isUserDelist && !isPublicDelist) {
     return failure(404, "not_found", "Route not found");
   }
 
@@ -97,7 +97,7 @@ export async function handleRegistrantRequest(
     return failure(400, "bad_json", "Request body must be bounded valid JSON");
   }
 
-  // Unauthenticated creator opt-out — proof-gated, no registrant token required
+  // Unauthenticated creator opt-out — proof-gated, no user token required
   if (isPublicDelist) {
     const parsed = DelistRequestSchema.safeParse(body);
     if (!parsed.success) {
@@ -128,16 +128,16 @@ export async function handleRegistrantRequest(
     }
   }
 
-  // All /v1/registrant/* routes require vrcp_reg_ bearer auth
+  // All /v1/user/* routes require vrcp_usr_ bearer auth
   const authHeader = request.headers.get("authorization") || "";
   if (!authHeader.startsWith("Bearer ")) {
-    return failure(401, "unauthorized", "Registrant bearer credential required (vrcp_reg_)");
+    return failure(401, "unauthorized", "User bearer credential required (vrcp_usr_)");
   }
   const token = authHeader.slice(7).trim();
-  const registrant = await store.authenticateRegistrant(token);
-  if (!registrant) {
-    workerLogger.warn("Invalid registrant token", { path });
-    return failure(401, "unauthorized", "Invalid registrant credential");
+  const user = await store.authenticateUser(token);
+  if (!user) {
+    workerLogger.warn("Invalid user token", { path });
+    return failure(401, "unauthorized", "Invalid user credential");
   }
 
   if (isAppRegister) {
@@ -151,7 +151,7 @@ export async function handleRegistrantRequest(
       return json(RegisterAppResponseSchema.parse(response), 201);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "App registration failed";
-      workerLogger.error("Registrant app registration failed", error, { path, registrantId: registrant.registrantId });
+      workerLogger.error("User app registration failed", error, { path, userId: user.userId });
       return failure(500, "internal_error", msg);
     }
   }
@@ -166,7 +166,7 @@ export async function handleRegistrantRequest(
       schemaVersion: 1,
       nodeId: nodeReqParsed.data.nodeId,
       capabilities: nodeReqParsed.data.requestedCapabilities,
-      reason: nodeReqParsed.data.reason || `Registrant self-service: ${registrant.registrantName}`
+      reason: nodeReqParsed.data.reason || `User self-service: ${user.userName}`
     };
     const credParsed = IssueNodeCredentialSchema.safeParse(credentialInput);
     if (!credParsed.success) {
@@ -175,7 +175,7 @@ export async function handleRegistrantRequest(
     }
     try {
       const token = await store.issueNodeCredential(credParsed.data,
-        `registrant:${registrant.registrantId}`);
+        `user:${user.userId}`);
       // Parse capability bitmask out of the issued token
       const capMatch = /^vrcp_[0-9a-fA-F]{64}([0-9a-fA-F]{4})$/.exec(token);
       const capabilities = credParsed.data.capabilities ?? [];
@@ -188,14 +188,14 @@ export async function handleRegistrantRequest(
       return json(RegisterNodeResponseSchema.parse(response), 201);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Node registration failed";
-      workerLogger.error("Registrant node registration failed", error,
-        { path, registrantId: registrant.registrantId, nodeId: nodeReqParsed.data.nodeId });
+      workerLogger.error("User node registration failed", error,
+        { path, userId: user.userId, nodeId: nodeReqParsed.data.nodeId });
       if (msg.includes("conflict") || msg.includes("already")) return failure(409, "conflict", msg);
       return failure(500, "internal_error", msg);
     }
   }
 
-  if (isRegistrantDelist) {
+  if (isUserDelist) {
     const parsed = DelistRequestSchema.safeParse(body);
     if (!parsed.success) {
       return failure(400, "invalid_payload",
@@ -206,8 +206,8 @@ export async function handleRegistrantRequest(
         targetUrl: parsed.data.targetUrl,
         canonicalId: parsed.data.canonicalId,
         reason: parsed.data.reason,
-        requesterType: "registrant",
-        requesterId: registrant.registrantId,
+        requesterType: "user",
+        requesterId: user.userId,
         proofKind: parsed.data.proofKind,
         proofValue: parsed.data.proofValue,
         contactEmail: parsed.data.contactEmail
@@ -215,8 +215,8 @@ export async function handleRegistrantRequest(
       return json(DelistResponseSchema.parse(result), 202);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Delisting request failed";
-      workerLogger.error("Registrant delist request failed", error,
-        { path, registrantId: registrant.registrantId });
+      workerLogger.error("User delist request failed", error,
+        { path, userId: user.userId });
       return failure(500, "internal_error", msg);
     }
   }
@@ -224,13 +224,13 @@ export async function handleRegistrantRequest(
   return failure(404, "not_found", "Route not found");
 }
 
-export function createRegistrantHandler(
-  store: RegistrantStore
+export function createUserHandler(
+  store: UserStore
 ): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
-    if (path.startsWith("/v1/registrant/") || path === "/v1/delist") {
-      return handleRegistrantRequest(request, store);
+    if (path.startsWith("/v1/user/") || path.startsWith("/v1/registrant/") || path === "/v1/delist") {
+      return handleUserRequest(request, store);
     }
     return null;
   };

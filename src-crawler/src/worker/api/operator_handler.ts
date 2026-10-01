@@ -3,9 +3,10 @@ import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, Le
   OPERATOR_PROTOCOL_VERSION, RejectLeadSchema, AutoQueueRuleListResponseSchema, AutoQueueRuleResponseSchema,
   CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, decodeLeadCursor, decodeRuleCursor,
   IssueNodeCredentialSchema, NodeCredentialResponseSchema, CatalogListResponseSchema,
-  decodeCatalogCursor, type IssueNodeCredential,
-  type AutoQueueRule, type CreateAutoQueueRule, type LeadCursor, type LeadRow,
-  type RuleCursor, type CatalogCursor, type CatalogPackage } from "../../shared/protocol/operator_protocol.ts";
+  decodeCatalogCursor, decodeTakedownCursor, TakedownListResponseSchema,
+  VerifyTakedownRequestSchema, VerifyTakedownResponseSchema,
+  type IssueNodeCredential, type AutoQueueRule, type CreateAutoQueueRule, type LeadCursor, type LeadRow,
+  type RuleCursor, type CatalogCursor, type CatalogPackage, type TakedownCursor, type TakedownRecord } from "../../shared/protocol/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   SourceAccessProfileListResponseSchema, SourceAccessProfileResponseSchema,
   decodeProfileCursor, type CreateSourceAccessProfile, type SourceAccessProfile,
@@ -36,6 +37,12 @@ export interface OperatorStore {
   listCanonicalPackagesPage(limit: number, cursor: CatalogCursor | null):
     Promise<{ packages: CatalogPackage[]; nextCursor: string | null }> |
       { packages: CatalogPackage[]; nextCursor: string | null };
+  listTakedownsPage(requesterType?: string, limit?: number, cursor?: TakedownCursor | null):
+    Promise<{ records: TakedownRecord[]; nextCursor: string | null }> |
+      { records: TakedownRecord[]; nextCursor: string | null };
+  verifyTakedown(takedownId: string, verdict: "accepted" | "rejected", actor: string, notes?: string):
+    Promise<{ takedownId: string; status: "accepted" | "rejected"; updatedAt: string }> |
+      { takedownId: string; status: "accepted" | "rejected"; updatedAt: string };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -80,8 +87,11 @@ export async function handleOperatorRequest(
   const profileDisable = request.method === "POST" &&
     /^\/v1\/operator\/source-profiles\/([a-f0-9-]{36})\/disable$/.exec(url.pathname);
   const catalogListing = request.method === "GET" && url.pathname === "/v1/operator/catalog";
+  const takedownListing = request.method === "GET" && url.pathname === "/v1/operator/takedowns";
+  const takedownVerify = request.method === "POST" &&
+    /^\/v1\/operator\/takedowns\/([a-f0-9-]{36})\/verify$/.exec(url.pathname);
   if (!listing && !ruleListing && !ruleCreate && !ruleDisable && !profileListing && !profileCreate && !nodeIssue &&
-      !profileDisable && !catalogListing && !(request.method === "POST" && leadAction)) {
+      !profileDisable && !catalogListing && !takedownListing && !takedownVerify && !(request.method === "POST" && leadAction)) {
     return failure(404, "not_found", "Route not found");
   }
   if (!await authorized(request, configuredToken)) {
@@ -141,6 +151,26 @@ export async function handleOperatorRequest(
     return json(CatalogListResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
       ...await store.listCanonicalPackagesPage(limit, cursor) }));
   }
+  if (takedownListing) {
+    const requesterTypeParam = url.searchParams.get("requesterType");
+    const validRequesterTypes = ["unauthenticated_creator", "user", "admin_operator"];
+    if (requesterTypeParam && !validRequesterTypes.includes(requesterTypeParam)) {
+      return failure(400, "invalid_query", "Invalid requesterType filter");
+    }
+    const limit = Number(url.searchParams.get("limit") || 100);
+    const cursorValue = url.searchParams.get("cursor");
+    const cursor = cursorValue ? decodeTakedownCursor(cursorValue) : null;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 ||
+        url.searchParams.getAll("limit").length > 1 ||
+        url.searchParams.getAll("cursor").length > 1 ||
+        url.searchParams.getAll("requesterType").length > 1 ||
+        (cursorValue !== null && !cursor) ||
+        [...url.searchParams.keys()].some(key => !["limit", "cursor", "requesterType"].includes(key))) {
+      return failure(400, "invalid_query", "Takedown limit or cursor is invalid");
+    }
+    return json(TakedownListResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
+      ...await store.listTakedownsPage(requesterTypeParam || undefined, limit, cursor) }));
+  }
   let body: unknown;
   try { body = await readJson(request); }
   catch (error) {
@@ -184,6 +214,13 @@ export async function handleOperatorRequest(
       const rule = await store.disableAutoQueueRule(ruleDisable[1], "operator-api", parsed.data.reason);
       return json(AutoQueueRuleResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION, rule }));
     }
+    if (takedownVerify) {
+      const parsed = VerifyTakedownRequestSchema.safeParse(body);
+      if (!parsed.success) return failure(400, "invalid_payload", "Verify takedown body is invalid");
+      const result = await store.verifyTakedown(takedownVerify[1], parsed.data.verdict, "operator-api", parsed.data.notes);
+      return json(VerifyTakedownResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
+        ...result }));
+    }
     const [, leadKey, action] = leadAction!;
     if (action === "approve") {
       const parsed = ApproveLeadSchema.safeParse(body);
@@ -201,7 +238,7 @@ export async function handleOperatorRequest(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Operator action failed";
     const missing = message === "Lead not found" || message === "Rule not found" ||
-      message === "Source profile not found";
+      message === "Source profile not found" || message === "Takedown not found";
     workerLogger.warn("Operator action failed", { path: url.pathname, message, missing }, error);
     return failure(missing ? 404 : 409, missing ? "not_found" : "conflict", message);
   }

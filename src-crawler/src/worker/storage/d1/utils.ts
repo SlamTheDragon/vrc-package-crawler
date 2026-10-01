@@ -252,26 +252,28 @@ CREATE TABLE IF NOT EXISTS downstream_demand_signals (
   FOREIGN KEY (app_id) REFERENCES registered_apps(app_id)
 );
 CREATE INDEX IF NOT EXISTS idx_downstream_demand_platform ON downstream_demand_signals(requested_platform, resolved_at);
-CREATE TABLE IF NOT EXISTS registered_registrants (
-  registrant_id TEXT PRIMARY KEY,
-  registrant_name TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS registered_users (
+  user_id TEXT PRIMARY KEY,
+  user_name TEXT NOT NULL,
   token_hash TEXT NOT NULL,
   contact_email TEXT,
   created_at TEXT NOT NULL,
   revoked_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_registered_registrants_token ON registered_registrants(token_hash);
+CREATE INDEX IF NOT EXISTS idx_registered_users_token ON registered_users(token_hash);
 CREATE TABLE IF NOT EXISTS creator_opt_outs (
   takedown_id TEXT PRIMARY KEY,
   target_url TEXT,
   canonical_id TEXT,
-  requester_type TEXT NOT NULL CHECK(requester_type IN ('unauthenticated_creator','registrant','admin_operator')),
+  requester_type TEXT NOT NULL CHECK(requester_type IN ('unauthenticated_creator','user','admin_operator')),
   requester_id TEXT,
   reason TEXT NOT NULL,
   proof_kind TEXT CHECK(proof_kind IN ('storefront_bio_token','dns_txt','manual_notice')),
   proof_value TEXT,
   contact_email TEXT,
-  recorded_at TEXT NOT NULL
+  recorded_at TEXT NOT NULL,
+  review_status TEXT NOT NULL DEFAULT 'accepted' CHECK(review_status IN ('pending','accepted','rejected')),
+  review_notes TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_opt_outs_target_url ON creator_opt_outs(target_url);
 CREATE INDEX IF NOT EXISTS idx_opt_outs_canonical_id ON creator_opt_outs(canonical_id);

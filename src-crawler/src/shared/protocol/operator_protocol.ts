@@ -95,65 +95,96 @@ export const LeadActionResponseSchema = z.discriminatedUnion("status", [
     status: z.literal("rejected") })
 ]);
 
-/** One accepted identity link embedded in a catalog package response row. */
-export const CatalogIdentityLinkSchema = z.strictObject({
-  linkId: z.uuid(),
-  sourceKey: z.string().min(1).max(500),
-  evidenceKind: z.enum(["vpm_id", "repository_match", "cross_storefront_link", "curator_verified", "simhash_match"]),
-  confidence: z.number().min(0).max(1),
-  createdAt: z.iso.datetime()
-});
-export type CatalogIdentityLink = z.infer<typeof CatalogIdentityLinkSchema>;
+import {
+  CatalogIdentityLinkSchema,
+  PackageFrontSchema,
+  CatalogPackageSchema,
+  CatalogCursorSchema,
+  encodeCatalogCursor,
+  decodeCatalogCursor,
+  type CatalogIdentityLink,
+  type PackageFront,
+  type CatalogPackage,
+  type CatalogCursor
+} from "vrc-packages-api";
 
-export const PackageFrontSchema = z.object({
-  frontId: z.string(),
-  canonicalId: z.string(),
-  sourceKey: z.string(),
-  platform: PlatformSchema,
-  storefrontUrl: z.string().url(),
-  price: z.number().nullable().optional(),
-  currency: z.string().nullable().optional(),
-  availability: z.enum(["available", "delisted", "unknown"]).default("available"),
-  observedAt: z.string()
-});
-export type PackageFront = z.infer<typeof PackageFrontSchema>;
-
-/** One row in the canonical catalog page. */
-export const CatalogPackageSchema = z.strictObject({
-  canonicalId: z.string().min(1).max(500),
-  umbrella: z.enum(["tools", "assets", "avatars"]),
-  category: z.string().min(1).max(200),
-  lifecycle: z.enum(["active", "deprecated", "quarantined", "delisted"]),
-  displayName: z.string().min(1).max(500),
-  vpmId: z.string().min(1).max(200).nullable(),
-  createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
-  acceptedLinks: z.array(CatalogIdentityLinkSchema),
-  fronts: z.array(PackageFrontSchema).default([])
-});
-export type CatalogPackage = z.infer<typeof CatalogPackageSchema>;
-
-export const CatalogCursorSchema = z.strictObject({
-  createdAt: z.iso.datetime(), canonicalId: z.string().min(1).max(500)
-});
-export type CatalogCursor = z.infer<typeof CatalogCursorSchema>;
-export function encodeCatalogCursor(cursor: CatalogCursor): string {
-  return btoa(JSON.stringify(CatalogCursorSchema.parse(cursor)))
-    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
-export function decodeCatalogCursor(value: string): CatalogCursor | null {
-  if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) return null;
-  try {
-    const cursor = CatalogCursorSchema.parse(JSON.parse(atob(value.replaceAll("-", "+").replaceAll("_", "/"))));
-    return encodeCatalogCursor(cursor) === value ? cursor : null;
-  } catch { return null; }
-}
+export {
+  CatalogIdentityLinkSchema,
+  type CatalogIdentityLink,
+  PackageFrontSchema,
+  type PackageFront,
+  CatalogPackageSchema,
+  type CatalogPackage,
+  CatalogCursorSchema,
+  type CatalogCursor,
+  encodeCatalogCursor,
+  decodeCatalogCursor
+};
 
 export const CatalogListResponseSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
   packages: z.array(CatalogPackageSchema),
   nextCursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).nullable()
 });
+
+export const TakedownRecordSchema = z.strictObject({
+  takedownId: z.string().uuid(),
+  targetUrl: z.string().nullable(),
+  canonicalId: z.string().nullable(),
+  requesterType: z.enum(["unauthenticated_creator", "user", "admin_operator"]),
+  requesterId: z.string().nullable(),
+  reason: z.string(),
+  proofKind: z.enum(["storefront_bio_token", "dns_txt", "manual_notice"]).nullable(),
+  proofValue: z.string().nullable(),
+  contactEmail: z.string().nullable(),
+  reviewStatus: z.enum(["pending", "accepted", "rejected"]),
+  reviewNotes: z.string().nullable().optional(),
+  recordedAt: z.iso.datetime()
+});
+export type TakedownRecord = z.infer<typeof TakedownRecordSchema>;
+
+export const TakedownCursorSchema = z.strictObject({
+  recordedAt: z.iso.datetime(),
+  takedownId: z.string().uuid()
+});
+export type TakedownCursor = z.infer<typeof TakedownCursorSchema>;
+
+export function encodeTakedownCursor(cursor: TakedownCursor): string {
+  return btoa(JSON.stringify(TakedownCursorSchema.parse(cursor)))
+    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+export function decodeTakedownCursor(value: string): TakedownCursor | null {
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) return null;
+  try {
+    const cursor = TakedownCursorSchema.parse(JSON.parse(atob(value.replaceAll("-", "+").replaceAll("_", "/"))));
+    return encodeTakedownCursor(cursor) === value ? cursor : null;
+  } catch {
+    return null;
+  }
+}
+
+export const TakedownListResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  records: z.array(TakedownRecordSchema),
+  nextCursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).nullable()
+});
+export type TakedownListResponse = z.infer<typeof TakedownListResponseSchema>;
+
+export const VerifyTakedownRequestSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  verdict: z.enum(["accepted", "rejected"]),
+  notes: z.string().trim().max(1000).optional()
+});
+export type VerifyTakedownRequest = z.infer<typeof VerifyTakedownRequestSchema>;
+
+export const VerifyTakedownResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  takedownId: z.string().uuid(),
+  status: z.enum(["accepted", "rejected"]),
+  updatedAt: z.iso.datetime()
+});
+export type VerifyTakedownResponse = z.infer<typeof VerifyTakedownResponseSchema>;
 
 export const OPERATOR_API_JSON_SCHEMAS = {
   approveLead: z.toJSONSchema(ApproveLeadSchema),
@@ -166,5 +197,8 @@ export const OPERATOR_API_JSON_SCHEMAS = {
   autoQueueRuleResponse: z.toJSONSchema(AutoQueueRuleResponseSchema),
   issueNodeCredential: z.toJSONSchema(IssueNodeCredentialSchema),
   nodeCredentialResponse: z.toJSONSchema(NodeCredentialResponseSchema),
-  catalogListResponse: z.toJSONSchema(CatalogListResponseSchema)
+  catalogListResponse: z.toJSONSchema(CatalogListResponseSchema),
+  takedownListResponse: z.toJSONSchema(TakedownListResponseSchema),
+  verifyTakedownRequest: z.toJSONSchema(VerifyTakedownRequestSchema),
+  verifyTakedownResponse: z.toJSONSchema(VerifyTakedownResponseSchema)
 };

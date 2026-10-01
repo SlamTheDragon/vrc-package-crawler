@@ -229,6 +229,18 @@ describe("Public Consumer Catalog Protocol (/v1/catalog & /v1/catalog/delta)", (
       expect(deltaBody.deltas).toHaveLength(1);
       expect(deltaBody.deltas[0].action).toBe("upsert");
       expect(deltaBody.deltas[0].canonicalId).toBe("com.example.http");
+
+      // Canonical API_ROUTES /v1/app/index route
+      const appIndexRes = await fetch(`http://127.0.0.1:${port}/v1/app/index`);
+      expect(appIndexRes.status).toBe(200);
+      const appIndexBody = PublicCatalogListResponseSchema.parse(await appIndexRes.json());
+      expect(appIndexBody.packages).toHaveLength(1);
+
+      // Canonical API_ROUTES /v1/app/index/delta route
+      const appDeltaRes = await fetch(`http://127.0.0.1:${port}/v1/app/index/delta`);
+      expect(appDeltaRes.status).toBe(200);
+      const appDeltaBody = CatalogDeltaResponseSchema.parse(await appDeltaRes.json());
+      expect(appDeltaBody.deltas).toHaveLength(1);
     } finally {
       store.close();
     }

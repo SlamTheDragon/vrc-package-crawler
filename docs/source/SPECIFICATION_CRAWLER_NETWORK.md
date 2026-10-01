@@ -27,39 +27,38 @@ The Coordinator is the central authority responsible for:
 
 ## 2. Protocol Boundaries and Endpoints
 
-Version 1 Zod schemas in `src-crawler/src/shared/node_protocol.ts`, `operator_protocol.ts`, and `catalog_protocol.ts` validate all network payloads.
+Authoritative route definitions and Zod schemas are defined in [`API_ROUTES.md`](API_ROUTES.md) and [`src-crawler/src/shared/protocol/`](../../src-crawler/src/shared/protocol/). Database schemas are specified in [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md).
 
 ### 2.1 Crawler Node Protocol (`/v1/node/*`)
-Needs `Authorization: Bearer <NODE_TOKEN>`. The bearer token encodes the node's assigned capability set.
-
-- `POST /v1/node/jobs/claim`: Issues an origin lease and atomic crawl job to an authorized node whose token permits that platform capability. Returns a job payload or `{ status: "empty", retryAfterMs: number }`.
-- `POST /v1/node/heartbeat`: Renews active job leases and confirms node liveness.
+Requires `Authorization: Bearer <NODE_TOKEN>` (`vrcp_<64-hex><4-hex>`). The 4-hex suffix encodes the node's assigned capability bitmask.
+- `POST /v1/node/jobs/claim`: Issues an origin lease and atomic crawl job if the node possesses the required platform capability, robots allow, and an active `SourceAccessProfile` covers the target.
+- `POST /v1/node/heartbeat`: Renews active origin leases and confirms node liveness.
 - `POST /v1/node/jobs/result`: Submits observation facts, discovered leads, or access failure diagnostics. Transitions job state and updates canonical catalog tables.
 
 ### 2.2 Operator Control Protocol (`/v1/operator/*`)
-Needs `Authorization: Bearer <OPERATOR_TOKEN>` (256-bit entropy token issued at first boot or set in `coordinator.config.json`).
-
-- `POST /v1/operator/nodes`: Registers a new crawler node or client, evaluates workforce balance, and returns a capability-encoded one-time 64-hex bearer token (`no-store`).
+Requires `Authorization: Bearer <COORDINATOR_OPERATOR_TOKEN>` (Constant-time secret comparison). Admin operators manage infrastructure; they never receive or view plaintext node or application tokens.
 - `GET /v1/operator/source-profiles` and `POST /v1/operator/source-profiles`: Audits and provisions scoped source-access profiles.
-- `POST /v1/operator/source-profiles/{profileId}/disable`: Disables an active source-access profile and invalidates active leases.
+- `POST /v1/operator/source-profiles/{id}/disable`: Disables a profile and invalidates active leases.
 - `GET /v1/operator/autoqueue-rules` and `POST /v1/operator/autoqueue-rules`: Configures expiring, path-scoped auto-queue rules for discovered leads.
-- `POST /v1/operator/autoqueue-rules/{ruleId}/disable`: Disables an active auto-queue rule and stops associated fetches.
+- `POST /v1/operator/autoqueue-rules/{id}/disable`: Disables an active auto-queue rule.
 - `GET /v1/operator/leads`: Inspects pending discovery leads with keyset pagination.
-- `POST /v1/operator/leads/{leadKey}/approve` and `POST /v1/operator/leads/{leadKey}/reject`: Approves or rejects pending leads.
-- `GET /v1/operator/catalog`: Queries deduplicated `canonical_packages` with keyset pagination.
+- `POST /v1/operator/leads/{key}/approve` and `POST /v1/operator/leads/{key}/reject`: Triage actions on pending leads.
+- `GET /v1/operator/takedowns` and `POST /v1/operator/takedowns/{id}/verify`: Inspects and reviews creator delisting requests.
 
-### 2.3 Downstream Consumer Protocol (`/v1/catalog/*`, `/v1/apps/*`)
+### 2.3 User & Registrant Protocol (`/v1/user/*`)
+Requires `Authorization: Bearer <REGISTRANT_TOKEN>` (`vrcp_reg_<64-hex>`) for authenticated actions; anonymous proof-gated for creator opt-outs.
+- `POST /v1/user/nodes`: Self-service node issuance; coordinator returns capability-encoded node token.
+- `POST /v1/user/apps`: Registers downstream application credentials (`vrcp_app_`).
+- `POST /v1/user/delist`: Unified delisting endpoint. Authenticated users delist on their own behalf (auth is proof); unauthenticated creators provide `proofKind` (`dns_txt` | `storefront_bio_token`).
+- `GET /v1/user/me` · `DELETE /v1/user/nodes/{id}` · `DELETE /v1/user/apps/{id}`: Credential and takedown lifecycle.
 
-#### A. Registered Downstream Applications (Authenticated via `Authorization: Bearer <APP_TOKEN>`)
-- `POST /v1/apps/register`: Registers a downstream client application (e.g. desktop managers, ALCOM, VCC) to receive application credentials.
-- `POST /v1/catalog/search`: Offers full configurable search, multi-facet filtering, and custom content extraction across canonical packages.
-- `GET /v1/catalog/random`: Allows registered clients to randomly sample/select database entries based on configurable filter criteria (e.g. for showcase discovery or random feed exploration).
-- `POST /v1/apps/feedback`: Ingests downstream search activities, query telemetry, cache-miss signals, and freshness demand signals, enabling the coordinator to reorient node workforce allocation and prioritize crawl frontier scheduling for high-demand packages.
-- `POST /v1/reports`: Ingests structured application-level curation/error reports.
-
-#### B. Unauthenticated Public Catalog (Read-Only)
-- `GET /v1/catalog`: Queries projected canonical catalog items with keyset pagination and public caching headers (`max-age=60`).
-- `GET /v1/catalog/delta`: Emits keyset-paginated incremental catalog deltas and delisting tombstones with epoch preservation.
+### 2.4 Downstream Application Protocol (`/v1/app/*`)
+Public read for catalog index and delta streaming; `Authorization: Bearer <APP_TOKEN>` (`vrcp_app_<64-hex>`) for bounded search and reporting.
+- `POST /v1/app/register`: Gated downstream app registration (requires registrant or operator auth).
+- `GET /v1/app/index`: Core package catalog projection. Bounded search without unbounded pagination.
+- `GET /v1/app/index/delta`: Keyset-paginated incremental sync feed for package managers (VCC/ALCOM). Emits `upsert` and `delist` envelopes.
+- `POST /v1/app/index/search`: Bounded search with `queryOrigin: "user_authored" | "app_automated"` attribution.
+- `POST /v1/app/reports`: Consolidated reporting endpoint ingesting demand signals (`search_miss`, `refresh_demand`, `popularity_signal`) and quality/takedown reports (`broken_link`, `wrong_metadata`, `misclassified`).
 
 ---
 
@@ -78,13 +77,6 @@ Needs `Authorization: Bearer <OPERATOR_TOKEN>` (256-bit entropy token issued at 
 
 ---
 
-## 4. Local Coordinator Storage Schema (`coordinator.db`)
+## 4. Coordinator Storage Schema (`coordinator.db` / D1)
 
-The coordinator stores relational state in SQLite WAL mode:
-- `source_items`: Canonical origin identity anchored by `source_item_key` and canonical URL.
-- `source_versions`: Immutable change versions indexed by SHA-256 content digests.
-- `source_events`: Audit log of crawl attempts, observations, and state transitions.
-- `discovery_leads`: Outbound leads awaiting operator triage or rule-based auto-queuing.
-- `canonical_packages`: Deduplicated catalog records linked to source items through `identity_links`.
-- `node_credentials`: SHA-256 hashed node authentication tokens and capability permissions.
-- `source_access_profiles`: Audited access rules, rate floors, and permitted evidence classes.
+The coordinator stores relational state in SQLite WAL mode locally and Cloudflare D1 in production. For detailed DDL table definitions, indexes, foreign keys, and ER diagrams, see [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md).

@@ -75,8 +75,6 @@ sequenceDiagram
 
 ---
 
-## 4. Local Telemetry Schema (`node.db`)
+## 4. Local Telemetry Schema (`node_state.db`)
 
-The node records local telemetry without modifying the canonical catalog:
-- `node_runs`: Records start time, completion status, node ID, coordinator endpoint, and total duration.
-- `node_tasks`: Records target URL, platform, HTTP status code, duration in milliseconds, outcome, and coordinator acceptance confirmation.
+The node records local execution telemetry and task journals without modifying the coordinator catalog. For exact SQLite table schemas, column types, and structured logging formats, see [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md).
