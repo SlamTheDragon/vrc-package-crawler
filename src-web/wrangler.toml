@@ -1,12 +1,52 @@
-name = "vrcp-coordinator"
-main = "src/worker/worker_entry.ts"
-compatibility_date = "2024-09-30"
-compatibility_flags = ["nodejs_compat"]
+# name = "vrcp-coordinator"
+# main = "src/worker/worker_entry.ts"
+# compatibility_date = "2024-09-30"
+# compatibility_flags = ["nodejs_compat"]
 
-[vars]
-ENVIRONMENT = "production"
+# [vars]
+# ENVIRONMENT = "production"
+
+"$schema" = "./node_modules/wrangler/config-schema.json"
+name = "vrc-package-crawler"
+compatibility_date = "2026-10-02"
+compatibility_flags = ["nodejs_als"]
+main = ".svelte-kit/cloudflare/_worker.js"
+workers_dev = true
+preview_urls = true
+
+[assets]
+binding = "ASSETS"
+directory = ".svelte-kit/cloudflare"
 
 [[d1_databases]]
-binding = "VRCP_BINDING"
-database_name = "vrcp-d1"
+binding = "VRCP_D1"
 database_id = "722bdd0d-92ca-445b-9319-da0b27adf7b2"
+
+[[previews.d1_databases]]
+binding = "VRCP_D1"
+database_id = "722bdd0d-92ca-445b-9319-da0b27adf7b2"
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = false
+head_sampling_rate = 1
+persist = true
+
+[previews.observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
+[previews.observability.traces]
+enabled = false
+head_sampling_rate = 1
+persist = true
+
+[previews.observability.issue_detection]
+enabled = false
