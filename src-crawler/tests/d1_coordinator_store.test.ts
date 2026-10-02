@@ -40,8 +40,8 @@ export function createMockD1Database(db = new Database(":memory:")): D1Database 
       };
       (stmt as any)._execute = () => {
         const prepared = db.prepare(query);
-        prepared.run(...(boundValues as any));
-        return { success: true };
+        const info = prepared.run(...(boundValues as any));
+        return { success: true, meta: { changes: info.changes } };
       };
       return stmt;
     },
@@ -66,6 +66,100 @@ export function createMockD1Database(db = new Database(":memory:")): D1Database 
 }
 
 describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
+  async function claimRaceFixture(targets: string[]) {
+    const sqlite = new Database(":memory:");
+    const db = createMockD1Database(sqlite);
+    let now = Date.parse("2026-10-03T00:00:00.000Z");
+    const store = new Coordinator(db, () => now);
+    await store.initSchema();
+    for (const origin of new Set(targets.map(target => new URL(target).origin))) {
+      await store.createSourceAccessProfile({
+        schemaVersion: 1, platform: "vpm", origin, pathScope: "/", method: "GET",
+        purpose: "metadata", minDelayMs: 1000,
+        expiresAt: "2026-10-04T00:00:00.000Z", reviewReference: "OFFLINE-RACE-FIXTURE",
+        reason: "Hermetic claim concurrency fixture", retainClasses: ["normalized_facts"],
+        publishClasses: ["normalized_facts"]
+      }, "fixture-operator");
+      await store.recordRobotsSnapshot(origin, 200, "User-agent: *\nAllow: /");
+    }
+    for (const target of targets) await store.seedJob(target, "vpm", 1000, undefined, "metadata");
+    const principals = await Promise.all(["race-node-a", "race-node-b"].map(async nodeId => {
+      const token = await store.issueNodeCredential({
+        schemaVersion: 1, nodeId, capabilities: ["vpm"], reason: "Offline race fixture"
+      }, "fixture-operator");
+      return (await store.authenticate(nodeId, token))!;
+    }));
+    const claimBoth = () => Promise.all(principals.map(principal => store.claim({
+      schemaVersion: 1, nodeId: principal.nodeId, capabilities: ["vpm"]
+    }, principal)));
+    return { db, sqlite, store, claimBoth, advance: (milliseconds: number) => { now += milliseconds; } };
+  }
+
+  it("reserves one lease when two nodes race for the same job", async () => {
+    const fixture = await claimRaceFixture(["https://race.example/index.json"]);
+    try {
+      const results = await fixture.claimBoth();
+      expect(results.filter(result => result.status === "leased")).toHaveLength(1);
+      expect(results.filter(result => result.status === "empty")).toHaveLength(1);
+      const winner = results.find(result => result.status === "leased")!;
+      if (winner.status !== "leased") throw new Error("Expected one race winner");
+      const job = fixture.sqlite.query("SELECT lease_id FROM crawl_jobs").get() as { lease_id: string };
+      expect(job.lease_id).toBe(winner.job.leaseId);
+      const origin = fixture.sqlite.query("SELECT active_job_id FROM origin_leases").get() as { active_job_id: string };
+      expect(origin.active_job_id).toBe(winner.job.jobId);
+    } finally { fixture.sqlite.close(); }
+  });
+
+  it("serializes different jobs sharing an origin and permits independent origins", async () => {
+    for (const [targets, expectedLeases] of [
+      [["https://race.example/a.json", "https://race.example/b.json"], 1],
+      [["https://race.example/a.json", "https://other.example/b.json"], 2]
+    ] as const) {
+      const fixture = await claimRaceFixture([...targets]);
+      try {
+        const results = await fixture.claimBoth();
+        expect(results.filter(result => result.status === "leased")).toHaveLength(expectedLeases);
+        const leased = fixture.sqlite.query("SELECT job_id FROM crawl_jobs WHERE state='leased'").all();
+        expect(leased).toHaveLength(expectedLeases);
+      } finally { fixture.sqlite.close(); }
+    }
+  });
+
+  it("reclaims an expired job with exactly one new lease", async () => {
+    const fixture = await claimRaceFixture(["https://race.example/index.json"]);
+    try {
+      const first = (await fixture.claimBoth()).find(result => result.status === "leased")!;
+      if (first.status !== "leased") throw new Error("Expected initial lease");
+      fixture.advance(5 * 60 * 1000 + 1);
+      const results = await fixture.claimBoth();
+      const winners = results.filter(result => result.status === "leased");
+      expect(winners).toHaveLength(1);
+      expect(winners[0]!.job.jobId).toBe(first.job.jobId);
+      expect(winners[0]!.job.leaseId).not.toBe(first.job.leaseId);
+    } finally { fixture.sqlite.close(); }
+  });
+
+  it("does not reserve from stale profile, credential or robots evidence", async () => {
+    for (const mutation of [
+      "UPDATE source_access_profiles SET disabled_at='2026-10-03T00:00:00.000Z'",
+      "UPDATE node_credentials SET revoked_at='2026-10-03T00:00:00.000Z'",
+      "UPDATE origin_robots SET snapshot_id='replaced-snapshot',body='User-agent: *\nDisallow: /'",
+      "UPDATE origin_leases SET min_delay_ms=min_delay_ms+1000",
+      "INSERT OR REPLACE INTO origin_robots_refresh_leases VALUES ('https://race.example','refresh-race','2026-10-03T00:05:00.000Z')"
+    ]) {
+      const fixture = await claimRaceFixture(["https://race.example/index.json"]);
+      try {
+        const originalBatch = fixture.db.batch.bind(fixture.db);
+        fixture.db.batch = async statements => {
+          fixture.sqlite.run(mutation);
+          return originalBatch(statements);
+        };
+        expect((await fixture.claimBoth()).filter(result => result.status === "leased")).toHaveLength(0);
+        expect(fixture.sqlite.query("SELECT job_id FROM crawl_jobs WHERE state='leased'").all()).toHaveLength(0);
+      } finally { fixture.sqlite.close(); }
+    }
+  });
+
   it("Node registration and bearer authentication", async () => {
     const mockDb = createMockD1Database();
     const store = new Coordinator(mockDb);
@@ -1083,5 +1177,3 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     expect(page2.items[0].canonicalId).toBe("com.example.older-tool");
   });
 });
-
-

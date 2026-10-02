@@ -1,5 +1,19 @@
 # Active slice and recovery checkpoint
 
+## R14-A — atomic D1 claim reservation
+
+Research cleanup committed and pushed as fccae0a (research clean up). Owner API-route edits remained staged and excluded.
+
+The D1 coordinator now rechecks job/origin eligibility, selected profile, credential generation, robots snapshot, refresh reservation and pacing inside the transactional write. Only the winning lease updates the origin. Robots deferral also checks eligibility before changing a job.
+
+Four new regression tests first failed, then passed. They cover one-job races, same-origin versus independent origins, expiry/reclaim and stale profile/credential/robots/pacing/refresh evidence. Targeted suite: 20 pass. Full crawler suite: 300 pass before the final pacing/deferral refinement; rerun after the schema slice. SDK: 33 pass. Both typechecks and Worker build pass. Root remains 2 pass / 2 fail.
+
+Local workerd/D1 validation found a separate blocker: operator/init returns 500 because D1 exec treats multiline DDL as separate incomplete commands. The installed Miniflare 5 alpha uses a changed constructor schema; its supplied conversion API starts the runtime. No remote credentials or resources were used. The init failure prevented runtime claim validation.
+
+Next slice R14-B: declare D1-compatible complete schema commands and make the mock reproduce line-oriented exec behavior. Repeat the schema-validated HTTP race after init works. Publication, robots bootstrap and proof-before-delist remain critical and unfixed.
+
+An additional unstaged .gitignore entry appeared during runtime diagnostics. Its ownership is unverified; preserve it and exclude it from agent commits.
+
 ## R13 — parity audit and research cleanup
 
 Owner instruction, 2026-10-03: compare prototype 09e9dc8 to current code, organize research, commit/push research clean up, then continue implementation. Author-review pauses are deferred. Put consequential uncertainty in the critical ledger.

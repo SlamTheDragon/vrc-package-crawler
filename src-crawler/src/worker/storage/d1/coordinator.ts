@@ -300,9 +300,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     await this.assertCurrentPrincipal(principal);
 
     const placeholders = request.capabilities.map(() => "?").join(",");
-    const query = `
-      SELECT j.*,r.snapshot_id AS robots_snapshot_id,r.status_code AS robots_status_code,
-        r.body AS robots_body,r.expires_at AS robots_expires_at FROM crawl_jobs j
+    const eligibleFrom = `FROM crawl_jobs j
       JOIN origin_leases o ON o.origin = j.origin
       JOIN origin_robots r ON r.origin = j.origin AND r.expires_at > ?
       LEFT JOIN origin_robots_refresh_leases rl ON rl.origin=j.origin AND rl.lease_expires_at>?
@@ -324,12 +322,15 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
                 (j.url=p.origin||p.path_scope OR
                   (substr(p.path_scope,-1)='/' AND
                     substr(j.url,1,length(p.origin||p.path_scope))=p.origin||p.path_scope)))))
-      ORDER BY j.next_fetch_at ASC, j.created_at ASC, j.job_id ASC LIMIT 100 OFFSET ?
     `;
+    const eligibilityParams = (at: string) => [at, at, ...request.capabilities, at, at, at, at, at, at];
+    const query = `SELECT j.*,r.snapshot_id AS robots_snapshot_id,r.status_code AS robots_status_code,
+      r.body AS robots_body,r.expires_at AS robots_expires_at ${eligibleFrom}
+      ORDER BY j.next_fetch_at ASC, j.created_at ASC, j.job_id ASC LIMIT 100 OFFSET ?`;
 
     let offset = 0;
     for (; ;) {
-      const bindParams = [now, now, ...request.capabilities, now, now, now, now, now, now, offset];
+      const bindParams = [...eligibilityParams(now), offset];
       const res = await this.db.prepare(query).bind(...bindParams).all<JobRow & {
         robots_snapshot_id: string; robots_status_code: number; robots_body: string; robots_expires_at: string;
       }>();
@@ -342,8 +343,10 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
         if (!this.robotsAllows(job)) {
           await this.db.prepare(`UPDATE crawl_jobs SET next_fetch_at=?,robots_deferred_until=?,
             state=CASE WHEN state='leased' THEN 'pending' ELSE state END,
-            claimed_by=NULL,lease_id=NULL,lease_expires_at=NULL WHERE job_id=?`)
-            .bind(job.robots_expires_at, job.robots_expires_at, job.job_id).run();
+            claimed_by=NULL,lease_id=NULL,lease_expires_at=NULL WHERE job_id=? AND job_id IN (
+              SELECT j.job_id ${eligibleFrom} AND j.job_id=? AND r.snapshot_id=?)`)
+            .bind(job.robots_expires_at, job.robots_expires_at, job.job_id,
+              ...eligibilityParams(new Date(this.now()).toISOString()), job.job_id, job.robots_snapshot_id).run();
           deferred = true;
           continue;
         }
@@ -353,17 +356,31 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
         }>();
         if (!lease) continue;
         if (lease.next_allowed_at > now || (lease.active_job_id && lease.lease_expires_at && lease.lease_expires_at > now)) continue;
-        const expires = new Date(nowMs + 5 * 60 * 1000).toISOString();
+        const reservationMs = this.now();
+        const reservationTime = new Date(reservationMs).toISOString();
+        const expires = new Date(reservationMs + 5 * 60 * 1000).toISOString();
         const leaseId = crypto.randomUUID();
-        const nextAllowed = new Date(nowMs + Math.max(lease.min_delay_ms, profile.minDelayMs)).toISOString();
+        const nextAllowed = new Date(reservationMs + Math.max(lease.min_delay_ms, profile.minDelayMs)).toISOString();
 
-        await this.db.batch([
+        // D1 batches are transactional. Recheck eligibility inside the write, not only
+        // in preceding reads; the origin update belongs exclusively to this lease.
+        const reservation = await this.db.batch([
           this.db.prepare(`UPDATE crawl_jobs SET state='leased',claimed_by=?,lease_id=?,
-            lease_expires_at=?,lease_profile_id=? WHERE job_id=?`)
-            .bind(principal.nodeId, leaseId, expires, profile.profileId, job.job_id),
-          this.db.prepare("UPDATE origin_leases SET active_job_id=?,lease_expires_at=?,next_allowed_at=? WHERE origin=?")
-            .bind(job.job_id, expires, nextAllowed, job.origin)
+            lease_expires_at=?,lease_profile_id=? WHERE job_id=? AND job_id IN (
+              SELECT j.job_id ${eligibleFrom} AND j.job_id=? AND r.snapshot_id=? AND o.min_delay_ms=?
+                AND EXISTS (SELECT 1 FROM source_access_profiles p WHERE p.profile_id=?
+                  AND p.disabled_at IS NULL AND p.expires_at>?)
+                AND EXISTS (SELECT 1 FROM node_credentials c WHERE c.node_id=?
+                  AND c.token_hash=? AND c.revoked_at IS NULL))`)
+            .bind(principal.nodeId, leaseId, expires, profile.profileId, job.job_id,
+              ...eligibilityParams(reservationTime), job.job_id, job.robots_snapshot_id,
+              lease.min_delay_ms, profile.profileId, reservationTime, principal.nodeId, principal.credentialVersion),
+          this.db.prepare(`UPDATE origin_leases SET active_job_id=?,lease_expires_at=?,next_allowed_at=?
+            WHERE origin=? AND EXISTS (SELECT 1 FROM crawl_jobs j WHERE j.job_id=?
+              AND j.state='leased' AND j.lease_id=? AND j.claimed_by=?)`)
+            .bind(job.job_id, expires, nextAllowed, job.origin, job.job_id, leaseId, principal.nodeId)
         ]);
+        if ((reservation[0]?.meta as { changes?: number } | undefined)?.changes !== 1) continue;
         return {
           schemaVersion: PROTOCOL_VERSION, status: "leased" as const,
           job: {
