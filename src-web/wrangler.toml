@@ -1,0 +1,12 @@
+name = "vrcp-coordinator"
+main = "src/worker/worker_entry.ts"
+compatibility_date = "2024-09-30"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+
+[[d1_databases]]
+binding = "VRCP_BINDING"
+database_name = "vrcp-d1"
+database_id = "722bdd0d-92ca-445b-9319-da0b27adf7b2"
