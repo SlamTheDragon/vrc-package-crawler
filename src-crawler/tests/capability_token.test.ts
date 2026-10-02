@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   PLATFORM_BIT_MAP,
   encodeCapabilityCode,
@@ -10,6 +10,20 @@ import {
 import { PlatformSchema, type Platform } from "../src/shared/protocol/node_protocol.ts";
 
 describe("Capability Token Encoding and Decoding", () => {
+  test("generates node-token entropy with portable Web Crypto", () => {
+    const nativeRandom = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
+    const random = spyOn(globalThis.crypto, "getRandomValues").mockImplementation(array => {
+      expect(array).toBeInstanceOf(Uint8Array);
+      expect(array!.byteLength).toBe(32);
+      return nativeRandom(array);
+    });
+    try {
+      const token = formatCapabilityToken(["vpm"]);
+      expect(parseCapabilityToken(token)?.capabilities).toEqual(["vpm"]);
+      expect(random).toHaveBeenCalledTimes(1);
+    } finally { random.mockRestore(); }
+  });
+
   test("PLATFORM_BIT_MAP covers all PlatformSchema options without collisions", () => {
     const seenBits = new Set<number>();
     for (const platform of PlatformSchema.options) {

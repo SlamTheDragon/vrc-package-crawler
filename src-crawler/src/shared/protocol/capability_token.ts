@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { PlatformSchema, type Platform } from "./node_protocol.ts";
 
 /**
@@ -78,7 +77,8 @@ export function formatCapabilityToken(
   const code = encodeCapabilityCode(capabilities);
   const entropy = entropyHex && /^[0-9a-fA-F]{64}$/.test(entropyHex)
     ? entropyHex.toLowerCase()
-    : crypto.randomBytes(32).toString("hex");
+    : Array.from(globalThis.crypto.getRandomValues(new Uint8Array(32)),
+      byte => byte.toString(16).padStart(2, "0")).join("");
   return `vrcp_${entropy}${code}`;
 }
 

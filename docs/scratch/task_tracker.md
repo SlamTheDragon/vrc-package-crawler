@@ -1,5 +1,17 @@
 # Active slice and recovery checkpoint
 
+## R14-C — portable credentials and runtime claim evidence
+
+Capability-token generation now uses native Web Crypto rather than node:crypto. A portable-entropy fixture first failed, then passed. Crawler full suite: 302 pass / 0 fail; SDK: 33 pass / 0 fail. Both typechecks pass. Root remains 2 pass / 2 fail. Browser Worker build passes and shrank from about 1.55 MB to 0.63 MB.
+
+Installed local runtime: Miniflare 5.20261001.0-alpha and workerd 1.20261001.1, using the existing 2024-09-30 compatibility date and nodejs_compat. Its supplied option-conversion API was required. Direct getD1Database hung; task-created helpers were identified and stopped. An in-memory test-only fixture module avoided that proxy. No production fixture route or resource changes were made.
+
+HTTP smoke succeeded: operator/init 200 with autoSeed false, two node registrations 201, source profile 201, then concurrent schema-validated node claims produced exactly [leased, empty]. Outbound requests were blocked and counted zero. Ephemeral credentials were generated in memory and never printed. The runtime disposed successfully.
+
+This proves one local Worker/D1 contention scenario, not remote staging, fleet durability or source permission. Preserve a repeatable runtime smoke before migration. Owner comments now explicitly approve full Worker migration to src-web and ask for Queues/indexing research plus publication, ownership, timestamps and feature-restoration methodology.
+
+Next: record those replies and critical invocation-budget questions in the ledger, preserve owner comments, then move Worker infrastructure in bounded dependency-aware slices. No guessed Queues or search product adoption.
+
 ## R14-B — native D1 initialization
 
 The updated goal file addfa15f-0607-4fe4-b975-e1cacc86bb51/goal-objective.md was read in full. It explicitly confirms moving Worker infrastructure into src-web. Current API-only serving remains the latest concrete task direction; future dashboard/auth work is not implemented by that migration.
