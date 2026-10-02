@@ -1,203 +1,52 @@
-# Curriculum Guide: Theoretical Foundations, Practical Exercises, Telemetry Signals, and Core Philosophies
+# External research library: navigation and evidence rules
 
-This guide outlines theoretical foundations, practical engineering exercises, operational telemetry signals, and core philosophies for compliant search engine development.
+Reviewed 2026-10-03. Start with the question under review, not a full curriculum. Research informs a decision; it does not replace owner direction or prove that a feature exists.
 
-***
+## Find the right shelf
 
-## 1. Overview of the Curriculum
+| Need | Document | Scope |
+| --- | --- | --- |
+| Historical capability versus current runtime | [Prototype parity audit](../audits/PROTOTYPE_PARITY.md) | Source-backed comparison of 09e9dc8 and 3b9d203, reproduced defects, keep/research/change decisions. |
+| Worker/D1, pacing, recovery and npm | [Infrastructure](01_crawler_systems_and_infrastructure.md) | Primary references, architecture checks and falsifiable tests. |
+| Canonical identity, VPM and classification | [Identity](02_entity_resolution_and_ecosystem.md) | Evidence layers, false-merge corpus and field semantics. |
+| Platform terms, statutes and legal drafting | [Legal procedure](03_legal_jurisprudence_and_governance.md) | Authorities, limitations, retrieval procedure and code-to-draft gaps. |
+| Candidate storefront access | [Platform matrix](../markets/PLATFORM-MATRIX.md) | Per-source questions; no blanket or bootstrap approval. |
+| Nexyy, avtr.zip, Payhip, Shopify and custom domains | [Additional market leads](../markets/ADDITIONAL_MARKET_SOURCE_RESEARCH.md) | Publisher/lead boundaries and dated intake. |
+| Apps outside Unity/VPM | [Desktop tools](../markets/DESKTOP_TOOL_DISCOVERY_RESEARCH.md) | Particular VRChat targeting, app/module distinctions and candidate corpus. |
+| Listing builders | [VPM template](../markets/VPM_TEMPLATE_RESEARCH.md) | Recipe versus listing/release evidence and bounded historical smoke. |
+| Client ecosystem | [vrc-get and ALCOM](../markets/VRC_GET_ECOSYSTEM_RESEARCH.md) | Listings versus local project state; no installer/resolver scope. |
+| Asset indexing safeguards | [Asset standards](../ASSET_INDEXING_STANDARDS_RESEARCH.md) | Distilled retention, attribution and removal questions. |
+| Package selection | [Dependency review](../CRAWLER_DEPENDENCY_RESEARCH.md) | Existing packages, candidate overlap and lease-safe integration. |
+| Earlier experiments | [Spikes](../SPIKES.md) | Historical results and what must be revalidated. |
 
-Building a compliant search indexer requires knowledge across computer science and digital law. Engineers must understand network protocols, graph theory, queue dynamics, and copyright jurisprudence.
+These shelves are an external-resource library. The [implementation ledger](../../scratch/IMPLEMENTATION_PLAN.md) owns current decisions; [task tracker](../../scratch/task_tracker.md) owns the active slice. Neither a source draft nor a historical research statement can silently override a later owner instruction.
 
-This curriculum organizes the necessary knowledge into four structured domains:
-1. **Topics to Learn**: Foundational theories, RFC standards, and legal precedents.
-2. **Topics to Practice**: Practical programming implementations and stress tests.
-3. **Topics to Observe**: Real-time telemetry signals and health metrics.
-4. **Core Philosophies**: Non-negotiable architectural invariants.
+## Evidence labels
 
-```mermaid
-flowchart TD
-    subgraph Learning Domains
-        L1["Theory & RFC Standards (Learn)"] --> P1["Engine Implementation (Practice)"]
-        P1 --> O1["Telemetry & Metrics (Observe)"]
-        O1 --> C1["Architectural Invariants (Philosophies)"]
-    end
-```
+- **Retrieved:** the referenced primary material was obtained during the stated review. Record which clause or section was inspected; retrieval alone is not full validation.
+- **Historical:** an earlier dated observation or test. Recheck mutable terms, interfaces and code before use.
+- **Candidate:** a lead to investigate, not a recommendation or adopted design.
+- **Unavailable:** retrieval failed. Keep the gap visible; do not fill it with confident memory.
+- **Measured:** an identified fixture or runtime command produced a recorded result. State its limits.
 
-***
+Record publisher, canonical URL, title, language, version/date, reviewed section, conclusion, limitations and next test when adding research. Distinguish the document's effective date from retrieval date. Cite the primary paper, specification, platform documentation or court opinion; discovery lists and commentary can supply leads.
 
-## 2. Topics to Learn: Theory, Standards, and Jurisprudence
+## Review cycle
 
-Engineers study nine theoretical foundations:
+1. State one invariant and its owner authority.
+2. Trace callers through policy, adapter, storage and consumer.
+3. Compare current code, historical capability and proposed behavior separately.
+4. Check existing packages and platform features before writing a new utility.
+5. Add the smallest counterexample; work in a bounded two-to-three-file slice.
+6. Run targeted checks, full suites, typechecks and diff review. Retain failures and runtime limits in the checkpoint.
+7. Reconcile descriptive docs. Mark ambiguous or consequential questions critical in the ledger.
 
-### 1. Frontier Queue Scheduling
-Study the Mercator two-level priority and politeness queue model[^1]. Learn how FIFO priority queues (F-queues) and per-host politeness queues (B-queues) prevent server overload. Learn min-heap structures for host ready-time scheduling.
+The owner deferred author-review pauses for this iteration. Continue safe, independent slices while uncertainty stays in the ledger. Do not turn a confident summary, stop-hook recovery or test count into goal completion.
 
-### 2. Web Graph Topology and Traps
-Study the Bow-Tie structure of the web graph[^2]. Learn to identify strongly connected components, tendrils, and disconnected tubes. Study crawler traps, infinite calendar loops, and combinatoric faceted search paths.
+## Consolidation record
 
-### 3. Crawl Budget and Refresh Policies
-Study Poisson change models for web documents[^3]. Learn the mathematical trade-off between index freshness and crawling coverage under strict network rate limits.
+The four topic essays now form a linked resource library instead of repeating legal assurances, algorithm tutorials and unmeasured performance claims. Specialized ecosystem notes keep their dated evidence, while their implementation claims require the current parity audit.
 
-### 4. Internet RFC Standards
-- **RFC 9309**: The Robots Exclusion Protocol standard[^4]. Study path matching rules, longest prefix precedence, User-Agent matching, and 24-hour cache lifecycles.
-- **RFC 9110**: HTTP Semantics[^5]. Study status codes (`429 Too Many Requests`, `503 Service Unavailable`, `304 Not Modified`), `Retry-After` header parsing, and conditional ETag validation.
-- **RFC 3986**: Uniform Resource Identifier (URI) Generic Syntax[^6]. Study URI normalization, scheme and host lowercasing, path segment resolution, and tracking parameter removal.
+Withdrawn claims include universal similarity thresholds, invented accuracy/load figures, blanket storefront bans or permissions, public-data privacy exemptions, automatic intermediary immunity and a worldwide embedding safe harbor. The previous scratch/current links were obsolete; the current three-file scratch ledger is the decision location.
 
-### 5. Congestion Control and Rate Limiting
-Study the Additive Increase / Multiplicative Decrease (AIMD) algorithm[^7]. Learn how AIMD converges to fairness and stability. Study token bucket and leaky bucket traffic shapers[^8]. Study randomized decorrelated jitter to break request synchronization[^9].
-
-### 6. Sub-Linear Duplicate Detection
-Study locality-sensitive hashing and 64-bit SimHash algorithms[^10]. Learn random hyperplane rounding and table permutation indexing under the Pigeonhole Principle. Study the Fellegi-Sunter record linkage model and Jaro-Winkler string similarity[^11],[^12].
-
-### 7. Storage Engine Architecture
-Study SQLite Write-Ahead Logging (WAL mode) and synchronous disk flush modes[^13],[^14]. Study Command Query Responsibility Segregation (CQRS) and event sourcing[^15]. Learn to separate immutable observation lakes from derived catalog projections.
-
-### 8. Systematic Research and Scoping Methodologies
-Study systematic literature review frameworks adapted for computer systems and digital law (PRISMA-ScR: Preferred Reporting Items for Systematic Reviews and Meta-Analyses Extension for Scoping Reviews)[^16]. Learn backward and forward citation snowballing, eligibility matrices, and evidence confidence scoring (0.0 to 1.0) to ground technical invariants in empirical science.
-
-### 9. Statutory Case Law and Jurisprudence
-- *Feist Publications, Inc. v. Rural Telephone Service Co.*: Non-copyrightability of factual directories and metadata specifications[^17].
-- *Perfect 10, Inc. v. Amazon.com, Inc.* and *Kelly v. Arriba Soft Corp.*: The Ninth Circuit Server Test and transformative thumbnail fair use[^18],[^19].
-- *Authors Guild v. Google, Inc.*: Search snippet display as non-substitutive transformative fair use[^20].
-- *hiQ Labs, Inc. v. LinkedIn Corp.* and *Van Buren v. United States*: Computer Fraud and Abuse Act (CFAA) boundaries on public web data[^21],[^22].
-- *Meta Platforms, Inc. v. Bright Data Ltd.*: Enforceability of terms of service against logged-off data collection[^23].
-- Japanese Copyright Act Articles 30-4 and 47-5: Machine data analysis and information-location search exceptions with economic prejudice provisos[^24].
-- Philippine Intellectual Property Code (RA 8293, Sec 173.2 and 175) and Data Privacy Act (RA 10173, Sec 12(f) and 16): Database compilation protection, unprotected data, and legitimate interest processing[^25],[^26].
-
-***
-
-## 3. Topics to Practice: Practical Engineering Exercises
-
-Engineers build and test six core components:
-
-1. **Test the Authoritative Ground-Truth Suite**:
-   Run the test suite using Bun:
-   ```bash
-   bun test
-   ```
-   Make sure all unit, contract, and adapter test suites pass with zero failures across isolated test fixtures.
-2. **Build Test Isolation Fixtures**:
-   Decouple test execution from live databases (`coordinator.db`, `node.db`, or legacy files). Make sure tests instantiate ephemeral in-memory databases (`:memory:`) or isolated temporary test directories to eliminate SQLite `busy_timeout` contention.
-3. **Build a Min-Heap Politeness Scheduler**:
-   Implement a domain scheduler that enforces a strict delay ceiling (such as 3.0 seconds on storefronts). Add randomized jitter and make sure no two requests fire concurrently to the same host.
-4. **Build Socket Guardrails with Streaming Aborts**:
-   Write HTTP client middleware that inspects `Content-Type` headers before reading data streams. Abort TCP sockets immediately if the response contains binary types (`.unitypackage`, `.fbx`, `.blend`) or exceeds 5 MB.
-5. **Build a SimHash Pipeline with CJK Shingling**:
-   Build a text normalization pipeline. Strip decorative marketing brackets, normalize full-width Japanese characters to half-width ASCII, and generate 2-gram character shingles.
-6. **Implement Disjoint-Set Entity Clustering**:
-   Implement a Disjoint-Set Union (DSU) graph algorithm to merge cross-platform product listings by reverse-DNS identifiers and canonical repository URLs.
-
-***
-
-## 4. Topics to Observe: Real-Time Operational Telemetry
-
-Engineers monitor six operational telemetry signals:
-
-1. **HTTP Status Code Histograms**:
-   Track counts of `200 OK`, `304 Not Modified`, `403 Forbidden`, `404 Not Found`, `429 Rate Limited`, and `503 Unavailable` per domain.
-2. **Moving Average Latency (EWMA)**:
-   Track the Exponentially Weighted Moving Average of round-trip times per host. Rising response times signal server load before errors occur.
-3. **Frontier Queue Completion Ratio ($S$)**:
-   Monitor the ratio $S = \text{Processed URLs} / \text{Discovered URLs}$. Track queue draining progression without conflating frontier completion with total ecosystem coverage.
-4. **Quarantine Discard Yield**:
-   Track the percentage of crawled records moved to quarantine. A healthy filter identifies cosmetic assets and flags 55 to 65 percent of raw listings.
-5. **Edge Sync High-Watermark Alignment**:
-   Monitor row alignment between local `canonical_packages` and Cloudflare D1 checkpoints. Make sure no rows are skipped following full-wipe projection rebuilds.
-6. **Perimeter Challenge Flags**:
-   Inspect response headers for Cloudflare challenge indicators (`cf-mitigated: challenge`). When detected, halt raw fetching and switch to partner credentials.
-
-***
-
-## 5. The Ten Core Philosophies of Search Crawling
-
-Every component in this search engine obeys ten foundational philosophies:
-
-```mermaid
-flowchart TD
-    P1["1. Zero-Binary Invariant"] --> P2["2. Canonical Redirection"]
-    P2 --> P3["3. Anti-AI Sanctity"]
-    P3 --> P4["4. API-First & Zero-Bypass"]
-    P4 --> P5["5. CQRS Observation Lake"]
-    P5 --> P6["6. Politeness as Primary Principle"]
-    P6 --> P7["7. Administrative Security & Human Buffer"]
-    P7 --> P8["8. Stateless Metadata Air-Gap"]
-    P8 --> P9["9. Creator and Rights-Holder Delisting"]
-    P9 --> P10["10. Downstream Notice & Assent"]
-```
-
-1. **The Zero-Binary Invariant**:
-   An indexer points users to information. It never stores, mirrors, or redistributes creative 3D models, textures, or binary archives.
-2. **The Canonical Traffic Redirection Invariant**:
-   An indexer is a partner to creators. It routes all commercial intent directly to the artist's original store page for checkout.
-3. **The Anti-AI Sanctity**:
-   Respect creator ownership of their art. Maintain a strict barrier against machine learning dataset compilation.
-4. **The API-First and Zero-Bypass Principle**:
-   Use official APIs when available. If edge security blocks access, treat it as a refusal of service. Never deploy CAPTCHA bypass farms or proxy rotators.
-5. **The CQRS Immutable Observation Lake**:
-   Store raw network data immutably. Program code is disposable and recomputable. Network requests and origin server trust are limited resources.
-6. **Politeness as a Primary Principle**:
-   Rate limits and backoff jitter are not optional settings. They form the core architecture of the engine.
-7. **Administrative Security and Human Review Gating**:
-   All administrative reports require authentication with `API_SECRET_TOKEN`. The system quarantines destructive actions into a human-review buffer (`status = 'pending'`). It never applies automated delisting without human oversight.
-8. **Stateless Metadata Catalog Air-Gap**:
-   The crawler engine and public catalog remain an unauthenticated, stateless, read-only index. User accounts, authentication, bookmarks, and personalization engines remain strictly air-gapped in external consumer applications.
-9. **Creator and Rights-Holder Delisting Requests**:
-   Rights holders can request delisting of their presence from canonical index feeds. The Maintainer aims to process verified requests within a 24 to 48 hour target through non-scraping verification pathways (DNS TXT, signed Git commits, or direct email).
-10. **Downstream Notice and Assent Architecture**:
-    The downstream notice architecture plans technical notice of usage terms (`X-Catalog-Terms-Of-Use`, RFC 9110) on API responses and catalog releases, supporting contractual notice and enforceability under applicable contract law.
-
-***
-
-## References
-
-[^1]: A. Heydon and M. Najork, "Mercator: A scalable, extensible Web crawler," *World Wide Web*, vol. 2, no. 4, pp. 219-229, Dec. 1999.
-
-[^2]: A. Broder, R. Kumar, F. Maghoul, P. Raghavan, S. Rajagopalan, R. Stata, A. Tomkins, and J. Wiener, "Graph structure in the Web," *Computer Networks*, vol. 33, no. 1-6, pp. 309-320, 2000.
-
-[^3]: J. Cho and H. Garcia-Molina, "The Evolution of the Web and Implications for an Incremental Crawler," in *Proc. 26th Int. Conf. Very Large Data Bases (VLDB)*, Cairo, Egypt, 2000, pp. 200-209.
-
-[^4]: M. Koster, G. Illyes, H. Zeller, and L. Sassman, "Robots Exclusion Protocol," IETF Standards Track RFC 9309, Sep. 2022. [Online]. Available: https://www.rfc-editor.org/info/rfc9309
-
-[^5]: R. Fielding, M. Nottingham, and J. Reschke, "HTTP Semantics," IETF Standards Track RFC 9110, Jun. 2022. [Online]. Available: https://www.rfc-editor.org/info/rfc9110
-
-[^6]: T. Berners-Lee, R. Fielding, and L. Masinter, "Uniform Resource Identifier (URI): Generic Syntax," IETF RFC 3986 / STD 66, Jan. 2005. [Online]. Available: https://www.rfc-editor.org/info/rfc3986
-
-[^7]: V. Jacobson, "Congestion avoidance and control," in *Proc. ACM SIGCOMM '88 Symp. Communications Architectures and Protocols*, Stanford, CA, USA, 1988, pp. 314-329.
-
-[^8]: J. S. Turner, "New directions in communications (or which way to the information age?)," *IEEE Communications Magazine*, vol. 24, no. 10, pp. 8-15, Oct. 1986.
-
-[^9]: Amazon Web Services, "Exponential Backoff And Jitter," AWS Architecture Blog, 2015. [Online]. Available: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
-
-[^10]: G. S. Manku, A. Jain, and A. Das Sarma, "Detecting Near-Duplicates for Web Crawling," in *Proc. 16th Int. Conf. World Wide Web (WWW)*, Banff, Alberta, Canada, 2007, pp. 141-150.
-
-[^11]: I. P. Fellegi and A. B. Sunter, "A Theory for Record Linkage," *Journal of the American Statistical Association*, vol. 64, no. 328, pp. 1183-1210, Dec. 1969.
-
-[^12]: W. E. Winkler, "String Comparator Metrics and Enhanced Decision Rules in the Fellegi-Sunter Model of Record Linkage," in *Proc. Section on Survey Research Methods*, American Statistical Association, 1990, pp. 354-359.
-
-[^13]: SQLite Development Team, "SQLite As An Application File Format," sqlite.org, 2024. [Online]. Available: https://www.sqlite.org/appfileformat.html
-
-[^14]: SQLite Development Team, "Write-Ahead Logging," sqlite.org, 2024. [Online]. Available: https://www.sqlite.org/wal.html
-
-[^15]: M. Fowler, "CQRS (Command Query Responsibility Segregation)," martinfowler.com, 2011. [Online]. Available: https://martinfowler.com/bliki/CQRS.html
-
-[^16]: A. C. Tricco et al., "PRISMA Extension for Scoping Reviews (PRISMA-ScR): Checklist and Explanation," *Annals of Internal Medicine*, vol. 169, no. 7, pp. 467-473, Oct. 2018.
-
-[^17]: U.S. Supreme Court, *Feist Publications, Inc. v. Rural Telephone Service Co.*, 499 U.S. 340, 1991.
-
-[^18]: U.S. Court of Appeals for the Ninth Circuit, *Perfect 10, Inc. v. Amazon.com, Inc.*, 508 F.3d 1146, 2007.
-
-[^19]: U.S. Court of Appeals for the Ninth Circuit, *Kelly v. Arriba Soft Corp.*, 336 F.3d 811, 2003.
-
-[^20]: U.S. Court of Appeals for the Second Circuit, *Authors Guild v. Google, Inc.*, 804 F.3d 202, 2015.
-
-[^21]: U.S. Court of Appeals for the Ninth Circuit, *hiQ Labs, Inc. v. LinkedIn Corp.*, 31 F.4th 1180, 2022.
-
-[^22]: U.S. Supreme Court, *Van Buren v. United States*, 141 S. Ct. 1638, 2021.
-
-[^23]: U.S. District Court for the Northern District of California, *Meta Platforms, Inc. v. Bright Data Ltd.*, Case No. 3:23-cv-00077-EMC, Jan. 23, 2024.
-
-[^24]: Agency for Cultural Affairs of Japan, "Copyright Act of Japan," Articles 30-4 and 47-5, amended 2018.
-
-[^25]: Republic of the Philippines, "Intellectual Property Code of the Philippines," Republic Act No. 8293, Sections 173.2 and 175, 1997.
-
-[^26]: Republic of the Philippines, "Data Privacy Act of 2012," Republic Act No. 10173, Sections 12(f) and 16, 2012.
+Historical versions remain in Git. No source-access authorization, code capability or deployment follows from this documentation cleanup.

@@ -1,48 +1,48 @@
-# Task Tracker: Active Slice Tracking
-## Active Milestone: Gate G12 — Wrangler Staging Simulation, Docker Crawler Fleet Provisioning & Multi-Platform Ingestion
-## Active Milestone: Gate G12 — Coordinator Staging Readiness, Universal Package Projection & Legacy Loopback Purge
-### Working Theories & Context
-1. **User Decision Directives**:
-   - **Directive A1**: Provision live crawler node fleet with Docker Compose and launch initial discovery crawl on public VPM listings.
-   - **Directive A2**: Set up automated staging deployment scripts and verification harness using Wrangler local simulation and staging bindings.
-   - **Directive A3**: Defer `src-web/` development for now until node fleet operations are validated.
-   - **Directive A4**: Multi-platform seeds including approved GitHub repository releases and verified storefront listings.
-2. **Architecture & Boundary Guardrails**:
-   - Coordinator runs Cloudflare Worker on D1 or simulated environment with origin-wide pacing clock.
-   - Standalone crawler nodes run in containerized fleets via Docker Compose with automated Watchtower updates.
-   - Multi-platform seed catalog must enforce active source-access profiles and robots preflight before any fetch.
-   - Slices must touch strictly 2–3 files at a time.
-   - Scratch footprint strictly maintained at 3 files (`IMPLEMENTATION_PLAN.md`, `UNMERGED_IMPLEMENTATION_PLAN.md`, `task_tracker.md`).
-### Codebase Deep Audit & Working Theories
-1. **Universal Package Projection Invariant**:
-   - Every crawled item from ANY supported platform (VPM, GitHub, BOOTH, Gumroad, Jinxxy, Sellfy, Payhip) represents a package and must project into `canonical_packages` upon submission.
-   - Platform tags (`vpm_package`, `desktop_tool`, `avatar`, `asset`, `shader`, etc.) and `vpm_id` distinguish VPM packages from non-VPM packages, rather than excluding non-VPM sources from canonical status.
-2. **Coordinator-Initiated Profile Seeding**:
-   - Source-access profiles and initial seed jobs must be initiated and managed strictly by the Coordinator. Crawler nodes never self-authorize or provision profiles.
-3. **Legacy Loopback Purge**:
-   - In Version 0, the Coordinator is Cloudflare Workers backed by D1.
-   - The legacy `LocalCoordinatorStore` (`src/worker/storage/local_sqlite.ts`), local CLI binary `src/worker/main.ts`, and loopback test fixtures are obsolete scaffolding to be purged in preparation for staging.
-4. **Terminology Disambiguation**:
-   - **Crawler Node**: Headless VPS executable (Linux/x64), polls coordinator for job leases, crawls jobs, returns results, never shuts down (resilient to interruptions and coordinator unavailability), logs all activity, configured with coordinator-issued token and ID.
-   - **Coordinator**: Cloudflare Workers with D1, handles node registration, dynamic workforce distribution via capability-encoded tokens, rate limit pacing, report management, seeding, and public/downstream search services.
-   - **Crawler Client**: GUI shell for Windows that bundles Crawler Node within (`src-crawler-client/`, deferred).
-   - **Web Operator Panel & Landing Page**: `src-web/` (deferred, Firebase auth + Cloudflare).
-5. **Pre-Production Real Data Ingestion**:
-   - Pre-production delivery requires a verified live smoke test fetching real public metadata (e.g. VPM template listing and GitHub API repo) under coordinator lease, verifying end-to-end data ingestion.
-### Planned Slices (Awaiting Author Review)
-- `FLEET-S1`: Wrangler Staging Simulation & Automated D1 Verification Harness
-- `FLEET-S2`: Multi-Platform Default Seeds & Initial Fleet Seeding
-- `FLEET-S3`: Docker Fleet Compose Configuration & Node Clustering
-- `FLEET-S4`: End-to-End Fleet Multi-Platform Crawl Simulation
-- `STAGE-S1`: Universal Package Projection & Coordinator-Initiated Seeding
-- `STAGE-S2`: Terminology & Documentation Alignment (Version 0 Disambiguation)
-- `STAGE-S3`: Purge Legacy Loopback Store & Obsolete Server Binary
-- `STAGE-S4`: True Live Data Pre-Production Smoke Test Harness
+# Active slice and recovery checkpoint
 
-### Pause checkpoint — 2026-10-03
+## R13 — parity audit and research cleanup
 
-- Owner requested a pause. No source edits, tests, live crawls, or deployments were performed in this continuation.
-- Read the updated goal attachment, current AGENTS.md, both plan ledgers, this tracker, and repository rules. The current target is Worker/D1 staging and a resilient headless node; the September local-binary plan is superseded.
-- Git HEAD is `069a400` (`config 2`). Existing skill edits, removed `SKILLS.md` files, added skill folders, and `skills-lock.json` belong to the current worktree and were preserved.
-- The ledger reports 333 passing tests, but that baseline was not rerun. G12 rows have blank author-review comments; no proposed slice was implemented.
-- Next on resume: finish the required LEGAL.md read from line 191, trace the current Worker/D1 and node paths, and reconcile the active G12 slice with the updated goal. Keep changes within the 2–3 file constraint.
+Owner instruction, 2026-10-03: compare prototype 09e9dc8 to current code, organize research, commit/push research clean up, then continue implementation. Author-review pauses are deferred. Put consequential uncertainty in the critical ledger.
+
+Physical baseline: HEAD 3b9d203. Prototype 09e9dc860290dac3ae977e560a0d693d99639646. Owner's staged API_ROUTES.md route edits remain untouched and must stay outside the research commit.
+
+## Delivered research slices
+
+- R13-A: source-backed capability matrix, current baseline and critical risks.
+- R13-B: infrastructure and identity essays consolidated into primary-resource tables and failure checks.
+- R13-C: legal authority library, jurisdiction/interpretation limits, source-review procedure and LEGAL/code reconciliation queue.
+- R13-D: market, desktop, VPM, indexing, dependency and spike notes compacted. Historical observations and source retrieval failures remain explicit.
+- Each editing slice changed two or three files. Scratch remains exactly three documents.
+
+Entry point: [research library](../research/topics/04_curriculum_and_core_philosophies.md).
+Evidence: [prototype audit](../research/audits/PROTOTYPE_PARITY.md).
+Decisions: [critical ledger](IMPLEMENTATION_PLAN.md).
+
+## Measured baseline
+
+- Crawler: 296 pass, 0 fail, 32 files.
+- SDK: 33 pass, 0 fail, 4 files.
+- Root: 2 pass, 2 fail. Missing src-crawler/config.json causes both failures.
+- Both package typechecks pass.
+- Hermetic D1-interface diagnostics reproduced duplicate live leases, ignored publishClasses and pending-proof immediate delisting.
+- Research-local links resolve. Full documentation checker has seven remaining issues: user .obsidian metadata, three optional Cloudflare skill references and three obsolete context-recovery references.
+- Diff whitespace check passes. STE-flavored lint range: 1.02–3.76 findings per 100 words. Tables, URLs and necessary legal qualifiers remain exceptions; no certified-STE claim.
+- Historical prototype tests were not run. No source crawl, deployment or remote database change occurred.
+
+## Next bounded slice
+
+R14-A: fix R13-C1 using only the D1 coordinator, its existing test file and this tracker. Add concurrent same-job and same-origin fixtures before conditional reservation. Test expiry/reclaim and distinguish SQLite-backed diagnostics from workerd/D1 proof.
+
+Keep profiles, real robots, publication and creator-proof fixes separate. Do not restore unleased prototype probes, media BLOB caches or fabricated VPM versions.
+
+## Architecture and owner constraints
+
+Current Worker expects DB; src-web binds VRCP_D1 to a generated Svelte Worker. Owner wants API-only src-web and downstream operator/user/app SDK scope. Physical directory is src-package, not src-packages.
+
+The owner reports an existing remote Worker and D1. Do not infer deployed API wiring. Before remote migration, resolve whether the existing Worker is replaced or an API service is separate. Local safe implementation can proceed.
+
+Source drafts and LEGAL are not authority except owner comments. docs/source must describe actual features. Historical G12 fleet/landing-page proposals in UNMERGED_IMPLEMENTATION_PLAN are not a verified baseline.
+
+## Commit boundary
+
+Requested title: research clean up. Include only owned docs/research changes and the research ledger/checkpoint. Preserve staged owner edits. After push, record hash and continue R14-A without claiming the overall goal complete.

@@ -1,26 +1,23 @@
-# Crawler Library Candidates from awesome-crawler
+# Crawler dependency selection
 
-Status: Initial research only (2026-09-28). The project owner gave [awesome-crawler](https://github.com/brucedone/awesome-crawler), a cross-language list. It is a discovery index. It does not prove that a listed library obeys source policies or fits the coordinator and node split. No new package is installed or authorized for live use.
+Review checkpoint: 2026-10-03. The owner supplied [awesome-crawler](https://github.com/brucedone/awesome-crawler). It is a discovery index, not evidence that its packages satisfy this architecture. No new dependency was installed during this review.
 
-| Candidate | Features | Fit Against This Repository | Decision |
-| --- | --- | --- | --- |
-| Existing `cheerio`, `zod`, and `@trybyte/robotstxt-parser` | Used for HTML extraction, API boundary validation, and RFC-mode robots matching. | Small, separate primitives fit the node parser and Worker protocol boundary. Keep testing exact behavior and do not clone library functions. | **Keep**. Improve adapters and tests instead of inventing another parser or validator. |
-| [Crawlee (JS)](https://github.com/apify/crawlee) | TypeScript and Node crawler framework with request queues, storage, scheduling, retries, Cheerio, and optional browser crawling. The README shows automatic link extraction, proxy features, and browser-like headers. The [quick start](https://crawlee.dev/js/docs/quick-start) targets Node. | It can remove single-process crawler plumbing. But its queue, storage, retry, and fetch defaults compete with coordinator-issued leases, origin pacing, policy reviews, pinned-DNS egress, and versioned DTOs. A developer must prove these behaviors stay controllable before adoption. Browser and proxy evasion is not an authorized goal. Worker portability and Bun compiled binary behavior require a spike. | **Research a narrow adapter spike**, not wholesale adoption. Measure removed code, bundle size, cancellation behavior, and compliance with coordinator policies and safe transport. |
-| [node-crawler](https://github.com/bda-research/node-crawler) | Node request queue, Cheerio integration, configurable local `rateLimit`, retries, and duplicate skipping. The README documents optional user-agent and proxy rotation. | Local rate limiting cannot replace network-wide pacing across nodes. Its request scheduler can dispatch work outside coordinator leases. Parsing overlaps installed Cheerio. | **Do not replace coordinator scheduling**. Revisit only if a bounded, non-autonomous parsing use case appears. |
-| [Supercrawler](https://github.com/brendonboshell/supercrawler) | Describes custom handlers, robots, rate, and concurrency handling. | Features overlap existing controls. An independent per-process robots or rate decision violates shared SQLite coordinator invariants. Maintenance, Bun support, exact URL overrides, and safe transport require direct tests. | **Research only**. No dependency change. |
+## Keep, research or reject
 
-The evaluation does not compare frameworks to custom code generally. A package is attractive when it replaces a domain-neutral primitive without moving source authority from coordinator to node.
+| Primitive or candidate | Evidence | Decision and reason |
+| --- | --- | --- |
+| Existing Cheerio, Zod, semver and @trybyte/robotstxt-parser | Current src-crawler manifest and parser/protocol call paths | Keep narrow parsing/validation primitives. Test canonical SemVer and RFC-mode matching rather than duplicating them. Network retrieval and policy remain project responsibilities. |
+| [Crawlee](https://github.com/apify/crawlee) | Historical README/quick-start review | Research only if a narrow component removes code. Its queues, retries, storage and automatic link traversal must not compete with coordinator authority. Node/Bun compatibility and bundle impact need tests. |
+| [node-crawler](https://github.com/bda-research/node-crawler) | Historical README review | Do not adopt its scheduler for network-wide orchestration. Local pacing cannot enforce a fleet-wide budget; HTML parsing overlaps Cheerio. |
+| [Supercrawler](https://github.com/brendonboshell/supercrawler) | Historical README review | Research only. Check maintenance, license, runtime support, transport control and code removed before adoption. |
+| Native Workers/D1 and runtime HTTP APIs | [Infrastructure library](topics/01_crawler_systems_and_infrastructure.md) | Prefer supported runtime capabilities to custom coordinator binaries or compatibility wrappers. Prove storage atomicity separately. |
 
-The coordinator must continue to decide which exact URL a node can fetch, when, and under which active profile, robots snapshot, and lease. The node must validate the versioned API payload, check its lease during egress, and use pinned HTTPS transport. Any candidate that follows links, retries challenges, rotates identities or proxies, or stores raw pages needs a deny-by-default configuration and fixture proof.
+## Adoption test
 
-### Suggested Offline Spike
-Wrap one candidate parser or execution component around a mock transport for one approved VPM listing fixture. Check for:
-1. Zero unleased requests.
-2. Zero redirects.
-3. Zero automatic queuing.
-4. Bounded byte consumption.
-5. Cancellation on lost coordinator authority.
-6. Zero per-node rate decisions that override the coordinator.
-7. Identical Zod result DTOs.
+Compare maintained releases, security history, license, transitive dependencies, runtime support and the code that can be deleted. Historical README claims are not current package guarantees; verify upstream sources before selection.
 
-Compare dependency trees and compiled bundle sizes against the current implementation. If the candidate requires more integration code than it removes, keep the existing narrow primitives.
+Use a mock transport and one bounded fixture. Prove zero unleased requests, no automatic traversal, safe redirect handling, bounded bodies, cancellation on authority loss, coordinator-owned rates and unchanged versioned DTOs. Disable raw-page archives and evasion features.
+
+Measure integration code, bundle size and failure behavior against the existing path. If integration adds more machinery than it removes, retain the narrow primitive. A dependency is not a substitute for a source-access profile or publication review.
+
+Current priority is correcting verified protocol/storage defects, not replacing the crawler with a second autonomous scheduler.
