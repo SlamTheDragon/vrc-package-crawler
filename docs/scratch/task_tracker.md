@@ -1,5 +1,21 @@
 # Active slice and recovery checkpoint
 
+## R15-A — repeatable local Worker/D1 smoke
+
+Saved `src-web/tests/coordinator_runtime_smoke.mjs`. Build the crawler Worker first, then run the script with Node. It uses installed Miniflare/workerd, ephemeral credentials, an in-memory fixture module and denied outbound traffic.
+
+Measured success: initialization, node/profile issuance, exactly one concurrent lease, schema-valid heartbeat, accepted result and idempotent replay. The script disposes its runtime and has per-request deadlines. It is a manual smoke, not a new counted Bun unit test or full fleet simulation. No production fixture endpoint exists.
+
+Next R15-B: map and migrate the actual Worker infrastructure into src-web without export compatibility layers. Read both project configs and trace shared protocol/policy dependencies before moving files. Preserve the smoke and all owner edits. Source approvals, publication and creator ownership remain release blockers.
+
+## Owner-comment replies and next migration slice
+
+The ledger now contains explanations for publication classes and proposed ownership, timestamp and feature-restoration methods. It preserves the owner's comments verbatim. Queues is at-least-once, not a replacement for atomic leases. D1 FTS5 is a keyword-search candidate; “Cloudflare index” remains unselected. Initialization/query budgets are critical.
+
+Research commit fccae0a is pushed. Fix commits ffe57b6, 00bc50c and 750d67e are local only. API_ROUTES owner edits remain staged. Owner ledger comments and the additional .gitignore entry remain unstaged and excluded from commits.
+
+Next R15-A: preserve the successful HTTP-only local workerd smoke as a repeatable script, then inventory Worker imports before the approved full move to src-web. The temporary fixture wrapper exists only in the executed harness, not production code. Do not add compatibility export layers. Keep source grants/robots/publication and proof-before-delist gates open.
+
 ## R14-C — portable credentials and runtime claim evidence
 
 Capability-token generation now uses native Web Crypto rather than node:crypto. A portable-entropy fixture first failed, then passed. Crawler full suite: 302 pass / 0 fail; SDK: 33 pass / 0 fail. Both typechecks pass. Root remains 2 pass / 2 fail. Browser Worker build passes and shrank from about 1.55 MB to 0.63 MB.
