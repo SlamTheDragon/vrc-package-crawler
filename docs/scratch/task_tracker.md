@@ -1,5 +1,15 @@
 # Active slice and recovery checkpoint
 
+## R14-B — native D1 initialization
+
+The updated goal file addfa15f-0607-4fe4-b975-e1cacc86bb51/goal-objective.md was read in full. It explicitly confirms moving Worker infrastructure into src-web. Current API-only serving remains the latest concrete task direction; future dashboard/auth work is not implemented by that migration.
+
+Static D1 DDL now contains one complete command per line. The mock uses D1's line-oriented exec behavior, and an initialization/reinitialization fixture verifies tables and timestamp columns. The fixture failed before the change. Targeted suite: 21 pass. Full crawler: 301 pass; SDK: 33 pass. Both typechecks and Worker build pass. Root remains 2 pass / 2 fail.
+
+The local workerd/D1 operator/init now succeeds with autoSeed false. The next API step exposed another runtime blocker: capability-token generation imports node:crypto randomBytes, which the browser bundle does not supply. Node registration returns 409. Next slice R14-C replaces that dependency with Web Crypto and adds a portable-entropy regression before repeating the runtime claim race.
+
+The schema has 57 commands plus timestamp alterations. Initialization invocation budgets and a proper migration workflow require review before remote staging. No remote resources changed. Unverified bootstrap grants remain unfixed.
+
 ## R14-A — atomic D1 claim reservation
 
 Research cleanup committed and pushed as fccae0a (research clean up). Owner API-route edits remained staged and excluded.

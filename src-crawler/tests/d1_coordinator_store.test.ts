@@ -59,13 +59,36 @@ export function createMockD1Database(db = new Database(":memory:")): D1Database 
       return results;
     },
     async exec(query: string): Promise<D1ExecResult> {
-      db.exec(query);
-      return { count: 1, duration: 0 };
+      // Native D1 exec processes each nonempty line as a complete command.
+      const commands = query.trim().split("\n").map(line => line.trim()).filter(Boolean);
+      db.transaction(() => {
+        for (const command of commands) db.prepare(command).run();
+      })();
+      return { count: commands.length, duration: 0 };
     }
   };
 }
 
 describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
+  it("initializes every schema table with D1 line-oriented exec and can repeat initialization", async () => {
+    const sqlite = new Database(":memory:");
+    try {
+      const store = new Coordinator(createMockD1Database(sqlite));
+      await store.initSchema();
+      await store.initSchema();
+      const tables = sqlite.query("SELECT name FROM sqlite_master WHERE type='table'")
+        .all() as { name: string }[];
+      for (const name of ["node_credentials", "crawl_jobs", "origin_leases", "origin_robots",
+        "source_access_profiles", "canonical_packages", "source_versions", "identity_links",
+        "registered_apps", "registered_users", "creator_opt_outs"]) {
+        expect(tables.some(table => table.name === name)).toBe(true);
+      }
+      const columns = sqlite.query("PRAGMA table_info(canonical_packages)").all() as { name: string }[];
+      expect(columns.some(column => column.name === "published_at")).toBe(true);
+      expect(columns.some(column => column.name === "timestamp_confidence")).toBe(true);
+    } finally { sqlite.close(); }
+  });
+
   async function claimRaceFixture(targets: string[]) {
     const sqlite = new Database(":memory:");
     const db = createMockD1Database(sqlite);
@@ -690,8 +713,8 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       displayName: "Fronted D1 Package"
     });
 
-    await mockDb.exec(`INSERT INTO source_items (source_key, platform, source_url, latest_digest, latest_version_no)
-      VALUES ('booth:https://booth.pm/ja/items/111:111', 'booth', 'https://booth.pm/ja/items/111', 'abc', 1)`);
+    await mockDb.prepare(`INSERT INTO source_items (source_key, platform, source_url, latest_digest, latest_version_no)
+      VALUES ('booth:https://booth.pm/ja/items/111:111', 'booth', 'https://booth.pm/ja/items/111', 'abc', 1)`).run();
 
     const front = await store.upsertPackageFront({
       canonicalId: "d1-pkg-fronted",
