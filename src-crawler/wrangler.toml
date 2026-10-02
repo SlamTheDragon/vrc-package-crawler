@@ -1,4 +1,4 @@
-name = "vrc-coordinator"
+name = "vrcp-coordinator"
 main = "src/worker/worker_entry.ts"
 compatibility_date = "2024-09-30"
 compatibility_flags = ["nodejs_compat"]

@@ -1,21 +1,40 @@
 # Task Tracker: Active Slice Tracking
-
-## Active Milestone: Gate G11 — Root Documentation Cleanup, Context Migration & Downstream Delegate Enablement
-
-### Completed Slices in Gate G11
-1. **`DOC-S1` (Completed)**:
-   - Recovered canonical foundation covenants (CANON-1..6, media proxy policy, bio-token delist, RFC 6648 header standard) into `docs/scratch/IMPLEMENTATION_PLAN.md`.
-   - Purged stale 121 KB `TODO.md` from repository root via `git rm`.
-2. **`DOC-S2` (Completed)**:
-   - Re-anchored `AGENTS.md` to reference live authoritative files and current network topology (Cloudflare D1 coordinator + Dockerized node + `src-package` SDK).
-   - Aligned `tests/preprod_layout.test.ts` to assert the clean root set and minimal scratch footprint. Passes 4/4 tests.
-3. **`DOC-S3` (Completed)**:
-   - Overhauled `DELEGATES.md` with comprehensive downstream developer integration runbook for `vrc-packages-api` (`src-package`), Docker fleet operations, and wire API reference.
-4. **`DOC-S4` (Completed)**:
-   - Overhauled root `README.md` reflecting true repository layout, Docker/Worker architecture, and 333-test baseline.
-   - Patched `LEGAL.md` line references to point to `docs/scratch/IMPLEMENTATION_PLAN.md` and `docs/source/DATABASE_SCHEMAS.md`.
-
-### Verification Status
-- Root layout tests: 4/4 pass (`bun test tests/preprod_layout.test.ts`).
-- Full test baseline: 333/333 pass across 37 test files.
-- TypeScript check: 0 errors across `src-crawler` and `src-package`.
+## Active Milestone: Gate G12 — Wrangler Staging Simulation, Docker Crawler Fleet Provisioning & Multi-Platform Ingestion
+## Active Milestone: Gate G12 — Coordinator Staging Readiness, Universal Package Projection & Legacy Loopback Purge
+### Working Theories & Context
+1. **User Decision Directives**:
+   - **Directive A1**: Provision live crawler node fleet with Docker Compose and launch initial discovery crawl on public VPM listings.
+   - **Directive A2**: Set up automated staging deployment scripts and verification harness using Wrangler local simulation and staging bindings.
+   - **Directive A3**: Defer `src-web/` development for now until node fleet operations are validated.
+   - **Directive A4**: Multi-platform seeds including approved GitHub repository releases and verified storefront listings.
+2. **Architecture & Boundary Guardrails**:
+   - Coordinator runs Cloudflare Worker on D1 or simulated environment with origin-wide pacing clock.
+   - Standalone crawler nodes run in containerized fleets via Docker Compose with automated Watchtower updates.
+   - Multi-platform seed catalog must enforce active source-access profiles and robots preflight before any fetch.
+   - Slices must touch strictly 2–3 files at a time.
+   - Scratch footprint strictly maintained at 3 files (`IMPLEMENTATION_PLAN.md`, `UNMERGED_IMPLEMENTATION_PLAN.md`, `task_tracker.md`).
+### Codebase Deep Audit & Working Theories
+1. **Universal Package Projection Invariant**:
+   - Every crawled item from ANY supported platform (VPM, GitHub, BOOTH, Gumroad, Jinxxy, Sellfy, Payhip) represents a package and must project into `canonical_packages` upon submission.
+   - Platform tags (`vpm_package`, `desktop_tool`, `avatar`, `asset`, `shader`, etc.) and `vpm_id` distinguish VPM packages from non-VPM packages, rather than excluding non-VPM sources from canonical status.
+2. **Coordinator-Initiated Profile Seeding**:
+   - Source-access profiles and initial seed jobs must be initiated and managed strictly by the Coordinator. Crawler nodes never self-authorize or provision profiles.
+3. **Legacy Loopback Purge**:
+   - In Version 0, the Coordinator is Cloudflare Workers backed by D1.
+   - The legacy `LocalCoordinatorStore` (`src/worker/storage/local_sqlite.ts`), local CLI binary `src/worker/main.ts`, and loopback test fixtures are obsolete scaffolding to be purged in preparation for staging.
+4. **Terminology Disambiguation**:
+   - **Crawler Node**: Headless VPS executable (Linux/x64), polls coordinator for job leases, crawls jobs, returns results, never shuts down (resilient to interruptions and coordinator unavailability), logs all activity, configured with coordinator-issued token and ID.
+   - **Coordinator**: Cloudflare Workers with D1, handles node registration, dynamic workforce distribution via capability-encoded tokens, rate limit pacing, report management, seeding, and public/downstream search services.
+   - **Crawler Client**: GUI shell for Windows that bundles Crawler Node within (`src-crawler-client/`, deferred).
+   - **Web Operator Panel & Landing Page**: `src-web/` (deferred, Firebase auth + Cloudflare).
+5. **Pre-Production Real Data Ingestion**:
+   - Pre-production delivery requires a verified live smoke test fetching real public metadata (e.g. VPM template listing and GitHub API repo) under coordinator lease, verifying end-to-end data ingestion.
+### Planned Slices (Awaiting Author Review)
+- `FLEET-S1`: Wrangler Staging Simulation & Automated D1 Verification Harness
+- `FLEET-S2`: Multi-Platform Default Seeds & Initial Fleet Seeding
+- `FLEET-S3`: Docker Fleet Compose Configuration & Node Clustering
+- `FLEET-S4`: End-to-End Fleet Multi-Platform Crawl Simulation
+- `STAGE-S1`: Universal Package Projection & Coordinator-Initiated Seeding
+- `STAGE-S2`: Terminology & Documentation Alignment (Version 0 Disambiguation)
+- `STAGE-S3`: Purge Legacy Loopback Store & Obsolete Server Binary
+- `STAGE-S4`: True Live Data Pre-Production Smoke Test Harness

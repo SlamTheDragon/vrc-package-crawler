@@ -1,2 +1,0 @@
-- reinitialize this sub source code for web only with bare svelte, no svelte kit
-- We'll use Sass, Tailwind, GSAP, and Astro additionally

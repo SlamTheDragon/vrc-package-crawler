@@ -2,7 +2,7 @@
 
 - **Language**: TypeScript
 - **Package Manager**: bun
-- **Add-ons**: prettier, eslint, vitest, tailwindcss, ai-tools, mdsvex
+- **Add-ons**: prettier, eslint, tailwindcss, sveltekit-adapter, ai-tools
 
 ---
 
