@@ -38,3 +38,11 @@
 - `STAGE-S2`: Terminology & Documentation Alignment (Version 0 Disambiguation)
 - `STAGE-S3`: Purge Legacy Loopback Store & Obsolete Server Binary
 - `STAGE-S4`: True Live Data Pre-Production Smoke Test Harness
+
+### Pause checkpoint — 2026-10-03
+
+- Owner requested a pause. No source edits, tests, live crawls, or deployments were performed in this continuation.
+- Read the updated goal attachment, current AGENTS.md, both plan ledgers, this tracker, and repository rules. The current target is Worker/D1 staging and a resilient headless node; the September local-binary plan is superseded.
+- Git HEAD is `069a400` (`config 2`). Existing skill edits, removed `SKILLS.md` files, added skill folders, and `skills-lock.json` belong to the current worktree and were preserved.
+- The ledger reports 333 passing tests, but that baseline was not rerun. G12 rows have blank author-review comments; no proposed slice was implemented.
+- Next on resume: finish the required LEGAL.md read from line 191, trace the current Worker/D1 and node paths, and reconcile the active G12 slice with the updated goal. Keep changes within the 2–3 file constraint.
