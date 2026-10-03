@@ -3,6 +3,19 @@ import { VrcPackagesClient, VrcApiError } from "../src/client.ts";
 import { encodeLeadCursor, decodeLeadCursor } from "../src/protocol/operator.ts";
 
 describe("VrcPackagesClient SDK", () => {
+  it("requires operator auth for initialization and validates responses", async () => {
+    let calls = 0;
+    const fetchFn: typeof fetch = Object.assign(async () => {
+      calls++;
+      return Response.json({ status: "ok", message: "Schema initialized", autoSeed: true });
+    }, { preconnect() {} });
+    const anonymous = new VrcPackagesClient({ baseUrl: "https://worker.example", fetch: fetchFn });
+    await expect(anonymous.operator.init()).rejects.toThrow(VrcApiError);
+    expect(calls).toBe(0);
+    const operator = new VrcPackagesClient({ baseUrl: "https://worker.example", operatorToken: "a".repeat(64), fetch: fetchFn });
+    await expect(operator.operator.init()).rejects.toThrow();
+    expect(calls).toBe(1);
+  });
   const dummyAppToken = "vrcp_app_" + "a".repeat(64);
   const dummyUserToken = "vrcp_usr_" + "b".repeat(64);
 

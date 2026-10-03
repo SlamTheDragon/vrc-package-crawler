@@ -4,6 +4,34 @@ import { CatalogPackageSchema, type CatalogPackage } from "../types/package.ts";
 
 export const OPERATOR_PROTOCOL_VERSION = 1 as const;
 
+export const InitializeCoordinatorRequestSchema = z.object({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  autoSeed: z.boolean().optional()
+}).strict();
+export type InitializeCoordinatorRequest = z.infer<typeof InitializeCoordinatorRequestSchema>;
+
+export const InitializeCoordinatorResponseSchema = z.object({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  status: z.literal("ok"),
+  message: z.literal("Schema initialized"),
+  autoSeed: z.boolean()
+}).strict();
+export type InitializeCoordinatorResponse = z.infer<typeof InitializeCoordinatorResponseSchema>;
+
+export const EnqueueJobRequestSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  url: z.url().max(4096).refine(value => new URL(value).protocol === "https:", "HTTPS required"),
+  platform: PlatformSchema,
+  purpose: z.enum(["metadata", "discovery"]),
+  minDelayMs: z.number().int().min(0).max(86400000),
+  reason: z.string().trim().min(1).max(300)
+});
+export type EnqueueJobRequest = z.infer<typeof EnqueueJobRequestSchema>;
+export const EnqueueJobResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), jobId: z.uuid()
+});
+export type EnqueueJobResponse = z.infer<typeof EnqueueJobResponseSchema>;
+
 /* -------------------------------------------------------------------------- */
 /* Leads                                                                      */
 /* -------------------------------------------------------------------------- */

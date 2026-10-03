@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { join, sep } from "node:path";
-import { LocalNodeStore } from "../src/node/storage/local_sqlite.ts";
+import { LocalNodeStore } from "../src/storage/local_sqlite.ts";
 import type { CrawlJob, ResultResponse } from "../src/shared/protocol/node_protocol.ts";
-import { getTestOutputDir } from "./helpers/test_directory.ts";
+import { getTestOutputDir } from "../../tests/helpers/test_directory.ts";
 
 const tempRoot = getTestOutputDir();
 function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrc-node-store-")); }

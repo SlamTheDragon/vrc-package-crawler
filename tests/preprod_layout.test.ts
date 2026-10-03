@@ -53,9 +53,43 @@ describe("Pre-production directory layout and configuration conformance", () => 
     expect(raw.platforms).toContain("github");
   });
 
-  test("worker, node, and package SDK implementation entry points exist and are loadable", () => {
-    expect(existsSync(join(rootDir, "src-crawler", "src", "worker", "worker_entry.ts"))).toBe(true);
-    expect(existsSync(join(rootDir, "src-crawler", "src", "node", "main.ts"))).toBe(true);
+  test("worker, node, and package SDK implementation entry points exist", () => {
+    expect(existsSync(join(rootDir, "src-web", "src", "worker", "worker_entry.ts"))).toBe(true);
+    expect(existsSync(join(rootDir, "src-crawler", "src", "worker", "worker_entry.ts"))).toBe(false);
+    expect(existsSync(join(rootDir, "src-crawler", "src", "main.ts"))).toBe(true);
+    expect(existsSync(join(rootDir, "src-crawler", "src", "worker", "main.ts"))).toBe(false);
     expect(existsSync(join(rootDir, "src-package", "src", "index.ts"))).toBe(true);
+  });
+
+  test("runtime implementation and integration tests have separate owners without old forwarding files", () => {
+    expect(existsSync(join(rootDir, "src-crawler/src/node/main.ts"))).toBe(false);
+    expect(existsSync(join(rootDir, "src-crawler/src/node/index.ts"))).toBe(false);
+    for (const path of ["client/node_client.ts", "runner/daemon.ts", "storage/local_sqlite.ts",
+      "adapters/observation_adapter.ts", "config/runtime_config.ts"]) {
+      expect(existsSync(join(rootDir, "src-crawler/src", path))).toBe(true);
+    }
+    for (const file of ["main.ts", "handler.ts", "operator_handler.ts", "index.ts", "local_sqlite.ts",
+      "runtime_config.ts", "robots_refresh_service.ts"]) {
+      expect(existsSync(join(rootDir, "src-web/src/worker", file))).toBe(false);
+    }
+    expect(existsSync(join(rootDir, "src-web/src/worker/storage/local_sqlite.ts"))).toBe(false);
+    expect(existsSync(join(rootDir, "src-web/tests/support/local_sqlite.ts"))).toBe(true);
+    expect(existsSync(join(rootDir, "src-web/tests/worker/d1_coordinator_store.test.ts"))).toBe(true);
+    expect(existsSync(join(rootDir, "tests/integration/node_daemon.test.ts"))).toBe(true);
+    expect(existsSync(join(rootDir, "src-crawler/tests/d1_coordinator_store.test.ts"))).toBe(false);
+    expect(readFileSync(join(rootDir, "src-crawler/src/index.ts"), "utf8")).not.toContain("worker/");
+  });
+
+  test("src-web config serves the API entry with a local-only D1 binding and no static assets", () => {
+    const config = Bun.TOML.parse(readFileSync(join(rootDir, "src-web", "wrangler.toml"), "utf8"));
+    expect(config.main).toBe("src/worker/worker_entry.ts");
+    expect(config.assets).toBeUndefined();
+    expect(config.compatibility_flags).toContain("nodejs_compat");
+    const databases = config.d1_databases as { binding: string; database_id: string; remote?: boolean }[];
+    expect(databases).toHaveLength(1);
+    expect(databases[0].binding).toBe("DB");
+    expect(databases[0].database_id).toBe("722bdd0d-92ca-445b-9319-da0b27adf7b2");
+    expect(databases[0].remote).not.toBe(true);
+    expect(existsSync(join(rootDir, "src-crawler", "wrangler.toml"))).toBe(false);
   });
 });

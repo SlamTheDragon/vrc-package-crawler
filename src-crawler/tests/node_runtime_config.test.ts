@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
-import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/node/config/runtime_config.ts";
-import { coordinatorEndpointAllowed, resolveCoordinatorUrl, isTransientEdgeStatus, CoordinatorClient } from "../src/node/client/coordinator_client.ts";
-import { loadScopedGitHubTokenFromEnvFile } from "../src/node/adapters/observation_adapter.ts";
-import { getTestOutputDir } from "./helpers/test_directory.ts";
+import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/config/runtime_config.ts";
+import { coordinatorEndpointAllowed, resolveCoordinatorUrl, isTransientEdgeStatus, CoordinatorClient } from "../src/client/node_client.ts";
+import { loadScopedGitHubTokenFromEnvFile } from "../src/adapters/observation_adapter.ts";
+import { getTestOutputDir } from "../../tests/helpers/test_directory.ts";
 
 const secret = "c".repeat(64);
 const tempRoot = getTestOutputDir();
@@ -246,4 +246,3 @@ describe("coordinator client transport & edge resilience", () => {
     }
   });
 });
-

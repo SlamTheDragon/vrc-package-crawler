@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 .bun-cache/
+.wrangler/
 
 # Build output (use dist/ for distribution binaries)
 dist/

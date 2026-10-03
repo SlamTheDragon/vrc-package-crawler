@@ -2,8 +2,9 @@
 
 **Target Audience:** Downstream application developers, package managers, community tooling authors, and crawler node operators.  
 **SDK Package:** `vrc-packages-api` (`src-package/`)  
-**Coordinator Architecture:** Cloudflare Worker Edge Coordinator (`src-crawler/src/worker/`) with D1 Storage  
-**Crawler Architecture:** Containerized Leased Crawler Nodes (`src-crawler/src/node/`) with Docker & Watchtower  
+**Coordinator Architecture:** API-only Cloudflare Worker (`src-web/src/worker/`) with D1 storage. Local tests use Wrangler/workerd, not a coordinator binary.
+
+**Crawler Architecture:** Standalone leased crawler node (`src-crawler/src/main.ts`) with functional folders under `src-crawler/src/`. Docker fleet/update checks remain open.
 
 ---
 

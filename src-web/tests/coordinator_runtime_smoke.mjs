@@ -1,19 +1,30 @@
 // Offline-only workerd/D1 smoke. Requires the installed src-web dependencies and Node with TypeScript stripping.
-// Run from any directory after: cd src-crawler; bun run build:worker
+// Run from any directory after: cd src-web; bun run build
 // Then: node src-web/tests/coordinator_runtime_smoke.mjs
 // The fixture module is in memory only. Never deploy it or use remote bindings.
 // Current installed Miniflare 5 alpha needs its supplied option conversion API.
 import { Miniflare, convertV4MiniflareOptions } from '../node_modules/miniflare/dist/src/index.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { unstable_readConfig } from 'wrangler';
 import {
 	ClaimResponseSchema,
 	HeartbeatResponseSchema,
 	ResultResponseSchema
 } from '../../src-crawler/src/shared/protocol/node_protocol.ts';
 import { NodeCredentialResponseSchema } from '../../src-crawler/src/shared/protocol/operator_protocol.ts';
+import { SourceAccessProfileListResponseSchema } from '../../src-crawler/src/shared/policy/source_access_profile.ts';
+import { EnqueueJobResponseSchema } from '../../src-package/src/protocol/operator.ts';
 const operatorToken = randomBytes(32).toString('hex');
+const workerConfig = unstable_readConfig({
+	config: fileURLToPath(new URL('../wrangler.toml', import.meta.url))
+});
+assert.ok(!workerConfig.assets?.directory, 'Runtime smoke requires the API-only Worker');
+assert.equal(workerConfig.d1_databases.length, 1);
+assert.equal(workerConfig.d1_databases[0].binding, 'DB');
+assert.notEqual(workerConfig.d1_databases[0].remote, true, 'Remote bindings are forbidden');
 let externalFetches = 0;
 const runtime = new Miniflare(
 	convertV4MiniflareOptions({
@@ -31,13 +42,13 @@ const runtime = new Miniflare(
 						type: 'ESModule',
 						path: 'coordinator.mjs',
 						contents: readFileSync(
-							new URL('../../src-crawler/dist/worker/worker_entry.js', import.meta.url),
+							new URL('../.wrangler/api-build/worker_entry.js', import.meta.url),
 							'utf8'
 						)
 					}
 				],
-				compatibilityDate: '2024-09-30',
-				compatibilityFlags: ['nodejs_compat'],
+				compatibilityDate: workerConfig.compatibility_date,
+				compatibilityFlags: workerConfig.compatibility_flags,
 				d1Databases: { DB: randomUUID() },
 				bindings: { OPERATOR_TOKEN: operatorToken },
 				outboundService: () => {
@@ -61,7 +72,19 @@ try {
 		console.log(JSON.stringify({ step: path, status: response.status }));
 		return body;
 	};
-	await post('/v1/operator/init', { autoSeed: false }, operatorToken);
+  await post('/v1/operator/init', { schemaVersion: 1, autoSeed: true }, operatorToken);
+  const seedInput = { schemaVersion: 1, url: 'https://native-seed.example/index.json',
+    platform: 'vpm', purpose: 'metadata', minDelayMs: 1000, reason: 'Offline native enqueue fixture' };
+  const seeded = EnqueueJobResponseSchema.parse(await post('/v1/operator/jobs', seedInput, operatorToken));
+  const repeated = EnqueueJobResponseSchema.parse(await post('/v1/operator/jobs', seedInput, operatorToken));
+  assert.equal(seeded.jobId, repeated.jobId);
+  console.log(JSON.stringify({ check: 'native_operator_enqueue_idempotent', passed: true }));
+	const profileList = await runtime.dispatchFetch('https://offline.test/v1/operator/source-profiles', {
+		headers: { authorization: 'Bearer ' + operatorToken },
+		signal: AbortSignal.timeout(15_000)
+	});
+	assert.equal(profileList.status, 200);
+	assert.equal(SourceAccessProfileListResponseSchema.parse(await profileList.json()).profiles.length, 0);
 	const nodes = [];
 	for (const nodeId of ['runtime-race-a', 'runtime-race-b']) {
 		nodes.push(
@@ -79,6 +102,13 @@ try {
 			)
 		);
 	}
+	for (const node of nodes) {
+		const empty = ClaimResponseSchema.parse(await post('/v1/node/jobs/claim', {
+			schemaVersion: 1, nodeId: node.nodeId, capabilities: ['vpm']
+		}, node.token));
+		assert.equal(empty.status, 'empty', 'Bootstrap candidates must not authorize fetching');
+	}
+	console.log(JSON.stringify({ check: 'bootstrap_candidates_require_separate_access', passed: true }));
 	await post(
 		'/v1/operator/source-profiles',
 		{

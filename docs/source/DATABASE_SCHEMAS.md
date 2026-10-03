@@ -2,8 +2,8 @@
 
 > **Document Status:** Candidate Source — v0 Pre-Production Architecture  
 > **Last Updated:** 2026-10-01  
-> **Target Subsystems:** Coordinator Storage (`coordinator.db` / Cloudflare D1) · Node Storage (`node_state.db`) · Activity Logging  
-> **Code Source:** `src-crawler/src/worker/storage/` · `src-crawler/src/node/storage/` · `src-crawler/src/shared/protocol/`
+> **Target Subsystems:** Coordinator storage (Cloudflare D1, including local workerd D1) · Node storage (`node.db` by default) · Activity logging
+> **Code Source:** `src-web/src/worker/storage/d1/` · `src-crawler/src/storage/` · `src-crawler/src/shared/protocol/`
 
 ---
 
@@ -13,7 +13,7 @@ The system maintains a strict physical and logical boundary between the central 
 
 1. **Coordinator Storage (`coordinator.db` / Cloudflare D1):**
    - The authoritative source of truth for workforce credentials, origin rate limits, robots caches, discovery leads, source versions, and the canonical catalog graph.
-   - Deployed locally as SQLite WAL mode (`dist/local-coordinator/coordinator.db`), designed for 1:1 portability with Cloudflare D1 SQL.
+   - The local Worker uses D1 through Wrangler/workerd. `src-web/tests/support/local_sqlite.ts` is a test comparator, not a coordinator service.
 2. **Crawler Node Local Storage (`node_state.db`):**
    - Node-local SQLite WAL database tracking local execution runs, in-flight task journals, and failure diagnostics.
    - Fully isolated: nodes have **no direct connection** to the coordinator database. Communication occurs exclusively over validated HTTP wire protocols.
@@ -256,6 +256,20 @@ CREATE TABLE crawl_jobs (
 );
 CREATE INDEX idx_crawl_jobs_ready ON crawl_jobs(state, next_fetch_at, platform);
 CREATE INDEX idx_crawl_jobs_origin_due ON crawl_jobs(origin, next_fetch_at, state);
+```
+
+#### `job_seed_actions` (implemented locally, 2026-10-03)
+
+Manual operator enqueue writes this record in the same transaction as queue and pacing changes. Failed actions do not create success records. Matching repeated requests record separate operator actions without resetting job state. This record does not authorize source access.
+
+```sql
+CREATE TABLE job_seed_actions (
+  action_id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL REFERENCES crawl_jobs(job_id),
+  actor TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  occurred_at TEXT NOT NULL
+);
 ```
 
 #### `job_results`

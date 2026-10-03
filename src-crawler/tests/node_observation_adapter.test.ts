@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseGitHubRepository, parseObservation, parseVpmListingRecipe, parseVpmRepository, parseCuratedDiscoveryLeads, fetchJobOutcome } from "../src/node/adapters/observation_adapter.ts";
+import { parseGitHubRepository, parseObservation, parseVpmListingRecipe, parseVpmRepository, parseCuratedDiscoveryLeads, fetchJobOutcome } from "../src/adapters/observation_adapter.ts";
 import { CrawlJobSchema, ResultRequestSchema } from "../src/shared/protocol/node_protocol.ts";
 import { CRAWLER_USER_AGENT, CRAWLER_ROBOTS_TOKEN } from "../src/shared/robots/crawler_identity.ts";
 

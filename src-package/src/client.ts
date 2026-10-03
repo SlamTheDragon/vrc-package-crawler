@@ -32,6 +32,11 @@ import {
 } from "./protocol/user.ts";
 import {
   type LeadStatus,
+  EnqueueJobRequestSchema, EnqueueJobResponseSchema,
+  type EnqueueJobRequest, type EnqueueJobResponse,
+  InitializeCoordinatorRequestSchema,
+  InitializeCoordinatorResponseSchema,
+  type InitializeCoordinatorResponse,
   type LeadListResponse,
   LeadListResponseSchema,
   type LeadActionResponse,
@@ -355,6 +360,20 @@ export class VrcPackagesClient {
   /* ------------------------------------------------------------------------ */
 
   readonly operator = {
+    jobs: {
+      /** Record a crawl candidate. Existing jobs keep their state and lease. */
+      enqueue: async (request: EnqueueJobRequest): Promise<EnqueueJobResponse> => {
+        const body = EnqueueJobRequestSchema.parse(request);
+        const response = await this.request<unknown>("/v1/operator/jobs", "POST", { auth: "operator", body });
+        return EnqueueJobResponseSchema.parse(response);
+      }
+    },
+    /** Initialize storage and optionally queue candidates, without granting source access. */
+    init: async (params: { autoSeed?: boolean } = {}): Promise<InitializeCoordinatorResponse> => {
+      const body = InitializeCoordinatorRequestSchema.parse({ schemaVersion: 1, ...params });
+      const response = await this.request<unknown>("/v1/operator/init", "POST", { auth: "operator", body });
+      return InitializeCoordinatorResponseSchema.parse(response);
+    },
     leads: {
       /**
        * Lists pending, approved, or rejected discovery leads (GET /v1/operator/leads).

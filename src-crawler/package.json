@@ -8,13 +8,11 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "coordinator": "bun run src/worker/main.ts",
-    "node": "bun run src/node/main.ts",
-    "build": "bun run build:node && bun run build:worker",
-    "build:node": "bun build --compile --outfile=dist/local-node/vrc-node.exe src/node/main.ts",
-    "build:worker": "bun build --target=browser --outdir=dist/worker src/worker/handler.ts src/worker/operator_handler.ts src/worker/worker_entry.ts",
+    "node": "bun run src/main.ts",
+    "build": "bun run build:node",
+    "build:node": "bun build --compile --outfile=dist/local-node/vrc-node.exe src/main.ts",
     "build:linux": "bun run build:node:linux",
-    "build:node:linux": "bun build --compile --target=bun-linux-x64 --outfile=dist/local-node/vrc-node-linux src/node/main.ts",
+    "build:node:linux": "bun build --compile --target=bun-linux-x64 --outfile=dist/local-node/vrc-node-linux src/main.ts",
     "test": "bun test",
     "check:docs": "bun run ../.agents/scripts/check_doc_links.ts"
   },

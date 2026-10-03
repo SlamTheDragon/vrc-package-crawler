@@ -3,7 +3,7 @@ import { Logger } from "../src/utils/logging/logger.ts";
 import path from "path";
 import fs from "fs";
 
-import { getTestOutputDir } from "./helpers/test_directory.ts";
+import { getTestOutputDir } from "../../tests/helpers/test_directory.ts";
 
 describe("Phase 2 - Task 2.5: Implement Unified latest.log with Daily/Shutdown Archiving", () => {
   const testDir = path.join(getTestOutputDir(), `test_log_rotation_${Date.now()}`);

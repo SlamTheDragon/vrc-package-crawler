@@ -2,7 +2,7 @@
 
 > **Document Status:** Post-Production Candidate Specification  
 > **Target Subsystem:** Headless Crawler Node Daemon (`src-crawler`) and Desktop GUI Crawler Client (`src-crawler-client`)  
-> **Source Directory:** `src-crawler/src/node/` and `src-crawler-client/`
+> **Source Directory:** `src-crawler/src/` (entry `main.ts`, functional subfolders) and `src-crawler-client/`
 
 ---
 
@@ -17,9 +17,9 @@ This specification distinguishes between two operational deployment models:
   - Accepts jobs leased by the coordinator matching its capability profile.
   - Crawls assigned jobs under strict origin pacing, pinned DNS, and robots adherence.
   - Sends execution results to coordinator: success (normalized facts), rate limit (429 backoff), or failure (diagnostics).
-  - **Zero-Downtime Resilience**: Designed to never shut down; resilient against dataloss, network interruptions, or coordinator unavailability (failing closed without generating uncoordinated traffic spikes).
+  - **Recovery Boundary:** The daemon retries coordinator failures and stops unauthorized fetches. Task logs exist, but a durable result outbox does not. Restart-safe submission remains incomplete.
   - **Comprehensive Structured Logging**: All activities, actions, and crawled websites are systematically recorded to local logs (`logs/`).
-  - Configured via `node.config.json` with node ID and capability-encoded secret token provided by the coordinator.
+  - `node.config.json` contains the node ID and selected capabilities. The coordinator issues the secret token. Supply it separately through `NODE_TOKEN`.
   - Emits local telemetry to `node.db` (`node_runs`, `node_tasks`).
 
 ### 1.2 Crawler Client (`src-crawler-client`)
@@ -34,7 +34,7 @@ This specification distinguishes between two operational deployment models:
 ```mermaid
 sequenceDiagram
     participant Node as Crawler Node (vrc-node)
-    participant Coord as Coordinator (vrc-coordinator)
+    participant Coord as Coordinator (Cloudflare Worker API)
     participant Origin as Target Storefront / Manifest
 
     Node->>Coord: POST /v1/node/jobs/claim (nodeId, capabilities)
@@ -58,7 +58,7 @@ sequenceDiagram
    - A timer renews the active lease every 5 seconds.
    - If the coordinator becomes unreachable, the node aborts in-flight processing and fails closed.
 3. **Observation Parsing**:
-   - The node parses outbound responses in memory with `src-crawler/src/node/adapters/observation_adapter.ts`.
+   - The node parses outbound responses in memory with `src-crawler/src/adapters/observation_adapter.ts`.
    - The node never downloads or stores binary archives (`.unitypackage`, `.zip`, `.fbx`).
    - It limits description length to functional metadata summaries.
 4. **Result Submission (`POST /v1/node/jobs/result`)**:

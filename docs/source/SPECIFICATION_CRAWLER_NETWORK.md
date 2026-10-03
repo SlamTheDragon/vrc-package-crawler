@@ -2,15 +2,19 @@
 
 > **Document Status:** Post-Production Candidate Specification  
 > **Target Subsystem:** Coordinator, Ingestion Gateway, and Cloudflare Worker Infrastructure  
-> **Source Directory:** `src-crawler/src/worker/` and `src-crawler/src/shared/`
+> **Source Directory:** `src-web/src/worker/` and `src-crawler/src/shared/`
 
 ---
 
 ## 1. Overview and Architectural Role
 
 The **Crawler Network** (coordinator) orchestrates decentralized discovery, workforce distribution, and canonical catalog compilation for the VRChat package ecosystem:
-1. **Pre-Production Local Simulation:** Runs locally as `dist/local-coordinator/vrc-coordinator.exe`. It listens on loopback HTTP (default `127.0.0.1:3737`), reads `coordinator.config.json`, and stores state in `coordinator.db`.
-2. **Production Deployment:** Deploys as Cloudflare Workers backed by D1/R2 once the local simulation is proven to match edge semantics identically.
+1. **Local Worker:** `src-web` runs the API entry through `bun run dev` (Wrangler local mode). It uses local D1. There is no coordinator binary.
+2. **Worker Target:** `src-web/src/worker/worker_entry.ts` serves API routes with a D1 binding named `DB`. The current configuration declares no static assets or R2 binding. A dry-run build does not prove remote deployment.
+
+`src-web/tests/support/` contains the SQLite comparator and prototype test helpers. They are not production Worker dependencies. Native runtime smoke uses isolated D1 and blocks external requests.
+
+`POST /v1/operator/init` can queue candidate jobs through `autoSeed`. It does not create source-access profiles or robots snapshots. All drivers remain available. Reinitialization preserves existing grants, restrictions, active leases and suppressed targets. Earlier bootstrap-created grants require review before an existing-database live run. Placeholder candidate selection remains unresolved.
 
 The Coordinator is the central authority responsible for:
 - **Crawler Node & Client Registration**: Provisioning node credentials and evaluating registrant capacity.
@@ -27,7 +31,7 @@ The Coordinator is the central authority responsible for:
 
 ## 2. Protocol Boundaries and Endpoints
 
-Authoritative route definitions and Zod schemas are defined in [`API_ROUTES.md`](API_ROUTES.md) and [`src-crawler/src/shared/protocol/`](../../src-crawler/src/shared/protocol/). Database schemas are specified in [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md).
+The route draft is [`API_ROUTES.md`](API_ROUTES.md). Runtime schemas live in [`src-crawler/src/shared/protocol/`](../../src-crawler/src/shared/protocol/). Handlers define executable routes. [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md) describes storage.
 
 ### 2.1 Crawler Node Protocol (`/v1/node/*`)
 Requires `Authorization: Bearer <NODE_TOKEN>` (`vrcp_<64-hex><4-hex>`). The 4-hex suffix encodes the node's assigned capability bitmask.
@@ -79,4 +83,4 @@ Public read for catalog index and delta streaming; `Authorization: Bearer <APP_T
 
 ## 4. Coordinator Storage Schema (`coordinator.db` / D1)
 
-The coordinator stores relational state in SQLite WAL mode locally and Cloudflare D1 in production. For detailed DDL table definitions, indexes, foreign keys, and ER diagrams, see [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md).
+The Worker stores coordinator state through D1 in local workerd tests and the deployment target. The SQLite comparator is test-only. See [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md) for the schema draft.

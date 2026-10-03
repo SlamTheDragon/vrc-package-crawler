@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { CRAWLER_USER_AGENT } from "../src/shared/robots/crawler_identity.ts";
 import { MAX_ROBOTS_BYTES } from "../src/shared/robots/robots_snapshot.ts";
 import { retrieveRobotsSnapshot, type RobotsFetcher } from "../src/shared/robots/robots_retrieval.ts";
-import { fetchPublicMetadata } from "../src/node/client/public_metadata_fetch.ts";
+import { fetchPublicMetadata } from "../src/client/public_metadata_fetch.ts";
 
 describe("coordinator robots retrieval", () => {
   test("follows five HTTPS redirects across hosts and keeps the initial origin", async () => {

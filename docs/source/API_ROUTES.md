@@ -2,7 +2,7 @@
 
 > **Document Status:** Candidate Source — v0 Pre-Production Architecture  
 > **Last Updated:** 2026-10-01  
-> **Target Subsystems:** `src-crawler` (Coordinator & Worker) · `src-package` (`vrc-packages-api` SDK)  
+> **Target Subsystems:** `src-web` (API Worker coordinator) · `src-crawler` (node) · `src-package` (`vrc-packages-api` SDK)
 > **Status Legend:** ✅ Implemented · 🔲 Planned · ⚠️ In Transition · ⏸️ On Hold / Redefining
 
 ---
@@ -25,10 +25,35 @@ The system operates across four discrete principal boundaries. Tokens must never
 
 ## 2. API Routes
 
+### Storage initialization (implemented locally, 2026-10-03)
+
+`POST /v1/operator/init` requires the configured operator bearer token and an `application/json` body. The strict request is `{ "schemaVersion": 1, "autoSeed": true }`. `autoSeed` is optional and defaults to true. Unknown fields, other versions and nonboolean values return 400. Malformed JSON returns 400, unsupported media returns 415, and bodies above 256 KiB return 413. These failures occur before database operations.
+
+Success returns `{ "schemaVersion": 1, "status": "ok", "message": "Schema initialized", "autoSeed": true }`, with the actual seed choice. Responses disable caching. The SDK exposes `client.operator.init({ autoSeed })` and checks the response schema. Seeding queues candidates only. It creates no source-access approval or robots evidence. Existing stored grants remain unchanged and require review before live use.
+
+### Manual job enqueue (implemented locally, 2026-10-03)
+
+`POST /v1/operator/jobs` requires operator authentication. The SDK exposes `client.operator.jobs.enqueue(request)`.
+
+```json
+{
+  "schemaVersion": 1,
+  "url": "https://publisher.example/index.json",
+  "platform": "vpm",
+  "purpose": "metadata",
+  "minDelayMs": 1000,
+  "reason": "Reviewed discovery candidate"
+}
+```
+
+The strict request requires all six fields. URL length is at most 4096 characters. Delay is an integer from 0 through 86400000 milliseconds. The trimmed reason contains 1 through 300 characters. Existing target restrictions still apply. Unknown fields and invalid types return 400. Unsafe targets, suppression and conflicting platform/purpose return 409. Authentication failure returns 401. Bounded JSON parsing returns 400, 413 or 415 as for initialization.
+
+Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and no-store caching. Matching repeats return the existing ID. They preserve its state, lease and next-fetch time, but can increase origin pacing. Each successful operator action writes a job audit record in the same storage transaction. Audit failure rolls back the queue and pacing writes. No source profile, robots snapshot or publication permission comes from enqueue. This route is not a force-refresh control.
+
 ### §2.1 Crawler Node Protocol (`/v1/node/*`)
 
 **Auth:** `Authorization: Bearer <NODE_TOKEN>` (`vrcp_<64-hex><4-hex>`)  
-**Handler:** `src-crawler/src/worker/api/handler.ts` · **Schema:** `node_protocol.ts`
+**Handler:** `src-web/src/worker/api/handler.ts` · **Schema:** `node_protocol.ts`
 
 | Method | Path | Status | Description | Request Payload | Response (2xx) |
 |---|---|:---:|---|---|---|
@@ -41,7 +66,7 @@ The system operates across four discrete principal boundaries. Tokens must never
 ### §2.2 Admin Operator Protocol (`/v1/operator/*`)
 
 **Auth:** `Authorization: Bearer <COORDINATOR_OPERATOR_TOKEN>` (Constant-time secret comparison)  
-**Handler:** `src-crawler/src/worker/api/operator_handler.ts` · **Schema:** `operator_protocol.ts`
+**Handler:** `src-web/src/worker/api/operator_handler.ts` · **Schema:** `operator_protocol.ts`
 
 | Method | Path | Status | Description | Request / Query | Response (2xx) |
 |---|---|:---:|---|---|---|
@@ -71,7 +96,7 @@ The system operates across four discrete principal boundaries. Tokens must never
 | `POST` | `/v1/user/nodes` | `vrcp_usr_` | ✅ | Provisions a capability-encoded node token for a VPS or Crawler Client. | `{ schemaVersion: 1, nodeId, requestedCapabilities[]?, reason? }` | `201` `{ nodeId, capabilities[], token: "vrcp_<64><4>" }` |
 | `POST` | `/v1/user/apps` | `vrcp_usr_` | ✅ | Registers a downstream application under this user's account. | `{ schemaVersion: 1, appName, contactEmail?, description? }` | `201` `{ appId, appName, appToken: "vrcp_app_<64>", permissions[] }` |
 | `POST` | `/v1/user/delist` | Optional (`vrcp_usr_` or None) | ✅ | Unified delisting route. Authenticated users delist on their own behalf (auth is proof). Unauthenticated creators require `proofKind` (`dns_txt` \| `storefront_bio_token`). | `{ schemaVersion: 1, targetUrl?, canonicalId?, reason, contactEmail?, proofKind?, proofValue? }` | `202` `{ status: "accepted", takedownId, target, action: "delisted", requesterType, recordedAt }` |
-| `GET` | `/v1/user/me` | `vrcp_usr_` | 🔲 | Returns current user profile, active nodes, registered apps, and takedown records. | None | `200` `{ userId, email, nodes[], apps[], takedowns[] }` |
+| `GET` | `/v1/user` | `vrcp_usr_` | 🔲 | Returns current user profile, active nodes, registered apps, and takedown records. | None | `200` `{ userId, email, nodes[], apps[], takedowns[] }` |
 | `DELETE` | `/v1/user/nodes/{nodeId}` | `vrcp_usr_` | 🔲 | Revokes a node credential owned by this user. | None | `200` `{ status: "revoked" }` |
 | `DELETE` | `/v1/user/apps/{appId}` | `vrcp_usr_` | 🔲 | Revokes an application credential owned by this user. | None | `200` `{ status: "revoked" }` |
 
@@ -116,7 +141,7 @@ The system operates across four discrete principal boundaries. Tokens must never
 | `POST /v1/user/nodes` | — | ✅ | — | — | — |
 | `POST /v1/user/apps` | — | ✅ | — | — | — |
 | `POST /v1/user/delist` | — | ✅ | — | — | ✅ (proof-gated) |
-| `GET /v1/user/me` 🔲 | — | ✅ | — | — | — |
+| `GET /v1/user 🔲 | — | ✅ | — | — | — |
 | `DELETE /v1/user/nodes/{id}` 🔲 | — | ✅ | — | — | — |
 | `DELETE /v1/user/apps/{id}` 🔲 | — | ✅ | — | — | — |
 | `POST /v1/app/register` | ✅ | ✅ | — | — | — |
@@ -133,7 +158,7 @@ The system operates across four discrete principal boundaries. Tokens must never
 ### 4.1 Why Plaintext Tokens Are Never Exposed to Admin Operators
 
 In traditional architectures, admin panels often allow viewing or re-copying API keys. In this system:
-1. **Zero-Knowledge Token Persistence:** All credentials (`node`, `app`, `registrant`) are hashed with SHA-256 upon issuance. The database stores `token_hash`, not the token.
+1. **Zero-Knowledge Token Persistence:** All credentials (`node`, `app`, `user`) are hashed with SHA-256 upon issuance. The database stores `token_hash`, not the token.
 2. **Role Separation:** An Admin Operator manages infrastructure (routes, rate limits, rules, storage). Node provisioning belongs to the **User/Registrant** tier.
 3. **Anti-Leak Invariant:** Tokens are emitted strictly once in the creation response (`no-store` HTTP headers). If lost, the token must be revoked and re-issued.
 
