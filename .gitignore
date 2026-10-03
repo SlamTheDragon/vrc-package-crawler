@@ -46,3 +46,4 @@ archive/
 # Generated output data
 out/
 test_*.db
+*.lock
