@@ -1,50 +1,23 @@
 {
-	"name": "src-web",
-	"private": true,
-	"version": "0.0.1",
-	"type": "module",
-	"scripts": {
-		"dev": "wrangler dev --local",
-		"build": "wrangler types --check && wrangler deploy --dry-run --outdir .wrangler/api-build --autoconfig=false",
-		"preview": "wrangler dev --local --port 4173",
-		"prepare": "svelte-kit sync || echo ''",
-		"check": "wrangler types --check && tsc --noEmit --project tsconfig.worker.json",
-		"check:watch": "tsc --noEmit --project tsconfig.worker.json --watch",
-		"test:runtime": "node tests/coordinator_runtime_smoke.mjs",
-		"test": "bun test tests/worker tests/integration",
-		"lint": "prettier --check . && eslint .",
-		"format": "prettier --write .",
-		"gen": "wrangler types"
-	},
-	"dependencies": {
-		"@trybyte/robotstxt-parser": "2.0.0",
-		"zod": "^4.6.5"
-	},
-	"devDependencies": {
-		"@eslint/js": "^10.0.1",
-		"@sveltejs/adapter-cloudflare": "^8.0.0",
-		"@sveltejs/kit": "^3.0.0",
-		"@sveltejs/vite-plugin-svelte": "^7.2.0",
-		"@tailwindcss/typography": "^0.5.19",
-		"@tailwindcss/vite": "^4.3.0",
-		"@types/node": "^24",
-		"eslint": "^10.4.1",
-		"eslint-config-prettier": "^10.1.8",
-		"eslint-plugin-svelte": "^3.19.0",
-		"globals": "^17.6.0",
-		"prettier": "^3.8.3",
-		"prettier-plugin-svelte": "^4.1.0",
-		"prettier-plugin-tailwindcss": "^0.8.0",
-		"svelte": "^5.56.7",
-		"svelte-check": "^4.6.0",
-		"tailwindcss": "^4.3.0",
-		"typescript": "^6.0.3",
-		"typescript-eslint": "^8.60.1",
-		"vite": "^8.3.0",
-		"wrangler": "^4.97.0"
-	},
-	"imports": {
-		"#lib": "./src/lib/index.js",
-		"#lib/*": "./src/lib/*"
-	}
+  "name": "src-web",
+  "type": "module",
+  "version": "0.0.1",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/svelte": "^9.0.1",
+    "astro": "^7.3.5",
+    "svelte": "^5.57.1",
+    "typescript": "^6.0.3"
+  },
+  "allowScripts": {
+    "esbuild": true
+  }
 }

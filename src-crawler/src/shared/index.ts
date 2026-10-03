@@ -14,6 +14,4 @@ export * from "./robots/crawler_identity.ts";
 export * from "./robots/robots_retrieval.ts";
 export * from "./robots/robots_snapshot.ts";
 
-export * from "./taxonomy/taxonomy.ts";
-export * from "./taxonomy/avatar_compatibility.ts";
 export * from "./taxonomy/vpm_version.ts";

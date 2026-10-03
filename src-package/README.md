@@ -2,6 +2,8 @@
 
 This package supplies the consumer SDK and schemas for operator, user and application APIs. It does not supply a crawler node or job runner.
 
+The taxonomy subpath exposes the three umbrella values: tools, assets and avatars. It does not supply an indexed tag vocabulary or coordinator-internal evidence schemas. VPM version validation belongs to the crawler. Coordinator-owned tags and classification profiles remain under development.
+
 The distribution contains ESM JavaScript and TypeScript declarations. It does not require TypeScript source execution, Bun or another monorepo folder at runtime. Supported imports:
 
 - `vrc-packages-api`

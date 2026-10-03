@@ -44,7 +44,7 @@ const runtime = new Miniflare(convertV4MiniflareOptions({ workers: [{
 try {
   const response = await runtime.dispatchFetch('https://packed-sdk.test');
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { platform: 'vpm', versionValid: true, tokenValid: true,
+  assert.deepEqual(await response.json(), { platform: 'vpm', umbrella: 'tools', tokenValid: true,
     clientReady: true, reason: 'Packed Worker fixture' });
   assert.equal(externalFetches, 0);
 } finally { await runtime.dispose(); }

@@ -5,7 +5,8 @@ import { RevokeNodeRequestSchema, LeadCursorSchema, encodeLeadCursor, decodeLead
   NodeCredentialResponseSchema } from 'vrc-packages-api/protocol';
 import { ReportSubmissionRequestSchema } from 'vrc-packages-api/protocol';
 import { CatalogPackageSchema } from 'vrc-packages-api/types';
-import { isVpmVersion } from 'vrc-packages-api/taxonomy';
+import * as taxonomy from 'vrc-packages-api/taxonomy';
+import * as sdkExports from 'vrc-packages-api';
 import { formatAppToken, isAppToken } from 'vrc-packages-api/auth';
 
 assert.equal(PlatformSchema.parse('vpm'), 'vpm');
@@ -33,7 +34,13 @@ await assert.rejects(anonymousRegistration.app.register({ schemaVersion: 1, appN
 assert.equal(anonymousRegistrationCalls, 0);
 assert.equal(RevokeNodeRequestSchema.parse({ schemaVersion: 1, reason: 'Packed fixture' }).reason, 'Packed fixture');
 assert.equal(typeof CatalogPackageSchema.parse, 'function');
-assert.equal(isVpmVersion('1.2.3'), true);
+assert.equal(taxonomy.UmbrellaSchema.parse('tools'), 'tools');
+assert.deepEqual(Object.keys(taxonomy), ['UmbrellaSchema']);
+for (const name of ['isVpmVersion', 'compareVpmVersions', 'cleanVpmVersion',
+  'DesktopToolSubtypeSchema', 'DesktopToolEvidenceSchema', 'AvatarCompatibilitySchema']) {
+  assert.equal(name in taxonomy, false);
+  assert.equal(name in sdkExports, false);
+}
 assert.equal(isAppToken(formatAppToken('0'.repeat(64))), true);
 const cursor = { status: 'pending_review', firstSeenAt: '2026-10-01T12:00:00.000Z', leadKey: 'a'.repeat(64) };
 assert.deepEqual(decodeLeadCursor(encodeLeadCursor(cursor), 'pending_review'), cursor);

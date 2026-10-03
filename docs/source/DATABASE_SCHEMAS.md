@@ -57,7 +57,7 @@ erDiagram
 ## 3. Coordinator Database Schema (`coordinator.db` / D1)
 
 ### 3.1 Authentication, Principals & Workforce Distribution
-
+<!-- FIXME: use registered_users and propagate changes across codebase -->
 #### `registered_registrants`
 Stores verified user identities provisioned by the Web Operator Panel (Firebase Auth).
 ```sql

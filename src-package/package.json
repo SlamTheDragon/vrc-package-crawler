@@ -22,12 +22,10 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "semver": "^7.8.5",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/semver": "^7.7.1",
     "miniflare": "5.20261001.0-alpha",
     "wrangler": "4.147.0",
     "typescript": "^7.0.2"
