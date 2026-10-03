@@ -5,6 +5,8 @@ import { DOWNSTREAM_PROTOCOL_VERSION } from "vrc-packages-api";
  * Consumer-facing schemas are re-exported from shared package SDK (vrc-packages-api).
  */
 export {
+  UserAppSchema, UserAppListQuerySchema, UserAppListResponseSchema, UserAppResponseSchema,
+  type UserApp, type UserAppListQuery, type UserAppListResponse, type UserAppResponse,
   DOWNSTREAM_PROTOCOL_VERSION,
   RegisterAppRequestSchema,
   type RegisterAppRequest,
@@ -28,8 +30,6 @@ export {
   type CatalogSearchRequest,
   CatalogSearchResponseSchema,
   type CatalogSearchResponse,
-  CatalogRandomResponseSchema,
-  type CatalogRandomResponse,
   ConsolidatedReportTypeSchema,
   type ConsolidatedReportType,
   DemandSignalKindSchema,
@@ -39,10 +39,5 @@ export {
   ReportSubmissionRequestSchema,
   type ReportSubmissionRequest,
   ReportSubmissionResponseSchema,
-  type ReportSubmissionResponse,
-  RegisterNodeRequestSchema,
-  type RegisterNodeRequest,
-  RegisterNodeResponseSchema,
-  type RegisterNodeResponse
+  type ReportSubmissionResponse
 } from "vrc-packages-api";
-

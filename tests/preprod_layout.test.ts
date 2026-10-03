@@ -75,7 +75,7 @@ describe("Pre-production directory layout and configuration conformance", () => 
     expect(existsSync(join(rootDir, "src-web/src/worker/storage/local_sqlite.ts"))).toBe(false);
     expect(existsSync(join(rootDir, "src-web/tests/support/local_sqlite.ts"))).toBe(true);
     expect(existsSync(join(rootDir, "src-web/tests/worker/d1_coordinator_store.test.ts"))).toBe(true);
-    expect(existsSync(join(rootDir, "tests/integration/node_daemon.test.ts"))).toBe(true);
+    expect(existsSync(join(rootDir, "src-web/tests/integration/node_daemon.test.ts"))).toBe(true);
     expect(existsSync(join(rootDir, "src-crawler/tests/d1_coordinator_store.test.ts"))).toBe(false);
     expect(readFileSync(join(rootDir, "src-crawler/src/index.ts"), "utf8")).not.toContain("worker/");
   });

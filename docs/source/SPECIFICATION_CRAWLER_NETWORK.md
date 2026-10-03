@@ -77,7 +77,9 @@ Public read for catalog index and delta streaming; `Authorization: Bearer <APP_T
    - Each candidate URL needs an explicit, active, scoped `SourceAccessProfile` before robots preflight and before lease claim.
    - Unknown domains, unvetted paths, and exploratory auto-queue leads stay in a `'pending'` state until operator approval.
 4. **RFC 9309 Robots Compliance**:
-   - The coordinator manages centralized robots snapshots with 24-hour TTLs. It obeys `Disallow` rules with DNS pinning and redirect checks.
+   - The coordinator checks stored robots rules before node claim, active-fetch heartbeat and submission. Successful or missing-file snapshots expire after 24 hours. Error snapshots expire after one hour.
+   - D1 refresh reservations share origin exclusion and pacing with node jobs. Completion requires current refresh ownership and an active scoped source profile. Production refresh transport and scheduling are not wired.
+   - Node metadata transport pins a checked DNS answer. This does not prove Worker DNS pinning. The shared robots parser delegates safe transport to its caller.
 
 ---
 

@@ -1,5 +1,6 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { EnqueueJobRequestSchema, type EnqueueJobRequest } from "../../../src-package/src/protocol/operator.ts";
+import { RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeRequest } from "../../../src-package/src/protocol/operator.ts";
 import crypto from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { isIP } from "node:net";
@@ -15,6 +16,10 @@ import { type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor } 
 import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../../src-crawler/src/shared/protocol/capability_token.ts";
 import {
   RegisterAppRequestSchema,
+  UserAppListQuerySchema, UserAppSchema, type UserAppListResponse,
+  ReportSubmissionRequestSchema,
+  type ReportSubmissionRequest,
+  type ReportSubmissionResponse,
   DownstreamFeedbackRequestSchema,
   CatalogSearchRequestSchema,
   DOWNSTREAM_PROTOCOL_VERSION,
@@ -31,7 +36,7 @@ import { isPrivateOrReservedIp } from "../../../src-crawler/src/shared/policy/ip
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
   isShopifyProductSitemapTarget, shopifyProductLead, isSellfyProductTarget } from "../../../src-crawler/src/shared/policy/source_targets.ts";
 import { isItchSearchUrl } from "../../../src-crawler/src/shared/policy/source_path_policy.ts";
-import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, type OriginRobotsSnapshot } from "../../../src-crawler/src/shared/robots/robots_snapshot.ts";
+import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "../../../src-crawler/src/shared/robots/robots_snapshot.ts";
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
 import { CRAWLER_ROBOTS_TOKEN } from "../../../src-crawler/src/shared/robots/crawler_identity.ts";
 import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../../src-crawler/src/shared/taxonomy/taxonomy.ts";
@@ -311,6 +316,13 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         revoked_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_registered_apps_token_hash ON registered_apps(token_hash);
+      CREATE TABLE IF NOT EXISTS catalog_reports (
+        report_id TEXT PRIMARY KEY, app_id TEXT NOT NULL REFERENCES registered_apps(app_id),
+        report_type TEXT NOT NULL CHECK(report_type='removal_request'), payload_json TEXT NOT NULL,
+        review_status TEXT NOT NULL DEFAULT 'pending' CHECK(review_status IN ('pending','accepted','rejected')),
+        recorded_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_catalog_reports_review ON catalog_reports(review_status,recorded_at,report_id);
       CREATE TABLE IF NOT EXISTS downstream_demand_signals (
         signal_id TEXT PRIMARY KEY,
         app_id TEXT NOT NULL,
@@ -335,6 +347,11 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         revoked_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_registered_users_token ON registered_users(token_hash);
+      CREATE TABLE IF NOT EXISTS user_app_ownership (
+        app_id TEXT PRIMARY KEY REFERENCES registered_apps(app_id),
+        user_id TEXT NOT NULL REFERENCES registered_users(user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_app_ownership_user ON user_app_ownership(user_id,app_id);
       CREATE TABLE IF NOT EXISTS creator_opt_outs (
         takedown_id TEXT PRIMARY KEY,
         target_url TEXT,
@@ -466,7 +483,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     OriginRobotsSnapshotSchema.parse({ origin, statusCode: 599, body: "" });
     const nowMs = this.now();
     const now = new Date(nowMs).toISOString();
-    const expires = new Date(nowMs + 45_000).toISOString();
+    const expires = new Date(nowMs + ROBOTS_REFRESH_LEASE_MS).toISOString();
     return this.db.transaction(() => {
       const available = this.db.prepare(`SELECT 1 FROM origin_leases
         WHERE origin=? AND next_allowed_at<=?
@@ -481,7 +498,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   claimDueRobotsRefresh(): { origin: string; leaseId: string } | null {
     const nowMs = this.now();
     const now = new Date(nowMs).toISOString();
-    const expires = new Date(nowMs + 45_000).toISOString();
+    const expires = new Date(nowMs + ROBOTS_REFRESH_LEASE_MS).toISOString();
     return this.db.transaction(() => {
       let afterOrigin = "";
       for (;;) {
@@ -715,9 +732,17 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     }).immediate();
   }
 
-  revokeNode(nodeId: string): void {
-    this.db.prepare("UPDATE node_credentials SET revoked_at = ? WHERE node_id = ?")
-      .run(new Date(this.now()).toISOString(), nodeId);
+  revokeNode(nodeId: string, input: RevokeNodeRequest, actor: string): void {
+    RevokeNodeResponseSchema.shape.nodeId.parse(nodeId);
+    const parsed = RevokeNodeRequestSchema.parse(input);
+    if (!actor.trim() || actor.length > 100) throw new Error("Operator actor required");
+    const now = new Date(this.now()).toISOString();
+    this.db.transaction(() => {
+      const audit = this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
+        SELECT node_id,?,'revoke',?,? FROM node_credentials WHERE node_id=?`).run(actor, parsed.reason, now, nodeId);
+      if (audit.changes !== 1) throw new Error("Node not found");
+      this.db.prepare("UPDATE node_credentials SET revoked_at=COALESCE(revoked_at,?) WHERE node_id=?").run(now, nodeId);
+    }).immediate();
   }
 
   /** Local operator stop switch; queued and leased work is invalidated atomically. */
@@ -2249,19 +2274,51 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     };
   }
 
+  recordRemovalReport(appId: string, input: ReportSubmissionRequest): ReportSubmissionResponse {
+    const parsed = ReportSubmissionRequestSchema.parse(input);
+    if (parsed.reportType !== "removal_request") throw new CoordinatorConflict("Removal report required", 403);
+    const reportId = crypto.randomUUID();
+    const recordedAt = new Date(this.now()).toISOString();
+    const result = this.db.prepare(`INSERT INTO catalog_reports(report_id,app_id,report_type,payload_json,review_status,recorded_at)
+      SELECT ?,app_id,'removal_request',?,'pending',? FROM registered_apps WHERE app_id=? AND revoked_at IS NULL`)
+      .run(reportId, JSON.stringify(parsed), recordedAt, appId);
+    if (result.changes !== 1) throw new CoordinatorConflict("Invalid application credential", 403);
+    return { schemaVersion: 1, status: "accepted", reportId, recordedAt };
+  }
+
+  /** Lists owned app metadata without credentials or hashes. */
+  listUserApps(userId: string, limit: number, cursor: string | null, appId?: string): UserAppListResponse {
+    const query = UserAppListQuerySchema.parse({ limit, cursor: cursor ?? undefined });
+    const items = this.db.prepare(`SELECT a.app_id,a.app_name,a.permissions_json,a.created_at,a.revoked_at
+      FROM registered_apps a JOIN user_app_ownership o ON o.app_id=a.app_id
+      JOIN registered_users u ON u.user_id=o.user_id
+      WHERE o.user_id=? AND u.revoked_at IS NULL AND (? IS NULL OR a.app_id>?) AND (? IS NULL OR a.app_id=?)
+      ORDER BY a.app_id LIMIT ?`).all(userId, query.cursor ?? null, query.cursor ?? null, appId ?? null, appId ?? null, query.limit + 1) as
+      { app_id: string; app_name: string; permissions_json: string; created_at: string; revoked_at: string | null }[];
+    const apps = items.slice(0, query.limit).map(row => UserAppSchema.parse({ appId: row.app_id, appName: row.app_name,
+      permissions: JSON.parse(row.permissions_json), createdAt: row.created_at, revokedAt: row.revoked_at }));
+    return { schemaVersion: 1, apps, nextCursor: items.length > query.limit ? apps.at(-1)!.appId : null };
+  }
+
   /** Registers a downstream client application with scoped application token. */
-  registerApp(input: RegisterAppRequest): RegisterAppResponse {
+  registerApp(input: RegisterAppRequest, ownerUserId?: string): RegisterAppResponse {
     const parsed = RegisterAppRequestSchema.parse(input);
     const appId = crypto.randomUUID();
     const appToken = "vrcp_app_" + crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(appToken).digest("hex");
     const now = new Date(this.now()).toISOString();
-    const permissions = ["catalog:read", "catalog:search", "catalog:random", "demand:feedback"];
+    const permissions = ["catalog:read", "catalog:search", "demand:feedback"];
 
+    this.db.transaction(() => {
+    if (ownerUserId !== undefined && !this.db.prepare("SELECT 1 FROM registered_users WHERE user_id=? AND revoked_at IS NULL").get(ownerUserId)) {
+      throw new CoordinatorConflict("Invalid user owner", 403);
+    }
     this.db.prepare(`
       INSERT INTO registered_apps (app_id, app_name, token_hash, contact_email, permissions_json, created_at, revoked_at)
       VALUES (?, ?, ?, ?, ?, ?, NULL)
     `).run(appId, parsed.appName, tokenHash, parsed.contactEmail || null, JSON.stringify(permissions), now);
+    if (ownerUserId !== undefined) this.db.prepare("INSERT INTO user_app_ownership(app_id,user_id) VALUES (?,?)").run(appId, ownerUserId);
+    })();
 
     return {
       schemaVersion: 1,
@@ -2319,43 +2376,6 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       signalId,
       recordedAt
     };
-  }
-
-  /** Randomly samples catalog packages matching optional filter criteria. */
-  getRandomCatalogPackages(
-    limit: number,
-    filter?: { umbrella?: string; category?: string; platform?: Platform }
-  ): CatalogPackage[] {
-    const safeLimit = Math.min(Math.max(limit, 1), 50);
-    const conditions = ["p.lifecycle != 'delisted'"];
-    const params: SQLQueryBindings[] = [];
-
-    if (filter?.umbrella) {
-      conditions.push("p.umbrella = ?");
-      params.push(filter.umbrella);
-    }
-    if (filter?.category) {
-      conditions.push("p.category = ?");
-      params.push(filter.category);
-    }
-    if (filter?.platform) {
-      conditions.push("EXISTS (SELECT 1 FROM package_fronts pf WHERE pf.canonical_id = p.canonical_id AND pf.platform = ?)");
-      params.push(filter.platform);
-    }
-
-    const whereClause = conditions.join(" AND ");
-    const rows = this.db.prepare(`
-      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at
-      FROM canonical_packages p
-      WHERE ${whereClause}
-      ORDER BY RANDOM()
-      LIMIT ?
-    `).all(...params, safeLimit) as {
-      canonical_id: string; umbrella: string; category: string; lifecycle: string;
-      display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
-    }[];
-
-    return rows.map((row) => this.buildCatalogPackage(row));
   }
 
   /** Configurable search across canonical packages for registered downstream applications. */

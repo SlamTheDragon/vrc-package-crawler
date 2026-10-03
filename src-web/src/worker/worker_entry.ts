@@ -60,7 +60,7 @@ export default {
       }
 
       const publicHandler = createPublicCatalogHandler(store);
-      const downstreamHandler = createDownstreamHandler(store);
+      const downstreamHandler = createDownstreamHandler(store, env.OPERATOR_TOKEN);
       const userHandler = createUserHandler(store);
       const nodeHandler = createCoordinatorHandler(store);
       const operatorHandler = createOperatorHandler(store, env.OPERATOR_TOKEN);

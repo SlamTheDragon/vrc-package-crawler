@@ -1,20 +1,8 @@
 import {
   DOWNSTREAM_PROTOCOL_VERSION,
-  RegisterAppRequestSchema,
-  RegisterAppResponseSchema,
-  RegisterNodeRequestSchema,
-  RegisterNodeResponseSchema,
-  DelistRequestSchema,
-  DelistResponseSchema,
-  type RegisterAppRequest,
-  type RegisterAppResponse,
-  type RegisterNodeRequest,
-  type RegisterNodeResponse,
-  type DelistRequest,
-  type DelistResponse
+  UserAppListQuerySchema, UserAppListResponseSchema, UserAppResponseSchema,
+  type UserAppListResponse
 } from "../../../../src-crawler/src/shared/protocol/downstream_protocol.ts";
-import { IssueNodeCredentialSchema, type IssueNodeCredential } from "../../../../src-crawler/src/shared/protocol/operator_protocol.ts";
-import { readJson, CoordinatorConflict } from "./handler.ts";
 import { workerLogger } from "../worker_logger.ts";
 
 export interface UserPrincipal {
@@ -25,27 +13,13 @@ export interface UserPrincipal {
 /**
  * Boundary for user-scoped storage operations.
  * Users are distinct from admin operators (infrastructure control)
- * and from downstream apps (catalog consumers). Users register nodes
- * and apps on their behalf, and submit delisting requests for content they own.
+ * and from downstream apps (catalog consumers). App creation uses app/register;
+ * removal requests use the application report route.
  */
 export interface UserStore {
   /** Authenticates a vrcp_usr_ bearer token. */
   authenticateUser(token: string): Promise<UserPrincipal | null> | UserPrincipal | null;
-  /** Registers a downstream application on behalf of the authenticated user. */
-  registerApp(input: RegisterAppRequest): Promise<RegisterAppResponse> | RegisterAppResponse;
-  /** Issues a capability-encoded node token on behalf of the authenticated user. */
-  issueNodeCredential(input: IssueNodeCredential, actor: string): Promise<string> | string;
-  /** Records a delisting / takedown request and immediately suppresses the target. */
-  submitDelistRequest(input: {
-    targetUrl?: string;
-    canonicalId?: string;
-    reason: string;
-    requesterType: "unauthenticated_creator" | "user" | "admin_operator";
-    requesterId?: string;
-    proofKind?: "storefront_bio_token" | "dns_txt" | "manual_notice";
-    proofValue?: string;
-    contactEmail?: string;
-  }): Promise<DelistResponse> | DelistResponse;
+  listUserApps(userId: string, limit: number, cursor: string | null, appId?: string): Promise<UserAppListResponse> | UserAppListResponse;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -66,9 +40,7 @@ function failure(status: number, code: string, message: string): Response {
  * Handles all /v1/user/* routes.
  *
  * Route map:
- *   POST /v1/user/nodes  — issue a capability-encoded node token [vrcp_usr_ auth required]
- *   POST /v1/user/apps   — register a downstream application    [vrcp_usr_ auth required]
- *   POST /v1/user/delist — unified delisting (authenticated user or unauthenticated creator proof-gated)
+ *   GET /v1/user/apps and /v1/user/apps/{appId} — owned application metadata
  */
 export async function handleUserRequest(
   request: Request,
@@ -77,87 +49,11 @@ export async function handleUserRequest(
   const url = new URL(request.url);
   const path = url.pathname;
 
-  const isNodeIssue = request.method === "POST" && path === "/v1/user/nodes";
-  const isAppRegister = request.method === "POST" && path === "/v1/user/apps";
-  const isDelist = request.method === "POST" && path === "/v1/user/delist";
+  const isAppList = request.method === "GET" && path === "/v1/user/apps";
+  const appMatch = request.method === "GET" ? /^\/v1\/user\/apps\/([^/]+)$/.exec(path) : null;
 
-  if (!isNodeIssue && !isAppRegister && !isDelist) {
+  if (!isAppList && !appMatch) {
     return failure(404, "not_found", "Route not found");
-  }
-
-  // Parse body first (shared for all routes)
-  let body: unknown;
-  try {
-    body = await readJson(request);
-  } catch (error) {
-    if (error instanceof RangeError) return failure(413, "invalid_payload", error.message);
-    if (error instanceof CoordinatorConflict) return failure(415, "invalid_payload", error.message);
-    return failure(400, "bad_json", "Request body must be bounded valid JSON");
-  }
-
-  // Unified delisting route (POST /v1/user/delist)
-  if (isDelist) {
-    const authHeader = request.headers.get("authorization") || "";
-    if (authHeader.startsWith("Bearer ")) {
-      const token = authHeader.slice(7).trim();
-      const user = await store.authenticateUser(token);
-      if (!user) {
-        workerLogger.warn("Invalid user token", { path });
-        return failure(401, "unauthorized", "Invalid user credential");
-      }
-      const parsed = DelistRequestSchema.safeParse(body);
-      if (!parsed.success) {
-        return failure(400, "invalid_payload",
-          parsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
-      }
-      try {
-        const result = await store.submitDelistRequest({
-          targetUrl: parsed.data.targetUrl,
-          canonicalId: parsed.data.canonicalId,
-          reason: parsed.data.reason,
-          requesterType: "user",
-          requesterId: user.userId,
-          proofKind: parsed.data.proofKind,
-          proofValue: parsed.data.proofValue,
-          contactEmail: parsed.data.contactEmail
-        });
-        return json(DelistResponseSchema.parse(result), 202);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : "Delisting request failed";
-        workerLogger.error("User delist request failed", error,
-          { path, userId: user.userId });
-        return failure(500, "internal_error", msg);
-      }
-    }
-
-    // Unauthenticated creator opt-out — proof-gated, no user token required
-    const parsed = DelistRequestSchema.safeParse(body);
-    if (!parsed.success) {
-      return failure(400, "invalid_payload",
-        parsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
-    }
-    // proofKind is required for unauthenticated path
-    if (!parsed.data.proofKind || parsed.data.proofKind === "manual_notice") {
-      return failure(400, "proof_required",
-        "Automated delisting requires proofKind: storefront_bio_token or dns_txt. " +
-        "For manual_notice, contact the maintainer directly per LEGAL.md §9.2.");
-    }
-    try {
-      const result = await store.submitDelistRequest({
-        targetUrl: parsed.data.targetUrl,
-        canonicalId: parsed.data.canonicalId,
-        reason: parsed.data.reason,
-        requesterType: "unauthenticated_creator",
-        proofKind: parsed.data.proofKind,
-        proofValue: parsed.data.proofValue,
-        contactEmail: parsed.data.contactEmail
-      });
-      return json(DelistResponseSchema.parse(result), 202);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Delisting request failed";
-      workerLogger.error("Public delist request failed", error, { path });
-      return failure(500, "internal_error", msg);
-    }
   }
 
   // All remaining /v1/user/* routes require vrcp_usr_ bearer auth
@@ -172,57 +68,18 @@ export async function handleUserRequest(
     return failure(401, "unauthorized", "Invalid user credential");
   }
 
-  if (isAppRegister) {
-    const parsed = RegisterAppRequestSchema.safeParse(body);
-    if (!parsed.success) {
-      return failure(400, "invalid_payload",
-        parsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
-    }
+  if (isAppList || appMatch) {
+    const parsed = UserAppListQuerySchema.safeParse(Object.fromEntries(url.searchParams));
+    if (!parsed.success || [...url.searchParams.keys()].some(key => url.searchParams.getAll(key).length > 1)) return failure(400, "invalid_query", "Invalid app list query");
+    const appId = appMatch?.[1];
+    if (appId && !UserAppResponseSchema.shape.app.shape.appId.safeParse(appId).success) return failure(404, "not_found", "App not found");
     try {
-      const response = await store.registerApp(parsed.data);
-      return json(RegisterAppResponseSchema.parse(response), 201);
+      const page = await store.listUserApps(user.userId, appId ? 1 : parsed.data.limit, appId ? null : parsed.data.cursor ?? null, appId);
+      if (appId) return page.apps[0] ? json(UserAppResponseSchema.parse({ schemaVersion: 1, app: page.apps[0] })) : failure(404, "not_found", "App not found");
+      return json(UserAppListResponseSchema.parse(page));
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "App registration failed";
-      workerLogger.error("User app registration failed", error, { path, userId: user.userId });
-      return failure(500, "internal_error", msg);
-    }
-  }
-
-  if (isNodeIssue) {
-    const nodeReqParsed = RegisterNodeRequestSchema.safeParse(body);
-    if (!nodeReqParsed.success) {
-      return failure(400, "invalid_payload",
-        nodeReqParsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
-    }
-    const credentialInput: IssueNodeCredential = {
-      schemaVersion: 1,
-      nodeId: nodeReqParsed.data.nodeId,
-      capabilities: nodeReqParsed.data.requestedCapabilities,
-      reason: nodeReqParsed.data.reason || `User self-service: ${user.userName}`
-    };
-    const credParsed = IssueNodeCredentialSchema.safeParse(credentialInput);
-    if (!credParsed.success) {
-      return failure(400, "invalid_payload",
-        credParsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
-    }
-    try {
-      const token = await store.issueNodeCredential(credParsed.data,
-        `user:${user.userId}`);
-      // Parse capability bitmask out of the issued token
-      const capabilities = credParsed.data.capabilities ?? [];
-      const response: RegisterNodeResponse = {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        nodeId: nodeReqParsed.data.nodeId,
-        capabilities: capabilities as RegisterNodeResponse["capabilities"],
-        token
-      };
-      return json(RegisterNodeResponseSchema.parse(response), 201);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Node registration failed";
-      workerLogger.error("User node registration failed", error,
-        { path, userId: user.userId, nodeId: nodeReqParsed.data.nodeId });
-      if (msg.includes("conflict") || msg.includes("already")) return failure(409, "conflict", msg);
-      return failure(500, "internal_error", msg);
+      workerLogger.error("User app read failed", error, { path, userId: user.userId });
+      return failure(500, "internal_error", "App metadata could not be read");
     }
   }
 

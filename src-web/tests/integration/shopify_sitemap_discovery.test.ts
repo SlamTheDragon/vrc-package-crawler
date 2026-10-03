@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.ts";
-import { handleNodeRequest } from "../../src-web/src/worker/api/handler.ts";
-import { CoordinatorClient } from "../../src-crawler/src/client/node_client.ts";
-import { runLeasedJob } from "../../src-crawler/src/runner/lease_runner.ts";
-import { fetchJobOutcome } from "../../src-crawler/src/adapters/observation_adapter.ts";
-import { CrawlJobSchema } from "../../src-crawler/src/shared/protocol/node_protocol.ts";
-import { approveFixtureSource } from "../../src-web/tests/helpers/source_access_fixture.ts";
+import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
+import { handleNodeRequest } from "../../src/worker/api/handler.ts";
+import { CoordinatorClient } from "../../../src-crawler/src/client/node_client.ts";
+import { runLeasedJob } from "../../../src-crawler/src/runner/lease_runner.ts";
+import { fetchJobOutcome } from "../../../src-crawler/src/adapters/observation_adapter.ts";
+import { CrawlJobSchema } from "../../../src-crawler/src/shared/protocol/node_protocol.ts";
+import { approveFixtureSource } from "../helpers/source_access_fixture.ts";
 
 const sitemapUrl = "https://merchant.example/sitemap_products_1.xml?from=1&to=100";
 const productUrl = "https://merchant.example/products/vrchat-tool";

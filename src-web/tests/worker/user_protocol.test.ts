@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
 import { handleUserRequest } from "../../src/worker/api/user_handler.ts";
 import { isUserToken, USER_TOKEN_PREFIX } from "../../../src-crawler/src/shared/identity_config.ts";
-import { DOWNSTREAM_PROTOCOL_VERSION } from "../../../src-crawler/src/shared/protocol/downstream_protocol.ts";
-import { PROTOCOL_VERSION } from "../../../src-crawler/src/shared/protocol/node_protocol.ts";
 
 function jsonRequest(path: string, method: string, body?: unknown, token?: string): Request {
   const headers: Record<string, string> = {
@@ -19,7 +17,7 @@ function jsonRequest(path: string, method: string, body?: unknown, token?: strin
   });
 }
 
-describe("User Protocol (/v1/user/*) and Unified Delisting", () => {
+describe("User Protocol (/v1/user/*)", () => {
   test("issueUserToken returns vrcp_usr_ prefixed 73-char token and authenticates", () => {
     const store = new LocalCoordinatorStore(":memory:");
     try {
@@ -41,156 +39,91 @@ describe("User Protocol (/v1/user/*) and Unified Delisting", () => {
     }
   });
 
-  test("POST /v1/user/nodes issues capability-encoded node token for authenticated user", async () => {
+  test("retired user node POST cannot issue, replace or reactivate credentials", async () => {
     const store = new LocalCoordinatorStore(":memory:");
     try {
       const user = store.issueUserToken("bob");
 
-      // Unauthorized without token
-      const reqNoAuth = jsonRequest("/v1/user/nodes", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        nodeId: "bob-node-1",
-        requestedCapabilities: ["booth", "github"]
-      });
-      const resNoAuth = await handleUserRequest(reqNoAuth, store);
-      expect(resNoAuth.status).toBe(401);
-
-      // Authorized with user token
-      const reqAuth = jsonRequest("/v1/user/nodes", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        nodeId: "bob-node-1",
-        requestedCapabilities: ["booth", "github"]
-      }, user.token);
-      const resAuth = await handleUserRequest(reqAuth, store);
-      expect(resAuth.status).toBe(201);
-      const data = await resAuth.json() as any;
-      expect(data.nodeId).toBe("bob-node-1");
-      expect(data.token).toMatch(/^vrcp_[0-9a-fA-F]{64}[0-9a-fA-F]{4}$/);
+      store.createNodeCredential("existing-node", ["vpm"]);
+      store.db.prepare("UPDATE node_credentials SET revoked_at=? WHERE node_id=?").run(new Date().toISOString(), "existing-node");
+      const before = store.db.prepare("SELECT * FROM node_credentials ORDER BY node_id").all();
+      for (const token of [undefined, user.token]) {
+        for (const nodeId of ["new-node", "existing-node"]) {
+          const response = await handleUserRequest(jsonRequest("/v1/user/nodes", "POST", {
+            schemaVersion: 1, nodeId, requestedCapabilities: ["vpm"], reason: "Retired route fixture"
+          }, token), store);
+          expect(response.status).toBe(404);
+        }
+      }
+      expect(store.db.prepare("SELECT * FROM node_credentials ORDER BY node_id").all()).toEqual(before);
+      expect((store.db.prepare("SELECT COUNT(*) AS count FROM node_credential_actions").get() as any).count).toBe(0);
     } finally {
       store.close();
     }
   });
 
-  test("POST /v1/user/apps registers downstream application for authenticated user", async () => {
+  test("user app GET views are owner-scoped, paginated and secret-free", async () => {
     const store = new LocalCoordinatorStore(":memory:");
     try {
       const user = store.issueUserToken("carol");
 
-      const req = jsonRequest("/v1/user/apps", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        appName: "VRChat Manager Tool",
-        contactEmail: "tool@example.com"
-      }, user.token);
-      const res = await handleUserRequest(req, store);
-      expect(res.status).toBe(201);
-      const data = await res.json() as any;
-      expect(data.appName).toBe("VRChat Manager Tool");
-      expect(data.appToken).toMatch(/^vrcp_app_[a-f0-9]{64}$/);
+      const other = store.issueUserToken("other-owner");
+      const owned = [store.registerApp({ schemaVersion: 1, appName: "First app" }, user.userId),
+        store.registerApp({ schemaVersion: 1, appName: "Second app" }, user.userId)];
+      const foreign = store.registerApp({ schemaVersion: 1, appName: "Other app" }, other.userId);
+      const unowned = store.registerApp({ schemaVersion: 1, appName: "Operator app" });
+      const response = await handleUserRequest(jsonRequest("/v1/user/apps?limit=1", "GET", undefined, user.token), store);
+      expect(response.status).toBe(200);
+      const page = await response.json() as any;
+      expect(page.apps).toHaveLength(1);
+      expect(page.nextCursor).toBe(page.apps[0].appId);
+      const next = await handleUserRequest(jsonRequest(`/v1/user/apps?limit=1&cursor=${page.nextCursor}`, "GET", undefined, user.token), store);
+      const second = await next.json() as any;
+      expect(second.apps).toHaveLength(1);
+      expect(second.nextCursor).toBeNull();
+      expect(new Set([...page.apps, ...second.apps].map(app => app.appId))).toEqual(new Set(owned.map(app => app.appId)));
+      const detail = await handleUserRequest(jsonRequest(`/v1/user/apps/${owned[0].appId}`, "GET", undefined, user.token), store);
+      expect(detail.status).toBe(200);
+      const app = (await detail.json() as any).app;
+      expect(Object.keys(app).sort()).toEqual(["appId", "appName", "createdAt", "permissions", "revokedAt"].sort());
+      for (const id of [foreign.appId, unowned.appId, crypto.randomUUID()]) {
+        expect((await handleUserRequest(jsonRequest(`/v1/user/apps/${id}`, "GET", undefined, user.token), store)).status).toBe(404);
+      }
+      for (const query of ["limit=0", "limit=101", "cursor=bad", "ownerId=other", "limit=1&limit=2"]) {
+        expect((await handleUserRequest(jsonRequest(`/v1/user/apps?${query}`, "GET", undefined, user.token), store)).status).toBe(400);
+      }
+      expect((await handleUserRequest(jsonRequest("/v1/user/apps/not-an-id", "GET", undefined, user.token), store)).status).toBe(404);
+      const unavailable = Object.create(store) as LocalCoordinatorStore;
+      unavailable.listUserApps = () => { throw new Error("private storage diagnostic"); };
+      const failure = await handleUserRequest(jsonRequest("/v1/user/apps", "GET", undefined, user.token), unavailable);
+      expect(failure.status).toBe(500);
+      expect(await failure.text()).not.toContain("private storage diagnostic");
+      expect((await handleUserRequest(jsonRequest("/v1/user/apps", "POST", { schemaVersion: 1, appName: "Removed" }, user.token), store)).status).toBe(404);
+      expect((await handleUserRequest(jsonRequest("/v1/user/apps", "GET"), store)).status).toBe(401);
+      store.db.prepare("UPDATE registered_users SET revoked_at=? WHERE user_id=?").run(new Date().toISOString(), user.userId);
+      expect((await handleUserRequest(jsonRequest("/v1/user/apps", "GET", undefined, user.token), store)).status).toBe(401);
     } finally {
       store.close();
     }
   });
 
-  test("POST /v1/user/delist suppresses target and marks package delisted", async () => {
+  test("retired user delisting routes return 404 without writes", async () => {
     const store = new LocalCoordinatorStore(":memory:");
     try {
-      const user = store.issueUserToken("creator-dan");
-
-      // Seed a canonical package first
-      const canonicalId = "pkg-to-delist-123";
-      store.db.prepare(`
-        INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at)
-        VALUES (?, 'tools', 'editor_tool', 'active', 'My Cool Tool', 'com.dan.tool', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')
-      `).run(canonicalId);
-
-      // Authenticated user delisting
-      const req = jsonRequest("/v1/user/delist", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        canonicalId,
-        reason: "Owner requested removal"
-      }, user.token);
-
-      const res = await handleUserRequest(req, store);
-      expect(res.status).toBe(202);
-      const data = await res.json() as any;
-      expect(data.status).toBe("accepted");
-      expect(data.action).toBe("delisted");
-      expect(data.requesterType).toBe("user");
-
-      // Verify lifecycle changed to delisted
-      const row = store.db.prepare("SELECT lifecycle FROM canonical_packages WHERE canonical_id = ?").get(canonicalId) as { lifecycle: string };
-      expect(row.lifecycle).toBe("delisted");
-    } finally {
-      store.close();
-    }
-  });
-
-  test("POST /v1/user/delist (unauthenticated) requires bio_token or dns_txt proof, while legacy routes 404", async () => {
-    const store = new LocalCoordinatorStore(":memory:");
-    try {
-      // 1. Missing proofKind fails with 400 proof_required
-      const reqNoProof = jsonRequest("/v1/user/delist", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        targetUrl: "https://booth.pm/en/items/999999",
-        reason: "Opting out"
-      });
-      const resNoProof = await handleUserRequest(reqNoProof, store);
-      expect(resNoProof.status).toBe(400);
-
-      // 2. manual_notice fails directing to email per LEGAL §9.2
-      const reqManual = jsonRequest("/v1/user/delist", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        targetUrl: "https://booth.pm/en/items/999999",
-        reason: "Opting out",
-        proofKind: "manual_notice"
-      });
-      const resManual = await handleUserRequest(reqManual, store);
-      expect(resManual.status).toBe(400);
-
-      // 3. storefront_bio_token succeeds on canonical route
-      const reqValid = jsonRequest("/v1/user/delist", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        targetUrl: "https://booth.pm/en/items/999999",
-        reason: "Opting out",
-        proofKind: "storefront_bio_token",
-        proofValue: "vrc-delist-token-abc"
-      });
-      const resValid = await handleUserRequest(reqValid, store);
-      expect(resValid.status).toBe(202);
-      const data = await resValid.json() as any;
-      expect(data.status).toBe("accepted");
-      expect(data.requesterType).toBe("unauthenticated_creator");
-
-      // 4. Purged legacy routes must return 404
-      const legacyDelist = await handleUserRequest(jsonRequest("/v1/delist", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        targetUrl: "https://booth.pm/en/items/999999",
-        reason: "Opting out",
-        proofKind: "storefront_bio_token",
-        proofValue: "vrc-delist-token-abc"
-      }), store);
-      expect(legacyDelist.status).toBe(404);
-
-      const legacyRegistrantNodes = await handleUserRequest(jsonRequest("/v1/registrant/nodes", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        nodeId: "legacy-node"
-      }), store);
-      expect(legacyRegistrantNodes.status).toBe(404);
-
-      const legacyRegistrantApps = await handleUserRequest(jsonRequest("/v1/registrant/apps", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        appName: "Legacy App"
-      }), store);
-      expect(legacyRegistrantApps.status).toBe(404);
-
-      const legacyRegistrantDelist = await handleUserRequest(jsonRequest("/v1/registrant/delist", "POST", {
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        canonicalId: "some-pkg",
-        reason: "Legacy delist"
-      }), store);
-      expect(legacyRegistrantDelist.status).toBe(404);
-    } finally {
-      store.close();
-    }
+      const user = store.issueUserToken("removal-test");
+      const target = "https://booth.pm/en/items/999999";
+      for (const token of [undefined, user.token]) {
+        for (const path of ["/v1/user/delist", "/v1/delist", "/v1/registrant/delist"]) {
+          const response = await handleUserRequest(jsonRequest(path, "POST", {
+            schemaVersion: 1, targetUrl: target, reason: "Removal requested",
+            proofKind: "storefront_bio_token", proofValue: "Unverified test text"
+          }, token), store);
+          expect(response.status).toBe(404);
+        }
+      }
+      for (const table of ["creator_opt_outs", "suppressed_urls", "catalog_reports"]) {
+        expect((store.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as any).count).toBe(0);
+      }
+    } finally { store.close(); }
   });
 });

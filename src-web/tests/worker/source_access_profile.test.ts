@@ -6,7 +6,8 @@ import { handleOperatorRequest } from "../../src/worker/api/operator_handler.ts"
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { getTestOutputDir } from "../../../tests/helpers/test_directory.ts";
+import { getTestOutputDir } from "../helpers/test_directory.ts";
+import { CreateSourceAccessProfileSchema as ConsumerProfileSchema } from "../../../src-package/src/protocol/operator.ts";
 
 const input = {
   schemaVersion: 1 as const, platform: "vpm" as const, origin: "https://packages.example.org",
@@ -17,6 +18,19 @@ const input = {
 } satisfies CreateSourceAccessProfile;
 
 describe("source-access profile contract", () => {
+  test("inherits the consumer contract without weakening public-origin safety", () => {
+    const variants = [input, { ...input, pathScope: "/vpm/*" },
+      { ...input, exactQuery: "page=1" }, { ...input, retainClasses: [] },
+      { ...input, publishClasses: ["creator_prose"] },
+      { ...input, pathScope: "/vpm/%E3%81%82" }];
+    for (const profile of variants) {
+      expect(CreateSourceAccessProfileSchema.safeParse(profile).success)
+        .toBe(ConsumerProfileSchema.safeParse(profile).success);
+    }
+    for (const origin of ["https://127.0.0.1", "https://[::1]", "https://192.168.1.1"]) {
+      expect(CreateSourceAccessProfileSchema.safeParse({ ...input, origin }).success).toBe(false);
+    }
+  });
   test("matches only a canonical exact target within its reviewed purpose and path", () => {
     const profile = SourceAccessProfileSchema.parse({ ...input, profileId: crypto.randomUUID(),
       createdAt: "2026-09-28T00:00:00.000Z", disabledAt: null });

@@ -4,7 +4,7 @@ import { join, sep } from "node:path";
 import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/config/runtime_config.ts";
 import { coordinatorEndpointAllowed, resolveCoordinatorUrl, isTransientEdgeStatus, CoordinatorClient } from "../src/client/node_client.ts";
 import { loadScopedGitHubTokenFromEnvFile } from "../src/adapters/observation_adapter.ts";
-import { getTestOutputDir } from "../../tests/helpers/test_directory.ts";
+import { getTestOutputDir } from "../../src-web/tests/helpers/test_directory.ts";
 
 const secret = "c".repeat(64);
 const tempRoot = getTestOutputDir();

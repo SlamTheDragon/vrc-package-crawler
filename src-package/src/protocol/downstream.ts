@@ -108,14 +108,8 @@ export const CatalogSearchResponseSchema = z.strictObject({
 });
 export type CatalogSearchResponse = z.infer<typeof CatalogSearchResponseSchema>;
 
-export const CatalogRandomResponseSchema = z.strictObject({
-  schemaVersion: z.literal(DOWNSTREAM_PROTOCOL_VERSION),
-  items: z.array(CatalogPackageSchema)
-});
-export type CatalogRandomResponse = z.infer<typeof CatalogRandomResponseSchema>;
-
 /** Consolidated reporting routes per API_ROUTES §2.4 line 90 */
-export const ConsolidatedReportTypeSchema = z.enum(["demand_signal", "issue_report"]);
+export const ConsolidatedReportTypeSchema = z.enum(["demand_signal", "issue_report", "removal_request"]);
 export type ConsolidatedReportType = z.infer<typeof ConsolidatedReportTypeSchema>;
 
 export const DemandSignalKindSchema = z.enum(["search_miss", "refresh_demand", "popularity_signal"]);
@@ -133,8 +127,12 @@ export const ReportSubmissionRequestSchema = z.strictObject({
   canonicalId: z.string().trim().min(1).max(500).optional(),
   query: z.string().trim().max(200).optional(),
   zeroHits: z.boolean().optional(),
+  reason: z.string().trim().min(1).max(1000).optional(),
   metadata: z.record(z.string().max(100), z.unknown()).optional()
-});
+}).refine(data => data.reportType !== "removal_request" || Boolean(data.reason && (data.targetUrl || data.canonicalId)),
+  { message: "Removal requests require a target and reason" })
+  .refine(data => data.reportType !== "removal_request" || (data.signalKind === undefined && data.reportKind === undefined && data.query === undefined && data.zeroHits === undefined),
+    { message: "Removal requests cannot include demand or issue fields" });
 export type ReportSubmissionRequest = z.infer<typeof ReportSubmissionRequestSchema>;
 
 export const ReportSubmissionResponseSchema = z.strictObject({

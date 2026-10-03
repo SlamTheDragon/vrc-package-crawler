@@ -12,26 +12,19 @@ import {
   type CatalogSearchRequest,
   type CatalogSearchResponse,
   CatalogSearchResponseSchema,
-  type DelistRequest,
-  type DelistResponse,
-  DelistResponseSchema,
   type RegisterAppRequest,
   type RegisterAppResponse,
   RegisterAppResponseSchema,
   type ReportSubmissionRequest,
   type ReportSubmissionResponse,
   ReportSubmissionResponseSchema,
-  type CatalogRandomResponse,
-  CatalogRandomResponseSchema,
   type QueryOrigin
 } from "./protocol/downstream.ts";
-import {
-  type RegisterNodeRequest,
-  type RegisterNodeResponse,
-  RegisterNodeResponseSchema
-} from "./protocol/user.ts";
+import { UserAppListQuerySchema, UserAppListResponseSchema, UserAppResponseSchema, UserAppSchema,
+  type UserAppListQuery, type UserAppListResponse, type UserAppResponse } from "./protocol/user.ts";
 import {
   type LeadStatus,
+  RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeResponse,
   EnqueueJobRequestSchema, EnqueueJobResponseSchema,
   type EnqueueJobRequest, type EnqueueJobResponse,
   InitializeCoordinatorRequestSchema,
@@ -131,7 +124,7 @@ export class VrcPackagesClient {
     path: string,
     method: "GET" | "POST" | "DELETE",
     options: {
-      auth?: "app" | "user" | "optional_user" | "operator" | "none";
+      auth?: "app" | "user" | "operator" | "none";
       body?: unknown;
       queryParams?: Record<string, string | number | undefined>;
     } = {}
@@ -164,10 +157,6 @@ export class VrcPackagesClient {
         throw new VrcApiError(401, "Operator token required for this endpoint");
       }
       headers["Authorization"] = `Bearer ${this.operatorToken}`;
-    } else if (options.auth === "optional_user") {
-      if (this.userToken) {
-        headers["Authorization"] = `Bearer ${this.userToken}`;
-      }
     }
 
     let requestBody: string | undefined;
@@ -183,12 +172,11 @@ export class VrcPackagesClient {
     });
 
     if (!response.ok) {
-      let errorBody: any = null;
+      const errorText = await response.text();
+      let errorBody: any = errorText;
       try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = await response.text();
-      }
+        errorBody = JSON.parse(errorText);
+      } catch {}
       const message = typeof errorBody === "object" && (errorBody?.message || errorBody?.error)
         ? (errorBody.message || errorBody.error)
         : `Request failed with status ${response.status}`;
@@ -259,30 +247,8 @@ export class VrcPackagesClient {
         }
       });
       return CatalogDeltaResponseSchema.parse(res);
-    },
-
-    /**
-     * Samples random package entries for discovery showcases (GET /v1/app/index/random).
-     * Requires downstream application token.
-     */
-    random: async (params: {
-      umbrella?: "tools" | "assets" | "avatars";
-      category?: string;
-      platform?: Platform;
-      limit?: number;
-    } = {}): Promise<CatalogRandomResponse> => {
-      const limit = Math.min(params.limit ?? 10, 50);
-      const res = await this.request<unknown>("/v1/app/index/random", "GET", {
-        auth: "app",
-        queryParams: {
-          umbrella: params.umbrella,
-          category: params.category,
-          platform: params.platform,
-          limit
-        }
-      });
-      return CatalogRandomResponseSchema.parse(res);
     }
+
   };
 
   readonly app = {
@@ -291,7 +257,7 @@ export class VrcPackagesClient {
      * Gated by user authentication (userToken) or operator token.
      */
     register: async (request: RegisterAppRequest): Promise<RegisterAppResponse> => {
-      const auth = this.userToken ? "user" : (this.operatorToken ? "operator" : "none");
+      const auth = this.userToken ? "user" : "operator";
       const res = await this.request<unknown>("/v1/app/register", "POST", {
         auth,
         body: request
@@ -302,11 +268,11 @@ export class VrcPackagesClient {
 
   readonly reports = {
     /**
-     * Submits a demand signal or content issue report to the coordinator (POST /v1/app/reports).
+     * Submits a demand signal or content issue report to the coordinator (POST /v1/app/report).
      * Requires downstream application token.
      */
     submit: async (report: ReportSubmissionRequest): Promise<ReportSubmissionResponse> => {
-      const res = await this.request<unknown>("/v1/app/reports", "POST", {
+      const res = await this.request<unknown>("/v1/app/report", "POST", {
         auth: "app",
         body: report
       });
@@ -319,39 +285,15 @@ export class VrcPackagesClient {
   /* ------------------------------------------------------------------------ */
 
   readonly user = {
-    /**
-     * Submits a delisting request (POST /v1/user/delist).
-     * If userToken was configured, authenticates as user.
-     * If not, submits unauthenticated (requiring proofKind and proofValue).
-     */
-    delist: async (request: DelistRequest): Promise<DelistResponse> => {
-      const res = await this.request<unknown>("/v1/user/delist", "POST", {
-        auth: "optional_user",
-        body: request
-      });
-      return DelistResponseSchema.parse(res);
-    },
-
-    /**
-     * Registers a downstream application under the authenticated user (POST /v1/user/apps).
-     */
-    registerApp: async (request: RegisterAppRequest): Promise<RegisterAppResponse> => {
-      const res = await this.request<unknown>("/v1/user/apps", "POST", {
-        auth: "user",
-        body: request
-      });
-      return RegisterAppResponseSchema.parse(res);
-    },
-
-    /**
-     * Registers a crawler node under the authenticated user (POST /v1/user/nodes).
-     */
-    registerNode: async (request: RegisterNodeRequest): Promise<RegisterNodeResponse> => {
-      const res = await this.request<unknown>("/v1/user/nodes", "POST", {
-        auth: "user",
-        body: request
-      });
-      return RegisterNodeResponseSchema.parse(res);
+    apps: {
+      list: async (params: Partial<UserAppListQuery> = {}): Promise<UserAppListResponse> => {
+        const query = UserAppListQuerySchema.parse(params);
+        return UserAppListResponseSchema.parse(await this.request<unknown>("/v1/user/apps", "GET", { auth: "user", queryParams: query }));
+      },
+      get: async (appId: string): Promise<UserAppResponse> => {
+        const id = UserAppSchema.shape.appId.parse(appId);
+        return UserAppResponseSchema.parse(await this.request<unknown>(`/v1/user/apps/${id}`, "GET", { auth: "user" }));
+      }
     }
   };
 
@@ -507,6 +449,13 @@ export class VrcPackagesClient {
     },
 
     nodes: {
+      /** Revoke credentials without releasing a possibly in-flight origin reservation. */
+      revoke: async (nodeId: string, reason: string): Promise<RevokeNodeResponse> => {
+        RevokeNodeResponseSchema.shape.nodeId.parse(nodeId);
+        const body = RevokeNodeRequestSchema.parse({ schemaVersion: 1, reason });
+        const response = await this.request<unknown>(`/v1/operator/nodes/${encodeURIComponent(nodeId)}/revoke`, "POST", { auth: "operator", body });
+        return RevokeNodeResponseSchema.parse(response);
+      },
       /**
        * Issues an audited node credential with assigned capabilities (POST /v1/operator/nodes).
        */

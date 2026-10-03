@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.ts";
-import { handleNodeRequest } from "../../src-web/src/worker/api/handler.ts";
-import { CoordinatorClient } from "../../src-crawler/src/client/node_client.ts";
-import { LocalNodeStore } from "../../src-crawler/src/storage/local_sqlite.ts";
-import { CrawlerNodeDaemon } from "../../src-crawler/src/runner/daemon.ts";
-import type { NodeRuntimeConfig } from "../../src-crawler/src/config/runtime_config.ts";
-import { seedApprovedFixtureJob } from "../../src-web/tests/helpers/source_access_fixture.ts";
+import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
+import { handleNodeRequest } from "../../src/worker/api/handler.ts";
+import { CoordinatorClient } from "../../../src-crawler/src/client/node_client.ts";
+import { LocalNodeStore } from "../../../src-crawler/src/storage/local_sqlite.ts";
+import { CrawlerNodeDaemon } from "../../../src-crawler/src/runner/daemon.ts";
+import type { NodeRuntimeConfig } from "../../../src-crawler/src/config/runtime_config.ts";
+import { ResultRequestSchema, type ResultRequest } from "../../../src-crawler/src/shared/protocol/node_protocol.ts";
+import { seedApprovedFixtureJob } from "../helpers/source_access_fixture.ts";
 import { getTestOutputDir } from "../helpers/test_directory.ts";
 
 function createTempDir(): string {
@@ -15,6 +16,60 @@ function createTempDir(): string {
 }
 
 describe("CrawlerNodeDaemon OOP daemon encapsulation", () => {
+  test("lost acknowledgement survives restart as a failed task but exact wire replay recovers the receipt", async () => {
+    const directory = createTempDir();
+    const databasePath = join(directory, "node.db");
+    const coordinatorStore = new LocalCoordinatorStore(":memory:");
+    const nodeId = "daemon-ack-loss";
+    const token = coordinatorStore.createNodeCredential(nodeId, ["vpm"]);
+    seedApprovedFixtureJob(coordinatorStore, "https://example.org/vpm/ack.json", "vpm", 0, "metadata");
+    coordinatorStore.recordRobotsSnapshot("https://example.org", 404);
+    let captured: ResultRequest | undefined;
+    let acceptedResponse: unknown;
+    const server = Bun.serve({ port: 0, fetch: async request => {
+      const isResult = new URL(request.url).pathname === "/v1/node/jobs/result";
+      const wire = isResult ? ResultRequestSchema.parse(await request.clone().json()) : undefined;
+      const response = await handleNodeRequest(request, coordinatorStore);
+      if (isResult && response.ok && !captured) {
+        captured = wire;
+        acceptedResponse = await response.json();
+        return Response.json({ error: "Acknowledgement lost after commit" }, { status: 503 });
+      }
+      return response;
+    } });
+    let nodeStore = new LocalNodeStore(databasePath);
+    let sourceFetches = 0;
+    try {
+      const config: NodeRuntimeConfig = { nodeId, token, capabilities: ["vpm"],
+        baseUrl: server.url.href, databasePath };
+      const client = new CoordinatorClient(config.baseUrl, token, nodeId, ["vpm"], { maxRetries: 0 });
+      const daemon = new CrawlerNodeDaemon(config, nodeStore, client, { fetchFn: async () => {
+        sourceFetches++;
+        return Response.json({ name: "com.example.ack-loss", version: "1.0.0",
+          description: "Creator text not permitted for retention" });
+      } });
+      await expect(daemon.step()).rejects.toThrow("Coordinator 503");
+      expect(captured).toBeDefined();
+      expect(acceptedResponse).toMatchObject({ status: "accepted", duplicate: false });
+      const task = nodeStore.listTasksForRun(daemon.currentRunId)[0]!;
+      expect(task.status).toBe("failed");
+      daemon.stop();
+      nodeStore.close();
+      nodeStore = new LocalNodeStore(databasePath);
+      expect(nodeStore.getTask(task.taskId)?.status).toBe("failed");
+      const replayClient = new CoordinatorClient(config.baseUrl, token, nodeId, ["vpm"], { maxRetries: 0 });
+      const result = await replayClient.submit(captured!);
+      expect(result).toMatchObject({ status: "accepted", duplicate: true, jobId: captured!.jobId });
+      expect(sourceFetches).toBe(1);
+      // Diagnostic boundary: the server receipt is recoverable, but no node outbox repaired the task.
+      expect(nodeStore.getTask(task.taskId)?.status).toBe("failed");
+    } finally {
+      server.stop();
+      nodeStore.close();
+      coordinatorStore.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
   test("initializes run tracking in node store and handles heartbeat & stop lifecycle", async () => {
     const coordinatorStore = new LocalCoordinatorStore(":memory:");
     const token = coordinatorStore.createNodeCredential("daemon-node-1", ["vpm"]);

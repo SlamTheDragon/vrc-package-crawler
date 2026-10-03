@@ -11,7 +11,7 @@
 		"check": "wrangler types --check && tsc --noEmit --project tsconfig.worker.json",
 		"check:watch": "tsc --noEmit --project tsconfig.worker.json --watch",
 		"test:runtime": "node tests/coordinator_runtime_smoke.mjs",
-		"test": "bun test tests/worker",
+		"test": "bun test tests/worker tests/integration",
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write .",
 		"gen": "wrangler types"

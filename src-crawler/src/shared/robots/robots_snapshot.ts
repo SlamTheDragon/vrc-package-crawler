@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const MAX_ROBOTS_BYTES = 512 * 1024;
 export const ROBOTS_REFRESH_TIMEOUT_MS = 15_000;
+export const ROBOTS_REFRESH_LEASE_MS = 45_000;
 
 /** The coordinator stores only a bounded, origin-specific robots fetch result. */
 export const OriginRobotsSnapshotSchema = z.strictObject({

@@ -108,9 +108,8 @@ export const LeadRowSchema = z.preprocess((val: any) => {
 export type LeadRow = z.infer<typeof LeadRowSchema>;
 
 export const LeadCursorSchema = z.strictObject({
-  status: LeadStatusSchema.optional(),
-  firstSeenAt: z.string().optional(),
-  lastSeenAt: z.string().optional(),
+  status: LeadStatusSchema,
+  firstSeenAt: z.iso.datetime(),
   leadKey: z.string().regex(/^[a-f0-9]{64}$/)
 });
 export type LeadCursor = z.infer<typeof LeadCursorSchema>;
@@ -178,20 +177,59 @@ export type EvidenceClass = z.infer<typeof EvidenceClassSchema>;
 export const SourcePurposeSchema = z.enum(["discovery", "metadata"]);
 export type SourcePurpose = z.infer<typeof SourcePurposeSchema>;
 
+export function isCanonicalSourceAccessPath(value: string): boolean {
+  if (!/^\/(?:[A-Za-z0-9._~/-]|%[0-9A-F]{2})*$/.test(value) || value.includes("//") ||
+      value.split("/").some(segment => segment === "." || segment === "..")) return false;
+  try {
+    // Encoded ASCII can change path boundaries after a later decode.
+    return value.split("/").every(segment => {
+      if (!segment.includes("%")) return true;
+      const escapes = segment.match(/%[0-9A-F]{2}/g) ?? [];
+      return escapes.every(escape => Number.parseInt(escape.slice(1), 16) >= 0x80) &&
+        encodeURIComponent(decodeURIComponent(segment)) === segment;
+    });
+  } catch { return false; }
+}
+
+const SourceProfileOriginSchema = z.url().refine(value => {
+  const url = new URL(value);
+  return url.protocol === "https:" && url.origin === value && !url.username && !url.password &&
+    !url.hostname.endsWith(".") && url.hostname !== "localhost" && !url.port;
+}, "Canonical HTTPS origin required");
+
 export const CreateSourceAccessProfileSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
   platform: PlatformSchema,
-  origin: z.string().url(),
-  pathScope: z.string().min(1).max(300),
-  exactQuery: z.string().min(3).max(200).optional(),
+  origin: SourceProfileOriginSchema,
+  pathScope: z.string().min(1).max(300).refine(isCanonicalSourceAccessPath,
+    "Canonical exact or directory path required"),
+  exactQuery: z.string().min(3).max(200)
+    .regex(/^[A-Za-z0-9._~-]+=[A-Za-z0-9._~-]+(?:&[A-Za-z0-9._~-]+=[A-Za-z0-9._~-]+)*$/).optional(),
   method: z.literal("GET"),
   purpose: SourcePurposeSchema,
   minDelayMs: z.number().int().min(1000).max(86_400_000),
-  expiresAt: z.string().datetime(),
+  expiresAt: z.iso.datetime(),
   reviewReference: z.string().trim().min(8).max(500),
   reason: z.string().trim().min(3).max(300),
   retainClasses: z.array(EvidenceClassSchema).max(4),
   publishClasses: z.array(EvidenceClassSchema).max(4)
+}).superRefine((profile, ctx) => {
+  if (profile.exactQuery && profile.pathScope.endsWith("/")) {
+    ctx.addIssue({ code: "custom", message: "A query grant requires an exact path" });
+  }
+  if (profile.pathScope.includes("%") && profile.pathScope.endsWith("/")) {
+    ctx.addIssue({ code: "custom", message: "Encoded paths cannot grant directories" });
+  }
+  if (new Set(profile.retainClasses).size !== profile.retainClasses.length ||
+      new Set(profile.publishClasses).size !== profile.publishClasses.length) {
+    ctx.addIssue({ code: "custom", message: "Evidence classes must be unique" });
+  }
+  if (profile.publishClasses.some(value => !profile.retainClasses.includes(value))) {
+    ctx.addIssue({ code: "custom", message: "Publish classes must be retained classes" });
+  }
+  if (!profile.retainClasses.includes("normalized_facts")) {
+    ctx.addIssue({ code: "custom", message: "A fetch profile must retain normalized facts" });
+  }
 });
 export type CreateSourceAccessProfile = z.infer<typeof CreateSourceAccessProfileSchema>;
 
@@ -246,27 +284,34 @@ export type SourceAccessProfileListResponse = z.infer<typeof SourceAccessProfile
 /* Auto-Queue Rules                                                           */
 /* -------------------------------------------------------------------------- */
 
+const RuleOriginSchema = z.url().refine(value => {
+  const url = new URL(value);
+  return url.protocol === "https:" && url.origin === value && !url.username && !url.password;
+}, "Canonical HTTPS origin required");
+const RulePathScopeSchema = z.string().min(1).max(200).regex(/^\/[A-Za-z0-9._~/-]*$/)
+  .refine(isCanonicalSourceAccessPath, "Canonical path scope required");
+
 export const AutoQueueRuleSchema = z.strictObject({
   ruleId: z.string().uuid(),
-  leadKind: LeadKindSchema,
-  origin: z.string().url(),
-  pathScope: z.string().min(1).max(300),
+  leadKind: z.literal("vpm_listing"),
+  origin: RuleOriginSchema,
+  pathScope: RulePathScopeSchema,
   minDelayMs: z.number().int().min(1000).max(86_400_000),
-  expiresAt: z.string().datetime(),
-  reviewReference: z.string().trim().min(8).max(500),
-  reason: z.string().trim().min(3).max(300),
-  createdAt: z.string().datetime(),
-  disabledAt: z.string().datetime().nullable()
+  expiresAt: z.iso.datetime(),
+  reviewReference: z.string(),
+  reason: z.string(),
+  createdAt: z.iso.datetime(),
+  disabledAt: z.iso.datetime().nullable()
 });
 export type AutoQueueRule = z.infer<typeof AutoQueueRuleSchema>;
 
 export const CreateAutoQueueRuleSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
-  leadKind: LeadKindSchema,
-  origin: z.string().url(),
-  pathScope: z.string().min(1).max(300),
+  leadKind: z.literal("vpm_listing"),
+  origin: RuleOriginSchema,
+  pathScope: RulePathScopeSchema,
   minDelayMs: z.number().int().min(1000).max(86_400_000),
-  expiresAt: z.string().datetime(),
+  expiresAt: z.iso.datetime(),
   reviewReference: z.string().trim().min(8).max(500),
   reason: z.string().trim().min(3).max(300)
 });
@@ -279,7 +324,7 @@ export const DisableAutoQueueRuleSchema = z.strictObject({
 export type DisableAutoQueueRule = z.infer<typeof DisableAutoQueueRuleSchema>;
 
 export const RuleCursorSchema = z.strictObject({
-  createdAt: z.string().datetime(),
+  createdAt: z.iso.datetime(),
   ruleId: z.string().uuid()
 });
 export type RuleCursor = z.infer<typeof RuleCursorSchema>;
@@ -319,18 +364,28 @@ export type AutoQueueRuleResponse = z.infer<typeof AutoQueueRuleResponseSchema>;
 export const IssueNodeCredentialSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
   nodeId: z.string().min(1).max(100).regex(/^[A-Za-z0-9._-]+$/),
-  capabilities: z.array(PlatformSchema).min(1).max(10).optional(),
+  capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length).optional(),
   reason: z.string().trim().min(3).max(300)
 });
 export type IssueNodeCredential = z.infer<typeof IssueNodeCredentialSchema>;
 
 export const NodeCredentialResponseSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
-  nodeId: z.string(),
-  capabilities: z.array(PlatformSchema),
+  nodeId: IssueNodeCredentialSchema.shape.nodeId,
+  capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length),
   token: z.string().regex(/^vrcp_[0-9a-fA-F]{64}[0-9a-fA-F]{4}$/)
 });
 export type NodeCredentialResponse = z.infer<typeof NodeCredentialResponseSchema>;
+
+export const RevokeNodeRequestSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), reason: z.string().trim().min(1).max(300)
+});
+export type RevokeNodeRequest = z.infer<typeof RevokeNodeRequestSchema>;
+export const RevokeNodeResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  nodeId: IssueNodeCredentialSchema.shape.nodeId, status: z.literal("revoked")
+});
+export type RevokeNodeResponse = z.infer<typeof RevokeNodeResponseSchema>;
 
 /* -------------------------------------------------------------------------- */
 /* Operator Catalog Page                                                      */

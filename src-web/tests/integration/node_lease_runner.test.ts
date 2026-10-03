@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.ts";
-import { handleNodeRequest } from "../../src-web/src/worker/api/handler.ts";
-import { CoordinatorClient } from "../../src-crawler/src/client/node_client.ts";
-import { runLeasedJob } from "../../src-crawler/src/runner/lease_runner.ts";
-import { CrawlJobSchema, type ResultResponse } from "../../src-crawler/src/shared/protocol/node_protocol.ts";
-import { seedApprovedFixtureJob } from "../../src-web/tests/helpers/source_access_fixture.ts";
+import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
+import { handleNodeRequest } from "../../src/worker/api/handler.ts";
+import { CoordinatorClient } from "../../../src-crawler/src/client/node_client.ts";
+import { runLeasedJob } from "../../../src-crawler/src/runner/lease_runner.ts";
+import { CrawlJobSchema, type ResultResponse } from "../../../src-crawler/src/shared/protocol/node_protocol.ts";
+import { seedApprovedFixtureJob } from "../helpers/source_access_fixture.ts";
 
 const fixtureJob = CrawlJobSchema.parse({ jobId: "lease-runner-job", leaseId: crypto.randomUUID(),
   platform: "vpm", purpose: "metadata", url: "https://example.org/index.json", origin: "https://example.org",

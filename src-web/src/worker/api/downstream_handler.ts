@@ -8,7 +8,6 @@ import {
   ReportSubmissionResponseSchema,
   CatalogSearchRequestSchema,
   CatalogSearchResponseSchema,
-  CatalogRandomResponseSchema,
   type RegisterAppRequest,
   type RegisterAppResponse,
   type DownstreamFeedbackRequest,
@@ -16,22 +15,20 @@ import {
   type ReportSubmissionRequest,
   type ReportSubmissionResponse,
   type CatalogSearchRequest,
-  type CatalogSearchResponse,
-  type CatalogRandomResponse
+  type CatalogSearchResponse
 } from "../../../../src-crawler/src/shared/protocol/downstream_protocol.ts";
-import { PlatformSchema, type Platform } from "../../../../src-crawler/src/shared/protocol/node_protocol.ts";
-import type { CatalogPackage } from "../../../../src-crawler/src/shared/protocol/operator_protocol.ts";
 import { readJson, CoordinatorConflict } from "./handler.ts";
 import { workerLogger } from "../worker_logger.ts";
+import { timingSafeEqual } from "../storage/d1/utils.ts";
 
 export interface DownstreamStore {
-  registerApp(input: RegisterAppRequest): Promise<RegisterAppResponse> | RegisterAppResponse;
+  recordRemovalReport(appId: string, input: ReportSubmissionRequest): Promise<ReportSubmissionResponse> | ReportSubmissionResponse;
+  registerApp(input: RegisterAppRequest, ownerUserId?: string): Promise<RegisterAppResponse> | RegisterAppResponse;
+  authenticateUser(token: string): Promise<{ userId: string; userName: string } | null> | { userId: string; userName: string } | null;
   authenticateApp(appToken: string): Promise<{ appId: string; appName: string; permissions: string[] } | null> |
     { appId: string; appName: string; permissions: string[] } | null;
   recordDownstreamFeedback(appId: string, input: DownstreamFeedbackRequest): Promise<DownstreamFeedbackResponse> |
     DownstreamFeedbackResponse;
-  getRandomCatalogPackages(limit: number, filter?: { umbrella?: string; category?: string; platform?: Platform }):
-    Promise<CatalogPackage[]> | CatalogPackage[];
   searchCatalogPackages(input: CatalogSearchRequest): Promise<CatalogSearchResponse> | CatalogSearchResponse;
 }
 
@@ -52,22 +49,27 @@ function failure(status: number, code: string, message: string): Response {
 
 export async function handleDownstreamRequest(
   request: Request,
-  store: DownstreamStore
+  store: DownstreamStore,
+  operatorToken = ""
 ): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
 
   const isRegister = request.method === "POST" && path === "/v1/app/register";
-  const isFeedback = request.method === "POST" && path === "/v1/app/reports";
+  const isFeedback = request.method === "POST" && path === "/v1/app/report";
   const isSearch = request.method === "POST" && path === "/v1/app/index/search";
-  const isRandom = request.method === "GET" && path === "/v1/app/index/random";
 
-  if (!isRegister && !isFeedback && !isSearch && !isRandom) {
+  if (!isRegister && !isFeedback && !isSearch) {
     return failure(404, "not_found", "Route not found");
   }
 
-  // 1. App Registration (Unauthenticated)
+  // App registration authenticates the creator before reading the payload.
   if (isRegister) {
+    const bearer = request.headers.get("authorization") || "";
+    const token = bearer.startsWith("Bearer ") ? bearer.slice(7).trim() : "";
+    const operator = /^[a-fA-F0-9]{64}$/.test(operatorToken) && /^[a-fA-F0-9]{64}$/.test(token) && timingSafeEqual(token, operatorToken);
+    const user = operator ? null : await store.authenticateUser(token);
+    if (!operator && !user) return failure(401, "unauthorized", "User or operator credential required");
     let body: unknown;
     try {
       body = await readJson(request);
@@ -83,7 +85,7 @@ export async function handleDownstreamRequest(
     }
 
     try {
-      const response = await store.registerApp(parsed.data);
+      const response = await store.registerApp(parsed.data, user?.userId);
       return json(RegisterAppResponseSchema.parse(response), 201);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "App registration failed";
@@ -106,7 +108,7 @@ export async function handleDownstreamRequest(
     return failure(401, "unauthorized", "Invalid application token");
   }
 
-  // 3. Consolidated Reporting Route (/v1/app/reports) per API_ROUTES.md §2.4
+  // 3. Consolidated Reporting Route (/v1/app/report) per API_ROUTES.md §2.4
   if (isFeedback) {
     let body: unknown;
     try {
@@ -122,6 +124,16 @@ export async function handleDownstreamRequest(
 
     if (!reportParsed.success && !feedbackParsed?.success) {
       return failure(400, "invalid_payload", reportParsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
+    }
+
+    if (reportParsed.success && reportParsed.data.reportType === "removal_request") {
+      try {
+        const response = await store.recordRemovalReport(app.appId, reportParsed.data);
+        return json(ReportSubmissionResponseSchema.parse(response), 202);
+      } catch (error) {
+        workerLogger.error("Failed to record removal report", error, { path, appId: app.appId });
+        return failure(500, "internal_error", "Removal report could not be recorded");
+      }
     }
 
     let feedbackInput: DownstreamFeedbackRequest;
@@ -149,13 +161,12 @@ export async function handleDownstreamRequest(
 
     try {
       const response = await store.recordDownstreamFeedback(app.appId, feedbackInput);
-      return json({
+      return json(ReportSubmissionResponseSchema.parse({
         schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
         status: "accepted",
         reportId: response.signalId,
-        signalId: response.signalId,
         recordedAt: response.recordedAt
-      }, 200);
+      }), 200);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Feedback ingestion failed";
       workerLogger.error("Failed to record downstream feedback", error, { path, appId: app.appId });
@@ -189,61 +200,18 @@ export async function handleDownstreamRequest(
     }
   }
 
-  // 5. Random Entry Selection / Sampling
-  if (isRandom) {
-    const limitParam = url.searchParams.get("limit");
-    const limit = limitParam !== null ? Number(limitParam) : 10;
-    const umbrella = url.searchParams.get("umbrella") || undefined;
-    const category = url.searchParams.get("category") || undefined;
-    const platformParam = url.searchParams.get("platform");
-
-    if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
-      return failure(400, "invalid_query", "Limit must be an integer between 1 and 50");
-    }
-
-    if (umbrella && !["tools", "assets", "avatars"].includes(umbrella)) {
-      return failure(400, "invalid_query", "Invalid umbrella filter");
-    }
-
-    let platform: Platform | undefined;
-    if (platformParam) {
-      const parsedPlatform = PlatformSchema.safeParse(platformParam);
-      if (!parsedPlatform.success) {
-        return failure(400, "invalid_query", "Invalid platform filter");
-      }
-      platform = parsedPlatform.data;
-    }
-
-    try {
-      const items = await store.getRandomCatalogPackages(limit, {
-        umbrella: umbrella as any,
-        category,
-        platform
-      });
-      return json(CatalogRandomResponseSchema.parse({
-        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
-        items
-      }), 200);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Random catalog selection failed";
-      workerLogger.error("Failed to sample catalog packages", error, { path, appId: app.appId });
-      return failure(500, "internal_error", msg);
-    }
-  }
-
   return failure(404, "not_found", "Route not found");
 }
 
-export function createDownstreamHandler(store: DownstreamStore): (request: Request) => Promise<Response | null> {
+export function createDownstreamHandler(store: DownstreamStore, operatorToken = ""): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
     if (
       path === "/v1/app/register" ||
-      path === "/v1/app/reports" ||
-      path === "/v1/app/index/search" ||
-      path === "/v1/app/index/random"
+      path === "/v1/app/report" ||
+      path === "/v1/app/index/search"
     ) {
-      return handleDownstreamRequest(request, store);
+      return handleDownstreamRequest(request, store, operatorToken);
     }
     return null;
   };

@@ -1,0 +1,5 @@
+{
+  "name": "vrc-sdk-artifact-check",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-02"
+}

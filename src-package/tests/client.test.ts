@@ -3,6 +3,47 @@ import { VrcPackagesClient, VrcApiError } from "../src/client.ts";
 import { encodeLeadCursor, decodeLeadCursor } from "../src/protocol/operator.ts";
 
 describe("VrcPackagesClient SDK", () => {
+  it("reads owned app metadata through user-authenticated GET routes", async () => {
+    const app = { appId: "00000000-0000-4000-8000-000000000002", appName: "Owned app",
+      permissions: ["catalog:search"], createdAt: "2026-10-01T00:00:00.000Z", revokedAt: null };
+    const client = new VrcPackagesClient({ baseUrl: "https://worker.example", userToken: "fixture-user",
+      fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        expect(request.method).toBe("GET");
+        expect(request.headers.get("authorization")).toBe("Bearer fixture-user");
+        expect(request.body).toBeNull();
+        return Response.json(new URL(request.url).pathname.endsWith(app.appId)
+          ? { schemaVersion: 1, app } : { schemaVersion: 1, apps: [app], nextCursor: null });
+      }, { preconnect() {} }) });
+    expect((await client.user.apps.list()).apps).toEqual([app]);
+    expect((await client.user.apps.get(app.appId)).app).toEqual(app);
+    expect("registerApp" in client.user).toBe(false);
+  });
+  it("rejects anonymous app registration before transport", async () => {
+    let calls = 0;
+    const client = new VrcPackagesClient({ baseUrl: "https://worker.example",
+      fetch: Object.assign(async () => { calls++; return Response.json({}); }, { preconnect() {} }) });
+    await expect(client.app.register({ schemaVersion: 1, appName: "Anonymous app" })).rejects.toThrow(VrcApiError);
+    expect(calls).toBe(0);
+  });
+  it("preserves HTTP errors when the response body is not JSON", async () => {
+    for (const body of ["Service unavailable", "<html>Upstream unavailable</html>", "", "{broken"]) {
+      const client = new VrcPackagesClient({
+        baseUrl: "https://worker.example",
+        operatorToken: "a".repeat(64),
+        fetch: Object.assign(async () => new Response(body, { status: 503 }), { preconnect() {} })
+      });
+      try {
+        await client.operator.init();
+        throw new Error("Expected HTTP failure");
+      } catch (error) {
+        expect(error).toBeInstanceOf(VrcApiError);
+        expect((error as VrcApiError).status).toBe(503);
+        expect((error as VrcApiError).message).toBe("Request failed with status 503");
+        expect((error as VrcApiError).details).toBe(body);
+      }
+    }
+  });
   it("requires operator auth for initialization and validates responses", async () => {
     let calls = 0;
     const fetchFn: typeof fetch = Object.assign(async () => {
@@ -131,6 +172,7 @@ describe("VrcPackagesClient SDK", () => {
     let capturedHeaders: HeadersInit | undefined;
     const testReportId = crypto.randomUUID();
     const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      expect(new URL(input.toString()).pathname).toBe("/v1/app/report");
       capturedHeaders = init?.headers;
       return new Response(JSON.stringify({
         schemaVersion: 1,
@@ -157,59 +199,14 @@ describe("VrcPackagesClient SDK", () => {
     expect(res.status).toBe("accepted");
   });
 
-  it("submits user delisting requests with userToken auth", async () => {
-    let capturedHeaders: HeadersInit | undefined;
-    const testTakedownId = crypto.randomUUID();
-    const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      capturedHeaders = init?.headers;
-      return new Response(JSON.stringify({
-        schemaVersion: 1,
-        status: "accepted",
-        takedownId: testTakedownId,
-        target: "https://booth.pm/ja/items/999",
-        action: "delisted",
-        requesterType: "user",
-        recordedAt: "2026-10-01T12:00:00.000Z"
-      }), { status: 200, headers: { "Content-Type": "application/json" } });
-    };
-
-    const client = new VrcPackagesClient({
-      baseUrl: "https://api.vrc-packages.example",
-      userToken: dummyUserToken,
-      fetch: mockFetch as typeof fetch
-    });
-
-    const res = await client.user.delist({
-      schemaVersion: 1,
-      targetUrl: "https://booth.pm/ja/items/999",
-      reason: "Self delist"
-    });
-
-    expect((capturedHeaders as Record<string, string>)["Authorization"]).toBe(`Bearer ${dummyUserToken}`);
-    expect(res.status).toBe("accepted");
+  it("does not expose the retired user delisting method", () => {
+    const client = new VrcPackagesClient({ baseUrl: "https://worker.example" });
+    expect("delist" in client.user).toBe(false);
   });
 
-  it("samples random catalog packages with app token", async () => {
-    let capturedUrl = "";
-    const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
-      capturedUrl = input.toString();
-      return new Response(JSON.stringify({
-        schemaVersion: 1,
-        items: []
-      }), { status: 200, headers: { "Content-Type": "application/json" } });
-    };
-
-    const client = new VrcPackagesClient({
-      baseUrl: "https://api.vrc-packages.example",
-      appToken: dummyAppToken,
-      fetch: mockFetch as unknown as typeof fetch
-    });
-
-    const res = await client.index.random({ umbrella: "tools", limit: 5 });
-    expect(capturedUrl).toContain("/v1/app/index/random?");
-    expect(capturedUrl).toContain("umbrella=tools");
-    expect(capturedUrl).toContain("limit=5");
-    expect(res.schemaVersion).toBe(1);
+  it("does not expose random sampling in the SDK", () => {
+    const client = new VrcPackagesClient({ baseUrl: "https://worker.example" });
+    expect("random" in client.index).toBe(false);
   });
 
   it("registers downstream apps via client.app.register", async () => {
@@ -257,10 +254,7 @@ describe("VrcPackagesClient SDK", () => {
     });
 
     try {
-      await client.user.registerApp({
-        schemaVersion: 1,
-        appName: "Test App"
-      });
+      await client.user.apps.list();
       expect(true).toBe(false); // should not reach
     } catch (err) {
       expect(err instanceof VrcApiError).toBe(true);
@@ -271,37 +265,9 @@ describe("VrcPackagesClient SDK", () => {
     }
   });
 
-  it("registers crawler nodes via client.user.registerNode", async () => {
-    let capturedHeaders: HeadersInit | undefined;
-    let capturedBody: any;
-    const testToken = "vrcp_" + "c".repeat(64) + "0001";
-    const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      capturedHeaders = init?.headers;
-      capturedBody = JSON.parse(init?.body as string);
-      return new Response(JSON.stringify({
-        schemaVersion: 1,
-        nodeId: "worker-node-1",
-        capabilities: ["vpm"],
-        token: testToken
-      }), { status: 201, headers: { "Content-Type": "application/json" } });
-    };
-
-    const client = new VrcPackagesClient({
-      baseUrl: "https://api.vrc-packages.example",
-      userToken: dummyUserToken,
-      fetch: mockFetch as unknown as typeof fetch
-    });
-
-    const res = await client.user.registerNode({
-      schemaVersion: 1,
-      nodeId: "worker-node-1",
-      requestedCapabilities: ["vpm"],
-      reason: "Self-hosted crawl worker"
-    });
-
-    expect((capturedHeaders as Record<string, string>)["Authorization"]).toBe(`Bearer ${dummyUserToken}`);
-    expect(capturedBody.nodeId).toBe("worker-node-1");
-    expect(res.token).toBe(testToken);
+  it("does not expose retired user node provisioning", () => {
+    const client = new VrcPackagesClient({ baseUrl: "https://worker.example", userToken: dummyUserToken });
+    expect("registerNode" in client.user).toBe(false);
   });
 
   it("exercises operator leads: list, approve, and reject", async () => {
@@ -424,7 +390,7 @@ describe("VrcPackagesClient SDK", () => {
       profileId: crypto.randomUUID(),
       platform: "booth" as const,
       origin: "https://booth.pm",
-      pathScope: "/ja/items/*",
+      pathScope: "/ja/items/",
       method: "GET" as const,
       purpose: "metadata" as const,
       minDelayMs: 2000,
@@ -471,7 +437,7 @@ describe("VrcPackagesClient SDK", () => {
       schemaVersion: 1,
       platform: "booth",
       origin: "https://booth.pm",
-      pathScope: "/ja/items/*",
+      pathScope: "/ja/items/",
       method: "GET",
       purpose: "metadata",
       minDelayMs: 2000,

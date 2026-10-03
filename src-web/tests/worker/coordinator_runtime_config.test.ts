@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { initializeCoordinatorConfig, loadCoordinatorRuntimeConfig } from "../support/runtime_config.ts";
-import { getTestOutputDir } from "../../../tests/helpers/test_directory.ts";
+import { getTestOutputDir } from "../helpers/test_directory.ts";
 
 const tempRoot = getTestOutputDir();
 function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrc-coordinator-config-")); }

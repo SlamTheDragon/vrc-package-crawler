@@ -73,6 +73,75 @@ export function createMockD1Database(db = new Database(":memory:")): D1Database 
 }
 
 describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
+  it("reserves robots refresh atomically and preserves pacing across release", async () => {
+    const fixture = await claimRaceFixture(["https://race.example/index.json"]);
+    try {
+      const origin = "https://race.example";
+      expect(await fixture.store.reserveRobotsRefresh(origin)).toBeNull();
+      fixture.sqlite.run("DELETE FROM origin_robots");
+      const reservations = await Promise.all([fixture.store.reserveRobotsRefresh(origin), fixture.store.reserveRobotsRefresh(origin)]);
+      expect(reservations.filter(Boolean)).toHaveLength(1);
+      const leaseId = reservations.find(Boolean)!;
+      expect(await fixture.store.releaseRobotsRefresh(origin, "wrong-lease")).toBe(false);
+      await fixture.store.recordRobotsSnapshot(origin, 200, "User-agent: *\nAllow: /");
+      fixture.advance(1000);
+      expect((await fixture.claimBoth()).every(result => result.status === "empty")).toBe(true);
+      expect(await fixture.store.completeRobotsRefresh(origin, leaseId, 200, "User-agent: *\nAllow: /")).toBe(true);
+      expect(await fixture.store.completeRobotsRefresh(origin, leaseId, 404)).toBe(false);
+      expect((await fixture.claimBoth()).filter(result => result.status === "leased")).toHaveLength(1);
+      fixture.sqlite.run("DELETE FROM origin_robots");
+      expect(await fixture.store.reserveRobotsRefresh(origin)).toBeNull();
+    } finally { fixture.sqlite.close(); }
+  });
+  it("rejects replaced, expired and unauthorized robots completions", async () => {
+    const fixture = await claimRaceFixture(["https://race.example/index.json"]);
+    try {
+      const origin = "https://race.example";
+      fixture.sqlite.run("DELETE FROM origin_robots");
+      const oldLease = (await fixture.store.reserveRobotsRefresh(origin))!;
+      fixture.advance(45_000);
+      expect(await fixture.store.completeRobotsRefresh(origin, oldLease, 404)).toBe(false);
+      const replacement = (await fixture.store.reserveRobotsRefresh(origin))!;
+      expect(replacement).not.toBe(oldLease);
+      expect(await fixture.store.releaseRobotsRefresh(origin, oldLease)).toBe(false);
+      expect(await fixture.store.completeRobotsRefresh(origin, oldLease, 404)).toBe(false);
+      fixture.sqlite.run("UPDATE source_access_profiles SET disabled_at='2026-10-03T00:00:45.000Z'");
+      expect(await fixture.store.completeRobotsRefresh(origin, replacement, 404)).toBe(false);
+      expect(fixture.sqlite.query("SELECT COUNT(*) AS count FROM origin_robots").get()).toEqual({ count: 0 });
+      expect(await fixture.store.releaseRobotsRefresh(origin, replacement)).toBe(true);
+      fixture.advance(1000);
+      expect(await fixture.store.reserveRobotsRefresh(origin)).toBeNull();
+    } finally { fixture.sqlite.close(); }
+  });
+  it("rolls back refresh reservation if origin pacing cannot commit", async () => {
+    const fixture = await claimRaceFixture(["https://race.example/index.json"]);
+    try {
+      fixture.sqlite.run("DELETE FROM origin_robots");
+      const before = fixture.sqlite.query("SELECT * FROM origin_leases").get();
+      fixture.sqlite.run("CREATE TRIGGER reject_refresh_pacing BEFORE UPDATE ON origin_leases BEGIN SELECT RAISE(ABORT,'fixture pacing failure'); END;");
+      await expect(fixture.store.reserveRobotsRefresh("https://race.example")).rejects.toThrow("fixture pacing failure");
+      expect(fixture.sqlite.query("SELECT COUNT(*) AS count FROM origin_robots_refresh_leases").get()).toEqual({ count: 0 });
+      expect(fixture.sqlite.query("SELECT * FROM origin_leases").get()).toEqual(before);
+    } finally { fixture.sqlite.close(); }
+  });
+  it("checks scoped source authority inside the refresh reservation write", async () => {
+    for (const mutation of [
+      "UPDATE source_access_profiles SET disabled_at='2026-10-03T00:00:00.000Z'",
+      "UPDATE source_access_profiles SET path_scope='/unrelated/'",
+      "INSERT INTO suppressed_urls VALUES ('https://race.example/index.json','Fixture','2026-10-03T00:00:00.000Z')"
+    ]) {
+      const fixture = await claimRaceFixture(["https://race.example/index.json"]);
+      try {
+        fixture.sqlite.run("DELETE FROM origin_robots");
+        const before = fixture.sqlite.query("SELECT * FROM origin_leases").get();
+        const original = fixture.db.batch.bind(fixture.db);
+        fixture.db.batch = async statements => { fixture.sqlite.run(mutation); return original(statements); };
+        expect(await fixture.store.reserveRobotsRefresh("https://race.example")).toBeNull();
+        expect(fixture.sqlite.query("SELECT * FROM origin_leases").get()).toEqual(before);
+        expect(fixture.sqlite.query("SELECT COUNT(*) AS count FROM origin_robots_refresh_leases").get()).toEqual({ count: 0 });
+      } finally { fixture.sqlite.close(); }
+    }
+  });
   it("revokes node credentials with atomic audit and rejects cached lease authority", async () => {
     const fixture = await claimRaceFixture(["https://race.example/index.json"]);
     try {
@@ -82,6 +151,19 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       const origin = fixture.sqlite.query("SELECT * FROM origin_leases").get();
       const client = new VrcPackagesClient({ baseUrl: "https://worker.example", operatorToken: "a".repeat(64),
         fetch: async (input, init) => workerEntry.fetch(new Request(input, init), { DB: fixture.db, OPERATOR_TOKEN: "a".repeat(64) }) });
+      const revokePath = `https://worker.example/v1/operator/nodes/${principal.nodeId}/revoke`;
+      for (const [payload, authorized, status] of [
+        [{ schemaVersion: 1, reason: "Fixture" }, false, 401],
+        [{ schemaVersion: 2, reason: "Fixture" }, true, 400],
+        [{ schemaVersion: 1, reason: " " }, true, 400],
+        [{ schemaVersion: 1, reason: "Fixture", extra: true }, true, 400]
+      ] as const) {
+        const result = await workerEntry.fetch(new Request(revokePath, { method: "POST",
+          headers: { "content-type": "application/json", ...(authorized ? { authorization: `Bearer ${"a".repeat(64)}` } : {}) },
+          body: JSON.stringify(payload) }), { DB: fixture.db, OPERATOR_TOKEN: "a".repeat(64) });
+        expect(result.status).toBe(status);
+      }
+      expect(fixture.sqlite.query("SELECT COUNT(*) AS count FROM node_credential_actions WHERE action='revoke'").get()).toEqual({ count: 0 });
       fixture.sqlite.run("CREATE TRIGGER reject_revoke_audit BEFORE INSERT ON node_credential_actions WHEN NEW.action='revoke' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;");
       await expect(client.operator.nodes.revoke(principal.nodeId, "Fixture revocation")).rejects.toThrow();
       expect(fixture.sqlite.query("SELECT revoked_at FROM node_credentials WHERE node_id=?").get(principal.nodeId)).toEqual({ revoked_at: null });
@@ -89,7 +171,10 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       const response = await client.operator.nodes.revoke(principal.nodeId, "Fixture revocation");
       expect(response.status).toBe("revoked");
       expect(Object.keys(response).sort()).toEqual(["nodeId", "schemaVersion", "status"]);
+      const firstRevocation = fixture.sqlite.query("SELECT revoked_at FROM node_credentials WHERE node_id=?").get(principal.nodeId);
+      fixture.advance(1000);
       await client.operator.nodes.revoke(principal.nodeId, "Repeated revocation");
+      expect(fixture.sqlite.query("SELECT revoked_at FROM node_credentials WHERE node_id=?").get(principal.nodeId)).toEqual(firstRevocation);
       expect(fixture.sqlite.query("SELECT * FROM origin_leases").get()).toEqual(origin);
       await expect(fixture.store.claim({ schemaVersion: 1, nodeId: principal.nodeId, capabilities: ["vpm"] }, principal)).rejects.toThrow("revoked");
       await expect(fixture.store.heartbeat({ schemaVersion: 1, nodeId: principal.nodeId, capabilities: ["vpm"], state: "fetching", activeJobId: claimed.job.jobId, activeLeaseId: claimed.job.leaseId }, principal)).rejects.toThrow("revoked");

@@ -13,9 +13,9 @@ The system operates across four discrete principal boundaries. Tokens must never
 
 | Principal Tier | Token Format | Length | Issued By | Scope & Boundaries |
 |---|---|---|---|---|
-| **Crawler Node** | `vrcp_<64-hex><4-hex>` | 73 chars | User (`/v1/user/nodes`) or Operator (`/v1/operator/nodes`) | Leases crawl jobs; capability bitmask encoded in final 4 hex characters; fails closed without lease. |
-| **Downstream App** | `vrcp_app_<64-hex>` | 73 chars | User / Operator (`/v1/app/register` or `/v1/user/apps`) | Search index, delta streaming, and telemetry/demand reporting. |
-| **User** | `vrcp_usr_<64-hex>` | 73 chars | Web Operator Panel (Firebase Auth) | Self-service node issuance, downstream app registration, and own-content delisting. |
+| **Crawler Node** | `vrcp_<64-hex><4-hex>` | 73 chars | Operator (`/v1/operator/nodes`) | Leases crawl jobs; capability bitmask encoded in final 4 hex characters; fails closed without lease. User ownership provisioning is unresolved. |
+| **Downstream App** | `vrcp_app_<64-hex>` | 73 chars | User / Operator (`/v1/app/register`) | Search index, delta streaming, and reporting. |
+| **User** | `vrcp_usr_<64-hex>` | 73 chars | Local token issuer; Firebase integration is planned | App registration and owned app metadata. Node ownership reads remain pending. No user delisting or node issuance route. |
 | **Admin Operator** | `COORDINATOR_OPERATOR_TOKEN` | 64 chars | Environment / Secret config | Infrastructure oversight: source profiles, auto-queue rules, lead triage, catalog oversight, node issuance. |
 
 > [!NOTE]
@@ -80,6 +80,7 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 | `POST` | `/v1/operator/autoqueue-rules` | ✅ | Creates an auto-queue rule that automatically enqueues matching discovery leads without manual operator triage. | `{ schemaVersion: 1, leadKind, origin, pathScope, minDelayMs, expiresAt, reviewReference, reason }` | `201` `{ rule }` |
 | `POST` | `/v1/operator/autoqueue-rules/{id}/disable` | ✅ | Disables an auto-queue rule. | `{ schemaVersion: 1, reason }` | `200` `{ status: "disabled" }` |
 | `POST` | `/v1/operator/nodes` | ✅ | Issues an audited, capability-encoded node credential. | `{ schemaVersion: 1, nodeId, capabilities[]?, reason }` | `201` `{ nodeId, capabilities[], token }` |
+| `POST` | `/v1/operator/nodes/{nodeId}/revoke` | ✅ | Atomically audits revocation and blocks claim, heartbeat and submission. Repeats retain the first revocation time. Existing origin reservations remain until expiry; fetched bytes cannot be recalled. | `{ schemaVersion: 1, reason }` | `200` `{ schemaVersion: 1, nodeId, status: "revoked" }`; unknown node `404` |
 | `GET` | `/v1/operator/catalog` | ✅ | Lists canonical packages with operator oversight and cursor pagination. | Query: `limit`, `cursor` | `200` `{ packages[], nextCursor }` |
 | `GET` | `/v1/operator/takedowns` | ✅ | Audits all recorded creator delistings and opt-outs. | Query: `requesterType`, `limit`, `cursor` | `200` `{ records[], nextCursor }` |
 | `POST` | `/v1/operator/takedowns/{id}/verify` | ✅ | Verifies an unauthenticated creator's ownership proof (DNS/bio). | `{ schemaVersion: 1, verdict: "accepted" \| "rejected", notes? }` | `200` `{ status }` |
@@ -88,14 +89,18 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 
 ### §2.3 User Protocol (`/v1/user/*`)
 
-**Auth:** `Authorization: Bearer <USER_TOKEN>` (`vrcp_usr_<64-hex>`) for authenticated user endpoints; anonymous with verification proof for unauthenticated creator delisting.  
-**Consolidation:** Combines all former registrant routes and `/v1/delist` into a unified namespace.
+**Auth:** `Authorization: Bearer <USER_TOKEN>` (`vrcp_usr_<64-hex>`) for authenticated user endpoints. Removal requests use the app-authenticated `/v1/app/report` endpoint and remain pending review. No user or anonymous delisting route is exposed.
+
+App collection and detail views are implemented. App creation uses `/v1/app/register`; `POST /v1/user/apps` is absent. Lists use app-ID keyset pagination with `limit` (default 50, maximum 100) and optional UUID `cursor`. Unknown fields and duplicate query keys return 400. Views return only app ID, name, permissions, creation time and revocation time. Unknown, unowned and another user's app IDs return the same 404. Revoked users cannot read these views. SDK methods are `client.user.apps.list()` and `client.user.apps.get(appId)`.
+
+Node ownership-backed GET views remain pending: operator provisioning records no user owner. No historical ownership is inferred from audit actor labels. `POST /v1/user/nodes` and SDK user.registerNode are removed; node creation remains `/v1/operator/nodes`.
 
 | Method | Path | Auth | Status | Description | Request Payload | Response (2xx) |
 |---|---|:---:|:---:|---|---|---|
-| `POST` | `/v1/user/nodes` | `vrcp_usr_` | ✅ | Provisions a capability-encoded node token for a VPS or Crawler Client. | `{ schemaVersion: 1, nodeId, requestedCapabilities[]?, reason? }` | `201` `{ nodeId, capabilities[], token: "vrcp_<64><4>" }` |
-| `POST` | `/v1/user/apps` | `vrcp_usr_` | ✅ | Registers a downstream application under this user's account. | `{ schemaVersion: 1, appName, contactEmail?, description? }` | `201` `{ appId, appName, appToken: "vrcp_app_<64>", permissions[] }` |
-| `POST` | `/v1/user/delist` | Optional (`vrcp_usr_` or None) | ✅ | Unified delisting route. Authenticated users delist on their own behalf (auth is proof). Unauthenticated creators require `proofKind` (`dns_txt` \| `storefront_bio_token`). | `{ schemaVersion: 1, targetUrl?, canonicalId?, reason, contactEmail?, proofKind?, proofValue? }` | `202` `{ status: "accepted", takedownId, target, action: "delisted", requesterType, recordedAt }` |
+| `GET` | `/v1/user/apps` | `vrcp_usr_` | ✅ | Lists owned app metadata without credentials or hashes. | Query: `limit?`, `cursor?` | `200` `{ schemaVersion: 1, apps[], nextCursor }` |
+| `GET` | `/v1/user/apps/{appId}` | `vrcp_usr_` | ✅ | Reads one owned app's metadata. | None | `200` `{ schemaVersion: 1, app }` |
+| `GET` | `/v1/user/nodes` | `vrcp_usr_` | 🔲 | Lists owned nodes. | Bounded pagination to be implemented | Not implemented |
+| `GET` | `/v1/user/nodes/{nodeId}` | `vrcp_usr_` | 🔲 | Reads one owned node's metadata. | None | Not implemented |
 | `GET` | `/v1/user` | `vrcp_usr_` | 🔲 | Returns current user profile, active nodes, registered apps, and takedown records. | None | `200` `{ userId, email, nodes[], apps[], takedowns[] }` |
 | `DELETE` | `/v1/user/nodes/{nodeId}` | `vrcp_usr_` | 🔲 | Revokes a node credential owned by this user. | None | `200` `{ status: "revoked" }` |
 | `DELETE` | `/v1/user/apps/{appId}` | `vrcp_usr_` | 🔲 | Revokes an application credential owned by this user. | None | `200` `{ status: "revoked" }` |
@@ -104,8 +109,12 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 
 ### §2.4 Downstream Application Protocol (`/v1/app/*`)
 
+`POST /v1/app/report` also accepts `reportType: "removal_request"`, a nonempty `reason` (up to 1000 characters), and `targetUrl` or `canonicalId`. It returns `202` with the standard report receipt. The coordinator stores a pending record in `catalog_reports`. Acceptance means recorded, not ownership verified or removal approved. It does not change lifecycle, suppression or crawl demand. Demand and issue fields are rejected for removal requests. The plural `/v1/app/reports` route and user-scoped delisting route are absent.
+
 **Auth:** Public for read index and delta sync; `Authorization: Bearer <APP_TOKEN>` (`vrcp_app_<64-hex>`) for search and reporting.  
 **Consolidation:** Unifies all catalog querying, delta streaming, application registration, and feedback/report ingestion.
+
+App registration requires a valid user token or the configured operator credential. User-owned creation records `user_app_ownership` in the same transaction as the app. Revoked/missing user owners cannot create an app. Operator-created and previously unowned records remain unowned; no historical owner is guessed. SDK registration without either credential fails before transport. Both user collection POST routes are retired.
 
 | Method | Path                   |          Auth           | Status | Description                                                                                                                                                                                                         | Request / Query                                                                                                                                         | Response (2xx)                                                       |
 | ------ | ---------------------- | :---------------------: | :----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
@@ -113,8 +122,7 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 | `GET`  | `/v1/app/index`        |         Public          |   ✅    | Core package catalog projection. Bounded search without unbounded pagination.                                                                                                                                       | Query: `query?`, `category?`, `umbrella?`, `platform?`, `limit?` (max 50)                                                                               | `200` `{ packages[], count }`                                        |
 | `GET`  | `/v1/app/index/delta`  |         Public          |   ✅    | Continuous incremental sync feed for package managers (VCC/ALCOM). Emits `upsert` and `delist` events.                                                                                                              | Query: `cursor?`, `limit?` (max 100)                                                                                                                    | `200` `{ epoch, deltas[], nextCursor }`                              |
 | `POST` | `/v1/app/index/search` |       `vrcp_app_`       |   ✅    | Bounded search with query attribution. Distinguishes direct human searches from automated background engine queries.                                                                                                | `{ schemaVersion: 1, query, queryOrigin: "user_authored" \| "app_automated", category?, umbrella?, platform?, tags[]?, limit? }`                        | `200` `{ items[], count, queryOrigin }`                              |
-| `GET`  | `/v1/app/index/random` |       `vrcp_app_`       |   ⏸️   | Random package sampling for discovery showcases.                                                                                                                                                                    | Query: `umbrella?`, `category?`, `platform?`, `limit?`                                                                                                  | *On Hold / Redefining*                                               |
-| `POST` | `/v1/app/reports`      |       `vrcp_app_`       |   ✅    | Consolidated reporting route: ingests search demand signals (`search_miss`, `refresh_demand`, `popularity_signal`) and content/quality reports (`broken_link`, `wrong_metadata`, `misclassified`, `inappropriate`). | `{ schemaVersion: 1, reportType: "demand_signal" \| "issue_report", signalKind?, reportKind?, targetUrl?, canonicalId?, query?, zeroHits?, metadata? }` | `200` `{ status: "accepted", reportId, recordedAt }`                 |
+| `POST` | `/v1/app/report` | `vrcp_app_` | ✅ | Records demand, issue reports or pending removal requests. Removal does not alter the catalog. | `{ schemaVersion: 1, reportType: "demand_signal" \| "issue_report" \| "removal_request", signalKind?, reportKind?, targetUrl?, canonicalId?, query?, zeroHits?, reason?, metadata? }` | `{ schemaVersion: 1, status: "accepted", reportId, recordedAt }`; demand/issue `200`, removal `202`. |
 
 ---
 
@@ -138,9 +146,10 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 | `GET /v1/operator/catalog` | ✅ | — | — | — | — |
 | `GET /v1/operator/takedowns` | ✅ | — | — | — | — |
 | `POST /v1/operator/takedowns/{id}/verify` | ✅ | — | — | — | — |
-| `POST /v1/user/nodes` | — | ✅ | — | — | — |
-| `POST /v1/user/apps` | — | ✅ | — | — | — |
-| `POST /v1/user/delist` | — | ✅ | — | — | ✅ (proof-gated) |
+| `GET /v1/user/apps` | — | ✅ | — | — | — |
+| `GET /v1/user/apps/{appId}` | — | ✅ | — | — | — |
+| `GET /v1/user/nodes` 🔲 | — | ✅ | — | — | — |
+| `GET /v1/user/nodes/{nodeId}` 🔲 | — | ✅ | — | — | — |
 | `GET /v1/user 🔲 | — | ✅ | — | — | — |
 | `DELETE /v1/user/nodes/{id}` 🔲 | — | ✅ | — | — | — |
 | `DELETE /v1/user/apps/{id}` 🔲 | — | ✅ | — | — | — |
@@ -148,8 +157,7 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 | `GET /v1/app/index` | — | — | — | — | ✅ |
 | `GET /v1/app/index/delta` | — | — | — | — | ✅ |
 | `POST /v1/app/index/search` | — | — | ✅ | — | — |
-| `GET /v1/app/index/random` ⏸️ | — | — | ✅ | — | — |
-| `POST /v1/app/reports` | — | — | ✅ | — | — |
+| `POST /v1/app/report` | — | — | ✅ | — | — |
 
 ---
 

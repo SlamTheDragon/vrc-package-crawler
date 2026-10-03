@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { NodeIdSchema, PlatformSchema } from "./node_protocol.ts";
+import { CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, AutoQueueRuleSchema,
+  RuleCursorSchema, encodeRuleCursor, decodeRuleCursor, AutoQueueRuleListResponseSchema,
+  AutoQueueRuleResponseSchema, type CreateAutoQueueRule, type AutoQueueRule, type RuleCursor,
+  IssueNodeCredentialSchema, NodeCredentialResponseSchema, type IssueNodeCredential
+} from "vrc-packages-api";
 
 export const OPERATOR_PROTOCOL_VERSION = 1 as const;
 export const LeadStatusSchema = z.enum(["pending_review", "approved", "rejected"]);
@@ -33,61 +37,6 @@ export const ApproveLeadSchema = z.strictObject({ schemaVersion: z.literal(OPERA
   reason: z.string().trim().min(3).max(300), minDelayMs: z.number().int().min(0).max(86_400_000).optional() });
 export const RejectLeadSchema = z.strictObject({ schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
   reason: z.string().trim().min(3).max(300) });
-export const IssueNodeCredentialSchema = z.strictObject({
-  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), nodeId: NodeIdSchema,
-  capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length).optional(),
-  reason: z.string().trim().min(3).max(300)
-});
-export type IssueNodeCredential = z.infer<typeof IssueNodeCredentialSchema>;
-export const NodeCredentialResponseSchema = z.strictObject({
-  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), nodeId: NodeIdSchema,
-  capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length),
-  token: z.string().regex(/^vrcp_[0-9a-fA-F]{64}[0-9a-fA-F]{4}$/)
-});
-const RuleOriginSchema = z.url().refine((value) => {
-  const url = new URL(value);
-  return url.protocol === "https:" && url.origin === value && !url.username && !url.password;
-}, "Canonical HTTPS origin required");
-const RulePathScopeSchema = z.string().min(1).max(200).regex(/^\/[A-Za-z0-9._~/-]*$/)
-  .refine((value) => !value.includes("//") && !value.split("/").some((segment) => segment === "." || segment === ".."),
-    "Canonical path scope required");
-export const CreateAutoQueueRuleSchema = z.strictObject({ schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
-  leadKind: z.literal("vpm_listing"), origin: RuleOriginSchema, pathScope: RulePathScopeSchema,
-  minDelayMs: z.number().int().min(1000).max(86_400_000),
-  expiresAt: z.iso.datetime(), reviewReference: z.string().trim().min(8).max(500),
-  reason: z.string().trim().min(3).max(300) });
-export type CreateAutoQueueRule = z.infer<typeof CreateAutoQueueRuleSchema>;
-export const DisableAutoQueueRuleSchema = z.strictObject({ schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
-  reason: z.string().trim().min(3).max(300) });
-export const AutoQueueRuleSchema = z.strictObject({
-  ruleId: z.uuid(), leadKind: z.literal("vpm_listing"), origin: RuleOriginSchema,
-  pathScope: RulePathScopeSchema, minDelayMs: z.number().int().min(1000).max(86_400_000),
-  expiresAt: z.iso.datetime(), reviewReference: z.string(), reason: z.string(),
-  createdAt: z.iso.datetime(), disabledAt: z.iso.datetime().nullable()
-});
-export type AutoQueueRule = z.infer<typeof AutoQueueRuleSchema>;
-export const RuleCursorSchema = z.strictObject({
-  createdAt: z.iso.datetime(), ruleId: z.uuid()
-});
-export type RuleCursor = z.infer<typeof RuleCursorSchema>;
-export function encodeRuleCursor(cursor: RuleCursor): string {
-  return btoa(JSON.stringify(RuleCursorSchema.parse(cursor)))
-    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
-export function decodeRuleCursor(value: string): RuleCursor | null {
-  if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) return null;
-  try {
-    const cursor = RuleCursorSchema.parse(JSON.parse(atob(value.replaceAll("-", "+").replaceAll("_", "/"))));
-    return encodeRuleCursor(cursor) === value ? cursor : null;
-  } catch { return null; }
-}
-export const AutoQueueRuleListResponseSchema = z.strictObject({
-  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), rules: z.array(AutoQueueRuleSchema),
-  nextCursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).nullable()
-});
-export const AutoQueueRuleResponseSchema = z.strictObject({
-  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), rule: AutoQueueRuleSchema
-});
 export const LeadActionResponseSchema = z.discriminatedUnion("status", [
   z.strictObject({ schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), leadKey: z.string(),
     status: z.literal("approved"), jobId: z.string() }),
@@ -109,6 +58,10 @@ import {
 } from "vrc-packages-api";
 
 export {
+  CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, AutoQueueRuleSchema,
+  RuleCursorSchema, encodeRuleCursor, decodeRuleCursor, AutoQueueRuleListResponseSchema,
+  AutoQueueRuleResponseSchema, type CreateAutoQueueRule, type AutoQueueRule, type RuleCursor,
+  IssueNodeCredentialSchema, NodeCredentialResponseSchema, type IssueNodeCredential,
   CatalogIdentityLinkSchema,
   type CatalogIdentityLink,
   PackageFrontSchema,

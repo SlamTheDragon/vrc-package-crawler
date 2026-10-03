@@ -5,8 +5,75 @@ import { tmpdir } from "node:os";
 import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
 import { handleDownstreamRequest } from "../../src/worker/api/downstream_handler.ts";
 import { DOWNSTREAM_PROTOCOL_VERSION } from "../../../src-crawler/src/shared/protocol/downstream_protocol.ts";
+import { VrcPackagesClient } from "../../../src-package/src/client.ts";
+import { type ReportSubmissionRequest } from "../../../src-package/src/protocol/downstream.ts";
 
 describe("Downstream Client Protocol & Demand Feedback Signals", () => {
+  test("actual report HTTP receipts satisfy the SDK for demand, issue and removal", async () => {
+    const app = store.registerApp({ schemaVersion: 1, appName: "Receipt fixture" });
+    const statuses: number[] = [];
+    const client = new VrcPackagesClient({ baseUrl: "https://worker.example", appToken: app.appToken,
+      fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const response = await handleDownstreamRequest(new Request(input, init), store);
+        statuses.push(response.status);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        return response;
+      }, { preconnect() {} }) });
+    const reports: ReportSubmissionRequest[] = [
+      { schemaVersion: 1, reportType: "demand_signal", signalKind: "search_miss", query: "receipt fixture", zeroHits: true },
+      { schemaVersion: 1, reportType: "issue_report", reportKind: "broken_link", targetUrl: "https://receipt.example/product" },
+      { schemaVersion: 1, reportType: "removal_request", canonicalId: "receipt-target", reason: "Incorrect attribution" }
+    ];
+    for (const report of reports) {
+      const receipt = await client.reports.submit(report);
+      expect(Object.keys(receipt).sort()).toEqual(["schemaVersion", "status", "reportId", "recordedAt"].sort());
+      const table = report.reportType === "removal_request" ? "catalog_reports" : "downstream_demand_signals";
+      const column = report.reportType === "removal_request" ? "report_id" : "signal_id";
+      expect((store.db.prepare(`SELECT app_id FROM ${table} WHERE ${column}=?`).get(receipt.reportId) as { app_id: string }).app_id).toBe(app.appId);
+    }
+    expect(statuses).toEqual([200, 200, 202]);
+  });
+  test("app registration rejects anonymous callers and records authenticated ownership", async () => {
+    const input = { schemaVersion: 1, appName: "Owned app" };
+    const anonymous = new Request("https://worker.example/v1/app/register", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+    expect((await handleDownstreamRequest(anonymous, store)).status).toBe(401);
+    const user = store.issueUserToken("app-owner");
+    const response = await handleDownstreamRequest(request("/v1/app/register", "POST", input, user.token), store);
+    expect(response.status).toBe(201);
+    const app = await response.json() as { appId: string };
+    const owner = store.db.prepare("SELECT user_id FROM user_app_ownership WHERE app_id=?").get(app.appId) as any;
+    expect(owner.user_id).toBe(user.userId);
+    const activeUser = store.issueUserToken("rollback-owner");
+    store.db.exec("CREATE TRIGGER reject_app_owner BEFORE INSERT ON user_app_ownership BEGIN SELECT RAISE(ABORT,'Owner write rejected'); END;");
+    expect(() => store.registerApp(input, activeUser.userId)).toThrow("Owner write rejected");
+    store.db.exec("DROP TRIGGER reject_app_owner;");
+    store.db.prepare("UPDATE registered_users SET revoked_at=? WHERE user_id=?").run(new Date().toISOString(), user.userId);
+    expect(() => store.registerApp(input, user.userId)).toThrow();
+    expect((store.db.prepare("SELECT COUNT(*) AS count FROM registered_apps").get() as any).count).toBe(1);
+    const operatorToken = "a".repeat(64);
+    expect((await handleDownstreamRequest(request("/v1/app/register", "POST", input, "b".repeat(64)), store, operatorToken)).status).toBe(401);
+    expect((await handleDownstreamRequest(request("/v1/app/register", "POST", input, operatorToken), store, operatorToken)).status).toBe(201);
+    expect((store.db.prepare("SELECT COUNT(*) AS count FROM user_app_ownership").get() as any).count).toBe(1);
+  });
+  test("singular report records removal for review without catalog or demand changes", async () => {
+    const registered = store.registerApp({ schemaVersion: 1, appName: "Removal test" });
+    const payload = { schemaVersion: 1, reportType: "removal_request", canonicalId: "target-1", reason: "Incorrect attribution" };
+    expect((await handleDownstreamRequest(request("/v1/app/report", "POST", payload), store)).status).toBe(401);
+    expect((await handleDownstreamRequest(request("/v1/app/report", "POST", { ...payload, reason: "" }, registered.appToken), store)).status).toBe(400);
+    expect((await handleDownstreamRequest(request("/v1/app/report", "POST", { schemaVersion: 1, reportType: "removal_request", reason: "No target" }, registered.appToken), store)).status).toBe(400);
+    const response = await handleDownstreamRequest(request("/v1/app/report", "POST", payload, registered.appToken), store);
+    expect(response.status).toBe(202);
+    const body = await response.json() as { reportId: string };
+    const row = store.db.prepare("SELECT app_id, review_status, payload_json FROM catalog_reports WHERE report_id=?").get(body.reportId) as any;
+    expect(row.app_id).toBe(registered.appId);
+    expect(row.review_status).toBe("pending");
+    expect(JSON.parse(row.payload_json)).toEqual(payload);
+    for (const table of ["downstream_demand_signals", "creator_opt_outs", "suppressed_urls", "canonical_packages", "crawl_jobs"]) {
+      expect((store.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as any).count).toBe(0);
+    }
+    expect((await handleDownstreamRequest(request("/v1/app/reports", "POST", payload, registered.appToken), store)).status).toBe(404);
+  });
   let tempDir: string;
   let dbPath: string;
   let store: LocalCoordinatorStore;
@@ -27,6 +94,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
   });
 
   const request = (path: string, method: string, body?: unknown, token?: string): Request => {
+    if (path === "/v1/app/register" && token === undefined) token = store.issueUserToken("registration-fixture").token;
     const headers: Record<string, string> = {
       "Content-Type": "application/json"
     };
@@ -71,7 +139,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     expect(legacyRes.status).toBe(404);
   });
 
-  test("POST /v1/app/reports requires authentication and ingests demand signals", async () => {
+  test("POST /v1/app/report requires authentication and ingests demand signals", async () => {
     // 1. Register app
     const regRes = await handleDownstreamRequest(
       request("/v1/app/register", "POST", {
@@ -84,7 +152,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // 2. Reject unauthenticated feedback
     const unauthRes = await handleDownstreamRequest(
-      request("/v1/app/reports", "POST", {
+      request("/v1/app/report", "POST", {
         schemaVersion: 1,
         signalType: "search_miss",
         query: "physbone optimizer"
@@ -95,7 +163,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // 3. Reject invalid token
     const badTokenRes = await handleDownstreamRequest(
-      request("/v1/app/reports", "POST", {
+      request("/v1/app/report", "POST", {
         schemaVersion: 1,
         signalType: "search_miss",
         query: "physbone optimizer"
@@ -106,7 +174,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
 
     // 4. Accept valid search miss feedback signal
     const feedbackRes = await handleDownstreamRequest(
-      request("/v1/app/reports", "POST", {
+      request("/v1/app/report", "POST", {
         schemaVersion: 1,
         signalType: "search_miss",
         query: "novel shader generator",
@@ -120,12 +188,13 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     const feedbackData = await feedbackRes.json() as any;
     expect(feedbackData.schemaVersion).toBe(1);
     expect(feedbackData.status).toBe("accepted");
-    expect(feedbackData.signalId).toBeDefined();
+    expect(feedbackData.reportId).toBeDefined();
+    expect(feedbackData.signalId).toBeUndefined();
     expect(feedbackData.recordedAt).toBeDefined();
 
     // 5. Accept refresh demand signal for specific target
     const refreshRes = await handleDownstreamRequest(
-      request("/v1/app/reports", "POST", {
+      request("/v1/app/report", "POST", {
         schemaVersion: 1,
         signalType: "refresh_demand",
         requestedPlatform: "github",
@@ -147,53 +216,11 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     expect(legacyRes.status).toBe(404);
   });
 
-  test("GET /v1/app/index/random returns sampled entries with optional filters", async () => {
-    // Register app
-    const reg = await handleDownstreamRequest(
-      request("/v1/app/register", "POST", { schemaVersion: 1, appName: "Random Explorer" }),
-      store
-    );
-    const { appToken } = await reg.json() as { appToken: string };
-
-    // Seed dummy canonical packages directly into DB
-    const now = new Date().toISOString();
-    store.db.exec(`
-      INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at)
-      VALUES
-        ('pkg-1', 'tools', 'editor_tool', 'active', 'Tool Alpha', 'com.example.alpha', '${now}', '${now}'),
-        ('pkg-2', 'tools', 'avatar_tool', 'active', 'Tool Beta', 'com.example.beta', '${now}', '${now}'),
-        ('pkg-3', 'assets', 'shader', 'active', 'Uber Shader', NULL, '${now}', '${now}'),
-        ('pkg-4', 'avatars', 'base_mesh', 'delisted', 'Delisted Avatar', NULL, '${now}', '${now}');
-    `);
-
-    // Sample random items
-    const res = await handleDownstreamRequest(
-      request("/v1/app/index/random?limit=2", "GET", undefined, appToken),
-      store
-    );
-    expect(res.status).toBe(200);
-    const body = await res.json() as any;
-    expect(body.items.length).toBeLessThanOrEqual(2);
-    // Never returns delisted items
-    expect(body.items.some((i: any) => i.canonicalId === "pkg-4")).toBe(false);
-
-    // Filter by umbrella
-    const toolsRes = await handleDownstreamRequest(
-      request("/v1/app/index/random?umbrella=tools", "GET", undefined, appToken),
-      store
-    );
-    expect(toolsRes.status).toBe(200);
-    const toolsBody = await toolsRes.json() as any;
-    for (const item of toolsBody.items) {
-      expect(item.umbrella).toBe("tools");
+  test("removed random sampling routes return 404", async () => {
+    for (const path of ["/v1/app/index/random", "/v1/app/index/random?limit=2", "/v1/catalog/random"]) {
+      const response = await handleDownstreamRequest(request(path, "GET"), store);
+      expect(response.status).toBe(404);
     }
-
-    // Legacy route must return 404
-    const legacyRes = await handleDownstreamRequest(
-      request("/v1/catalog/random?limit=2", "GET", undefined, appToken),
-      store
-    );
-    expect(legacyRes.status).toBe(404);
   });
 
   test("POST /v1/app/index/search performs text search and keyset pagination", async () => {

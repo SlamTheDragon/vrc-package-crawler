@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { handleNodeRequest } from "../../src-web/src/worker/api/handler.ts";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.ts";
-import { ClaimResponseSchema, NODE_API_JSON_SCHEMAS, PROTOCOL_VERSION, ResultResponseSchema, PlatformSchema } from "../../src-crawler/src/shared/protocol/node_protocol.ts";
+import { handleNodeRequest } from "../../src/worker/api/handler.ts";
+import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
+import { ClaimResponseSchema, NODE_API_JSON_SCHEMAS, PROTOCOL_VERSION, ResultResponseSchema, PlatformSchema } from "../../../src-crawler/src/shared/protocol/node_protocol.ts";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import crypto from "node:crypto";
-import { approveFixtureSource, seedApprovedFixtureJob } from "../../src-web/tests/helpers/source_access_fixture.ts";
+import { approveFixtureSource, seedApprovedFixtureJob } from "../helpers/source_access_fixture.ts";
 import { getTestOutputDir } from "../helpers/test_directory.ts";
-import { DEFAULT_SEED_JOBS } from "../../src-web/src/worker/storage/default_seeds.ts";
-import { fetchJobOutcome } from "../../src-crawler/src/adapters/observation_adapter.ts";
+import { DEFAULT_SEED_JOBS } from "../../src/worker/storage/default_seeds.ts";
+import { fetchJobOutcome } from "../../../src-crawler/src/adapters/observation_adapter.ts";
 
 function allowFixtureOrigin(store: LocalCoordinatorStore, ...origins: string[]): void {
   for (const origin of origins) store.recordRobotsSnapshot(origin, 404);
@@ -331,7 +331,7 @@ describe("local coordinator protocol", () => {
       expect((store.db.prepare("SELECT state,active_job_id,last_seen_at FROM node_heartbeats").get() as any))
         .toEqual({ state: "fetching", active_job_id: claim.body.job.jobId,
           last_seen_at: "2026-09-27T00:00:01.000Z" });
-      store.revokeNode("node-a");
+      store.revokeNode("node-a", { schemaVersion: 1, reason: "Fixture revocation" }, "fixture");
       expect((await post("/v1/node/heartbeat", idle)).status).toBe(401);
     } finally { store.close(); }
   });
@@ -610,7 +610,7 @@ describe("local coordinator protocol", () => {
       now += 1000;
       const second = await post("/v1/node/jobs/claim", claimBody("node-b"), bToken);
       expect(second.body.status).toBe("leased");
-      store.revokeNode("node-b");
+      store.revokeNode("node-b", { schemaVersion: 1, reason: "Fixture revocation" }, "fixture");
       expect((await post("/v1/node/jobs/claim", claimBody("node-b"), bToken)).status).toBe(401);
     } finally { store.close(); }
   });
@@ -634,7 +634,7 @@ describe("local coordinator protocol", () => {
       expect(() => store.submit(resultRequest, oldPrincipal)).toThrow();
       const newPrincipal = store.authenticate("node-a", newToken)!;
       expect(store.submit(resultRequest, newPrincipal).status).toBe("accepted");
-      store.revokeNode("node-a");
+      store.revokeNode("node-a", { schemaVersion: 1, reason: "Fixture revocation" }, "fixture");
       expect(() => store.claim(claimRequest, newPrincipal)).toThrow();
     } finally { store.close(); }
   });

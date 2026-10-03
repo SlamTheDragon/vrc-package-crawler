@@ -1,4 +1,5 @@
 import { CoordinatorConflict, readJson } from "./handler.ts";
+import { RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeRequest } from "../../../../src-package/src/protocol/operator.ts";
 import { EnqueueJobRequestSchema, EnqueueJobResponseSchema, type EnqueueJobRequest } from "../../../../src-package/src/protocol/operator.ts";
 import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, LeadStatusSchema,
   OPERATOR_PROTOCOL_VERSION, RejectLeadSchema, AutoQueueRuleListResponseSchema, AutoQueueRuleResponseSchema,
@@ -17,6 +18,7 @@ import { workerLogger } from "../worker_logger.ts";
 
 /** Runtime-neutral boundary for local SQLite now and a future Worker storage adapter. */
 export interface OperatorStore {
+  revokeNode(nodeId: string, input: RevokeNodeRequest, actor: string): Promise<void> | void;
   enqueueJob(input: EnqueueJobRequest, actor: string): Promise<string> | string;
   issueNodeCredential(input: IssueNodeCredential, actor: string): Promise<string> | string;
   listLeadsPage(status: "pending_review" | "approved" | "rejected", limit: number,
@@ -86,6 +88,7 @@ export async function handleOperatorRequest(
   const profileListing = request.method === "GET" && url.pathname === "/v1/operator/source-profiles";
   const profileCreate = request.method === "POST" && url.pathname === "/v1/operator/source-profiles";
   const nodeIssue = request.method === "POST" && url.pathname === "/v1/operator/nodes";
+  const nodeRevoke = request.method === "POST" && /^\/v1\/operator\/nodes\/([A-Za-z0-9._-]{1,100})\/revoke$/.exec(url.pathname);
   const jobEnqueue = request.method === "POST" && url.pathname === "/v1/operator/jobs";
   const profileDisable = request.method === "POST" &&
     /^\/v1\/operator\/source-profiles\/([a-f0-9-]{36})\/disable$/.exec(url.pathname);
@@ -93,7 +96,7 @@ export async function handleOperatorRequest(
   const takedownListing = request.method === "GET" && url.pathname === "/v1/operator/takedowns";
   const takedownVerify = request.method === "POST" &&
     /^\/v1\/operator\/takedowns\/([a-f0-9-]{36})\/verify$/.exec(url.pathname);
-  if (!jobEnqueue && !listing && !ruleListing && !ruleCreate && !ruleDisable && !profileListing && !profileCreate && !nodeIssue &&
+  if (!nodeRevoke && !jobEnqueue && !listing && !ruleListing && !ruleCreate && !ruleDisable && !profileListing && !profileCreate && !nodeIssue &&
       !profileDisable && !catalogListing && !takedownListing && !takedownVerify && !(request.method === "POST" && leadAction)) {
     return failure(404, "not_found", "Route not found");
   }
@@ -182,6 +185,12 @@ export async function handleOperatorRequest(
     return failure(400, "bad_json", "Request body must be bounded valid JSON");
   }
   try {
+    if (nodeRevoke) {
+      const parsed = RevokeNodeRequestSchema.safeParse(body);
+      if (!parsed.success) return failure(400, "invalid_payload", "Revocation body is invalid");
+      await store.revokeNode(nodeRevoke[1], parsed.data, "operator-api");
+      return json(RevokeNodeResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION, nodeId: nodeRevoke[1], status: "revoked" }));
+    }
     if (jobEnqueue) {
       const parsed = EnqueueJobRequestSchema.safeParse(body);
       if (!parsed.success) return failure(400, "invalid_payload", "Job body is invalid");
@@ -247,7 +256,7 @@ export async function handleOperatorRequest(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Operator action failed";
     const missing = message === "Lead not found" || message === "Rule not found" ||
-      message === "Source profile not found" || message === "Takedown not found";
+      message === "Source profile not found" || message === "Takedown not found" || message === "Node not found";
     workerLogger.warn("Operator action failed", { path: url.pathname, message, missing }, error);
     return failure(missing ? 404 : 409, missing ? "not_found" : "conflict", message);
   }

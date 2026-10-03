@@ -601,3 +601,8 @@ export interface StructuredLogEvent {
   }
 }
 ```
+# Pending catalog removal reports
+
+App ownership is recorded in `user_app_ownership`: `app_id` is a primary key and registered-app foreign key; `user_id` is a required registered-user foreign key. An index covers user ID and app ID. User-owned app creation writes this relation atomically with the credential record. Existing and operator-created apps have no implied owner. Ownership transfers and backfill are not implemented.
+
+`catalog_reports` stores app-authenticated removal requests separately from `downstream_demand_signals` and creator opt-outs. Fields: `report_id` (primary key), `app_id` (registered-app foreign key), `report_type` (`removal_request`), validated `payload_json`, `review_status` (`pending`, `accepted`, `rejected`; initially pending), and `recorded_at`. An index covers review status, time and ID. Storage rejects writes from revoked or missing apps. No review endpoint or automatic suppression is provided by this table.

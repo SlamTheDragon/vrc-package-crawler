@@ -1,10 +1,11 @@
 import { type CrawlerRules, compileRobotsText } from "@trybyte/robotstxt-parser";
 import { EnqueueJobRequestSchema, type EnqueueJobRequest } from "../../../../../src-package/src/protocol/operator.ts";
+import { RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeRequest } from "../../../../../src-package/src/protocol/operator.ts";
 import { CRAWLER_ROBOTS_TOKEN } from "../../../../../src-crawler/src/shared/robots/crawler_identity.ts";
 import { isPrivateOrReservedIp } from "../../../../../src-crawler/src/shared/policy/ip_policy.ts";
 import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "../../../../../src-crawler/src/shared/protocol/node_protocol.ts";
 import { type AutoQueueRule, AutoQueueRuleSchema, type IssueNodeCredential, IssueNodeCredentialSchema, type LeadCursor, type LeadRow, encodeLeadCursor, type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema, type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront, encodeCatalogCursor, decodeCatalogCursor, encodeTakedownCursor, type TakedownCursor, type TakedownRecord } from "../../../../../src-crawler/src/shared/protocol/operator_protocol.ts";
-import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema } from "../../../../../src-crawler/src/shared/robots/robots_snapshot.ts";
+import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "../../../../../src-crawler/src/shared/robots/robots_snapshot.ts";
 import { type SourceAccessProfile, SourceAccessProfileSchema, sourceAccessProfileMatches, type SourcePurpose, type ProfileCursor, encodeProfileCursor, type CreateSourceAccessProfile, CreateSourceAccessProfileSchema, sourcePathScopesOverlap } from "../../../../../src-crawler/src/shared/policy/source_access_profile.ts";
 import { isItchSearchUrl } from "../../../../../src-crawler/src/shared/policy/source_path_policy.ts";
 import { isBoothBrowseTarget, boothItemIdentity, isShopifyProductSitemapTarget, shopifyProductLead, githubApiRepositoryIdentity, isSellfyProductTarget } from "../../../../../src-crawler/src/shared/policy/source_targets.ts";
@@ -15,6 +16,10 @@ import { type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor } 
 import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../../../../src-crawler/src/shared/protocol/capability_token.ts";
 import {
   RegisterAppRequestSchema,
+  UserAppListQuerySchema, UserAppSchema, type UserAppListResponse,
+  ReportSubmissionRequestSchema,
+  type ReportSubmissionRequest,
+  type ReportSubmissionResponse,
   DownstreamFeedbackRequestSchema,
   CatalogSearchRequestSchema,
   DOWNSTREAM_PROTOCOL_VERSION,
@@ -75,6 +80,22 @@ export function classifyOutboundLeadKind(targetUrl: string): DiscoveryLead["kind
   } catch {
     return null;
   }
+}
+
+/** SQL predicates are repeated inside atomic writes, not just candidate reads. */
+function approvedRobotsJobDelaySql(origin: string, now: string): string {
+  return `(SELECT MAX(p.min_delay_ms) FROM crawl_jobs j JOIN source_access_profiles p
+    ON p.platform=j.platform AND p.origin=j.origin AND p.purpose=j.job_purpose
+    WHERE j.origin=${origin} AND j.next_fetch_at<=${now}
+      AND (j.state IN ('pending','done','backoff') OR (j.state='leased' AND j.lease_expires_at<=${now}))
+      AND NOT EXISTS (SELECT 1 FROM suppressed_urls s WHERE s.url=j.url)
+      AND (j.source_rule_id IS NULL OR EXISTS (SELECT 1 FROM lead_autoqueue_rules ar
+        WHERE ar.rule_id=j.source_rule_id AND ar.disabled_at IS NULL AND ar.expires_at>${now}))
+      AND p.disabled_at IS NULL AND p.expires_at>${now} AND instr(j.url,'#')=0
+      AND ((p.query_scope IS NOT NULL AND j.url=p.origin||p.path_scope||'?'||p.query_scope)
+        OR (p.query_scope IS NULL AND instr(j.url,'?')=0 AND
+          (j.url=p.origin||p.path_scope OR (substr(p.path_scope,-1)='/' AND
+            substr(j.url,1,length(p.origin||p.path_scope))=p.origin||p.path_scope)))))`;
 }
 
 export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatalogStore, UserStore {
@@ -955,6 +976,20 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   }
 
   // --- OperatorStore Methods ---
+  async revokeNode(nodeId: string, input: RevokeNodeRequest, actor: string): Promise<void> {
+    RevokeNodeResponseSchema.shape.nodeId.parse(nodeId);
+    const parsed = RevokeNodeRequestSchema.parse(input);
+    if (!actor.trim() || actor.length > 100) throw new Error("Operator actor required");
+    const now = new Date(this.now()).toISOString();
+    const result = await this.db.batch([
+      this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
+        SELECT node_id,?,'revoke',?,? FROM node_credentials WHERE node_id=?`)
+        .bind(actor, parsed.reason, now, nodeId),
+      this.db.prepare("UPDATE node_credentials SET revoked_at=COALESCE(revoked_at,?) WHERE node_id=?").bind(now, nodeId)
+    ]);
+    if ((result[0]?.meta as { changes?: number } | undefined)?.changes !== 1) throw new Error("Node not found");
+  }
+
   async createNodeCredential(nodeId: string, capabilities: Platform[]): Promise<string> {
     ClaimRequestSchema.parse({ schemaVersion: PROTOCOL_VERSION, nodeId, capabilities });
     const token = formatCapabilityToken(capabilities);
@@ -1522,23 +1557,76 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     return stored.job_id;
   }
 
-  async recordRobotsSnapshot(origin: string, statusCode: number, body = ""): Promise<void> {
-    const parsed = OriginRobotsSnapshotSchema.parse({ origin, statusCode, body });
+  /** Reserve only a due, authorized origin; never grants a node fetch lease. */
+  async reserveRobotsRefresh(origin: string): Promise<string | null> {
+    OriginRobotsSnapshotSchema.parse({ origin, statusCode: 599, body: "" });
     const nowMs = this.now();
+    const now = new Date(nowMs).toISOString();
+    const expires = new Date(nowMs + ROBOTS_REFRESH_LEASE_MS).toISOString();
+    const leaseId = crypto.randomUUID();
+    const delay = approvedRobotsJobDelaySql("?1", "?2");
+    const results = await this.db.batch([
+      this.db.prepare(`INSERT INTO origin_robots_refresh_leases(origin,lease_id,lease_expires_at)
+        SELECT o.origin,?3,?4 FROM origin_leases o WHERE o.origin=?1 AND o.next_allowed_at<=?2
+          AND (o.active_job_id IS NULL OR o.lease_expires_at<=?2)
+          AND NOT EXISTS (SELECT 1 FROM origin_robots r WHERE r.origin=o.origin AND r.expires_at>?2)
+          AND ${delay} IS NOT NULL
+        ON CONFLICT(origin) DO UPDATE SET lease_id=excluded.lease_id,lease_expires_at=excluded.lease_expires_at
+          WHERE origin_robots_refresh_leases.lease_expires_at<=?2`).bind(origin, now, leaseId, expires),
+      this.db.prepare(`UPDATE origin_leases SET next_allowed_at=MAX(next_allowed_at,
+        strftime('%Y-%m-%dT%H:%M:%fZ',julianday(?2)+MAX(min_delay_ms,${delay})/86400000.0))
+        WHERE origin=?1 AND EXISTS (SELECT 1 FROM origin_robots_refresh_leases l
+          WHERE l.origin=?1 AND l.lease_id=?3 AND l.lease_expires_at>?2)`)
+        .bind(origin, now, leaseId)
+    ]);
+    return (results[0]?.meta as { changes?: number } | undefined)?.changes === 1 ? leaseId : null;
+  }
+
+  async releaseRobotsRefresh(origin: string, leaseId: string): Promise<boolean> {
+    const result = await this.db.prepare("DELETE FROM origin_robots_refresh_leases WHERE origin=? AND lease_id=?")
+      .bind(origin, leaseId).run();
+    return (result.meta as { changes?: number } | undefined)?.changes === 1;
+  }
+
+  private robotsSnapshotStatements(parsed: OriginRobotsSnapshot, nowMs: number,
+    guard: string | ((offset: number) => string) = "1", guardValues: unknown[] = []): D1PreparedStatement[] {
     const fetchedAt = new Date(nowMs).toISOString();
     const ttlMs = (parsed.statusCode >= 200 && parsed.statusCode < 300) ||
       robotsResultAllowsMissingFile(parsed.statusCode) ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
     const expiresAt = new Date(nowMs + ttlMs).toISOString();
-    await this.db.batch([
+    return [
       this.db.prepare(`INSERT INTO origin_robots(origin,snapshot_id,status_code,body,fetched_at,expires_at)
-        VALUES (?,?,?,?,?,?) ON CONFLICT(origin) DO UPDATE SET
+        SELECT ?,?,?,?,?,? WHERE ${typeof guard === "string" ? guard : guard(6)} ON CONFLICT(origin) DO UPDATE SET
         snapshot_id=excluded.snapshot_id,status_code=excluded.status_code,body=excluded.body,
         fetched_at=excluded.fetched_at,expires_at=excluded.expires_at`)
-        .bind(parsed.origin, crypto.randomUUID(), parsed.statusCode, parsed.body, fetchedAt, expiresAt),
+        .bind(parsed.origin, crypto.randomUUID(), parsed.statusCode, parsed.body, fetchedAt, expiresAt, ...guardValues),
       this.db.prepare(`UPDATE crawl_jobs SET next_fetch_at=?,robots_deferred_until=NULL
-        WHERE origin=? AND robots_deferred_until IS NOT NULL AND state IN ('pending','done','backoff')`)
-        .bind(fetchedAt, parsed.origin)
+        WHERE origin=? AND robots_deferred_until IS NOT NULL AND state IN ('pending','done','backoff') AND ${typeof guard === "string" ? guard : guard(2)}`)
+        .bind(fetchedAt, parsed.origin, ...guardValues)
+    ];
+  }
+
+  async completeRobotsRefresh(origin: string, leaseId: string, statusCode: number, body = ""): Promise<boolean> {
+    const parsed = OriginRobotsSnapshotSchema.parse({ origin, statusCode, body });
+    const nowMs = this.now();
+    const now = new Date(nowMs).toISOString();
+    // The guard uses positional placeholders relative to each statement's prefix.
+    const guardFor = (offset: number) => `EXISTS (SELECT 1 FROM origin_robots_refresh_leases l
+      WHERE l.origin=?${offset + 1} AND l.lease_id=?${offset + 2} AND l.lease_expires_at>?${offset + 3})
+      AND ${approvedRobotsJobDelaySql(`?${offset + 1}`, `?${offset + 3}`)} IS NOT NULL`;
+    const results = await this.db.batch([
+      ...this.robotsSnapshotStatements(parsed, nowMs, guardFor, [origin, leaseId, now]),
+      this.db.prepare(`DELETE FROM origin_robots_refresh_leases WHERE origin=?1 AND lease_id=?2
+        AND ${guardFor(0)}`).bind(origin, leaseId, now)
     ]);
+    const completed = (results[0]?.meta as { changes?: number } | undefined)?.changes === 1;
+    if (completed) this.robotsMatchers.delete(parsed.origin);
+    return completed;
+  }
+
+  async recordRobotsSnapshot(origin: string, statusCode: number, body = ""): Promise<void> {
+    const parsed = OriginRobotsSnapshotSchema.parse({ origin, statusCode, body });
+    await this.db.batch(this.robotsSnapshotStatements(parsed, this.now()));
     this.robotsMatchers.delete(parsed.origin);
   }
 
@@ -1903,19 +1991,52 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     }
   }
 
+  async recordRemovalReport(appId: string, input: ReportSubmissionRequest): Promise<ReportSubmissionResponse> {
+    const parsed = ReportSubmissionRequestSchema.parse(input);
+    if (parsed.reportType !== "removal_request") throw new CoordinatorConflict("Removal report required", 403);
+    const reportId = crypto.randomUUID();
+    const recordedAt = new Date(this.now()).toISOString();
+    const result = await this.db.prepare(`INSERT INTO catalog_reports(report_id,app_id,report_type,payload_json,review_status,recorded_at)
+      SELECT ?,app_id,'removal_request',?,'pending',? FROM registered_apps WHERE app_id=? AND revoked_at IS NULL`)
+      .bind(reportId, JSON.stringify(parsed), recordedAt, appId).run();
+    if ((result.meta as { changes?: number } | undefined)?.changes !== 1) throw new CoordinatorConflict("Invalid application credential", 403);
+    return { schemaVersion: 1, status: "accepted", reportId, recordedAt };
+  }
+
+  /** Lists owned app metadata without credentials or hashes. */
+  async listUserApps(userId: string, limit: number, cursor: string | null, appId?: string): Promise<UserAppListResponse> {
+    const query = UserAppListQuerySchema.parse({ limit, cursor: cursor ?? undefined });
+    const rows = await this.db.prepare(`SELECT a.app_id,a.app_name,a.permissions_json,a.created_at,a.revoked_at
+      FROM registered_apps a JOIN user_app_ownership o ON o.app_id=a.app_id
+      JOIN registered_users u ON u.user_id=o.user_id
+      WHERE o.user_id=? AND u.revoked_at IS NULL AND (? IS NULL OR a.app_id>?) AND (? IS NULL OR a.app_id=?)
+      ORDER BY a.app_id LIMIT ?`).bind(userId, query.cursor ?? null, query.cursor ?? null, appId ?? null, appId ?? null, query.limit + 1)
+      .all<{ app_id: string; app_name: string; permissions_json: string; created_at: string; revoked_at: string | null }>();
+    const items = rows.results ?? [];
+    const apps = items.slice(0, query.limit).map(row => UserAppSchema.parse({ appId: row.app_id, appName: row.app_name,
+      permissions: JSON.parse(row.permissions_json), createdAt: row.created_at, revokedAt: row.revoked_at }));
+    return { schemaVersion: 1, apps, nextCursor: items.length > query.limit ? apps.at(-1)!.appId : null };
+  }
+
   /** Registers a downstream client application with scoped application token. */
-  async registerApp(input: RegisterAppRequest): Promise<RegisterAppResponse> {
+  async registerApp(input: RegisterAppRequest, ownerUserId?: string): Promise<RegisterAppResponse> {
     const parsed = RegisterAppRequestSchema.parse(input);
     const appId = crypto.randomUUID();
     const appToken = "vrcp_app_" + (await sha256Hex(crypto.randomUUID() + Date.now().toString())).slice(0, 64);
     const tokenHash = await sha256Hex(appToken);
     const now = new Date(this.now()).toISOString();
-    const permissions = ["catalog:read", "catalog:search", "catalog:random", "demand:feedback"];
+    const permissions = ["catalog:read", "catalog:search", "demand:feedback"];
 
-    await this.db.prepare(`
+    const insert = this.db.prepare(`
       INSERT INTO registered_apps (app_id, app_name, token_hash, contact_email, permissions_json, created_at, revoked_at)
-      VALUES (?, ?, ?, ?, ?, ?, NULL)
-    `).bind(appId, parsed.appName, tokenHash, parsed.contactEmail || null, JSON.stringify(permissions), now).run();
+      SELECT ?, ?, ?, ?, ?, ?, NULL WHERE ? IS NULL OR EXISTS (
+        SELECT 1 FROM registered_users WHERE user_id=? AND revoked_at IS NULL)
+    `).bind(appId, parsed.appName, tokenHash, parsed.contactEmail || null, JSON.stringify(permissions), now, ownerUserId ?? null, ownerUserId ?? null);
+    const writes = [insert];
+    if (ownerUserId !== undefined) writes.push(this.db.prepare(`INSERT INTO user_app_ownership(app_id,user_id)
+      SELECT app_id,? FROM registered_apps WHERE app_id=?`).bind(ownerUserId, appId));
+    const result = await this.db.batch(writes);
+    if ((result[0]?.meta as { changes?: number } | undefined)?.changes !== 1) throw new CoordinatorConflict("Invalid user owner", 403);
 
     return {
       schemaVersion: 1,
@@ -1973,51 +2094,6 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       signalId,
       recordedAt
     };
-  }
-
-  /** Randomly samples catalog packages matching optional filter criteria. */
-  async getRandomCatalogPackages(
-    limit: number,
-    filter?: { umbrella?: string; category?: string; platform?: Platform }
-  ): Promise<CatalogPackage[]> {
-    const safeLimit = Math.min(Math.max(limit, 1), 50);
-    const conditions = ["p.lifecycle != 'delisted'"];
-    const params: (string | number)[] = [];
-
-    if (filter?.umbrella) {
-      conditions.push("p.umbrella = ?");
-      params.push(filter.umbrella);
-    }
-    if (filter?.category) {
-      conditions.push("p.category = ?");
-      params.push(filter.category);
-    }
-    if (filter?.platform) {
-      conditions.push("EXISTS (SELECT 1 FROM package_fronts pf WHERE pf.canonical_id = p.canonical_id AND pf.platform = ?)");
-      params.push(filter.platform);
-    }
-
-    const whereClause = conditions.join(" AND ");
-    params.push(safeLimit);
-
-    const res = await this.db.prepare(`
-      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at, p.published_at, p.timestamp_confidence
-      FROM canonical_packages p
-      WHERE ${whereClause}
-      ORDER BY RANDOM()
-      LIMIT ?
-    `).bind(...params).all<{
-      canonical_id: string; umbrella: string; category: string; lifecycle: string;
-      display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
-      published_at: string | null; timestamp_confidence: string | null;
-    }>();
-
-    const rows = res.results || [];
-    const packages: CatalogPackage[] = [];
-    for (const row of rows) {
-      packages.push(await this.buildCatalogPackage(row));
-    }
-    return packages;
   }
 
   /** Configurable search across canonical packages for registered downstream applications. */

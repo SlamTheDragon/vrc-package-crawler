@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import zlib from "zlib";
 
-import { getTestOutputDir } from "../../tests/helpers/test_directory.ts";
+import { getTestOutputDir } from "../../src-web/tests/helpers/test_directory.ts";
 
 describe("Unified latest.log and Archiving Lifecycle", () => {
   const testDir = path.join(getTestOutputDir(), `test_latest_log_${Date.now()}`);

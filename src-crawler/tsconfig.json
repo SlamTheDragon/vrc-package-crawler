@@ -16,6 +16,6 @@
     "allowJs": true,
     "types": ["bun-types", "node"]
   },
-  "include": ["**/*", "../tests/helpers/**/*.ts"],
+  "include": ["**/*", "../src-web/tests/helpers/test_directory.ts", "../src-web/tests/helpers/test_setup.ts"],
   "exclude": ["node_modules", "bin", "dist"]
 }
