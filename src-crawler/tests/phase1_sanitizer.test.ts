@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { cleanTitle, cleanAuthorName, cleanDescription, extractReadmeDescription, unescapeHtml, normalizeListingTitle, cleanTrackingParams } from "../src/utils/text/sanitizer.ts";
+import { cleanTitle, unescapeHtml, cleanTrackingParams } from "../src/shared/text/catalog_hygiene.ts";
+import { cleanAuthorName, cleanDescription, extractReadmeDescription, normalizeListingTitle } from "../src/utils/text/sanitizer.ts";
 
 describe("Phase 1: Front-Stage Sanitization & Normalization", () => {
   it("unescapes HTML entities correctly", () => {

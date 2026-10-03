@@ -1,17 +1,14 @@
-# Post-Production Code and Architecture Specifications
+# Current Source Reference
 
-This directory holds candidate specifications for the accepted post-production architecture, APIs, and subsystems.
+This directory describes current code capabilities. Candidate details still need comparison with executable source. Owner decisions and open work remain in [the canonical ledger](../scratch/IMPLEMENTATION_PLAN.md).
 
-## Specification Candidates
+| Component | Current source | Reference |
+| --- | --- | --- |
+| API coordinator | `src-worker/src/`, entry `worker_entry.ts`, D1 storage | [Crawler network](SPECIFICATION_CRAWLER_NETWORK.md) |
+| Headless node | `src-crawler/src/`, binary `vrcp-crawler-node` | [Node and desktop client](SPECIFICATION_CRAWLER_CLIENT.md) |
+| Desktop starter | `src-crawler-client/`, Tauri/Svelte, no bundled node | [Node and desktop client](SPECIFICATION_CRAWLER_CLIENT.md) |
+| Static website starter | `src-web/`, Astro/Svelte, no panel or SDK integration | [Website](SPECIFICATION_WEBSITE.md) |
+| Consumer contracts | `src-package/`, package `vrc-packages-api` | [API routes](API_ROUTES.md) |
+| Storage and logging | Worker D1, node-local `node.db`, structured logs | [Database schemas](DATABASE_SCHEMAS.md) |
 
-| Subsystem | Scope and Role | Specification Link |
-|---|---|---|
-| **Crawler Network (Coordinator)** | Cloudflare Worker coordinator, workforce distribution, capability tokens, anti-bot origin pacing, report ingestion, downstream search/sampling, and canonical catalog projection | [`SPECIFICATION_CRAWLER_NETWORK.md`](SPECIFICATION_CRAWLER_NETWORK.md) |
-| **Crawler Node & Crawler Client** | Headless VPS/Linux daemon (`vrcp-crawler-node`), local telemetry (`node_state.db`), and Windows desktop GUI shell (`src-crawler-client`) bundling Crawler Node | [`SPECIFICATION_CRAWLER_CLIENT.md`](SPECIFICATION_CRAWLER_CLIENT.md) |
-| **Web Platform & Operator Panel** | SvelteKit landing page (`src-web`), ToS/Legal, node binary distribution, downstream application registry, DB statistics, and Firebase Auth bridge | [`SPECIFICATION_WEBSITE.md`](SPECIFICATION_WEBSITE.md) |
-| **Wire Protocols & API Routes** | Authoritative table of all HTTP routes across Crawler Node (`/v1/node/*`), Admin Operator (`/v1/operator/*`), User (`/v1/user/*`), and Downstream App (`/v1/app/*`) | [`API_ROUTES.md`](API_ROUTES.md) |
-| **Database & Logging Schemas** | Authoritative relational schemas for Coordinator (`coordinator.db`/D1), Node (`node_state.db`), and structured JSON activity logging | [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md) |
-
----
-
-*Note: Pre-production working decisions, gate statuses, and open operator questions stay in [`docs/scratch/`](../scratch/).*
+API route status separates implemented and planned endpoints. Database tables and broader safeguards still need a field-by-field audit. A candidate specification does not prove deployment, ownership verification or complete recovery.

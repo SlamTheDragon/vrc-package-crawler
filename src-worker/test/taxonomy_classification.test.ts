@@ -5,11 +5,11 @@ import {
   classifyDesktopTool,
   deriveCategoryFromTags,
   deriveUmbrellaFromTags
-} from "../../src/worker/domain/classification/taxonomy.ts";
+} from "../src/domain/classification/taxonomy.ts";
 import {
   AvatarCompatibilitySchema,
   extractAvatarCompatibility
-} from "../../src/worker/domain/classification/avatar_compatibility.ts";
+} from "../src/domain/classification/avatar_compatibility.ts";
 
 describe("Desktop Tool Tagging & Evidence (Gate G4 & Task 5.5)", () => {
   it("validates DesktopToolEvidenceSchema against authoritative publisher records", () => {

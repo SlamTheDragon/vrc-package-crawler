@@ -9,7 +9,8 @@ import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
   isSellfyProductTarget, sellfyProductIdentity, isCustomDomainProductTarget } from "../shared/policy/source_targets.ts";
 import { CRAWLER_USER_AGENT } from "../shared/robots/crawler_identity.ts";
 import { UnsafeMetadataTarget } from "../client/public_metadata_fetch.ts";
-import { cleanTitle, cleanAuthorName, cleanDescription, cleanTrackingParams } from "../utils/text/sanitizer.ts";
+import { cleanTitle, cleanTrackingParams } from "../shared/text/catalog_hygiene.ts";
+import { cleanAuthorName, cleanDescription } from "../utils/text/sanitizer.ts";
 
 type Outcome = ResultRequest["outcome"];
 

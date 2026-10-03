@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { VrcPackagesClient, VrcApiError } from "../src/client.ts";
 import { encodeLeadCursor, decodeLeadCursor } from "../src/protocol/operator.ts";
+import { encodeCatalogCursor } from "../src/types/package.ts";
 
 describe("VrcPackagesClient SDK", () => {
   it("reads owned app metadata through user-authenticated GET routes", async () => {
@@ -62,9 +63,12 @@ describe("VrcPackagesClient SDK", () => {
 
   it("queries the public package index without auth", async () => {
     let requestedUrl = "";
+    const cursor = encodeCatalogCursor({ createdAt: "2026-10-01T10:00:00.000Z", canonicalId: "item-2" });
+    const nextCursor = encodeCatalogCursor({ createdAt: "2026-10-01T10:00:00.000Z", canonicalId: "item-1" });
     const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       requestedUrl = input.toString();
       return new Response(JSON.stringify({
+        schemaVersion: 1,
         packages: [
           {
             canonicalId: "item-1",
@@ -79,7 +83,7 @@ describe("VrcPackagesClient SDK", () => {
             fronts: []
           }
         ],
-        count: 1
+        nextCursor
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
@@ -88,10 +92,14 @@ describe("VrcPackagesClient SDK", () => {
       fetch: mockFetch as typeof fetch
     });
 
-    const res = await client.index.query({ query: "Test", limit: 20 });
+    const res = await client.index.query({ limit: 100, cursor });
     expect(requestedUrl).toContain("/v1/app/index?");
-    expect(requestedUrl).toContain("query=Test");
-    expect(requestedUrl).toContain("limit=20");
+    expect(requestedUrl).toContain("limit=100");
+    expect(new URL(requestedUrl).searchParams.get("cursor")).toBe(cursor);
+    expect([...new URL(requestedUrl).searchParams.keys()].sort()).toEqual(["cursor", "limit"]);
+    expect(res.schemaVersion).toBe(1);
+    expect(res.nextCursor).toBe(nextCursor);
+    expect("count" in res).toBe(false);
     expect(res.packages.length).toBe(1);
     expect(res.packages[0]?.canonicalId).toBe("item-1");
   });
@@ -202,6 +210,29 @@ describe("VrcPackagesClient SDK", () => {
   it("does not expose the retired user delisting method", () => {
     const client = new VrcPackagesClient({ baseUrl: "https://worker.example" });
     expect("delist" in client.user).toBe(false);
+  });
+
+  it("rejects malformed public index receipts instead of accepting compatibility fallbacks", async () => {
+    const valid = { schemaVersion: 1, packages: [], nextCursor: null };
+    for (const body of [{ packages: [] }, { items: [], count: 0 }, { ...valid, count: 0 },
+      { ...valid, schemaVersion: 2 }, { ...valid, packages: [{}] }, { ...valid, nextCursor: "bad!cursor" }]) {
+      const client = new VrcPackagesClient({ baseUrl: "https://worker.example",
+        fetch: Object.assign(async () => Response.json(body), { preconnect() {} }) });
+      await expect(client.index.query()).rejects.toThrow();
+    }
+  });
+
+  it("rejects unsupported public options and invalid paging before transport", async () => {
+    let calls = 0;
+    const client = new VrcPackagesClient({ baseUrl: "https://worker.example",
+      fetch: Object.assign(async () => { calls++; return Response.json({ schemaVersion: 1,
+        packages: [], nextCursor: null }); }, { preconnect() {} }) });
+    for (const params of [{ query: "filter" }, { umbrella: "tools" }, { category: "tool" },
+      { platform: "vpm" }, { tags: ["vpm"] }, { limit: 0 }, { limit: 101 }, { limit: 1.5 },
+      { limit: NaN }, { limit: "10" }, { cursor: "invalid!" }, { cursor: "YWJj" }, { cursor: "" }]) {
+      await expect(client.index.query(params as Parameters<typeof client.index.query>[0])).rejects.toThrow();
+    }
+    expect(calls).toBe(0);
   });
 
   it("does not expose random sampling in the SDK", () => {

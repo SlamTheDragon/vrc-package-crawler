@@ -1,16 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { Coordinator } from "../../src/worker/storage/d1/coordinator.ts";
+import { Coordinator } from "../src/storage/d1/coordinator.ts";
 import {
   type D1Database,
   type D1PreparedStatement,
   type D1Result,
   type D1ExecResult
-} from "../../src/worker/storage/d1/definitions.ts";
-import workerEntry, { type Env } from "../../src/worker/worker_entry.ts";
+} from "../src/storage/d1/definitions.ts";
+import workerEntry, { type Env } from "../src/worker_entry.ts";
 import { PlatformSchema } from "../../src-crawler/src/shared/protocol/node_protocol.js";
-import { DEFAULT_SEED_JOBS } from "../../src/worker/storage/default_seeds.ts";
-import { decodeCatalogCursor } from "../../src-crawler/src/shared/protocol/operator_protocol.js";
+import { DEFAULT_SEED_JOBS } from "../src/storage/default_seeds.ts";
+import { decodeCatalogCursor } from "../src/api/protocol/operator_protocol.js";
 import { VrcPackagesClient } from "../../src-package/src/client.js";
 
 export function createMockD1Database(db = new Database(":memory:")): D1Database {
@@ -150,7 +150,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       if (claimed.status !== "leased") throw new Error("Expected lease");
       const origin = fixture.sqlite.query("SELECT * FROM origin_leases").get();
       const client = new VrcPackagesClient({ baseUrl: "https://worker.example", operatorToken: "a".repeat(64),
-        fetch: async (input, init) => workerEntry.fetch(new Request(input, init), { DB: fixture.db, OPERATOR_TOKEN: "a".repeat(64) }) });
+        fetch: async (input, init) => workerEntry.fetch(new Request(input, init), { VRCP_D1: fixture.db, OPERATOR_TOKEN: "a".repeat(64) }) });
       const revokePath = `https://worker.example/v1/operator/nodes/${principal.nodeId}/revoke`;
       for (const [payload, authorized, status] of [
         [{ schemaVersion: 1, reason: "Fixture" }, false, 401],
@@ -160,7 +160,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       ] as const) {
         const result = await workerEntry.fetch(new Request(revokePath, { method: "POST",
           headers: { "content-type": "application/json", ...(authorized ? { authorization: `Bearer ${"a".repeat(64)}` } : {}) },
-          body: JSON.stringify(payload) }), { DB: fixture.db, OPERATOR_TOKEN: "a".repeat(64) });
+          body: JSON.stringify(payload) }), { VRCP_D1: fixture.db, OPERATOR_TOKEN: "a".repeat(64) });
         expect(result.status).toBe(status);
       }
       expect(fixture.sqlite.query("SELECT COUNT(*) AS count FROM node_credential_actions WHERE action='revoke'").get()).toEqual({ count: 0 });
@@ -213,7 +213,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       for (const [body, bearer, status] of cases) {
         const response = await workerEntry.fetch(new Request("https://worker.example/v1/operator/jobs", {
           method: "POST", headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" }, body: JSON.stringify(body)
-        }), { DB: db, OPERATOR_TOKEN: token });
+        }), { VRCP_D1: db, OPERATOR_TOKEN: token });
         expect(response.status).toBe(status);
         expect(sqlite.query("SELECT COUNT(*) AS count FROM job_seed_actions").get()).toEqual({ count: 0 });
       }
@@ -227,7 +227,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       const db = createMockD1Database(sqlite);
       const store = new Coordinator(db);
       await store.initSchema();
-      const env = { DB: db, OPERATOR_TOKEN: "a".repeat(64) };
+      const env = { VRCP_D1: db, OPERATOR_TOKEN: "a".repeat(64) };
       const client = new VrcPackagesClient({ baseUrl: "https://worker.example", operatorToken: env.OPERATOR_TOKEN,
         fetch: async (input, init) => workerEntry.fetch(new Request(input, init), env) });
       const input = { schemaVersion: 1 as const, url: "https://seed.example/index.json", platform: "vpm" as const,
@@ -319,7 +319,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     for (const autoSeed of [false, undefined]) {
       const sqlite = new Database(":memory:");
       try {
-        const env = { DB: createMockD1Database(sqlite), OPERATOR_TOKEN: "a".repeat(64) };
+        const env = { VRCP_D1: createMockD1Database(sqlite), OPERATOR_TOKEN: "a".repeat(64) };
         const client = new VrcPackagesClient({ baseUrl: "https://worker.example", operatorToken: env.OPERATOR_TOKEN,
           fetch: async (input, init) => workerEntry.fetch(new Request(input, init), env) });
         const result = await client.operator.init({ autoSeed });
@@ -353,7 +353,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       };
       const response = await workerEntry.fetch(new Request("https://worker.example/v1/operator/init", {
         method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": contentType }, body
-      }), { DB: db, OPERATOR_TOKEN: token });
+      }), { VRCP_D1: db, OPERATOR_TOKEN: token });
       expect(response.status).toBe(expectedStatus);
       expect(operations).toBe(0);
       expect(response.headers.get("cache-control")).toBe("no-store");
@@ -367,7 +367,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     Object.defineProperty(request, "body", { get() { reads++; throw new Error("Body read before auth"); } });
     request.json = async () => { reads++; throw new Error("Body read before auth"); };
     const response = await workerEntry.fetch(request, {
-      DB: createMockD1Database(), OPERATOR_TOKEN: "a".repeat(64)
+      VRCP_D1: createMockD1Database(), OPERATOR_TOKEN: "a".repeat(64)
     });
     expect(response.status).toBe(401);
     expect(reads).toBe(0);
@@ -852,7 +852,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
 
     const operatorToken = "a".repeat(64);
     const env: Env = {
-      DB: mockDb,
+      VRCP_D1: mockDb,
       OPERATOR_TOKEN: operatorToken
     };
 
@@ -971,7 +971,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     expect(epoch2).not.toBe(epoch1);
 
     // Test worker_entry.fetch public unauthenticated routes
-    const env: Env = { DB: mockDb, OPERATOR_TOKEN: "f".repeat(64) };
+    const env: Env = { VRCP_D1: mockDb, OPERATOR_TOKEN: "f".repeat(64) };
 
     const catReq = new Request("http://coordinator.test/v1/app/index");
     const catRes = await workerEntry.fetch(catReq, env);
@@ -1420,7 +1420,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
   it("workerEntry fetch handles POST /v1/operator/init and enforces operator auth", async () => {
     const db = createMockD1Database();
     const operatorToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    const env: Env = { DB: db, OPERATOR_TOKEN: operatorToken };
+    const env: Env = { VRCP_D1: db, OPERATOR_TOKEN: operatorToken };
 
     // Unauthorized without auth header
     const unauthReq = new Request("http://localhost/v1/operator/init", {

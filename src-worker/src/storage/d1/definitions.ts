@@ -1,5 +1,5 @@
 import type { Platform } from "../../../../src-crawler/src/shared/protocol/node_protocol.js";
-import type { SourcePurpose } from "../../../../src-crawler/src/shared/policy/source_access_profile.js";
+import type { SourcePurpose } from "../../domain/access/source_access_profile.js";
 
 
 export interface D1Database {

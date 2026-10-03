@@ -10,10 +10,19 @@ import {
 
 export const CATALOG_PROTOCOL_VERSION = 1 as const;
 
+const PublicCatalogCursorTokenSchema = z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/)
+  .refine((value) => decodeCatalogCursor(value) !== null, "Invalid catalog cursor");
+
+export const PublicCatalogListQuerySchema = z.strictObject({
+  limit: z.number().int().min(1).max(100).default(50),
+  cursor: PublicCatalogCursorTokenSchema.optional()
+});
+export type PublicCatalogListQuery = z.input<typeof PublicCatalogListQuerySchema>;
+
 export const PublicCatalogListResponseSchema = z.strictObject({
   schemaVersion: z.literal(CATALOG_PROTOCOL_VERSION),
   packages: z.array(CatalogPackageSchema),
-  nextCursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).nullable()
+  nextCursor: PublicCatalogCursorTokenSchema.nullable()
 });
 export type PublicCatalogListResponse = z.infer<typeof PublicCatalogListResponseSchema>;
 

@@ -14,10 +14,11 @@ binding = "VRCP_D1"
 database_id = "722bdd0d-92ca-445b-9319-da0b27adf7b2"
 remote = false
 
-# Existing preview resource is shared. Do not deploy preview writes before isolating it.
+# Preserve the owner-selected IDs. Remote resource isolation still needs review before deployment.
 [[previews.d1_databases]]
 binding = "VRCP_PREVIEW_D1"
 database_id = "9c3b2e28-861d-44fe-8df1-2c80f4e0c53c"
+remote = false
 
 [observability.logs]
 enabled = true
@@ -40,6 +41,3 @@ persist = true
 enabled = false
 head_sampling_rate = 1
 persist = true
-
-[previews.observability.issue_detection]
-enabled = false

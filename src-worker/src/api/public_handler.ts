@@ -10,7 +10,7 @@ import {
   decodeCatalogCursor,
   type CatalogCursor,
   type CatalogPackage
-} from "../../../src-crawler/src/shared/protocol/operator_protocol.js";
+} from "./protocol/operator_protocol.js";
 import { workerLogger } from "../worker_logger.ts";
 
 export interface PublicCatalogStore {

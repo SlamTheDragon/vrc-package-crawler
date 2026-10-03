@@ -1,4 +1,4 @@
-import { PlatformSchema, type Platform } from "./node_protocol.ts";
+import { PlatformSchema, type Platform } from "../../../../src-crawler/src/shared/protocol/node_protocol.ts";
 
 /**
  * Deterministic bitmask mapping for platform capabilities.
@@ -77,7 +77,7 @@ export function formatCapabilityToken(
   const code = encodeCapabilityCode(capabilities);
   const entropy = entropyHex && /^[0-9a-fA-F]{64}$/.test(entropyHex)
     ? entropyHex.toLowerCase()
-    : Array.from(globalThis.crypto.getRandomValues(new Uint8Array(32)),
+    : Array.from(crypto.getRandomValues(new Uint8Array(32)),
       byte => byte.toString(16).padStart(2, "0")).join("");
   return `vrcp_${entropy}${code}`;
 }

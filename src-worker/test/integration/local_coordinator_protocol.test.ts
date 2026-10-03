@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { handleNodeRequest } from "../../src/worker/api/handler.ts";
+import { handleNodeRequest } from "../../src/api/handler.ts";
 import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
 import { ClaimResponseSchema, NODE_API_JSON_SCHEMAS, PROTOCOL_VERSION, ResultResponseSchema, PlatformSchema } from "../../../src-crawler/src/shared/protocol/node_protocol.js";
 import { Database } from "bun:sqlite";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 import crypto from "node:crypto";
 import { approveFixtureSource, seedApprovedFixtureJob } from "../helpers/source_access_fixture.ts";
 import { getTestOutputDir } from "../helpers/test_directory.ts";
-import { DEFAULT_SEED_JOBS } from "../../src/worker/storage/default_seeds.ts";
+import { DEFAULT_SEED_JOBS } from "../../src/storage/default_seeds.ts";
 import { fetchJobOutcome } from "../../../src-crawler/src/adapters/observation_adapter.js";
 
 function allowFixtureOrigin(store: LocalCoordinatorStore, ...origins: string[]): void {

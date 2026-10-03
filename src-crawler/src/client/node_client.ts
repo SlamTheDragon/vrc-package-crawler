@@ -125,7 +125,9 @@ export class CoordinatorClient {
 
   async submit(request: Omit<ResultRequest, "schemaVersion" | "nodeId">): Promise<ResultResponse> {
     const payload = ResultRequestSchema.parse({ ...request, schemaVersion: PROTOCOL_VERSION, nodeId: this.nodeId });
-    return ResultResponseSchema.parse(await this.post("/v1/node/jobs/result", payload));
+    const response = ResultResponseSchema.parse(await this.post("/v1/node/jobs/result", payload));
+    if (response.jobId !== payload.jobId) throw new Error("Result receipt does not match submitted job");
+    return response;
   }
 }
 

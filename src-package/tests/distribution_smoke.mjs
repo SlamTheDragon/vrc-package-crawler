@@ -45,7 +45,7 @@ try {
   const response = await runtime.dispatchFetch('https://packed-sdk.test');
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { platform: 'vpm', umbrella: 'tools', tokenValid: true,
-    clientReady: true, reason: 'Packed Worker fixture' });
+    clientReady: true, publicIndex: true, reason: 'Packed Worker fixture' });
   assert.equal(externalFetches, 0);
 } finally { await runtime.dispose(); }
 console.log(JSON.stringify({ check: 'packed_sdk_distribution', node: true, types: true,

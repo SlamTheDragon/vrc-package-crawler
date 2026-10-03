@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.js";
+import { LocalCoordinatorStore } from "./support/local_sqlite.js";
 
 describe("Gate 2 Identity Links and Canonical Packages", () => {
   it("upserts and retrieves canonical packages correctly", () => {

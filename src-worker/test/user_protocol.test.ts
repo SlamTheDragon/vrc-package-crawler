@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.js";
-import { handleUserRequest } from "../../src/worker/api/user_handler.ts";
+import { LocalCoordinatorStore } from "./support/local_sqlite.js";
+import { handleUserRequest } from "../src/api/user_handler.ts";
 import { isUserToken, USER_TOKEN_PREFIX } from "../../src-crawler/src/shared/identity_config.js";
 
 function jsonRequest(path: string, method: string, body?: unknown, token?: string): Request {

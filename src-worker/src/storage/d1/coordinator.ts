@@ -4,16 +4,16 @@ import { RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeReque
 import { CRAWLER_ROBOTS_TOKEN } from "../../../../src-crawler/src/shared/robots/crawler_identity.js";
 import { isPrivateOrReservedIp } from "../../../../src-crawler/src/shared/policy/ip_policy.js";
 import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "../../../../src-crawler/src/shared/protocol/node_protocol.js";
-import { type AutoQueueRule, AutoQueueRuleSchema, type IssueNodeCredential, IssueNodeCredentialSchema, type LeadCursor, type LeadRow, encodeLeadCursor, type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema, type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront, encodeCatalogCursor, decodeCatalogCursor, encodeTakedownCursor, type TakedownCursor, type TakedownRecord } from "../../../../src-crawler/src/shared/protocol/operator_protocol.js";
+import { type AutoQueueRule, AutoQueueRuleSchema, type IssueNodeCredential, IssueNodeCredentialSchema, type LeadCursor, type LeadRow, encodeLeadCursor, type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema, type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront, encodeCatalogCursor, decodeCatalogCursor, encodeTakedownCursor, type TakedownCursor, type TakedownRecord } from "../../api/protocol/operator_protocol.js";
 import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "../../../../src-crawler/src/shared/robots/robots_snapshot.js";
-import { type SourceAccessProfile, SourceAccessProfileSchema, sourceAccessProfileMatches, type SourcePurpose, type ProfileCursor, encodeProfileCursor, type CreateSourceAccessProfile, CreateSourceAccessProfileSchema, sourcePathScopesOverlap } from "../../../../src-crawler/src/shared/policy/source_access_profile.js";
+import { type SourceAccessProfile, SourceAccessProfileSchema, sourceAccessProfileMatches, type SourcePurpose, type ProfileCursor, encodeProfileCursor, type CreateSourceAccessProfile, CreateSourceAccessProfileSchema, sourcePathScopesOverlap } from "../../domain/access/source_access_profile.js";
 import { isItchSearchUrl } from "../../../../src-crawler/src/shared/policy/source_path_policy.js";
 import { isBoothBrowseTarget, boothItemIdentity, isShopifyProductSitemapTarget, shopifyProductLead, githubApiRepositoryIdentity, isSellfyProductTarget } from "../../../../src-crawler/src/shared/policy/source_targets.js";
 import { type CoordinatorStore, type NodePrincipal, CoordinatorConflict } from "../../api/handler.ts";
 import type { OperatorStore } from "../../api/operator_handler.ts";
 import type { PublicCatalogStore } from "../../api/public_handler.ts";
 import { type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor } from "../../../../src-crawler/src/shared/protocol/catalog_protocol.js";
-import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../../../src-crawler/src/shared/protocol/capability_token.js";
+import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../domain/security/capability_token.js";
 import {
   RegisterAppRequestSchema,
   UserAppListQuerySchema, UserAppSchema, type UserAppListResponse,
@@ -35,7 +35,7 @@ import type { UserStore } from "../../api/user_handler.ts";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils.js";
 import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../domain/classification/taxonomy.ts";
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../domain/classification/avatar_compatibility.ts";
-import { cleanTitle, cleanTrackingParams } from "../../../../src-crawler/src/utils/text/sanitizer.js";
+import { cleanTitle, cleanTrackingParams } from "../../../../src-crawler/src/shared/text/catalog_hygiene.js";
 import { STOREFRONT_PLATFORMS } from "../../../../src-crawler/src/shared/protocol/node_protocol.js";
 import { DEFAULT_SEED_JOBS } from "../default_seeds.js";
 import type {
@@ -902,6 +902,28 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       );
     }
 
+    const discoveryLeads = outcome.kind === "discovery" ? await Promise.all(outcome.leads.map(async lead => {
+      const identity = lead.discoveredFromItemKey ?
+        [job.url, lead.discoveredFromItemKey, lead.kind, lead.url, lead.claimedPackageId || null] :
+        [job.url, lead.kind, lead.url, lead.claimedPackageId || null];
+      return { lead, leadKey: await sha256Hex(JSON.stringify(identity)) };
+    })) : [];
+    for (const { lead, leadKey } of discoveryLeads) {
+      batchStmts.push(this.db.prepare(`INSERT INTO source_leads
+        (lead_key,discovered_from_url,discovered_from_job_id,discovered_from_item_key,
+          kind,target_url,claimed_package_id,status,
+          first_seen_at,last_seen_at,first_seen_node_id,first_seen_lease_id,first_seen_profile_id,
+          last_seen_node_id,last_seen_lease_id,last_seen_profile_id)
+        VALUES (?,?,?,?,?,?,?,'pending_review',?,?,?,?,?,?,?,?)
+        ON CONFLICT(lead_key) DO UPDATE SET last_seen_at=excluded.last_seen_at,
+          last_seen_node_id=excluded.last_seen_node_id,last_seen_lease_id=excluded.last_seen_lease_id,
+          last_seen_profile_id=excluded.last_seen_profile_id`)
+        .bind(leadKey, job.url, job.job_id, lead.discoveredFromItemKey || null,
+          lead.kind, lead.url, lead.claimedPackageId || null,
+          now, now, principal.nodeId, request.leaseId, sourceProfile.profileId,
+          principal.nodeId, request.leaseId, sourceProfile.profileId));
+    }
+
     let state = "done";
     let nextFetchAt = new Date(nowMs + 24 * 60 * 60 * 1000).toISOString();
     if (outcome.kind === "rate_limited") {
@@ -935,25 +957,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     }
 
     if (outcome.kind === "discovery") {
-      for (const lead of outcome.leads) {
-        const identity = lead.discoveredFromItemKey ?
-          [job.url, lead.discoveredFromItemKey, lead.kind, lead.url, lead.claimedPackageId || null] :
-          [job.url, lead.kind, lead.url, lead.claimedPackageId || null];
-        const leadKey = await sha256Hex(JSON.stringify(identity));
-        await this.db.prepare(`INSERT INTO source_leads
-          (lead_key,discovered_from_url,discovered_from_job_id,discovered_from_item_key,
-            kind,target_url,claimed_package_id,status,
-            first_seen_at,last_seen_at,first_seen_node_id,first_seen_lease_id,first_seen_profile_id,
-            last_seen_node_id,last_seen_lease_id,last_seen_profile_id)
-          VALUES (?,?,?,?,?,?,?,'pending_review',?,?,?,?,?,?,?,?)
-          ON CONFLICT(lead_key) DO UPDATE SET last_seen_at=excluded.last_seen_at,
-            last_seen_node_id=excluded.last_seen_node_id,last_seen_lease_id=excluded.last_seen_lease_id,
-            last_seen_profile_id=excluded.last_seen_profile_id`)
-          .bind(leadKey, job.url, job.job_id, lead.discoveredFromItemKey || null,
-            lead.kind, lead.url, lead.claimedPackageId || null,
-            now, now, principal.nodeId, request.leaseId, sourceProfile.profileId,
-            principal.nodeId, request.leaseId, sourceProfile.profileId).run();
-
+      for (const { lead, leadKey } of discoveryLeads) {
         const status = await this.db.prepare("SELECT status FROM source_leads WHERE lead_key=?")
           .bind(leadKey).first<{ status: string; }>();
         if (status?.status === "pending_review") {

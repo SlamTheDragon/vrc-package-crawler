@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.js";
-import { handleOperatorRequest } from "../../src/worker/api/operator_handler.ts";
-import { handleNodeRequest } from "../../src/worker/api/handler.ts";
-import { OPERATOR_API_JSON_SCHEMAS, TakedownListResponseSchema, VerifyTakedownResponseSchema } from "../../src-crawler/src/shared/protocol/operator_protocol.js";
-import { approveFixtureSource, seedApprovedFixtureJob } from "../../src-web/tests/helpers/source_access_fixture.js";
+import { LocalCoordinatorStore } from "./support/local_sqlite.js";
+import { handleOperatorRequest } from "../src/api/operator_handler.ts";
+import { handleNodeRequest } from "../src/api/handler.ts";
+import { OPERATOR_API_JSON_SCHEMAS, TakedownListResponseSchema, VerifyTakedownResponseSchema } from "../src/api/protocol/operator_protocol.js";
+import { approveFixtureSource, seedApprovedFixtureJob } from "./helpers/source_access_fixture.js";
 
 const operatorToken = "a".repeat(64);
 

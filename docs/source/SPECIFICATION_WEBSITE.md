@@ -1,69 +1,27 @@
-# Web Platform and Operator Dashboard Specification (Candidate)
+# Website Source Reference
 
-> **Document Status:** Post-Production Candidate Specification  
-> **Target Subsystem:** Web Frontend, Operator Control Plane, and Downstream Registry Dashboard  
-> **Source Directory:** `src-web/`
+Review date: 2026-10-03. Source: `src-web/`.
 
----
+## Current Implementation
 
-## 1. Overview and Architectural Role
+The owner separated the website from the API Worker. `src-web` uses Astro with the Svelte integration. Its only page, `src/pages/index.astro`, displays starter content. Commands are `bun run dev`, `bun run build` and `bun run preview`.
 
-The **Web Platform** (`src-web`) serves as the public landing page, legal portal, and authenticated Operator Control Panel:
+`src-worker/src/worker_entry.ts` owns API endpoints and D1. The website does not import Worker storage or serve its API. No coordinator binary exists.
 
-1. **Public Informational Portal & Landing Page (Unauthenticated)**:
-   - **Landing Page**: Explains the discovery engine's purpose, scope, unauthenticated indexing architecture, and zero-binary principles.
-   - **Terms of Service (ToS) & Legal Disclosures**: Publishes in-band covenants, RFC 9309 robots compliance, `User-Agent` contact details, and fair-use indexing boundaries (`LEGAL.md`).
-   - **Node Binary Distribution**: Distributes compiled headless Crawler Node binaries (`vrcp-crawler-node` for Linux VPS and Windows CLI) and the Windows GUI Crawler Client.
-   - **Database Statistics**: Displays live aggregated statistics and metrics of the canonical database (package counts, platform fronts, freshness, and crawl coverage).
-   - **Creator Self-Service Opt-Out**: Provides instructions and validation tracking for non-scraping delisting requests.
-   - **Public API Documentation**: Documents the public catalog endpoints (`/v1/catalog`, `/v1/catalog/delta`).
+| Capability | Current evidence |
+| --- | --- |
+| Static page | Astro starter page and public icons |
+| Typed API client | Not wired. No `vrc-packages-api` dependency in the website manifest |
+| Operator dashboard | Not implemented |
+| User/Firebase authentication | Not implemented |
+| Registries, statistics, legal pages and binary distribution | Not implemented |
+| Creator ownership verification or direct delisting | Not implemented. API removal reports remain pending |
+| Worker deployment | Separate API project. No website deployment configuration is established by this scaffold |
 
-2. **Authenticated Web Platform (Firebase Auth + Cloudflare Bridge)**:
-   - **Registrant Self-Service Portal (`/v1/user/*`)**:
-     - **Node Token Issuance**: Generates capability-encoded node tokens (`vrcp_<token><cap>`) for contributor VPS instances or Windows Crawler Clients.
-     - **Downstream Application Registry**: Registers downstream applications and issues application credentials (`vrcp_app_`).
-     - **Self-Service Delisting**: Enables creators to delist packages they own directly on their behalf (authenticated identity serves as proof).
-   - **Admin Operator Control Panel (`/v1/operator/*`)**:
-     - **Crawl Permission Oversight**: Reviews and manages scoped `SourceAccessProfile` records.
-     - **Auto-Queue Rules Editor**: Configures expiring, path-scoped lead promotion rules.
-     - **Discovery Lead Triage**: Interface to review, approve, or reject pending candidate leads.
-     - **Takedown Review**: Reviews proof for unauthenticated creator delisting submissions.
-     - **Cloudflare & Edge Infrastructure Oversight**: Manages worker bindings and deployment parameters.
+## Integration Boundary
 
-For route specifics and request/response payloads, see [`API_ROUTES.md`](API_ROUTES.md).
+The owner intends the website to consume the SDK over HTTP. Independent npm distribution remains a prerequisite. Do not import sibling Worker TypeScript or D1 storage into the website.
 
----
+Do not embed `OPERATOR_TOKEN` in static assets. Browser authentication, authenticated CORS/preflight and any trusted credential relay require a separate reviewed design. A user token authenticates a user, not ownership of every catalog item.
 
-## 2. Decoupled Two-Tier Architecture
-
-```mermaid
-flowchart TD
-    subgraph Browser Client
-        UI["SvelteKit Operator Dashboard (src-web)"]
-    end
-
-    subgraph Authentication & Gateway
-        AUTH["Firebase Auth / Operator Session"]
-        RELAY["API Gateway Proxy"]
-    end
-
-    subgraph Crawler Network
-        COORD["Coordinator API (/v1/operator/*)"]
-    end
-
-    UI -->|JWT Bearer| AUTH
-    UI -->|Relayed Requests| RELAY
-    RELAY -->|COORDINATOR_OPERATOR_TOKEN| COORD
-```
-
-- **Air-Gapped Isolation**: User accounts, private lists, and authentication state stay isolated on `src-web`. The coordinator backend keeps zero user tables.
-- **Operator Token Relay**: The dashboard calls coordinator `/v1/operator/*` routes through an authenticated relay that supplies the 256-bit `COORDINATOR_OPERATOR_TOKEN`.
-- **Downstream Package Consumers**: External package managers (ALCOM, VCC) query the public catalog stream without operator privileges.
-
----
-
-## 3. Technology Stack and Key Guidelines
-
-- **Framework:** Svelte / SvelteKit with TypeScript.
-- **Styling:** Tailwind CSS with strict baseline UI standards (clear visual hierarchy, accessible contrast ratios, tabular numbers for metrics).
-- **Protocol Package:** Imports strongly-typed DTOs and API clients from workspace package `vrc-packages-api` (`src-package/`).
+Use [API_ROUTES.md](API_ROUTES.md) for current route status. Future portal requirements and unresolved decisions belong in [the implementation ledger](../scratch/IMPLEMENTATION_PLAN.md), not capability claims here.

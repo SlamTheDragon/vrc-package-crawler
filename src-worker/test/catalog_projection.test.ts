@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import crypto from "node:crypto";
-import { handleOperatorRequest } from "../../src/worker/api/operator_handler.ts";
-import { handleNodeRequest } from "../../src/worker/api/handler.ts";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.js";
-import { OPERATOR_PROTOCOL_VERSION, CatalogListResponseSchema, decodeCatalogCursor } from "../../src-crawler/src/shared/protocol/operator_protocol.js";
+import { handleOperatorRequest } from "../src/api/operator_handler";
+import { handleNodeRequest } from "../src/api/handler.ts";
+import { LocalCoordinatorStore } from "./support/local_sqlite.js";
+import { OPERATOR_PROTOCOL_VERSION, CatalogListResponseSchema, decodeCatalogCursor } from "../src/api/protocol/operator_protocol.js";
 import { PROTOCOL_VERSION } from "../../src-crawler/src/shared/protocol/node_protocol.js";
-import { approveFixtureSource, seedApprovedFixtureJob } from "../../src-web/tests/helpers/source_access_fixture.js";
+import { approveFixtureSource, seedApprovedFixtureJob } from "./helpers/source_access_fixture.js";
 
 const OPERATOR_TOKEN = "a".repeat(64);
 
@@ -1606,4 +1606,3 @@ describe("Desktop Tool Evidence Storage (Task 5.5 / Gate G4)", () => {
     }
   });
 });
-

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { VrcPackagesClient, VrcApiError, PlatformSchema } from 'vrc-packages-api';
 import { RevokeNodeRequestSchema, LeadCursorSchema, encodeLeadCursor, decodeLeadCursor,
   CreateSourceAccessProfileSchema, isCanonicalSourceAccessPath, CreateAutoQueueRuleSchema,
-  NodeCredentialResponseSchema } from 'vrc-packages-api/protocol';
+  NodeCredentialResponseSchema, encodeCatalogCursor, PublicCatalogListQuerySchema } from 'vrc-packages-api/protocol';
 import { ReportSubmissionRequestSchema } from 'vrc-packages-api/protocol';
 import { CatalogPackageSchema } from 'vrc-packages-api/types';
 import * as taxonomy from 'vrc-packages-api/taxonomy';
@@ -11,6 +11,29 @@ import { formatAppToken, isAppToken } from 'vrc-packages-api/auth';
 
 assert.equal(PlatformSchema.parse('vpm'), 'vpm');
 assert.equal(typeof VrcPackagesClient, 'function');
+const publicCursor = encodeCatalogCursor({ createdAt: '2026-10-01T12:00:00.000Z', canonicalId: 'packed-item' });
+assert.deepEqual(PublicCatalogListQuerySchema.parse({}), { limit: 50 });
+let publicRequests = 0;
+const publicIndex = new VrcPackagesClient({ baseUrl: 'https://packed-worker.test',
+  fetch: async (input, init) => {
+    publicRequests++;
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    assert.equal(request.method, 'GET');
+    assert.equal(url.pathname, '/v1/app/index');
+    assert.equal(request.headers.has('authorization'), false);
+    assert.deepEqual([...url.searchParams], [['limit', '100'], ['cursor', publicCursor]]);
+    return Response.json(publicRequests === 1
+      ? { schemaVersion: 1, packages: [], nextCursor: publicCursor }
+      : { packages: [], count: 0 });
+  } });
+assert.deepEqual(await publicIndex.index.query({ limit: 100, cursor: publicCursor }),
+  { schemaVersion: 1, packages: [], nextCursor: publicCursor });
+await assert.rejects(publicIndex.index.query({ limit: 100, cursor: publicCursor }), { name: 'ZodError' });
+for (const query of [{ query: 'unsupported' }, { limit: 101 }, { cursor: btoa('{}') }]) {
+  await assert.rejects(publicIndex.index.query(query), { name: 'ZodError' });
+}
+assert.equal(publicRequests, 2);
 assert.equal('delist' in new VrcPackagesClient({ baseUrl: 'https://packed-worker.test' }).user, false);
 assert.equal('registerApp' in new VrcPackagesClient({ baseUrl: 'https://packed-worker.test' }).user, false);
 assert.equal('registerNode' in new VrcPackagesClient({ baseUrl: 'https://packed-worker.test' }).user, false);

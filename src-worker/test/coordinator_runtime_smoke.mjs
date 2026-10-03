@@ -1,9 +1,9 @@
-// Offline-only workerd/D1 smoke. Requires Bun, installed src-web dependencies and Node with TypeScript stripping.
-// Run from any directory after: cd src-web; bun run build
-// Then: node src-web/tests/coordinator_runtime_smoke.mjs
+// Offline-only workerd/D1 smoke. Requires Bun, installed src-worker dependencies and Node with TypeScript stripping.
+// Run from any directory after: cd src-worker; bun run build
+// Then: node src-worker/test/coordinator_runtime_smoke.mjs
 // The fixture module is in memory only. Never deploy it or use remote bindings.
 // Current installed Miniflare 5 alpha needs its supplied option conversion API.
-import { Miniflare, convertV4MiniflareOptions } from '../../src-web/node_modules/miniflare/dist/src/index.js';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -15,15 +15,15 @@ import {
 	HeartbeatResponseSchema,
 	ResultResponseSchema
 } from '../../src-crawler/src/shared/protocol/node_protocol.ts';
-import { NodeCredentialResponseSchema } from '../../src-crawler/src/shared/protocol/operator_protocol.ts';
-import { SourceAccessProfileListResponseSchema } from '../../src-crawler/src/shared/policy/source_access_profile.ts';
+import { NodeCredentialResponseSchema } from '../src/api/protocol/operator_protocol.ts';
+import { SourceAccessProfileListResponseSchema } from '../src/domain/access/source_access_profile.ts';
 import { EnqueueJobResponseSchema, RevokeNodeResponseSchema, AutoQueueRuleResponseSchema,
   AutoQueueRuleListResponseSchema } from '../../src-package/src/protocol/operator.ts';
 import { VrcPackagesClient } from '../../src-package/src/client.ts';
 const operatorToken = randomBytes(32).toString('hex');
 // Bundle the real store into memory for native binding tests. No fixture is deployed.
 const storageModule = execFileSync('bun', [
-	'build', '--target=browser', fileURLToPath(new URL('../src/worker/storage/d1/coordinator.ts', import.meta.url))
+	'build', '--target=browser', fileURLToPath(new URL('../src/storage/d1/coordinator.ts', import.meta.url))
 ], { cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 30_000 });
 const refreshFixtureModule = String.raw`
 import { Coordinator } from './storage.mjs';
@@ -31,24 +31,24 @@ function check(value, message) { if (!value) throw new Error(message); }
 export async function refreshFixture(env) {
   const origin = 'https://native-robots.example';
   let clock = Date.now();
-  const store = new Coordinator(env.DB, () => clock);
+  const store = new Coordinator(env.VRCP_D1, () => clock);
   const owner = await store.issueUserToken('native-app-owner');
   const owned = await store.registerApp({ schemaVersion: 1, appName: 'Native owned app' }, owner.userId);
-  const ownedRow = await env.DB.prepare('SELECT user_id FROM user_app_ownership WHERE app_id=?').bind(owned.appId).first();
+  const ownedRow = await env.VRCP_D1.prepare('SELECT user_id FROM user_app_ownership WHERE app_id=?').bind(owned.appId).first();
   check(ownedRow.user_id === owner.userId, 'App owner was not persisted');
   const view = await store.listUserApps(owner.userId, 50, null);
   check(view.apps.length === 1 && view.apps[0].appId === owned.appId, 'Owned app view was incorrect');
   check(Object.keys(view.apps[0]).sort().join(',') === 'appId,appName,createdAt,permissions,revokedAt', 'App view exposed private fields');
   const otherOwner = await store.issueUserToken('native-other-owner');
   check((await store.listUserApps(otherOwner.userId, 50, null, owned.appId)).apps.length === 0, 'Cross-user app view leaked');
-  await env.DB.exec("CREATE TRIGGER reject_native_app_owner BEFORE INSERT ON user_app_ownership BEGIN SELECT RAISE(ABORT,'Owner write rejected'); END;");
+  await env.VRCP_D1.exec("CREATE TRIGGER reject_native_app_owner BEFORE INSERT ON user_app_ownership BEGIN SELECT RAISE(ABORT,'Owner write rejected'); END;");
   let ownershipRollback = false;
   try { await store.registerApp({ schemaVersion: 1, appName: 'Native rejected owner' }, owner.userId); } catch { ownershipRollback = true; }
   check(ownershipRollback, 'Ownership failure did not reject');
-  const orphan = await env.DB.prepare("SELECT COUNT(*) AS count FROM registered_apps WHERE app_name='Native rejected owner'").first();
+  const orphan = await env.VRCP_D1.prepare("SELECT COUNT(*) AS count FROM registered_apps WHERE app_name='Native rejected owner'").first();
   check(orphan.count === 0, 'Ownership failure left an app');
-  await env.DB.exec('DROP TRIGGER reject_native_app_owner;');
-  await env.DB.prepare('UPDATE registered_users SET revoked_at=? WHERE user_id=?').bind(new Date(clock).toISOString(), owner.userId).run();
+  await env.VRCP_D1.exec('DROP TRIGGER reject_native_app_owner;');
+  await env.VRCP_D1.prepare('UPDATE registered_users SET revoked_at=? WHERE user_id=?').bind(new Date(clock).toISOString(), owner.userId).run();
   let revokedOwnerRejected = false;
   try { await store.registerApp({ schemaVersion: 1, appName: 'Native revoked owner' }, owner.userId); } catch { revokedOwnerRejected = true; }
   check(revokedOwnerRejected, 'Revoked owner created an app');
@@ -56,12 +56,12 @@ export async function refreshFixture(env) {
   const app = await store.registerApp({ schemaVersion: 1, appName: 'Native removal fixture' });
   const removal = { schemaVersion: 1, reportType: 'removal_request', canonicalId: 'native-removal-target', reason: 'Offline review fixture' };
   const report = await store.recordRemovalReport(app.appId, removal);
-  const row = await env.DB.prepare('SELECT app_id,review_status,payload_json FROM catalog_reports WHERE report_id=?').bind(report.reportId).first();
+  const row = await env.VRCP_D1.prepare('SELECT app_id,review_status,payload_json FROM catalog_reports WHERE report_id=?').bind(report.reportId).first();
   check(row.app_id === app.appId && row.review_status === 'pending', 'Native removal was not pending');
   check(JSON.stringify(JSON.parse(row.payload_json)) === JSON.stringify(removal), 'Native report payload changed');
-  const demand = await env.DB.prepare('SELECT COUNT(*) AS count FROM downstream_demand_signals WHERE app_id=?').bind(app.appId).first();
+  const demand = await env.VRCP_D1.prepare('SELECT COUNT(*) AS count FROM downstream_demand_signals WHERE app_id=?').bind(app.appId).first();
   check(demand.count === 0, 'Removal generated scheduling demand');
-  await env.DB.prepare('UPDATE registered_apps SET revoked_at=? WHERE app_id=?').bind(new Date(clock).toISOString(), app.appId).run();
+  await env.VRCP_D1.prepare('UPDATE registered_apps SET revoked_at=? WHERE app_id=?').bind(new Date(clock).toISOString(), app.appId).run();
   let revokedReportRejected = false;
   try { await store.recordRemovalReport(app.appId, removal); } catch { revokedReportRejected = true; }
   check(revokedReportRejected, 'Revoked app wrote removal report');
@@ -75,7 +75,7 @@ export async function refreshFixture(env) {
   const leases = await Promise.all([store.reserveRobotsRefresh(origin), store.reserveRobotsRefresh(origin)]);
   check(leases.filter(Boolean).length === 1, 'Refresh race issued multiple leases');
   const first = leases.find(Boolean);
-  const pacing = await env.DB.prepare('SELECT next_allowed_at FROM origin_leases WHERE origin=?').bind(origin).first();
+  const pacing = await env.VRCP_D1.prepare('SELECT next_allowed_at FROM origin_leases WHERE origin=?').bind(origin).first();
   check(pacing.next_allowed_at === new Date(clock + 2500).toISOString(), 'Profile pacing was not applied');
   clock += 45000;
   check(await store.completeRobotsRefresh(origin, first, 404) === false, 'Expired completion accepted');
@@ -83,42 +83,94 @@ export async function refreshFixture(env) {
   check(second && second !== first, 'Expired ownership not replaced');
   check(await store.completeRobotsRefresh(origin, first, 404) === false, 'Replaced completion accepted');
   check(await store.releaseRobotsRefresh(origin, first) === false, 'Old release erased new ownership');
-  await env.DB.prepare('UPDATE source_access_profiles SET disabled_at=? WHERE origin=?')
+  await env.VRCP_D1.prepare('UPDATE source_access_profiles SET disabled_at=? WHERE origin=?')
     .bind(new Date(clock).toISOString(), origin).run();
   check(await store.completeRobotsRefresh(origin, second, 404) === false, 'Revoked profile completed refresh');
   check(await store.releaseRobotsRefresh(origin, second) === true, 'Held refresh could not release');
-  await env.DB.prepare('UPDATE source_access_profiles SET disabled_at=NULL WHERE origin=?').bind(origin).run();
+  await env.VRCP_D1.prepare('UPDATE source_access_profiles SET disabled_at=NULL WHERE origin=?').bind(origin).run();
   check(await store.reserveRobotsRefresh(origin) === null, 'Release bypassed origin pacing');
   clock += 2500;
-  await env.DB.exec("CREATE TRIGGER reject_native_refresh BEFORE UPDATE ON origin_leases WHEN NEW.origin='https://native-robots.example' BEGIN SELECT RAISE(ABORT,'offline pacing failure'); END;");
+  await env.VRCP_D1.exec("CREATE TRIGGER reject_native_refresh BEFORE UPDATE ON origin_leases WHEN NEW.origin='https://native-robots.example' BEGIN SELECT RAISE(ABORT,'offline pacing failure'); END;");
   let rejected = false;
   try { await store.reserveRobotsRefresh(origin); } catch { rejected = true; }
   check(rejected, 'Pacing failure did not reject');
-  const held = await env.DB.prepare('SELECT COUNT(*) AS count FROM origin_robots_refresh_leases WHERE origin=?').bind(origin).first();
+  const held = await env.VRCP_D1.prepare('SELECT COUNT(*) AS count FROM origin_robots_refresh_leases WHERE origin=?').bind(origin).first();
   check(held.count === 0, 'Pacing failure left a refresh lease');
-  await env.DB.exec('DROP TRIGGER reject_native_refresh;');
+  await env.VRCP_D1.exec('DROP TRIGGER reject_native_refresh;');
   const third = await store.reserveRobotsRefresh(origin);
-  await env.DB.exec("CREATE TRIGGER reject_native_snapshot BEFORE INSERT ON origin_robots WHEN NEW.origin='https://native-robots.example' BEGIN SELECT RAISE(ABORT,'offline snapshot failure'); END;");
+  await env.VRCP_D1.exec("CREATE TRIGGER reject_native_snapshot BEFORE INSERT ON origin_robots WHEN NEW.origin='https://native-robots.example' BEGIN SELECT RAISE(ABORT,'offline snapshot failure'); END;");
   rejected = false;
   try { await store.completeRobotsRefresh(origin, third, 404); } catch { rejected = true; }
   check(rejected, 'Snapshot failure did not reject');
-  const retained = await env.DB.prepare('SELECT lease_id FROM origin_robots_refresh_leases WHERE origin=?').bind(origin).first();
+  const retained = await env.VRCP_D1.prepare('SELECT lease_id FROM origin_robots_refresh_leases WHERE origin=?').bind(origin).first();
   check(retained.lease_id === third, 'Snapshot failure consumed refresh ownership');
-  await env.DB.exec('DROP TRIGGER reject_native_snapshot;');
+  await env.VRCP_D1.exec('DROP TRIGGER reject_native_snapshot;');
   check(third && await store.completeRobotsRefresh(origin, third, 404), 'Native guarded completion failed');
   check(await store.completeRobotsRefresh(origin, third, 599) === false, 'Consumed completion replayed');
-  const snapshot = await env.DB.prepare('SELECT status_code FROM origin_robots WHERE origin=?').bind(origin).first();
+  const snapshot = await env.VRCP_D1.prepare('SELECT status_code FROM origin_robots WHERE origin=?').bind(origin).first();
   check(snapshot.status_code === 404, 'Rejected replay changed snapshot');
-  await env.DB.prepare("UPDATE crawl_jobs SET state='blocked' WHERE origin=?").bind(origin).run();
+  await env.VRCP_D1.prepare("UPDATE crawl_jobs SET state='blocked' WHERE origin=?").bind(origin).run();
   return { status: 'passed', refreshRace: true, staleCompletion: true, profileRevocation: true,
     pacingRollback: true, completionRollback: true };
+}`;
+const discoveryFixtureModule = String.raw`
+import { Coordinator } from './storage.mjs';
+export async function discoveryFixture(env) {
+  const clock = Date.now(), store = new Coordinator(env.VRCP_D1, () => clock), cases = [];
+  for (const failAt of [1, 2]) {
+    const origin = 'https://native-discovery-' + failAt + '.example';
+    const url = origin + '/index.json', nodeId = 'native-discovery-' + failAt;
+    await store.createSourceAccessProfile({ schemaVersion: 1, platform: 'vpm', origin,
+      pathScope: '/index.json', method: 'GET', purpose: 'discovery', minDelayMs: 1000,
+      expiresAt: new Date(clock + 3600000).toISOString(), reviewReference: 'OFFLINE-DISCOVERY-ATOMICITY',
+      reason: 'Hermetic discovery rollback fixture', retainClasses: ['normalized_facts'], publishClasses: []
+    }, 'offline-fixture');
+    await store.recordRobotsSnapshot(origin, 200, 'User-agent: *\nAllow: /');
+    await store.seedJob(url, 'vpm', 1000, undefined, 'discovery');
+    const token = await store.createNodeCredential(nodeId, ['vpm']);
+    const principal = await store.authenticate(nodeId, token);
+    const claim = await store.claim({ schemaVersion: 1, nodeId, capabilities: ['vpm'] }, principal);
+    if (claim.status !== 'leased' || claim.job.url !== url) throw new Error('Discovery fixture was not leased');
+    const leads = [{ kind: 'vpm_listing', url: origin + '/first.json' },
+      { kind: 'vpm_listing', url: origin + '/second.json' }];
+    const payload = { schemaVersion: 1, nodeId, jobId: claim.job.jobId, leaseId: claim.job.leaseId,
+      idempotencyKey: 'native-discovery-' + crypto.randomUUID(), outcome: { kind: 'discovery', leads } };
+    await env.VRCP_D1.exec("CREATE TRIGGER reject_native_discovery_lead BEFORE INSERT ON source_leads WHEN NEW.discovered_from_job_id='" +
+      claim.job.jobId + "' AND NEW.target_url='" + leads[failAt - 1].url +
+      "' BEGIN SELECT RAISE(ABORT,'Offline discovery write failure'); END;");
+    let rejected = false;
+    try { await store.submit(payload, principal); } catch { rejected = true; }
+    await env.VRCP_D1.exec('DROP TRIGGER reject_native_discovery_lead;');
+    const receipt = await env.VRCP_D1.prepare('SELECT COUNT(*) AS count FROM job_results WHERE lease_id=?')
+      .bind(payload.leaseId).first();
+    const leadRows = await env.VRCP_D1.prepare('SELECT COUNT(*) AS count FROM source_leads WHERE discovered_from_job_id=?')
+      .bind(payload.jobId).first();
+    const job = await env.VRCP_D1.prepare('SELECT state,lease_id FROM crawl_jobs WHERE job_id=?').bind(payload.jobId).first();
+    const reservation = await env.VRCP_D1.prepare('SELECT active_job_id FROM origin_leases WHERE origin=?').bind(origin).first();
+    const events = await env.VRCP_D1.prepare('SELECT COUNT(*) AS count FROM source_events WHERE submission_lease_id=?')
+      .bind(payload.leaseId).first();
+    const accepted = await store.submit(payload, principal);
+    const committed = await env.VRCP_D1.prepare('SELECT COUNT(*) AS count FROM source_leads WHERE discovered_from_job_id=?')
+      .bind(payload.jobId).first();
+    const replay = await store.submit(payload, principal);
+    const replayed = await env.VRCP_D1.prepare('SELECT COUNT(*) AS count FROM source_leads WHERE discovered_from_job_id=?')
+      .bind(payload.jobId).first();
+    const committedReceipts = await env.VRCP_D1.prepare('SELECT COUNT(*) AS count FROM job_results WHERE lease_id=?')
+      .bind(payload.leaseId).first();
+    cases.push({ failAt, rejected, receiptCount: receipt.count, partialLeadCount: leadRows.count,
+      state: job.state, leaseRetained: job.lease_id === payload.leaseId,
+      reservationRetained: reservation.active_job_id === payload.jobId, eventCount: events.count,
+      accepted, replay, committedLeadCount: committed.count, replayedLeadCount: replayed.count,
+      committedReceiptCount: committedReceipts.count });
+  }
+  return { cases };
 }`;
 const workerConfig = unstable_readConfig({
 	config: fileURLToPath(new URL('../wrangler.toml', import.meta.url))
 });
 assert.ok(!workerConfig.assets?.directory, 'Runtime smoke requires the API-only Worker');
 assert.equal(workerConfig.d1_databases.length, 1);
-assert.equal(workerConfig.d1_databases[0].binding, 'DB');
+assert.equal(workerConfig.d1_databases[0].binding, 'VRCP_D1');
 assert.notEqual(workerConfig.d1_databases[0].remote, true, 'Remote bindings are forbidden');
 let externalFetches = 0;
 const runtime = new Miniflare(
@@ -131,10 +183,11 @@ const runtime = new Miniflare(
 						type: 'ESModule',
 						path: 'audit-main.mjs',
 						contents:
-							"import coordinator from './coordinator.mjs';\nimport { refreshFixture } from './refresh-fixture.mjs';\nexport default { async fetch(request,env) {\n  const path=new URL(request.url).pathname;\n  if(path!=='/__fixture' && path!=='/__refresh') return coordinator.fetch(request,env);\n  if(request.headers.get('authorization')!=='Bearer '+env.OPERATOR_TOKEN) return new Response('',{status:401});\n  if(path==='/__refresh') return Response.json(await refreshFixture(env));\n  const now=new Date().toISOString(), expires=new Date(Date.now()+3600000).toISOString();\n  const jobId=crypto.randomUUID();\n  await env.DB.prepare('INSERT INTO origin_robots VALUES (?,?,?,?,?,?)')\n    .bind('https://runtime.example',crypto.randomUUID(),200,'User-agent: *\\\\nAllow: /',now,expires).run();\n  await env.DB.prepare('INSERT INTO crawl_jobs(job_id,platform,url,origin,state,next_fetch_at,created_at,job_purpose) VALUES (?,?,?,?,?,?,?,?)')\n    .bind(jobId,'vpm','https://runtime.example/index.json','https://runtime.example','pending',now,now,'metadata').run();\n  await env.DB.prepare('INSERT INTO origin_leases VALUES (?,?,?,?,?)')\n    .bind('https://runtime.example',null,null,now,1000).run();\n  return Response.json({status:'offline-fixture-ready'});\n}};"
+							"import coordinator from './coordinator.mjs';\nimport { refreshFixture } from './refresh-fixture.mjs';\nimport { discoveryFixture } from './discovery-fixture.mjs';\nexport default { async fetch(request,env) {\n  const path=new URL(request.url).pathname;\n  if(path!=='/__fixture' && path!=='/__refresh' && path!=='/__discovery') return coordinator.fetch(request,env);\n  if(request.headers.get('authorization')!=='Bearer '+env.OPERATOR_TOKEN) return new Response('',{status:401});\n  if(path==='/__refresh') return Response.json(await refreshFixture(env));\n  if(path==='/__discovery') return Response.json(await discoveryFixture(env));\n  const now=new Date().toISOString(), expires=new Date(Date.now()+3600000).toISOString();\n  const jobId=crypto.randomUUID();\n  await env.VRCP_D1.prepare('INSERT INTO origin_robots VALUES (?,?,?,?,?,?)')\n    .bind('https://runtime.example',crypto.randomUUID(),200,'User-agent: *\\\\nAllow: /',now,expires).run();\n  await env.VRCP_D1.prepare('INSERT INTO crawl_jobs(job_id,platform,url,origin,state,next_fetch_at,created_at,job_purpose) VALUES (?,?,?,?,?,?,?,?)')\n    .bind(jobId,'vpm','https://runtime.example/index.json','https://runtime.example','pending',now,now,'metadata').run();\n  await env.VRCP_D1.prepare('INSERT INTO origin_leases VALUES (?,?,?,?,?)')\n    .bind('https://runtime.example',null,null,now,1000).run();\n  return Response.json({status:'offline-fixture-ready'});\n}};"
 					},
 					{ type: 'ESModule', path: 'storage.mjs', contents: storageModule },
 					{ type: 'ESModule', path: 'refresh-fixture.mjs', contents: refreshFixtureModule },
+					{ type: 'ESModule', path: 'discovery-fixture.mjs', contents: discoveryFixtureModule },
 					{
 						type: 'ESModule',
 						path: 'coordinator.mjs',
@@ -146,7 +199,7 @@ const runtime = new Miniflare(
 				],
 				compatibilityDate: workerConfig.compatibility_date,
 				compatibilityFlags: workerConfig.compatibility_flags,
-				d1Databases: { DB: randomUUID() },
+				d1Databases: { VRCP_D1: randomUUID() },
 				bindings: { OPERATOR_TOKEN: operatorToken },
 				outboundService: () => {
 					externalFetches++;
@@ -246,6 +299,23 @@ try {
   const refreshCheck = await post('/__refresh', {}, operatorToken);
   assert.equal(refreshCheck.status, 'passed');
   console.log(JSON.stringify({ check: 'native_D1_refresh_ownership', ...refreshCheck }));
+  const discoveryCheck = await post('/__discovery', {}, operatorToken);
+  console.log(JSON.stringify({ check: 'native_D1_discovery_atomicity', ...discoveryCheck, externalFetches }));
+  for (const result of discoveryCheck.cases) {
+    const context = 'Discovery insert failure ' + result.failAt;
+    assert.equal(result.rejected, true, context + ' must reject submission');
+    assert.equal(result.receiptCount, 0, context + ' must roll back the receipt');
+    assert.equal(result.partialLeadCount, 0, context + ' must roll back every lead');
+    assert.equal(result.eventCount, 0, context + ' must roll back its event');
+    assert.equal(result.state, 'leased', context + ' must preserve job state');
+    assert.equal(result.leaseRetained, true, context + ' must preserve lease ownership');
+    assert.equal(result.reservationRetained, true, context + ' must preserve origin reservation');
+    assert.equal(ResultResponseSchema.parse(result.accepted).duplicate, false, context + ' retry must commit');
+    assert.equal(result.committedLeadCount, 2, context + ' retry must retain both leads');
+    assert.equal(result.committedReceiptCount, 1, context + ' retry must retain one receipt');
+    assert.equal(ResultResponseSchema.parse(result.replay).duplicate, true, context + ' replay must be duplicate');
+    assert.equal(result.replayedLeadCount, 2, context + ' replay must not change leads');
+  }
 	const nodes = [];
 	for (const nodeId of ['runtime-race-a', 'runtime-race-b']) {
 		nodes.push(

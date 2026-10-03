@@ -1,0 +1,23 @@
+{
+  "dependencies": {
+    "@types/node": "^26.6.4"
+  },
+  "scripts": {
+    "install": "bun run install:crawler && bun run install:crawler-client && bun run install:package && bun run install:web && bun run install:worker",
+    "install:crawler": "cd src-crawler && bun i",
+    "install:crawler-client": "cd src-crawler-client && bun i",
+    "install:package": "cd src-package && bun i",
+    "install:web": "cd src-web && bun i",
+    "install:worker": "cd src-worker && bun i"
+  },
+  "name": "vrc-package-crawler",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^7"
+  }
+}

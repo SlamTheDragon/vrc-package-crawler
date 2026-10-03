@@ -1,6 +1,6 @@
 # Crawler Node & Crawler Client Specification (Candidate)
 
-> **Document Status:** Post-Production Candidate Specification  
+> **Document Status:** Current source reference with open recovery and GUI integration gaps
 > **Target Subsystem:** Headless Crawler Node Daemon (`src-crawler`) and Desktop GUI Crawler Client (`src-crawler-client`)  
 > **Source Directory:** `src-crawler/src/` (entry `main.ts`, functional subfolders) and `src-crawler-client/`
 
@@ -18,14 +18,14 @@ This specification distinguishes between two operational deployment models:
   - Crawls assigned jobs under strict origin pacing, pinned DNS, and robots adherence.
   - Sends execution results to coordinator: success (normalized facts), rate limit (429 backoff), or failure (diagnostics).
   - **Recovery Boundary:** The daemon retries coordinator failures and stops unauthorized fetches. Task logs exist, but a durable result outbox does not. Restart-safe submission remains incomplete.
-  - **Comprehensive Structured Logging**: All activities, actions, and crawled websites are systematically recorded to local logs (`logs/`).
+  - **Structured Logging**: Execution logs and local task records exist. Complete activity coverage remains unverified.
   - `node.config.json` contains the node ID and selected capabilities. The coordinator issues the secret token. Supply it separately through `NODE_TOKEN`.
   - Emits local telemetry to `node.db` (`node_runs`, `node_tasks`).
 
 ### 1.2 Crawler Client (`src-crawler-client`)
-- **Role:** Desktop GUI shell for Windows that bundles the compiled `Crawler Node` binary within.
-- **Purpose:** Enables community contributors to run a node on personal Windows desktop machines without interacting with a headless terminal or manually configuring JSON files.
-- **Architecture:** Wraps `vrcp-crawler-node.exe` as a supervised child process, exposes intuitive setup/status panels, displays live crawl progress and local metrics, and manages token provisioning from the coordinator portal.
+- **Current implementation:** Tauri with a SvelteKit static frontend. The Rust shell exposes a starter `greet` command and the opener plugin.
+- **Not implemented:** Bundled node binary, child-process supervision, node setup, telemetry panels or coordinator token provisioning.
+- **Owner intent:** A Windows GUI shell that bundles and controls the crawler node. Initialization alone does not deliver this integration.
 
 ---
 
@@ -38,16 +38,16 @@ sequenceDiagram
     participant Origin as Target Storefront / Manifest
 
     Node->>Coord: POST /v1/node/jobs/claim (nodeId, capabilities)
-    Coord-->>Node: CrawlJob (url, platform, leaseToken, expiresAt)
+    Coord-->>Node: CrawlJob (url, platform, jobId, leaseId, leaseExpiresAt)
     loop Every 5 seconds
-        Node->>Coord: POST /v1/node/heartbeat (leaseToken)
-        Coord-->>Node: { status: "active" }
+        Node->>Coord: POST /v1/node/heartbeat (activeJobId, activeLeaseId, state: fetching)
+        Coord-->>Node: { status: "alive", serverTime }
     end
     Node->>Origin: Pinned DNS HTTPS Fetch (robots & profile gated)
     Origin-->>Node: Response Payload (HTML / JSON / 304)
-    Node->>Node: ObservationAdapter.parse() -> Normalized Facts
-    Node->>Coord: POST /v1/node/jobs/result (leaseToken, outcome)
-    Coord-->>Node: { accepted: true }
+    Node->>Node: fetchJobOutcome() -> Normalized Facts
+    Node->>Coord: POST /v1/node/jobs/result (jobId, leaseId, idempotencyKey, outcome)
+    Coord-->>Node: { status: "accepted", jobId, duplicate, sourceVersionCreated }
     Node->>Node: Record Task to node.db
 ```
 
@@ -55,7 +55,7 @@ sequenceDiagram
    - The node polls the coordinator for an available job that matches its declared capabilities (`vpm`, `github`, `booth`, `shopify`).
    - If no jobs are due, the node sleeps for the `retryAfterMs` duration sent by the coordinator.
 2. **Periodic Heartbeat (`POST /v1/node/heartbeat`)**:
-   - A timer renews the active lease every 5 seconds.
+   - A timer checks active lease authority every 5 seconds. The heartbeat does not extend the lease deadline.
    - If the coordinator becomes unreachable, the node aborts in-flight processing and fails closed.
 3. **Observation Parsing**:
    - The node parses outbound responses in memory with `src-crawler/src/adapters/observation_adapter.ts`.
@@ -63,6 +63,8 @@ sequenceDiagram
    - It limits description length to functional metadata summaries.
 4. **Result Submission (`POST /v1/node/jobs/result`)**:
    - The node submits structured observation facts, discovered leads, or access failure diagnostics.
+   - The client validates the receipt schema and requires its jobId to match the submitted job. Retries preserve the serialized request.
+   - This check does not add a durable outbox. Restart recovery, terminal rejection handling and bounded result retention remain open.
 
 ---
 
@@ -70,11 +72,11 @@ sequenceDiagram
 
 - **Pinned DNS Resolution**: `public_metadata_fetch.ts` resolves origin IP addresses before socket creation. It rejects loopback, link-local, private, and cloud metadata addresses (anti-SSRF).
 - **Hard Payload Ceiling**: The node aborts stream consumption if a response exceeds 2 MB.
-- **Circuit Breakers and Jitter**: Consecutive rate limits (`429`) or Cloudflare challenges trip an in-memory circuit breaker. The circuit breaker applies exponential backoff with decorrelated jitter (30s base, 1h maximum).
-- **RFC 9309 Compliance**: The node checks robots rules and transmits declared `User-Agent: VRCDiscoveryBot/1.0` headers.
+- **Access Outcomes**: The adapter reports rate limits, challenges and other failures to the coordinator. Coordinator origin pacing controls subsequent leases. No separate node circuit-breaker guarantee is established here.
+- **RFC 9309 Boundary**: The coordinator checks robots snapshots at claim, heartbeat and result submission. The node sends the configured crawler User-Agent. Production robots refresh remains unfinished.
 
 ---
 
-## 4. Local Telemetry Schema (`node_state.db`)
+## 4. Local Telemetry Schema (`node.db` by default)
 
 The node records local execution telemetry and task journals without modifying the coordinator catalog. For exact SQLite table schemas, column types, and structured logging formats, see [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md).

@@ -2,17 +2,27 @@
 	"name": "src-worker",
 	"version": "0.0.0",
 	"private": true,
+	"type": "module",
 	"scripts": {
-		"build": "echo \"define build scripts\"",
+		"build": "wrangler deploy --dry-run --outdir .wrangler/api-build --config wrangler.toml",
+		"check": "bun run cf-typegen && tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
-		"test": "vitest",
-		"cf-typegen": "wrangler types"
+		"test": "bun test ./test",
+		"test:workers": "vitest run",
+		"test:runtime": "node test/coordinator_runtime_smoke.mjs",
+		"cf-typegen": "wrangler types --config wrangler.toml"
+	},
+	"dependencies": {
+		"@trybyte/robotstxt-parser": "2.0.0",
+		"zod": "^4.6.5"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "^1.0.0",
+		"@types/bun": "^1.4.2",
 		"@types/node": "^26.6.4",
+		"miniflare": "5.20261001.0-alpha",
 		"typescript": "^5.5.2",
 		"vitest": "~4.1.0",
 		"wrangler": "^4.147.0"

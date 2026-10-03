@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
-import { handleNodeRequest } from "../../src/worker/api/handler.ts";
+import { handleNodeRequest } from "../../src/api/handler.ts";
 import { CoordinatorClient } from "../../../src-crawler/src/client/node_client.js";
 import { LocalNodeStore } from "../../../src-crawler/src/storage/local_sqlite.js";
 import { CrawlerNodeDaemon } from "../../../src-crawler/src/runner/daemon.js";

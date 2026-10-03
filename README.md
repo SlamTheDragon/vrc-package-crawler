@@ -2,7 +2,7 @@
 
 An open-source, polite discovery and indexing engine for public VRChat creator packages (Tools, Assets, Avatars).
 
-The project indexes public package metadata from VPM community repositories, GitHub releases, and creator storefronts, routing downstream users directly to original creator storefronts and repositories. It categorically excludes downloading, caching, or redistributing proprietary asset binaries (`.zip`, `.unitypackage`, `.vpmz`, `.fbx`).
+The project develops metadata discovery from VPM repositories, GitHub and creator storefronts. Catalog records link to original publisher fronts. Real-source fleet ingestion remains a pre-production gate. The policy excludes archive and executable downloads (`.zip`, `.unitypackage`, `.vpmz`, `.fbx`).
 
 ---
 
@@ -36,19 +36,21 @@ flowchart LR
     Web --> SDK
 ```
 
-1. **Coordinator (`src-web/src/worker/`)**:
+1. **Coordinator (`src-worker/src/`, entry `worker_entry.ts`)**:
    - Manages origin-wide AIMD pacing clocks, RFC 9309 robots caching, and scoped crawler job leases.
-   - Verifies observation receipts, extracts outbound discovery leads, and enforces canonical provenance hierarchies.
+   - Validates observation receipts, records discovery leads and projects canonical packages from source evidence. Publication-rights enforcement remains under review.
    - Runs locally through Wrangler/workerd with D1. There is no coordinator binary. The SQLite comparator lives under Worker test support.
 2. **Crawler Nodes (`src-crawler/src/`, entry `main.ts`)**:
    - Headless, standalone workers executing coordinator-leased jobs.
    - Includes a standalone binary build and Docker configuration. Fleet updates and restart-safe result submission still need checks.
-   - Features DNS-pinned HTTPS transport, 10 MB payload socket abort guardrails, and continuous 5-second lease validity checks.
+   - Uses DNS-pinned HTTPS transport, a 2,000,000-byte metadata limit and default 5-second coordinator authority checks.
 3. **Consumer SDK (`src-package/`)**:
-   - Named `vrc-packages-api` for downstream application developers. npm packaging and installation checks remain open.
-   - Provides strongly-typed TypeScript clients for catalog search, cursor-based keyset pagination, continuous delta synchronization, and creator delisting.
+   - Named `vrc-packages-api` for downstream application developers. Isolated tarball checks pass. Registry release and production consumption remain open.
+   - Supplies typed clients for catalog search, delta synchronization, app registration, owned app views and operator controls. Removal reports remain pending review.
 4. **Web Surface (`src-web/`)**:
-   - Serves API endpoints only. Svelte tooling remains for possible future panels, not the active Worker entry.
+   - Separate Astro site with Svelte integration. The current page is starter content. SDK, authentication and operator panels are not wired.
+5. **Crawler Client (`src-crawler-client/`)**:
+   - Tauri/Svelte starter shell. It does not yet bundle, configure or supervise the crawler node.
 
 ---
 
@@ -72,16 +74,21 @@ vrc-package-crawler/
     src/
       client.ts               Downstream API client
       protocol/               Consumer and operator wire schemas
-      types/                  Domain entities, taxonomy, and token formats
-  src-web/                    API-only Worker project
-    src/worker/               API handlers and D1 coordinator
-    tests/worker/             Worker-owned tests
-    tests/support/            Test-only SQLite comparator and helpers
+      types/                  Domain entities and token formats
+      taxonomy/               Fixed umbrella wire schema, not indexed tag values
+  src-worker/                 API-only Worker project
+    src/                      Worker entry, API handlers, D1 storage and classification
+    test/                     Worker contract tests and native D1 smoke
+      integration/            Cross-runtime protocol tests
+      support/                Test-only SQLite comparator and helpers
+  src-web/                    Separate Astro/Svelte website starter
+  src-crawler-client/         Separate Tauri/Svelte desktop starter
+    src-tauri/                Rust shell and desktop configuration
   docs/                       Source drafts, research and decision ledgers
     scratch/                  Exactly three lifecycle documents
     research/                 Platform access matrices, robots analysis, and market research
     source/                   Architecture specifications (`API_ROUTES.md`, `DATABASE_SCHEMAS.md`)
-  tests/                      Layout tests, cross-runtime integration and shared test helpers
+  tests/                      Root layout and shared test helpers
   AGENTS.md                   Agent entry point and operational boundaries
   DELEGATES.md                Downstream developer runbook & Docker node operations manual
   LEGAL.md                    Legal notices, operational covenants, and terms of service
@@ -97,7 +104,7 @@ vrc-package-crawler/
 
 ### Testing & Verification
 
-The repository maintains strict test suites ensuring zero regression across protocol schemas, node adapters, coordinator leasing, and SDK methods:
+Tests cover protocol schemas, adapters, leases and SDK methods. Passing fixtures do not prove complete fleet readiness.
 
 ```powershell
 # Run root layout and contract conformance tests
@@ -108,7 +115,7 @@ cd src-crawler
 bun test
 
 # Run Worker-owned tests
-cd ../src-web
+cd ../src-worker
 bun run test
 
 # Run consumer SDK tests
@@ -116,7 +123,7 @@ cd ../src-package
 bun test
 ```
 
-Migration checks on 2026-10-03: node 142 pass, Worker/integration 161 pass, SDK 33 pass. Root layout still has two obsolete identity-config failures. These counts do not prove fleet readiness or live-source ingestion.
+Current measurements and known failures live in [the active tracker](docs/scratch/task_tracker.md). The migration does not prove isolated remote builds or live-source ingestion.
 
 ### Typechecking & Builds
 
@@ -134,7 +141,7 @@ cd ../src-crawler
 bun run build
 
 # Check and build the API Worker without deploying
-cd ../src-web
+cd ../src-worker
 bun run check
 bun run build
 
@@ -148,26 +155,24 @@ bun run test:runtime
 
 ### 1. Downstream Integration (`vrc-packages-api`)
 
-Downstream package managers (such as VCC or `vrc-get`), search tools, and community registries consume the catalog using the `vrc-packages-api` SDK:
+Downstream applications can use the SDK's public contracts. No integration with VCC or `vrc-get` is claimed.
 
 ```typescript
 import { VrcPackagesClient } from "vrc-packages-api";
 
 const client = new VrcPackagesClient({
-  baseUrl: "https://api.vrc-packages.net",
+  baseUrl: "https://coordinator.example.com",
   appToken: "vrcp_app_0123456789abcdef...",
 });
 
-// Full-text search with bulk tag filtering and canonical timestamp ordering
-const results = await client.app.search({
+// Bounded authenticated search. Indexed dynamic tag filtering remains open.
+const results = await client.index.search({
   query: "PhysBones",
-  tags: ["tool", "avatar"],
-  queryOrigin: "MyVpmManager/1.0.0",
+  queryOrigin: "user_authored",
 });
 
 // Resumable delta synchronization for local caches
-const deltas = await client.catalog.syncDeltas({
-  since: "2026-10-01T00:00:00.000Z",
+const deltas = await client.index.syncDeltas({
   limit: 100,
 });
 ```
@@ -176,13 +181,19 @@ See [DELEGATES.md](DELEGATES.md) for full SDK documentation, registration proced
 
 ### 2. Running Crawler Nodes via Docker
 
-Community node operators run containerized workers with automated rolling updates using Watchtower:
+The node has a Dockerfile and a proposed fleet configuration. Image publication, restart recovery and automatic updates remain unverified.
 
 ```bash
-docker compose up -d
+docker compose -f src-crawler/docker-compose.yml config
 ```
 
-For configuration options, capability encoding, and environment templates, consult the [DELEGATES.md Docker Runbook](DELEGATES.md#operating-crawler-nodes-via-docker).
+Review the [Docker runbook](DELEGATES.md#3-crawler-node-operation--fleet-management) before starting containers. The compose file grants Watchtower access to the host Docker socket.
+
+### 3. Cloudflare Build Setup
+
+The owner moved the API build root from `src-web` to `src-worker`. The latest supplied build log confirms the `src-worker` package ran remotely. `src-web` now builds the separate static site.
+
+Use the [panel setup checklist](docs/research/CRAWLER_DEPENDENCY_RESEARCH.md#cloudflare-panel-setup-checklist). Dependency distribution, repeatable installation and environment isolation remain release gates. No panel configuration is inferred from local files.
 
 ---
 
@@ -193,7 +204,7 @@ The Project operates under strict technical and legal covenants to safeguard cre
 - **Zero-Binary Invariant**: The crawler never fetches, stores, or mirrors binary archives (`.unitypackage`, `.vpmz`, `.zip`, `.rar`, executables, or 3D model files).
 - **Mandatory Outbound Routing**: Downstream APIs and applications must provide direct outbound links to the original creator storefront or repository.
 - **RFC 9309 Robots Compliance**: Honors `robots.txt` directives with conservative origin-wide AIMD rate pacing.
-- **Creator Delisting & Bio-Token Verification**: Creators can delist packages or assert ownership using non-invasive public bio-tokens or DNS TXT records.
+- **Removal Review**: App-authenticated removal reports are recorded without automatic delisting. DNS/bio ownership verification remains unimplemented.
 - **Anti-AI Model Training Restrictions**: Catalog compilations are restricted from use in training generative AI models.
 
 Review [LEGAL.md](LEGAL.md) for full operational covenants, governing law, and public terms of service.

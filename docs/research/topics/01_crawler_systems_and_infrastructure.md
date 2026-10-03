@@ -6,7 +6,7 @@ Reviewed 2026-10-03 against HEAD `3b9d203`. External guidance is not proof that 
 
 | Concern | Primary resource and review scope | Application here | Required evidence |
 | --- | --- | --- | --- |
-| API-only hosting | [Workers migration from Pages](https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/) — retrieved | Workers can serve APIs and assets. Pages remains a migration source; this is not proof that both configurations are interchangeable. An API service does not require a frontend. | Trace Worker entry, D1 binding, environment isolation and routing before moving code into src-web. |
+| API-only hosting | [Workers migration from Pages](https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/) — retrieved | Workers can serve APIs and assets. Pages remains a migration source. The owner split the API into src-worker and the static site into src-web. | Trace Worker entry, D1 binding, environment isolation and routing. Do not infer deployment success from relocation. |
 | Atomic job reservation | [D1 database API](https://developers.cloudflare.com/d1/worker-api/d1-database/) — retrieved; inspect batch semantics when implementing | Eligibility reads outside a write batch do not reserve a job. A transactional batch alone cannot make earlier reads atomic. | Race two eligible claims; prove one winner and one origin reservation using D1 runtime tests. |
 | Runtime fidelity | [Workers testing](https://developers.cloudflare.com/workers/testing/) — retrieved reference | Use the supported local Workers runtime. A SQLite adapter can expose logic bugs but cannot prove D1 or deployment compatibility. | Exercise real Request/Response schemas and bindings under Wrangler or the Workers test integration. |
 | Robots semantics | [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html) — retrieved | Robots rules are not access authorization. Keep profile approval, robots state and a live lease separate. | Missing, unreachable, expired, redirected and oversized robots fixtures; no fabricated allow snapshot. |
@@ -29,4 +29,43 @@ Remove unsupported estimates from decisions: requests per second, memory use, de
 - [awesome-crawler](https://github.com/brucedone/awesome-crawler): a discovery index, not a security review or package recommendation.
 - [Historical spikes](../SPIKES.md): dated experiments, not current deployment evidence.
 
-Next implementation priority is the reproduced duplicate-claim defect. Remote deployment and broad live crawling remain outside the evidence established by this library.
+Local runtime claim races now pass. See [the active tracker](../../scratch/task_tracker.md) for measured results and remaining gates. Remote deployment and broad live crawling remain unverified.
+
+## D1 capacity and authentication research
+
+Reviewed 2026-10-03 after owner-supplied research. Planning scenario: ten crawler nodes, 1,000 users, and separate registry/user databases in production and preview. This is not a delivered database split or a measured workload. Current configuration binds one D1 database per environment through VRCP_D1. Firebase verification is absent.
+
+### Account allowances versus resource limits
+
+Free D1 includes 5 million rows read and 100,000 rows written daily across the account. Separate production and preview databases do not multiply those allowances. Exhaustion blocks D1 queries until the daily reset at 00:00 UTC. Paid includes 25 billion reads and 50 million writes monthly, then charges for extra usage. These are allowances, not hard monthly caps. Paid storage includes 5 GB, not 1 TB of free storage. Queries from Wrangler and the dashboard also count. [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/).
+
+| Resource limit | Free | Paid | Scope |
+| --- | --- | --- | --- |
+| Database count | 10 | 50,000 | Account |
+| Maximum database size | 500 MB | 10 GB | Database |
+| Maximum stored data | 5 GB | 1 TB | Account, not included paid storage |
+| D1 queries per Worker invocation | 50 | 1,000 | Invocation |
+
+Four databases fit the count limit. Separate databases can isolate records, but cannot isolate account-wide quota exhaustion. A larger plan does not remove query and resource limits. [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
+
+Free Workers allow 100,000 requests per account daily. Paid includes 10 million requests and 30 million CPU milliseconds monthly, with extra usage billed. The subscription starts at $5 monthly. [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/).
+
+For paid HTTP Workers, CPU defaults to 30 seconds and can reach five minutes. Free allows 10 milliseconds. The supplied 50-millisecond claim is not the current paid default. Database/network waits do not count as CPU execution. [Workers limits](https://developers.cloudflare.com/workers/platform/limits/).
+
+### Measure this code before selecting a plan
+
+Current idle claims return retryAfterMs=1000. The daemon honors that delay and defaults to a 30-second idle heartbeat. An idealized ten-node, continuously idle fleet produces 864,000 claims plus 28,800 heartbeats daily, excluding latency. This arithmetic is not a benchmark. Active jobs, retries, node uptime and user traffic change the totals.
+
+Trace [the daemon](../../../src-crawler/src/runner/daemon.ts) and [D1 claims](../../../src-worker/src/storage/d1/coordinator.ts). Measure empty claims, successful claims, fetching heartbeats, results, duplicate results, user queries and initialization separately. Collect invocation queries, rows_read, rows_written, CPU, storage and latency by environment. Local runtime measurements do not establish remote account consumption.
+
+One result can write several records and indexes. Rows scanned differ from rows returned. Indexes can reduce reads but add writes and storage. Select indexes from query plans, not a blanket optimization rule. [D1 indexes](https://developers.cloudflare.com/d1/best-practices/use-indexes/).
+
+### Keep authentication caches separate from authority
+
+KV is eventually consistent. Changes can remain invisible elsewhere for 60 seconds or longer. Do not treat it as immediate credential revocation authority. [KV consistency](https://developers.cloudflare.com/kv/concepts/how-kv-works/).
+
+KV Free includes 100,000 reads but only 1,000 writes daily. It is not a free substitute for frequent session mutation. [KV pricing](https://developers.cloudflare.com/kv/platform/pricing/).
+
+Firebase verification keys are public, unlike private service credentials and user tokens. Cache keys according to their response Cache-Control max-age. Signature verification still requires token-claim checks. Session revocation is a separate requirement. [Firebase ID-token verification](https://firebase.google.com/docs/auth/admin/verify-id-tokens).
+
+Open decisions: registry/user ownership boundaries, cross-database atomicity, environment isolation, plan budget, cache freshness and revocation guarantees. Record them in the ledger before migrations or new bindings. Do not infer that 1,000 users require a paid plan without their request pattern.

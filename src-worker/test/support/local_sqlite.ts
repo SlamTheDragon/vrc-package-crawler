@@ -10,10 +10,10 @@ import {
   type ClaimRequest, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse,
   type Observation, type Platform, type ResultRequest, type ResultResponse
 } from "../../../src-crawler/src/shared/protocol/node_protocol.ts";
-import { CoordinatorConflict, type CoordinatorStore, type NodePrincipal } from "../../src/worker/api/handler.ts";
-import { type PublicCatalogStore } from "../../src/worker/api/public_handler.ts";
+import { CoordinatorConflict, type CoordinatorStore, type NodePrincipal } from "../../src/api/handler.ts";
+import { type PublicCatalogStore } from "../../src/api/public_handler.ts";
 import { type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor } from "../../../src-crawler/src/shared/protocol/catalog_protocol.ts";
-import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../../src-crawler/src/shared/protocol/capability_token.ts";
+import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../src/domain/security/capability_token.ts";
 import {
   RegisterAppRequestSchema,
   UserAppListQuerySchema, UserAppSchema, type UserAppListResponse,
@@ -31,7 +31,7 @@ import {
   type CatalogSearchResponse,
   type DelistResponse
 } from "../../../src-crawler/src/shared/protocol/downstream_protocol.ts";
-import { type UserStore, type UserPrincipal } from "../../src/worker/api/user_handler.ts";
+import { type UserStore, type UserPrincipal } from "../../src/api/user_handler.ts";
 import { isPrivateOrReservedIp } from "../../../src-crawler/src/shared/policy/ip_policy.ts";
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
   isShopifyProductSitemapTarget, shopifyProductLead, isSellfyProductTarget } from "../../../src-crawler/src/shared/policy/source_targets.ts";
@@ -39,10 +39,10 @@ import { isItchSearchUrl } from "../../../src-crawler/src/shared/policy/source_p
 import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "../../../src-crawler/src/shared/robots/robots_snapshot.ts";
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
 import { CRAWLER_ROBOTS_TOKEN } from "../../../src-crawler/src/shared/robots/crawler_identity.ts";
-import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../src/worker/domain/classification/taxonomy.ts";
-import { extractAvatarCompatibility, type AvatarCompatibility } from "../../src/worker/domain/classification/avatar_compatibility.ts";
-import { cleanTitle, cleanTrackingParams } from "../../../src-crawler/src/utils/text/sanitizer.ts";
-import { DEFAULT_SEED_JOBS } from "../../src/worker/storage/default_seeds.ts";
+import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../src/domain/classification/taxonomy.ts";
+import { extractAvatarCompatibility, type AvatarCompatibility } from "../../src/domain/classification/avatar_compatibility.ts";
+import { cleanTitle, cleanTrackingParams } from "../../../src-crawler/src/shared/text/catalog_hygiene.ts";
+import { DEFAULT_SEED_JOBS } from "../../src/storage/default_seeds.ts";
 import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
   IssueNodeCredentialSchema, type IssueNodeCredential,
   encodeLeadCursor, encodeRuleCursor, encodeCatalogCursor, decodeCatalogCursor,
@@ -50,10 +50,10 @@ import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
   type AutoQueueRule, type CreateAutoQueueRule,
   type CatalogCursor, type CatalogPackage, type CatalogIdentityLink,
   PackageFrontSchema, type PackageFront,
-  type LeadCursor, type LeadRow, type RuleCursor } from "../../../src-crawler/src/shared/protocol/operator_protocol.ts";
+  type LeadCursor, type LeadRow, type RuleCursor } from "../../src/api/protocol/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, SourceAccessProfileSchema, encodeProfileCursor,
   type CreateSourceAccessProfile, type SourceAccessProfile, type ProfileCursor,
-  type SourcePurpose, sourceAccessProfileMatches, sourcePathScopesOverlap } from "../../../src-crawler/src/shared/policy/source_access_profile.ts";
+  type SourcePurpose, sourceAccessProfileMatches, sourcePathScopesOverlap } from "../../src/domain/access/source_access_profile.ts";
 
 type JobRow = {
   job_id: string; platform: Platform; url: string; origin: string; state: string;

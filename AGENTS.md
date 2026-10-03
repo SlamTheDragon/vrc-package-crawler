@@ -11,7 +11,7 @@ This is the current entry point for agents working in this repository. `DELEGATE
 
 ## Current target and safety boundaries
 
-- **Topology & Communication**: The API-only Cloudflare Worker coordinator lives in `src-web/src/worker/` and uses D1 storage. The separate crawler node lives in `src-crawler/src/`, with entry `main.ts` and functional subfolders. Nodes and downstream applications communicate with the coordinator through versioned HTTP payloads. The consumer SDK lives in `src-package/` (`vrc-packages-api`). Local Worker tests use Wrangler/workerd and isolated D1. There is no coordinator binary.
+- **Topology & Communication**: The API-only Cloudflare Worker coordinator lives in `src-worker/src/` and uses D1 storage. Its entry is `worker_entry.ts`, and its tests live in `src-worker/test/`. The separate crawler node lives in `src-crawler/src/`, with entry `main.ts` and functional subfolders. Nodes and downstream applications communicate with the coordinator through versioned HTTP payloads. The consumer SDK lives in `src-package/` (`vrc-packages-api`). The separate `src-web/` Astro site and `src-crawler-client/` Tauri/Svelte shell are starter applications, not integrated operator or node clients. Local Worker tests use Wrangler/workerd and isolated D1. There is no coordinator binary.
 - **Leased-Only Ingestion**: Crawler nodes fetch strictly under unexpired coordinator leases (`/v1/node/jobs/claim`). Coordinator loss halts all fetching (fails closed).
 - **Source Access Profiles & Robots Preflight**: A queued URL does not authorize fetching. Both manual and automatic jobs require an active, scoped source-access profile and RFC 9309 `robots.txt` compliance before claiming a lease.
 - **Credential Protection**: Node credentials use capability-encoded tokens (`vrcp_<token><capability>`) stored strictly as SHA-256 hashes. GitHub tokens serve only scoped API requests. Never expose secrets or hardcode tokens into fixtures or logs.
@@ -20,6 +20,7 @@ This is the current entry point for agents working in this repository. `DELEGATE
 ## Delivery discipline
 
 - Pick one capability gate and one bounded vertical slice. The 2–3-file constraint applies only to `docs/scratch/`.
-- Add failing fixtures, implement minimal changes, run targeted and full test suites, typecheck (`tsc --noEmit`), and verify diffs.
+- Owner correction, 2026-10-03: implement related slices before running tests. Batch verification at a capability-gate checkpoint, not after each small edit. This supersedes per-slice failing-test and full-suite requirements in older skills/rules.
+- Record changed paths, required fixtures and deferred checks in the tracker. Keep changes marked unverified until the checkpoint passes. At that checkpoint, run the relevant tests, typechecks and runtime/build checks together. Do not claim a verified gate from confidence alone.
 - Keep scratch footprint minimal: maintain strictly 2–3 files in `docs/scratch/` (`IMPLEMENTATION_PLAN.md`, `UNMERGED_IMPLEMENTATION_PLAN.md`, `task_tracker.md`).
 - At a pause, record evidence, open risks, and next steps in `docs/scratch/task_tracker.md`.

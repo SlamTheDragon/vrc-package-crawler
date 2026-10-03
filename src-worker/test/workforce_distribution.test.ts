@@ -2,12 +2,12 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.js";
-import { handleOperatorRequest } from "../../src/worker/api/operator_handler.ts";
-import { handleNodeRequest } from "../../src/worker/api/handler.ts";
-import { parseCapabilityToken } from "../../src-crawler/src/shared/protocol/capability_token.js";
+import { LocalCoordinatorStore } from "./support/local_sqlite.js";
+import { handleOperatorRequest } from "../src/api/operator_handler.ts";
+import { handleNodeRequest } from "../src/api/handler.ts";
+import { parseCapabilityToken } from "../src/domain/security/capability_token.js";
 import { PROTOCOL_VERSION, type Platform } from "../../src-crawler/src/shared/protocol/node_protocol.js";
-import { OPERATOR_PROTOCOL_VERSION } from "../../src-crawler/src/shared/protocol/operator_protocol.js";
+import { OPERATOR_PROTOCOL_VERSION } from "../src/api/protocol/operator_protocol.js";
 
 describe("Workforce Distribution & Capability-Encoded Node Tokens", () => {
   let tempDir: string;

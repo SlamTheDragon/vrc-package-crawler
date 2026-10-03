@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.js";
-import { refreshDueRobots } from "../../src-web/tests/support/robots_refresh_service.js";
-import { seedApprovedFixtureJob } from "../../src-web/tests/helpers/source_access_fixture.js";
+import { LocalCoordinatorStore } from "./support/local_sqlite.js";
+import { refreshDueRobots } from "./support/robots_refresh_service.js";
+import { seedApprovedFixtureJob } from "./helpers/source_access_fixture.js";
 
 describe("automatic coordinator robots refresh service", () => {
   test("robots preflight and product claims share an origin lease and profile pacing floor", () => {

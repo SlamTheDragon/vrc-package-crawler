@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { CreateSourceAccessProfileSchema, SourceAccessProfileSchema,
-  sourceAccessProfileMatches, type CreateSourceAccessProfile } from "../../src-crawler/src/shared/policy/source_access_profile.js";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.js";
-import { handleOperatorRequest } from "../../src/worker/api/operator_handler.ts";
+  sourceAccessProfileMatches, type CreateSourceAccessProfile } from "../src/domain/access/source_access_profile.js";
+import { LocalCoordinatorStore } from "./support/local_sqlite.js";
+import { handleOperatorRequest } from "../src/api/operator_handler.ts";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { getTestOutputDir } from "../../src-web/tests/helpers/test_directory.js";
+import { getTestOutputDir } from "./helpers/test_directory.js";
 import { CreateSourceAccessProfileSchema as ConsumerProfileSchema } from "../../src-package/src/protocol/operator.js";
 
 const input = {

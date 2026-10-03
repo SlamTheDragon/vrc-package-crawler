@@ -29,7 +29,7 @@ export async function refreshRobotsWithLease(
   } finally { store.releaseRobotsRefresh(origin, leaseId); }
 }
 
-import { workerLogger } from "../../src/worker/worker_logger.ts";
+import { workerLogger } from "../../src/worker_logger.ts";
 
 /** One serial, bounded pass over seeded, due origins; errors stop this pass. */
 export async function refreshDueRobots(

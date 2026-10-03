@@ -15,7 +15,8 @@
     "@astrojs/svelte": "^9.0.1",
     "astro": "^7.3.5",
     "svelte": "^5.57.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vrc-packages-api": "file:../src-package"
   },
   "allowScripts": {
     "esbuild": true

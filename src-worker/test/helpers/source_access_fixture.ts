@@ -1,5 +1,5 @@
 import type { Platform } from "../../../src-crawler/src/shared/protocol/node_protocol.ts";
-import type { SourcePurpose } from "../../../src-crawler/src/shared/policy/source_access_profile.ts";
+import type { SourcePurpose } from "../../src/domain/access/source_access_profile.ts";
 import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
 
 /** Explicit offline-only approval; production seeding never calls this helper. */

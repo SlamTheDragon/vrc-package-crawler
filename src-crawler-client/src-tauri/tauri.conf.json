@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "src-crawler-client",
+  "productName": "VRCP Crawler Client",
   "version": "0.1.0",
   "identifier": "com.vrcpackages.crawlerclient",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "src-crawler-client",
+        "title": "VRCP Crawler Client",
         "width": 800,
         "height": 600
       }

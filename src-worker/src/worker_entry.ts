@@ -1,5 +1,4 @@
 import { Coordinator } from "./storage/d1/coordinator.ts";
-import { type D1Database } from "./storage/d1/definitions.ts";
 import { CoordinatorConflict, createCoordinatorHandler, readJson } from "./api/handler.ts";
 import { InitializeCoordinatorRequestSchema, InitializeCoordinatorResponseSchema } from "../../src-package/src/protocol/operator.js";
 import { createOperatorHandler } from "./api/operator_handler.ts";
@@ -9,10 +8,7 @@ import { createUserHandler } from "./api/user_handler.ts";
 import { timingSafeEqual } from "./storage/d1/utils.ts";
 import { workerLogger } from "./worker_logger.ts";
 
-export interface Env {
-  DB: D1Database;
-  OPERATOR_TOKEN: string;
-}
+export type Env = Cloudflare.Env;
 
 function isOperatorAuthorized(request: Request, configuredToken: string): boolean {
   if (!configuredToken || !/^[a-fA-F0-9]{64}$/.test(configuredToken)) return false;
@@ -24,7 +20,7 @@ function isOperatorAuthorized(request: Request, configuredToken: string): boolea
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
-      const store = new Coordinator(env.DB);
+      const store = new Coordinator(env.VRCP_D1);
       const url = new URL(request.url);
 
       if (request.method === "POST" && url.pathname === "/v1/operator/init") {
@@ -84,4 +80,4 @@ export default {
       });
     }
   }
-};
+} satisfies ExportedHandler<Env>;

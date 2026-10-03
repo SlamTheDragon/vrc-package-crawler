@@ -1,10 +1,11 @@
 import {
-  type CatalogPackage,
   type Platform
 } from "./types/index.ts";
 import {
   type CatalogDeltaResponse,
   CatalogDeltaResponseSchema,
+  type PublicCatalogListQuery,
+  PublicCatalogListQuerySchema,
   type PublicCatalogListResponse,
   PublicCatalogListResponseSchema
 } from "./protocol/catalog.ts";
@@ -80,14 +81,6 @@ export interface VrcPackagesClientOptions {
   operatorToken?: string;
   /** Custom fetch implementation (defaults to global fetch) */
   fetch?: typeof fetch;
-}
-
-export interface CatalogQueryParams {
-  query?: string;
-  umbrella?: "tools" | "assets" | "avatars";
-  category?: string;
-  platform?: Platform;
-  limit?: number;
 }
 
 export interface CatalogSearchParams {
@@ -195,22 +188,16 @@ export class VrcPackagesClient {
     /**
      * Queries the public canonical package index projection (GET /v1/app/index).
      */
-    query: async (params: CatalogQueryParams = {}): Promise<{ packages: CatalogPackage[]; count: number }> => {
-      const limit = Math.min(params.limit ?? 50, 50);
-      const res = await this.request<any>("/v1/app/index", "GET", {
+    query: async (params: PublicCatalogListQuery = {}): Promise<PublicCatalogListResponse> => {
+      const query = PublicCatalogListQuerySchema.parse(params);
+      const res = await this.request<unknown>("/v1/app/index", "GET", {
         auth: "none",
         queryParams: {
-          query: params.query,
-          umbrella: params.umbrella,
-          category: params.category,
-          platform: params.platform,
-          limit
+          limit: query.limit,
+          cursor: query.cursor
         }
       });
-      return {
-        packages: res.packages ?? res.items ?? [],
-        count: res.count ?? (res.packages ? res.packages.length : 0)
-      };
+      return PublicCatalogListResponseSchema.parse(res);
     },
 
     /**

@@ -1,11 +1,13 @@
 # Database & Logging Schema Specification (Candidate Source Document)
 
 > **Document Status:** Candidate Source — v0 Pre-Production Architecture  
-> **Last Updated:** 2026-10-01  
+> **Last Updated:** 2026-10-03
 > **Target Subsystems:** Coordinator storage (Cloudflare D1, including local workerd D1) · Node storage (`node.db` by default) · Activity logging
-> **Code Source:** `src-web/src/worker/storage/d1/` · `src-crawler/src/storage/` · `src-crawler/src/shared/protocol/`
+> **Code Source:** `src-worker/src/storage/d1/` · `src-crawler/src/storage/` · `src-crawler/src/shared/protocol/`
 
 ---
+
+Path review reflects the owner-completed split. The table and field definitions still need a full comparison with executable DDL. Firebase identity verification is not implemented. Preserve the owner FIXME below while that review remains open.
 
 ## 1. Overview & Storage Topologies
 
@@ -13,7 +15,7 @@ The system maintains a strict physical and logical boundary between the central 
 
 1. **Coordinator Storage (`coordinator.db` / Cloudflare D1):**
    - The authoritative source of truth for workforce credentials, origin rate limits, robots caches, discovery leads, source versions, and the canonical catalog graph.
-   - The local Worker uses D1 through Wrangler/workerd. `src-web/tests/support/local_sqlite.ts` is a test comparator, not a coordinator service.
+   - The local Worker uses D1 through Wrangler/workerd. `src-worker/test/support/local_sqlite.ts` is a test comparator, not a coordinator service.
 2. **Crawler Node Local Storage (`node_state.db`):**
    - Node-local SQLite WAL database tracking local execution runs, in-flight task journals, and failure diagnostics.
    - Fully isolated: nodes have **no direct connection** to the coordinator database. Communication occurs exclusively over validated HTTP wire protocols.

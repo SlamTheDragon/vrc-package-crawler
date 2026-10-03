@@ -1,10 +1,8 @@
 export * from "./protocol/node_protocol.ts";
-export * from "./protocol/operator_protocol.ts";
 export * from "./protocol/catalog_protocol.ts";
 export * from "./protocol/access_outcome.ts";
 export * from "./protocol/report_validation.ts";
 
-export * from "./policy/source_access_profile.ts";
 export * from "./policy/source_path_policy.ts";
 export * from "./policy/source_targets.ts";
 export * from "./policy/ip_policy.ts";

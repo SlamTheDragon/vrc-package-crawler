@@ -1,7 +1,7 @@
 [package]
-name = "src-crawler-client"
+name = "vrcp-crawler-client"
 version = "0.1.0"
-description = "A Tauri App"
+description = "VRChat Package Crawler - Yet Another Discovery Tool that crawls the public VRChat Web Ecosystem for VCC, Tooling, Assets, World Creation, Avatars & many more. Not affiliated with VRChat Inc."
 authors = ["you"]
 edition = "2021"
 

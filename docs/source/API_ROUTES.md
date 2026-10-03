@@ -1,8 +1,8 @@
 # API Route Reference (Candidate Source Document)
 
 > **Document Status:** Candidate Source — v0 Pre-Production Architecture  
-> **Last Updated:** 2026-10-01  
-> **Target Subsystems:** `src-web` (API Worker coordinator) · `src-crawler` (node) · `src-package` (`vrc-packages-api` SDK)
+> **Last Updated:** 2026-10-03
+> **Target Subsystems:** `src-worker` (API Worker coordinator) · `src-crawler` (node) · `src-package` (`vrc-packages-api` SDK)
 > **Status Legend:** ✅ Implemented · 🔲 Planned · ⚠️ In Transition · ⏸️ On Hold / Redefining
 
 ---
@@ -13,13 +13,13 @@ The system operates across four discrete principal boundaries. Tokens must never
 
 | Principal Tier | Token Format | Length | Issued By | Scope & Boundaries |
 |---|---|---|---|---|
-| **Crawler Node** | `vrcp_<64-hex><4-hex>` | 73 chars | Operator (`/v1/operator/nodes`) | Leases crawl jobs; capability bitmask encoded in final 4 hex characters; fails closed without lease. User ownership provisioning is unresolved. |
+| **Crawler Node** | `vrcp_<64-hex><4-hex>` | 73 chars | Operator (`/v1/operator/nodes`) | Leases crawl jobs. capability bitmask encoded in final 4 hex characters. fails closed without lease. User ownership provisioning is unresolved. |
 | **Downstream App** | `vrcp_app_<64-hex>` | 73 chars | User / Operator (`/v1/app/register`) | Search index, delta streaming, and reporting. |
-| **User** | `vrcp_usr_<64-hex>` | 73 chars | Local token issuer; Firebase integration is planned | App registration and owned app metadata. Node ownership reads remain pending. No user delisting or node issuance route. |
-| **Admin Operator** | `COORDINATOR_OPERATOR_TOKEN` | 64 chars | Environment / Secret config | Infrastructure oversight: source profiles, auto-queue rules, lead triage, catalog oversight, node issuance. |
+| **User** | `vrcp_usr_<64-hex>` | 73 chars | Local token issuer. Firebase integration is planned | App registration and owned app metadata. Node ownership reads remain pending. No user delisting or node issuance route. |
+| **Admin Operator** | `OPERATOR_TOKEN` | 64 hexadecimal chars | Runtime secret config | Infrastructure oversight: source profiles, auto-queue rules, lead triage, catalog oversight, node issuance. |
 
 > [!NOTE]
-> All tokens are stored as irreversible SHA-256 digests. Raw token values are emitted exactly once upon creation and are never logged, inspected, or echoed back in administration listings.
+> Node/app/user credentials persist as SHA-256 digests. Issuance responses return newly created credentials once. Listings do not return them. The operator credential is a separate runtime secret, not a database digest.
 
 ---
 
@@ -53,20 +53,20 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 ### §2.1 Crawler Node Protocol (`/v1/node/*`)
 
 **Auth:** `Authorization: Bearer <NODE_TOKEN>` (`vrcp_<64-hex><4-hex>`)  
-**Handler:** `src-web/src/worker/api/handler.ts` · **Schema:** `node_protocol.ts`
+**Handler:** `src-worker/src/api/handler.ts` · **Schema:** `node_protocol.ts`
 
 | Method | Path | Status | Description | Request Payload | Response (2xx) |
 |---|---|:---:|---|---|---|
-| `POST` | `/v1/node/jobs/claim` | ✅ | Requests an origin lease and atomic crawl job. Validates token capability bitmask, robots snapshot, and active `SourceAccessProfile`. | `{ schemaVersion: 1, nodeId, leaseId, platform }` | `200` `{ status: "leased", jobId, leaseId, url, platform, minDelayMs, origin, leaseExpiresAt }`<br>or `{ status: "empty", retryAfterMs }` |
-| `POST` | `/v1/node/heartbeat` | ✅ | Renews active origin lease and reports node liveness. | `{ schemaVersion: 1, nodeId, jobId, leaseId }` | `200` `{ status: "ok", leaseExpiresAt }` |
-| `POST` | `/v1/node/jobs/result` | ✅ | Submits crawl facts, discovered leads, or access failure diagnostics. Updates canonical package graph. | `{ schemaVersion: 1, nodeId, jobId, leaseId, outcome, observations[], discoveredLeads[] }` | `200` `{ status: "accepted", jobId }` |
+| `POST` | `/v1/node/jobs/claim` | ✅ | Requests a job under capability, robots and active-profile checks. | `{ schemaVersion: 1, nodeId, capabilities[] }` | `200` `{ schemaVersion: 1, status: "leased", job }` or `{ schemaVersion: 1, status: "empty", retryAfterMs }` |
+| `POST` | `/v1/node/heartbeat` | ✅ | Reports idle/fetching state and checks active job authority. | `{ schemaVersion: 1, nodeId, capabilities[], state: "idle" }` or `state: "fetching"` with `activeJobId`, `activeLeaseId` | `200` `{ schemaVersion: 1, status: "alive", serverTime }` |
+| `POST` | `/v1/node/jobs/result` | ✅ | Submits typed facts, leads or access outcomes. | `{ schemaVersion: 1, nodeId, jobId, leaseId, idempotencyKey, outcome }` | `200` `{ schemaVersion: 1, status: "accepted", jobId, duplicate, sourceVersionCreated }` |
 
 ---
 
 ### §2.2 Admin Operator Protocol (`/v1/operator/*`)
 
-**Auth:** `Authorization: Bearer <COORDINATOR_OPERATOR_TOKEN>` (Constant-time secret comparison)  
-**Handler:** `src-web/src/worker/api/operator_handler.ts` · **Schema:** `operator_protocol.ts`
+**Auth:** `Authorization: Bearer <OPERATOR_TOKEN>` (Constant-time secret comparison)
+**Handler:** `src-worker/src/api/operator_handler.ts` · **Schema:** `operator_protocol.ts`
 
 | Method | Path | Status | Description | Request / Query | Response (2xx) |
 |---|---|:---:|---|---|---|
@@ -80,10 +80,10 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 | `POST` | `/v1/operator/autoqueue-rules` | ✅ | Creates an auto-queue rule that automatically enqueues matching discovery leads without manual operator triage. | `{ schemaVersion: 1, leadKind, origin, pathScope, minDelayMs, expiresAt, reviewReference, reason }` | `201` `{ rule }` |
 | `POST` | `/v1/operator/autoqueue-rules/{id}/disable` | ✅ | Disables an auto-queue rule. | `{ schemaVersion: 1, reason }` | `200` `{ status: "disabled" }` |
 | `POST` | `/v1/operator/nodes` | ✅ | Issues an audited, capability-encoded node credential. | `{ schemaVersion: 1, nodeId, capabilities[]?, reason }` | `201` `{ nodeId, capabilities[], token }` |
-| `POST` | `/v1/operator/nodes/{nodeId}/revoke` | ✅ | Atomically audits revocation and blocks claim, heartbeat and submission. Repeats retain the first revocation time. Existing origin reservations remain until expiry; fetched bytes cannot be recalled. | `{ schemaVersion: 1, reason }` | `200` `{ schemaVersion: 1, nodeId, status: "revoked" }`; unknown node `404` |
+| `POST` | `/v1/operator/nodes/{nodeId}/revoke` | ✅ | Atomically audits revocation and blocks claim, heartbeat and submission. Repeats retain the first revocation time. Existing origin reservations remain until expiry. fetched bytes cannot be recalled. | `{ schemaVersion: 1, reason }` | `200` `{ schemaVersion: 1, nodeId, status: "revoked" }`. unknown node `404` |
 | `GET` | `/v1/operator/catalog` | ✅ | Lists canonical packages with operator oversight and cursor pagination. | Query: `limit`, `cursor` | `200` `{ packages[], nextCursor }` |
 | `GET` | `/v1/operator/takedowns` | ✅ | Audits all recorded creator delistings and opt-outs. | Query: `requesterType`, `limit`, `cursor` | `200` `{ records[], nextCursor }` |
-| `POST` | `/v1/operator/takedowns/{id}/verify` | ✅ | Verifies an unauthenticated creator's ownership proof (DNS/bio). | `{ schemaVersion: 1, verdict: "accepted" \| "rejected", notes? }` | `200` `{ status }` |
+| `POST` | `/v1/operator/takedowns/{id}/verify` | ✅ | Records an operator verdict on a stored request. Automated DNS/bio challenge verification is absent. | `{ schemaVersion: 1, verdict: "accepted" \| "rejected", notes? }` | `200` `{ status }` |
 
 ---
 
@@ -91,16 +91,16 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 
 **Auth:** `Authorization: Bearer <USER_TOKEN>` (`vrcp_usr_<64-hex>`) for authenticated user endpoints. Removal requests use the app-authenticated `/v1/app/report` endpoint and remain pending review. No user or anonymous delisting route is exposed.
 
-App collection and detail views are implemented. App creation uses `/v1/app/register`; `POST /v1/user/apps` is absent. Lists use app-ID keyset pagination with `limit` (default 50, maximum 100) and optional UUID `cursor`. Unknown fields and duplicate query keys return 400. Views return only app ID, name, permissions, creation time and revocation time. Unknown, unowned and another user's app IDs return the same 404. Revoked users cannot read these views. SDK methods are `client.user.apps.list()` and `client.user.apps.get(appId)`.
+App collection and detail views are implemented. App creation uses `/v1/app/register`. `POST /v1/user/apps` is absent. Lists use app-ID keyset pagination with `limit` (default 50, maximum 100) and optional UUID `cursor`. Unknown fields and duplicate query keys return 400. Views return only app ID, name, permissions, creation time and revocation time. Unknown, unowned and app IDs owned by another user return the same 404. Revoked users cannot read these views. SDK methods are `client.user.apps.list()` and `client.user.apps.get(appId)`.
 
-Node ownership-backed GET views remain pending: operator provisioning records no user owner. No historical ownership is inferred from audit actor labels. `POST /v1/user/nodes` and SDK user.registerNode are removed; node creation remains `/v1/operator/nodes`.
+Node ownership-backed GET views remain pending: operator provisioning records no user owner. No historical ownership is inferred from audit actor labels. `POST /v1/user/nodes` and SDK user.registerNode are removed. node creation remains `/v1/operator/nodes`.
 
 | Method | Path | Auth | Status | Description | Request Payload | Response (2xx) |
 |---|---|:---:|:---:|---|---|---|
 | `GET` | `/v1/user/apps` | `vrcp_usr_` | ✅ | Lists owned app metadata without credentials or hashes. | Query: `limit?`, `cursor?` | `200` `{ schemaVersion: 1, apps[], nextCursor }` |
-| `GET` | `/v1/user/apps/{appId}` | `vrcp_usr_` | ✅ | Reads one owned app's metadata. | None | `200` `{ schemaVersion: 1, app }` |
+| `GET` | `/v1/user/apps/{appId}` | `vrcp_usr_` | ✅ | Reads metadata for one owned app. | None | `200` `{ schemaVersion: 1, app }` |
 | `GET` | `/v1/user/nodes` | `vrcp_usr_` | 🔲 | Lists owned nodes. | Bounded pagination to be implemented | Not implemented |
-| `GET` | `/v1/user/nodes/{nodeId}` | `vrcp_usr_` | 🔲 | Reads one owned node's metadata. | None | Not implemented |
+| `GET` | `/v1/user/nodes/{nodeId}` | `vrcp_usr_` | 🔲 | Reads metadata for one owned node. | None | Not implemented |
 | `GET` | `/v1/user` | `vrcp_usr_` | 🔲 | Returns current user profile, active nodes, registered apps, and takedown records. | None | `200` `{ userId, email, nodes[], apps[], takedowns[] }` |
 | `DELETE` | `/v1/user/nodes/{nodeId}` | `vrcp_usr_` | 🔲 | Revokes a node credential owned by this user. | None | `200` `{ status: "revoked" }` |
 | `DELETE` | `/v1/user/apps/{appId}` | `vrcp_usr_` | 🔲 | Revokes an application credential owned by this user. | None | `200` `{ status: "revoked" }` |
@@ -111,18 +111,18 @@ Node ownership-backed GET views remain pending: operator provisioning records no
 
 `POST /v1/app/report` also accepts `reportType: "removal_request"`, a nonempty `reason` (up to 1000 characters), and `targetUrl` or `canonicalId`. It returns `202` with the standard report receipt. The coordinator stores a pending record in `catalog_reports`. Acceptance means recorded, not ownership verified or removal approved. It does not change lifecycle, suppression or crawl demand. Demand and issue fields are rejected for removal requests. The plural `/v1/app/reports` route and user-scoped delisting route are absent.
 
-**Auth:** Public for read index and delta sync; `Authorization: Bearer <APP_TOKEN>` (`vrcp_app_<64-hex>`) for search and reporting.  
+**Auth:** Public for read index and delta sync. `Authorization: Bearer <APP_TOKEN>` (`vrcp_app_<64-hex>`) for search and reporting.
 **Consolidation:** Unifies all catalog querying, delta streaming, application registration, and feedback/report ingestion.
 
-App registration requires a valid user token or the configured operator credential. User-owned creation records `user_app_ownership` in the same transaction as the app. Revoked/missing user owners cannot create an app. Operator-created and previously unowned records remain unowned; no historical owner is guessed. SDK registration without either credential fails before transport. Both user collection POST routes are retired.
+App registration requires a valid user token or the configured operator credential. User-owned creation records `user_app_ownership` in the same transaction as the app. Revoked/missing user owners cannot create an app. Operator-created and previously unowned records remain unowned. no historical owner is guessed. SDK registration without either credential fails before transport. Both user collection POST routes are retired.
 
 | Method | Path                   |          Auth           | Status | Description                                                                                                                                                                                                         | Request / Query                                                                                                                                         | Response (2xx)                                                       |
 | ------ | ---------------------- | :---------------------: | :----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `POST` | `/v1/app/register`     | `vrcp_usr_` or Operator |   ✅    | Registers a downstream application. Gated by user or operator auth.                                                                                                                                                 | `{ schemaVersion: 1, appName, contactEmail?, description? }`                                                                                            | `201` `{ appId, appName, appToken: "vrcp_app_<64>", permissions[] }` |
-| `GET`  | `/v1/app/index`        |         Public          |   ✅    | Core package catalog projection. Bounded search without unbounded pagination.                                                                                                                                       | Query: `query?`, `category?`, `umbrella?`, `platform?`, `limit?` (max 50)                                                                               | `200` `{ packages[], count }`                                        |
+| `GET` | `/v1/app/index` | Public | ✅ | Bounded keyset catalog pages. Other query keys are rejected. | Query: `limit?` (1–100), `cursor?` | `200` `{ schemaVersion: 1, packages[], nextCursor }` |
 | `GET`  | `/v1/app/index/delta`  |         Public          |   ✅    | Continuous incremental sync feed for package managers (VCC/ALCOM). Emits `upsert` and `delist` events.                                                                                                              | Query: `cursor?`, `limit?` (max 100)                                                                                                                    | `200` `{ epoch, deltas[], nextCursor }`                              |
 | `POST` | `/v1/app/index/search` |       `vrcp_app_`       |   ✅    | Bounded search with query attribution. Distinguishes direct human searches from automated background engine queries.                                                                                                | `{ schemaVersion: 1, query, queryOrigin: "user_authored" \| "app_automated", category?, umbrella?, platform?, tags[]?, limit? }`                        | `200` `{ items[], count, queryOrigin }`                              |
-| `POST` | `/v1/app/report` | `vrcp_app_` | ✅ | Records demand, issue reports or pending removal requests. Removal does not alter the catalog. | `{ schemaVersion: 1, reportType: "demand_signal" \| "issue_report" \| "removal_request", signalKind?, reportKind?, targetUrl?, canonicalId?, query?, zeroHits?, reason?, metadata? }` | `{ schemaVersion: 1, status: "accepted", reportId, recordedAt }`; demand/issue `200`, removal `202`. |
+| `POST` | `/v1/app/report` | `vrcp_app_` | ✅ | Records demand, issue reports or pending removal requests. Removal does not alter the catalog. | `{ schemaVersion: 1, reportType: "demand_signal" \| "issue_report" \| "removal_request", signalKind?, reportKind?, targetUrl?, canonicalId?, query?, zeroHits?, reason?, metadata? }` | `{ schemaVersion: 1, status: "accepted", reportId, recordedAt }`. demand/issue `200`, removal `202`. |
 
 ---
 
@@ -150,7 +150,7 @@ App registration requires a valid user token or the configured operator credenti
 | `GET /v1/user/apps/{appId}` | — | ✅ | — | — | — |
 | `GET /v1/user/nodes` 🔲 | — | ✅ | — | — | — |
 | `GET /v1/user/nodes/{nodeId}` 🔲 | — | ✅ | — | — | — |
-| `GET /v1/user 🔲 | — | ✅ | — | — | — |
+| `GET /v1/user` 🔲 | — | ✅ | — | — | — |
 | `DELETE /v1/user/nodes/{id}` 🔲 | — | ✅ | — | — | — |
 | `DELETE /v1/user/apps/{id}` 🔲 | — | ✅ | — | — | — |
 | `POST /v1/app/register` | ✅ | ✅ | — | — | — |
@@ -163,12 +163,12 @@ App registration requires a valid user token or the configured operator credenti
 
 ## 4. Deep-Dive Design Clarifications
 
-### 4.1 Why Plaintext Tokens Are Never Exposed to Admin Operators
+### 4.1 Credential Storage and One-Time Issuance
 
 In traditional architectures, admin panels often allow viewing or re-copying API keys. In this system:
-1. **Zero-Knowledge Token Persistence:** All credentials (`node`, `app`, `user`) are hashed with SHA-256 upon issuance. The database stores `token_hash`, not the token.
-2. **Role Separation:** An Admin Operator manages infrastructure (routes, rate limits, rules, storage). Node provisioning belongs to the **User/Registrant** tier.
-3. **Anti-Leak Invariant:** Tokens are emitted strictly once in the creation response (`no-store` HTTP headers). If lost, the token must be revoked and re-issued.
+1. **Credential Persistence:** Node, app and user credentials are hashed with SHA-256. The database stores `token_hash`, not the token.
+2. **Role Separation:** Operators provision nodes. Users or operators register apps. User app views expose metadata, not credentials.
+3. **Issuance Boundary:** Creation responses return raw tokens once with `no-store` headers. Operators receive tokens they issue. Stored credentials are not retrievable through listings.
 
 ### 4.2 Search Design: Bounded Results & Query Attribution
 

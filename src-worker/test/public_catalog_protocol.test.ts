@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { LocalCoordinatorStore } from "../../src-web/tests/support/local_sqlite.js";
-import { handlePublicCatalogRequest } from "../../src/worker/api/public_handler.ts";
+import { LocalCoordinatorStore } from "./support/local_sqlite.js";
+import { handlePublicCatalogRequest } from "../src/api/public_handler.ts";
 import {
   CATALOG_PROTOCOL_VERSION,
   PublicCatalogListResponseSchema,
@@ -8,9 +8,10 @@ import {
   decodeCatalogDeltaCursor,
   type CatalogDelta
 } from "../../src-crawler/src/shared/protocol/catalog_protocol.js";
-import { decodeCatalogCursor } from "../../src-crawler/src/shared/protocol/operator_protocol.js";
+import { decodeCatalogCursor, encodeCatalogCursor } from "../src/api/protocol/operator_protocol.js";
 import { PROTOCOL_VERSION } from "../../src-crawler/src/shared/protocol/node_protocol.js";
-import { seedApprovedFixtureJob } from "../../src-web/tests/helpers/source_access_fixture.js";
+import { seedApprovedFixtureJob } from "./helpers/source_access_fixture.js";
+import { VrcPackagesClient } from "../../src-package/src/client.ts";
 
 function publicGet(path: string): Request {
   return new Request(`http://localhost${path}`, {
@@ -60,6 +61,93 @@ afterEach(() => {
 });
 
 describe("Public Consumer Catalog Protocol (/v1/app/index & /v1/app/index/delta)", () => {
+  test("SDK public index sends limit 100 and cursor unchanged through the real handler", async () => {
+    const store = new LocalCoordinatorStore();
+    const cursor = encodeCatalogCursor({ createdAt: "2026-10-03T00:00:00.000Z", canonicalId: "page-boundary" });
+    const listPage = store.listCanonicalPackagesPage.bind(store);
+    let calls = 0;
+    store.listCanonicalPackagesPage = (limit, decoded) => {
+      calls++;
+      expect(limit).toBe(100);
+      expect(decoded).toEqual(decodeCatalogCursor(cursor));
+      return listPage(limit, decoded);
+    };
+    const client = new VrcPackagesClient({ baseUrl: "https://coordinator.invalid",
+      fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        expect(request.method).toBe("GET");
+        expect(request.headers.has("authorization")).toBe(false);
+        expect(request.body).toBeNull();
+        expect([...url.searchParams.keys()].sort()).toEqual(["cursor", "limit"]);
+        expect(url.searchParams.get("limit")).toBe("100");
+        expect(url.searchParams.get("cursor")).toBe(cursor);
+        return handlePublicCatalogRequest(request, store);
+      }, { preconnect() {} }) });
+    try {
+      const params = { limit: 100, cursor };
+      expect(PublicCatalogListResponseSchema.parse(await client.index.query(params))).toEqual({
+        schemaVersion: 1, packages: [], nextCursor: null
+      });
+      expect(calls).toBe(1);
+    } finally { store.close(); }
+  });
+
+  test("SDK public index preserves the wire receipt and continues to the next catalog page", async () => {
+    const store = new LocalCoordinatorStore();
+    const requests: URL[] = [];
+    const client = new VrcPackagesClient({ baseUrl: "https://coordinator.invalid",
+      fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        requests.push(new URL(request.url));
+        expect(request.method).toBe("GET");
+        expect(request.headers.has("authorization")).toBe(false);
+        return handlePublicCatalogRequest(request, store);
+      }, { preconnect() {} }) });
+    try {
+      seedVpmAndCatalogItem(store, "sdk.one", "com.example.sdk1", "SDK Package 1");
+      seedVpmAndCatalogItem(store, "sdk.two", "com.example.sdk2", "SDK Package 2");
+      seedVpmAndCatalogItem(store, "sdk.three", "com.example.sdk3", "SDK Package 3");
+      const first = PublicCatalogListResponseSchema.parse(await client.index.query({ limit: 2 }));
+      expect(first.schemaVersion).toBe(1);
+      expect(first.packages).toHaveLength(2);
+      expect(first.nextCursor).not.toBeNull();
+      const params = { limit: 2, cursor: first.nextCursor! };
+      const second = PublicCatalogListResponseSchema.parse(await client.index.query(params));
+      expect(second.schemaVersion).toBe(1);
+      expect(second.packages).toHaveLength(1);
+      expect(second.nextCursor).toBeNull();
+      expect(requests).toHaveLength(2);
+      expect([...requests[0]!.searchParams.keys()]).toEqual(["limit"]);
+      expect([...requests[1]!.searchParams.keys()].sort()).toEqual(["cursor", "limit"]);
+      expect(requests[1]!.searchParams.get("cursor")).toBe(first.nextCursor);
+      expect(new Set([...first.packages, ...second.packages].map(item => item.canonicalId)).size).toBe(3);
+    } finally { store.close(); }
+  });
+
+  test("SDK public index rejects malformed success receipts instead of inventing a catalog", async () => {
+    const store = new LocalCoordinatorStore();
+    let calls = 0;
+    try {
+      for (const malformed of [
+        { packages: [], nextCursor: null },
+        { schemaVersion: 1, packages: [] },
+        { schemaVersion: 1, packages: [], nextCursor: null, count: 0 },
+        { schemaVersion: 1, packages: [{ canonicalId: "incomplete-package" }], nextCursor: null }
+      ]) {
+        const client = new VrcPackagesClient({ baseUrl: "https://coordinator.invalid",
+          fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+            calls++;
+            const response = await handlePublicCatalogRequest(new Request(input, init), store);
+            expect(response.status).toBe(200);
+            return Response.json(malformed);
+          }, { preconnect() {} }) });
+        await expect(client.index.query()).rejects.toThrow();
+      }
+      expect(calls).toBe(4);
+    } finally { store.close(); }
+  });
+
   test("GET /v1/app/index: returns empty catalog when no packages indexed", async () => {
     const store = new LocalCoordinatorStore();
     try {

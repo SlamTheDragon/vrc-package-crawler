@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
-import { handleNodeRequest } from "../../src/worker/api/handler.ts";
+import { handleNodeRequest } from "../../src/api/handler.ts";
 import { CoordinatorClient } from "../../../src-crawler/src/client/node_client.js";
 import { runLeasedJob } from "../../../src-crawler/src/runner/lease_runner.js";
 import { fetchJobOutcome } from "../../../src-crawler/src/adapters/observation_adapter.js";

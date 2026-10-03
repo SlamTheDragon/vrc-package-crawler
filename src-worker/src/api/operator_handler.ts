@@ -8,13 +8,13 @@ import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, Le
   decodeCatalogCursor, decodeTakedownCursor, TakedownListResponseSchema,
   VerifyTakedownRequestSchema, VerifyTakedownResponseSchema,
   type IssueNodeCredential, type AutoQueueRule, type CreateAutoQueueRule, type LeadCursor, type LeadRow,
-  type RuleCursor, type CatalogCursor, type CatalogPackage, type TakedownCursor, type TakedownRecord } from "../../../src-crawler/src/shared/protocol/operator_protocol.js";
+  type RuleCursor, type CatalogCursor, type CatalogPackage, type TakedownCursor, type TakedownRecord } from "./protocol/operator_protocol.js";
 import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   SourceAccessProfileListResponseSchema, SourceAccessProfileResponseSchema,
   decodeProfileCursor, type CreateSourceAccessProfile, type SourceAccessProfile,
-  type ProfileCursor } from "../../../src-crawler/src/shared/policy/source_access_profile.js";
-import { parseCapabilityToken } from "../../../src-crawler/src/shared/protocol/capability_token.js";
-import { workerLogger } from "../worker_logger.ts";
+  type ProfileCursor } from "../domain/access/source_access_profile.js";
+import { parseCapabilityToken } from "../domain/security/capability_token.js";
+import { workerLogger } from "../worker_logger";
 
 /** Runtime-neutral boundary for local SQLite now and a future Worker storage adapter. */
 export interface OperatorStore {

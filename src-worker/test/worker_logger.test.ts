@@ -1,5 +1,5 @@
 import { describe, it, expect, spyOn } from "bun:test";
-import { WorkerLogger, workerLogger } from "../../src/worker/worker_logger.ts";
+import { WorkerLogger, workerLogger } from "../src/worker_logger.ts";
 
 describe("WorkerLogger - Cloudflare Worker Oriented Logging", () => {
   it("emits structured JSON without filesystem dependencies", () => {

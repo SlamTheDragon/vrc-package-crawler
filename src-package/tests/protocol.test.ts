@@ -9,7 +9,9 @@ import {
   CatalogDeltaCursorSchema,
   encodeCatalogDeltaCursor,
   decodeCatalogDeltaCursor,
-  CatalogDeltaResponseSchema
+  CatalogDeltaResponseSchema,
+  PublicCatalogListQuerySchema,
+  PublicCatalogListResponseSchema
 } from "../src/protocol/catalog.ts";
 import {
   DelistRequestSchema,
@@ -93,6 +95,20 @@ describe("src-package wire protocols", () => {
     const encoded = encodeCatalogCursor(cursor);
     const decoded = decodeCatalogCursor(encoded);
     expect(decoded).toEqual(cursor);
+  });
+
+  it("validates public catalog paging and rejects unusable continuation tokens", () => {
+    const cursor = encodeCatalogCursor({ createdAt: "2026-10-01T12:00:00.000Z", canonicalId: "pkg-1" });
+    expect(PublicCatalogListQuerySchema.parse({})).toEqual({ limit: 50 });
+    expect(PublicCatalogListQuerySchema.parse({ limit: 100, cursor })).toEqual({ limit: 100, cursor });
+    const page = { schemaVersion: 1 as const, packages: [], nextCursor: cursor };
+    expect(PublicCatalogListResponseSchema.parse(page)).toEqual(page);
+    expect(PublicCatalogListResponseSchema.parse({ ...page, nextCursor: null }).nextCursor).toBeNull();
+    for (const invalid of ["", "bad/cursor", btoa("{}"), cursor + "=",
+      btoa(JSON.stringify({ createdAt: "not-a-date", canonicalId: "pkg-1" }))]) {
+      expect(PublicCatalogListQuerySchema.safeParse({ cursor: invalid }).success).toBe(false);
+      expect(PublicCatalogListResponseSchema.safeParse({ ...page, nextCursor: invalid }).success).toBe(false);
+    }
   });
 
   it("validates DelistRequest requires targetUrl or canonicalId", () => {
