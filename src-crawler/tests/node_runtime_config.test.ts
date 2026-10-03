@@ -8,7 +8,7 @@ import { getTestOutputDir } from "../../src-web/tests/helpers/test_directory.ts"
 
 const secret = "c".repeat(64);
 const tempRoot = getTestOutputDir();
-function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrc-node-config-")); }
+function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrcp-crawler-node-config-")); }
 function removeFixtureDirectory(directory: string): void {
   if (!realpathSync(directory).startsWith(tempRoot + sep)) throw new Error("Unexpected config fixture path");
   rmSync(directory, { recursive: true, force: true });

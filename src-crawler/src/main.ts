@@ -20,7 +20,7 @@ function printSetupGuide(): void {
 
 To initialize a new crawler node configuration, specify a unique node identifier:
 
-  vrc-node init <node-id> [coordinator-url] [capabilities]
+  vrcp-crawler-node init <node-id> [coordinator-url] [capabilities]
 
 Parameters:
   <node-id>
@@ -39,9 +39,9 @@ Parameters:
     The coordinator-issued token determines which capabilities are granted.
 
 Examples:
-  vrc-node init desktop-1
-  vrc-node init worker-prod-1 https://vrc-coordinator.workers.dev
-  vrc-node init gh-node http://127.0.0.1:8787 github,vpm
+  vrcp-crawler-node init desktop-1
+  vrcp-crawler-node init worker-prod-1 https://vrc-coordinator.workers.dev
+  vrcp-crawler-node init gh-node http://127.0.0.1:8787 github,vpm
 
 Next Steps:
   1. Ask the coordinator administrator to issue credentials for this node ID:
@@ -50,7 +50,7 @@ Next Steps:
   2. Provide the generated bearer token via NODE_TOKEN environment variable or .env:
      NODE_TOKEN=<token>
   3. Start the node daemon:
-     vrc-node [--once]
+     vrcp-crawler-node [--once]
 `);
 }
 
@@ -67,7 +67,7 @@ if (args[0] === "init") {
     process.exit(1);
   }
   if (args.length > 4) {
-    console.error("Usage: vrc-node init <node-id> [coordinator-url] [comma-separated-capabilities]");
+    console.error("Usage: vrcp-crawler-node init <node-id> [coordinator-url] [comma-separated-capabilities]");
     process.exit(2);
   }
 
@@ -101,7 +101,7 @@ try {
 } catch (error) {
   logger.error(`[Error] ${(error as Error).message}`);
   if (!existsSync(join(process.cwd(), "node.config.json"))) {
-    logger.error("No node.config.json found in this directory. Run 'vrc-node init <node-id>' to initialize.");
+    logger.error("No node.config.json found in this directory. Run 'vrcp-crawler-node init <node-id>' to initialize.");
   } else if (!process.env.NODE_TOKEN) {
     logger.error("NODE_TOKEN is required. Set it in .env or pass as an environment variable.");
     logger.error("Ask the coordinator administrator to issue a node token through POST /v1/operator/nodes.");

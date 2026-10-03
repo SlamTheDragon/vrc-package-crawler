@@ -13,7 +13,7 @@ The **Web Platform** (`src-web`) serves as the public landing page, legal portal
 1. **Public Informational Portal & Landing Page (Unauthenticated)**:
    - **Landing Page**: Explains the discovery engine's purpose, scope, unauthenticated indexing architecture, and zero-binary principles.
    - **Terms of Service (ToS) & Legal Disclosures**: Publishes in-band covenants, RFC 9309 robots compliance, `User-Agent` contact details, and fair-use indexing boundaries (`LEGAL.md`).
-   - **Node Binary Distribution**: Distributes compiled headless Crawler Node binaries (`vrc-node` for Linux VPS and Windows CLI) and the Windows GUI Crawler Client.
+   - **Node Binary Distribution**: Distributes compiled headless Crawler Node binaries (`vrcp-crawler-node` for Linux VPS and Windows CLI) and the Windows GUI Crawler Client.
    - **Database Statistics**: Displays live aggregated statistics and metrics of the canonical database (package counts, platform fronts, freshness, and crawl coverage).
    - **Creator Self-Service Opt-Out**: Provides instructions and validation tracking for non-scraping delisting requests.
    - **Public API Documentation**: Documents the public catalog endpoints (`/v1/catalog`, `/v1/catalog/delta`).

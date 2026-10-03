@@ -20,8 +20,8 @@ RUN apk add --no-cache ca-certificates tzdata
 RUN addgroup -S vrcgroup && adduser -S vrcuser -G vrcgroup
 
 WORKDIR /app
-COPY --from=builder /workspace/src-crawler/dist/local-node/vrc-node-linux /app/vrc-node
-RUN chmod +x /app/vrc-node && chown -R vrcuser:vrcgroup /app
+COPY --from=builder /workspace/src-crawler/dist/local-node/vrcp-crawler-node-linux /app/vrcp-crawler-node
+RUN chmod +x /app/vrcp-crawler-node && chown -R vrcuser:vrcgroup /app
 
 # Volume directory for persistent SQLite database and node configuration
 RUN mkdir -p /app/data && chown -R vrcuser:vrcgroup /app/data
@@ -30,4 +30,4 @@ WORKDIR /app/data
 
 USER vrcuser
 
-ENTRYPOINT ["/app/vrc-node"]
+ENTRYPOINT ["/app/vrcp-crawler-node"]

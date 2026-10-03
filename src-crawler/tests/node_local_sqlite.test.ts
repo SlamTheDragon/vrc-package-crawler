@@ -6,7 +6,7 @@ import type { CrawlJob, ResultResponse } from "../src/shared/protocol/node_proto
 import { getTestOutputDir } from "../../src-web/tests/helpers/test_directory.ts";
 
 const tempRoot = getTestOutputDir();
-function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrc-node-store-")); }
+function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrcp-crawler-node-store-")); }
 function removeFixtureDirectory(directory: string): void {
   if (!realpathSync(directory).startsWith(tempRoot + sep)) throw new Error("Unexpected fixture path");
   rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });

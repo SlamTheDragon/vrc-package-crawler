@@ -11,7 +11,7 @@
 This specification distinguishes between two operational deployment models:
 
 ### 1.1 Crawler Node (`src-crawler`)
-- **Role:** Compiled binary for a headless VPS such as Linux to run (and Windows daemon CLI `dist/local-node/vrc-node.exe`).
+- **Role:** Compiled binary for a headless VPS such as Linux to run (and Windows daemon CLI `dist/local-node/vrcp-crawler-node.exe`).
 - **Core Behaviors:**
   - Authenticated polling of the coordinator for job leasing via `/v1/node/jobs/claim`.
   - Accepts jobs leased by the coordinator matching its capability profile.
@@ -25,7 +25,7 @@ This specification distinguishes between two operational deployment models:
 ### 1.2 Crawler Client (`src-crawler-client`)
 - **Role:** Desktop GUI shell for Windows that bundles the compiled `Crawler Node` binary within.
 - **Purpose:** Enables community contributors to run a node on personal Windows desktop machines without interacting with a headless terminal or manually configuring JSON files.
-- **Architecture:** Wraps `vrc-node.exe` as a supervised child process, exposes intuitive setup/status panels, displays live crawl progress and local metrics, and manages token provisioning from the coordinator portal.
+- **Architecture:** Wraps `vrcp-crawler-node.exe` as a supervised child process, exposes intuitive setup/status panels, displays live crawl progress and local metrics, and manages token provisioning from the coordinator portal.
 
 ---
 
@@ -33,7 +33,7 @@ This specification distinguishes between two operational deployment models:
 
 ```mermaid
 sequenceDiagram
-    participant Node as Crawler Node (vrc-node)
+    participant Node as Crawler Node (vrcp-crawler-node)
     participant Coord as Coordinator (Cloudflare Worker API)
     participant Origin as Target Storefront / Manifest
 
