@@ -194,6 +194,9 @@ Worker URLs can be public without access controls. Current public catalog routes
 Do not treat API token checks on other routes as protection for public routes.
 Schema initialization is an authenticated `/v1/operator/init` operation, not an automatic deployment step.
 For initial preview setup, explicitly send `autoSeed: false`. Do not grant source access or start live crawling through initialization.
+Fresh initialization includes both canonical timestamp columns. It does not upgrade earlier table layouts.
+Native fresh/repeated checks execute 62 statements through one binding call with no seed jobs.
+This count is not proof of Free-tier quota compliance. R14-C14 retains the invocation-budget and migration work.
 Review schema changes before activation. Code rollback does not roll back D1 data.
 The Compose file requires an explicit reviewed CI image. Watchtower and its Docker socket still need a separate review.
 

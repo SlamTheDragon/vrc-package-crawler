@@ -17,6 +17,15 @@ Initialize only preview D1, without automatic seeds. Remaining source and public
 
 ## Current delivery changes
 
+G14 readiness now includes R14-C14 initialization safety while publication awaits Q-SDK-RETRY.
+Native diagnosis executed 64 initialization statements through three exec calls with autoSeed false.
+Injected failures in both ALTER calls still returned success and left the timestamp columns absent.
+The fields now belong to the fresh schema. The obsolete, catch-and-ignore alterations are removed.
+Worker source/test types, 235 units with 2051 assertions, preview dry-run build and native D1 passed.
+Fresh and repeated diagnosis used one call and 62 statements, with both fields and zero jobs or external fetches.
+No earlier table layout is upgraded. Invocation quotas, billed rows, CPU and migration delivery remain R14-C14 work.
+See the [existing research section](../research/topics/01_crawler_systems_and_infrastructure.md#d1-initialization-and-migration-resources--2026-10-05).
+
 Preview consumers use exact SDK aliases. Release Worker resolves latest, checks the release config, then packs exact registry bytes.
 The internal network package stays private. Local preparation supplies compiled tarballs, never sibling source links.
 CI promotes only checked artifacts with identity, commit and digest receipts. Hidden uploads select runtime artifacts and receipts only.
@@ -67,7 +76,8 @@ The explicit runtime root passed from the temporary working directory that previ
 The internal 23-file tarball passed types, Node, Bun and native Worker against that preview SDK, with zero external fetches.
 No CI release artifacts were created locally. The isolated checks do not prove publication or remote deployment.
 Next: confirm the publication name and retry tag, then check actual SDK CI and registry bytes.
-After registry proof, push the configured Worker preview tag. Initialize preview with autoSeed false. Its default is true.
+After registry proof, push the configured Worker preview tag. Resolve initialization budgets or migration delivery before claiming readiness.
+Authorized initial setup uses autoSeed false. The API default remains true.
 The Worker preview environment keeps required review. The owner approves that deployment job, not the agent.
 Check the exact published SDK before Worker tag pushes. Do not rely on a publication race.
 Preview URLs can be public. Public catalog routes lack rights and age-disclosure controls.
@@ -75,7 +85,8 @@ Keep preview test data synthetic until those publication boundaries are settled.
 
 Preserve the owner no-lockfile choice. Floating external dependencies limit reproducibility.
 Docker is unavailable locally. Docker and Windows installer CI still need real runner checks.
-Remote main and the failed tag still target 5817cfe. cbc249e is local. No npm publication or Worker deployment ran.
+The last remote check found main and the failed tag at 5817cfe. Local cbc249e and c984d48 precede the initialization correction.
+No npm publication or Worker deployment ran.
 Installed-consumer fixtures stay outside source checks. Their strict declaration checks still run separately.
 Docker alias wiring remains unverified because Docker is unavailable locally.
 No gate or the full real-source pre-production goal is complete.

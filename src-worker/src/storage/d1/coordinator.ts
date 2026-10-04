@@ -120,8 +120,6 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
   async initSchema(autoSeed: boolean = false): Promise<void> {
     await this.db.exec(D1_SCHEMA_SQL);
-    try { await this.db.exec("ALTER TABLE canonical_packages ADD COLUMN published_at TEXT;"); } catch {}
-    try { await this.db.exec("ALTER TABLE canonical_packages ADD COLUMN timestamp_confidence TEXT;"); } catch {}
     if (autoSeed) {
       await this.seedInitialJobs();
     }

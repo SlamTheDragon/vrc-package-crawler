@@ -70,6 +70,30 @@ Firebase verification keys are public, unlike private service credentials and us
 
 Open decisions: registry/user ownership boundaries, cross-database atomicity, environment isolation, plan budget, cache freshness and revocation guarantees. Record them in the ledger before migrations or new bindings. Do not infer that 1,000 users require a paid plan without their request pattern.
 
+## D1 initialization and migration resources — 2026-10-05
+
+Use [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) for invocation and statement limits.
+Use [the binding API](https://developers.cloudflare.com/d1/worker-api/d1-database/#exec) for execution behavior and result counts.
+Use [Wrangler migrations](https://developers.cloudflare.com/d1/reference/migrations/) for numbered SQL files and applied-migration records.
+Migrations are a platform feature. Do not create another schema scheduler or infer rollback from deployment rollback.
+
+The current initializer was measured with native isolated D1, not a remote Free account.
+It formerly executed 64 statements through three binding calls with `autoSeed: false`.
+Injected failures in both alteration calls still reported success and omitted the timestamp columns.
+The fresh-schema correction declares those fields directly and removes the catch-and-ignore alterations.
+Fresh and repeated runs now execute 62 statements through one call, with both fields and zero seed jobs.
+The 62 schema statements contain 32 table definitions and 30 indexes. Runtime metadata tables are separate.
+
+Do not equate SQL statements, binding calls, billed rows or CPU time.
+The documented Free limit is 50 queries per invocation. The native counts do not establish the account's enforcement or billed usage.
+The initializer still runs DDL through HTTP and does not upgrade earlier table layouts.
+R14-C14 retains remote budget measurement and versioned migration delivery before claiming Free-plan readiness.
+The owner requires fresh version-0 databases, not silent prototype upgrades.
+
+Code anchors: [fresh schema](../../../src-worker/src/storage/d1/utils.ts), [initializer](../../../src-worker/src/storage/d1/coordinator.ts),
+[regressions](../../../src-worker/test/d1_coordinator_store.test.ts). Worker types, 235 units, the preview dry-run build and native D1 passed.
+All runtime diagnosis used isolated local databases with zero external fetches. No remote schema or migration ran.
+
 ## Fleet batching and staggered sync — proposal, 2026-10-04
 
 The owner proposes assignment sequences, one-to-two-hour sync windows and 15-minute heartbeats. Compare these as separate clocks. This audit does not change runtime settings. [R54-C39A through D](../../scratch/UNMERGED_IMPLEMENTATION_PLAN.md) propose a full fleet-budget gate, G16, after ownership and recovery prerequisites.

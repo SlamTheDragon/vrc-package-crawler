@@ -366,11 +366,16 @@ CREATE TABLE canonical_packages (
   display_name TEXT NOT NULL,
   vpm_id TEXT,                            -- Optional official VPM package identifier
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  published_at TEXT,
+  timestamp_confidence TEXT
 );
 CREATE INDEX idx_canonical_packages_updated ON canonical_packages(updated_at ASC, canonical_id ASC);
 CREATE INDEX idx_canonical_packages_created ON canonical_packages(created_at DESC, canonical_id DESC);
 ```
+
+Fresh version-0 initialization declares the two nullable timestamp fields in this table.
+It does not add columns to earlier table layouts. Prototype imports and schema upgrades require a separate, explicit migration.
 
 #### `identity_links`
 Evidence-backed links connecting `source_items` to `canonical_packages`.

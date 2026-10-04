@@ -406,6 +406,37 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     } finally { sqlite.close(); }
   });
 
+  it("creates timestamp columns in the fresh schema without catch-and-ignore alterations", async () => {
+    const sqlite = new Database(":memory:");
+    try {
+      const db = createMockD1Database(sqlite);
+      const calls: string[] = [];
+      const store = new Coordinator({ ...db, async exec(query) {
+        calls.push(query);
+        if (query.startsWith("ALTER TABLE")) throw new Error("Alterations are not part of fresh initialization");
+        return db.exec(query);
+      } });
+      await store.initSchema(false);
+      const columns = sqlite.query("PRAGMA table_info(canonical_packages)").all() as { name: string }[];
+      expect(columns.some(column => column.name === "published_at")).toBe(true);
+      expect(columns.some(column => column.name === "timestamp_confidence")).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(sqlite.query("SELECT COUNT(*) AS count FROM crawl_jobs").get()).toEqual({ count: 0 });
+    } finally { sqlite.close(); }
+  });
+
+  it("propagates schema execution failures before candidate seeding", async () => {
+    const failure = new Error("Synthetic schema execution failure");
+    let prepares = 0;
+    const store = new Coordinator({
+      prepare() { prepares++; throw new Error("Seeding must not run after schema failure"); },
+      async batch() { throw new Error("Unexpected batch"); },
+      async exec() { throw failure; }
+    });
+    await expect(store.initSchema(true)).rejects.toBe(failure);
+    expect(prepares).toBe(0);
+  });
+
   async function claimRaceFixture(targets: string[]) {
     const sqlite = new Database(":memory:");
     const db = createMockD1Database(sqlite);
