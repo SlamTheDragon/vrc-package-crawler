@@ -35,7 +35,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: sdk-${{ steps.route.outputs.channel }}
-          path: src-package/.artifacts/ci/
+          path: |
+            src-package/.artifacts/ci/*.tgz
+            src-package/.artifacts/ci/*.tgz.json
+          include-hidden-files: true
           if-no-files-found: error
   publish:
     needs: build

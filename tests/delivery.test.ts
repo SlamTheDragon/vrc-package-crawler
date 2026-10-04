@@ -5,7 +5,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { bumpVersion, productDirectories, readVersionConfig, versionFiles } from "../scripts/versioning.mjs";
-import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, validateRegistrySDK, workerSecretBindings } from "../scripts/delivery.mjs";
+import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, validateCIArtifact, validateRegistrySDK, workerSecretBindings } from "../scripts/delivery.mjs";
 
 async function fixture(run: (workspace: string) => Promise<void>) {
   const parent = await realpath(tmpdir());
@@ -119,6 +119,35 @@ test("SDK publication does not bypass owner review through prerelease or calenda
   }
 });
 
+test("CI artifact promotion rejects changed bytes, identity, config, channel, commit and development receipts", () => {
+  const bytes = Buffer.from("single-file Worker fixture");
+  const expected = { product: "worker", name: "vrcp-worker", version: "0.0.0-pre", channel: "preview",
+    commit: "a".repeat(40), configSha256: "b".repeat(64) };
+  const receipt = { ...expected, purpose: "ci-release", sha256: createHash("sha256").update(bytes).digest("hex") };
+  expect(() => validateCIArtifact(receipt, expected, bytes)).not.toThrow();
+  for (const invalid of [null, {}, { ...receipt, purpose: "development" }, { ...receipt, name: "other" },
+    { ...receipt, product: "package" }, { ...receipt, version: "0.0.1-pre" }, { ...receipt, channel: "release" },
+    { ...receipt, commit: "c".repeat(40) }, { ...receipt, configSha256: "d".repeat(64) }, { ...receipt, sha256: "e".repeat(64) }]) {
+    expect(() => validateCIArtifact(invalid, expected, bytes)).toThrow("CI artifact");
+  }
+  expect(() => validateCIArtifact(receipt, expected, Buffer.from("modified"))).toThrow("CI artifact");
+  expect(() => validateCIArtifact(receipt, { ...expected, commit: undefined }, bytes)).toThrow("CI artifact");
+  const sdkExpected = { name: "vrc-packages-api", version: "0.0.0", commit: expected.commit };
+  const sdkReceipt = { ...sdkExpected, purpose: "ci-release", sha256: receipt.sha256 };
+  expect(() => validateCIArtifact(sdkReceipt, sdkExpected, bytes)).not.toThrow();
+  expect(() => validateCIArtifact({ ...sdkReceipt, commit: undefined }, { ...sdkExpected, commit: undefined }, bytes))
+    .toThrow("CI artifact");
+});
+
+test("CI artifact generation requires a commit as well as a matching tag push", async () => {
+  const { config } = await readVersionConfig("release");
+  const env = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REF: `refs/tags/worker/v${config["release-worker"]}` };
+  for (const commit of [undefined, "", "short", "g".repeat(40)]) {
+    await expect(requireCI("worker", "release", { ...env, GITHUB_SHA: commit })).rejects.toThrow("tag-push");
+  }
+  expect((await requireCI("worker", "release", { ...env, GITHUB_SHA: "a".repeat(40) })).product).toBe("worker");
+});
+
 test("registry SDK inputs require exact identity, bytes and compiled distribution contents", () => {
   const bytes = Buffer.from("fixture tarball bytes");
   const integrity = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
@@ -137,7 +166,7 @@ test("registry SDK inputs require exact identity, bytes and compiled distributio
 
 test("external workflow guards preserve preview-only Worker and release-only npm authority", () => {
   const workflow = (name: string) => Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8")) as {
-    jobs: Record<string, { if?: string | boolean; steps?: { env?: Record<string, string> }[] }>;
+    jobs: Record<string, { if?: string | boolean; steps?: { env?: Record<string, string>; with?: { path?: string } }[] }>;
   };
   const sdk = workflow("vrc-packages-api").jobs.publish;
   expect(sdk?.if).toContain("needs.build.outputs.channel == 'release'");
@@ -148,6 +177,11 @@ test("external workflow guards preserve preview-only Worker and release-only npm
   expect(workflow("worker").jobs.deploy?.steps?.find(step => step.env?.OPERATOR_TOKEN)?.env?.OPERATOR_TOKEN)
     .toBe('${{ secrets.OPERATOR_TOKEN }}');
   expect(workflow("web").jobs.build?.if).toBe(false);
+  const clientArtifact = workflow("node-client").jobs.build?.steps?.find(step => step.with?.path)?.with?.path;
+  expect(clientArtifact).toContain("/bundle/msi/*.msi");
+  expect(clientArtifact).toContain("/bundle/nsis/*-setup.exe");
+  const root = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  expect(root.scripts.setup).toContain("--package-lock=false");
 });
 
 test("preview deployment accepts only the operator binding and rejects missing or malformed secrets", () => {
@@ -155,5 +189,23 @@ test("preview deployment accepts only the operator binding and rejects missing o
   expect(workerSecretBindings({ OPERATOR_TOKEN: token, NPM_TOKEN: "unrelated" })).toEqual({ OPERATOR_TOKEN: token });
   for (const env of [{}, { OPERATOR_TOKEN: "short" }, { OPERATOR_TOKEN: "g".repeat(64) }]) {
     expect(() => workerSecretBindings(env)).toThrow("64-hex OPERATOR_TOKEN");
+  }
+});
+
+test("hidden-directory uploads include only runtime artifacts and their CI receipts", () => {
+  for (const [name, suffixes] of [
+    ["worker", ["/worker_entry.js", "/worker_entry.js.json"]],
+    ["vrc-packages-api", ["/*.tgz", "/*.tgz.json"]],
+    ["network", ["/*.tgz", "/*.tgz.json"]]
+  ] as const) {
+    const workflow = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8")) as {
+      jobs: { build: { steps: { uses?: string; with?: { path?: string; "include-hidden-files"?: boolean } }[] } };
+    };
+    const upload = workflow.jobs.build.steps.find(step => step.uses?.startsWith("actions/upload-artifact@"))?.with;
+    expect(upload?.["include-hidden-files"]).toBe(true);
+    const paths = upload?.path?.trim().split("\n") ?? [];
+    expect(paths).toHaveLength(2);
+    for (let index = 0; index < suffixes.length; index++) expect(paths[index].endsWith(suffixes[index])).toBe(true);
+    expect(paths.every(path => !path.includes("node_modules") && !path.endsWith("/"))).toBe(true);
   }
 });

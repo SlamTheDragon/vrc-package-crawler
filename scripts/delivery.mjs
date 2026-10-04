@@ -24,6 +24,14 @@ export function workerSecretBindings(env) {
   return { OPERATOR_TOKEN: env.OPERATOR_TOKEN };
 }
 
+export function validateCIArtifact(receipt, expected, bytes) {
+  if (!/^[a-f0-9]{40}$/.test(expected.commit ?? "") || receipt?.purpose !== "ci-release" ||
+      !Object.entries(expected).every(([key, value]) => receipt[key] === value) ||
+      receipt.sha256 !== createHash("sha256").update(bytes).digest("hex")) {
+    throw new Error("CI artifact differs from its checked identity, configuration, commit or digest");
+  }
+}
+
 export async function resolveTag(tag, workspace = root) {
   if (typeof tag !== "string" || tag.trim() !== tag) throw new Error("Tag must be an exact canonical string");
   const match = /^(crawler|crawler-client|package|network|web|worker)\/v(.+)$/.exec(tag ?? "");
@@ -41,7 +49,7 @@ export async function resolveTag(tag, workspace = root) {
 
 export async function requireCI(product, channel, env = process.env) {
   if (env.GITHUB_ACTIONS !== "true" || env.GITHUB_EVENT_NAME !== "push" ||
-      !env.GITHUB_REF?.startsWith(`refs/tags/${product}/v`)) {
+      !env.GITHUB_REF?.startsWith(`refs/tags/${product}/v`) || !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? "")) {
     throw new Error("Release artifacts and remote actions require a matching GitHub tag-push job. Local output is development-only.");
   }
   return resolveTag(env.GITHUB_REF.slice("refs/tags/".length)).then(tag => {
@@ -114,7 +122,16 @@ export async function deliver(action, channel, product, ci = false) {
   } else {
     if (!["deploy", "publish"].includes(action)) inspectDependencies(project);
     if (action === "build") {
-      if (product === "worker") npm(["run", `build:${channel}`], project);
+      if (product === "worker") {
+        npm(["run", `build:${channel}`], project);
+        if (ci) {
+          const bundle = join(project, ".wrangler/dev-build", channel === "preview" ? "preview" : "production", "worker_entry.js");
+          writeFileSync(`${bundle}.json`, JSON.stringify({ purpose: "ci-release", product,
+            name: manifest.name, version: manifest.version, channel, commit: process.env.GITHUB_SHA,
+            configSha256: createHash("sha256").update(readFileSync(join(project, "wrangler.toml"))).digest("hex"),
+            sha256: createHash("sha256").update(readFileSync(bundle)).digest("hex") }, null, 2) + "\n");
+        }
+      }
       else if (product === "crawler") npm(["run", process.platform === "win32" ? "build:dev" : "build:node:linux"], project);
       else if (product === "crawler-client" && !ci) npm(["run", "build:dev"], project);
       else npm(["run", "build"], project);
@@ -133,6 +150,10 @@ export async function deliver(action, channel, product, ci = false) {
       const bundle = join(project, ".wrangler/dev-build", directory, "worker_entry.js");
       const cli = join(project, ".wrangler/ci-tools/node_modules/wrangler/bin/wrangler.js");
       if (!existsSync(bundle) || !existsSync(cli)) throw new Error("Deploy requires the CI-verified bundle and pinned Wrangler tools. It does not rebuild source.");
+      validateCIArtifact(JSON.parse(readFileSync(`${bundle}.json`, "utf8")), {
+        product, name: manifest.name, version: manifest.version, channel, commit: process.env.GITHUB_SHA,
+        configSha256: createHash("sha256").update(readFileSync(join(project, "wrangler.toml"))).digest("hex")
+      }, readFileSync(bundle));
       const bindings = workerSecretBindings(process.env);
       const secretDirectory = mkdtempSync(join(tmpdir(), "vrcp-worker-deploy-"));
       const secretPath = join(secretDirectory, "secrets.json");
@@ -150,10 +171,7 @@ export async function deliver(action, channel, product, ci = false) {
       if (manifest.private) throw new Error("SDK remains private until its package gate passes. Do not publish by bypassing this hold.");
       const artifact = join(project, ".artifacts/ci", `${manifest.name}-${manifest.version}.tgz`);
       const receipt = JSON.parse(readFileSync(`${artifact}.json`, "utf8"));
-      if (receipt.purpose !== "ci-release" || receipt.name !== manifest.name || receipt.version !== manifest.version || receipt.commit !== process.env.GITHUB_SHA ||
-          receipt.sha256 !== createHash("sha256").update(readFileSync(artifact)).digest("hex")) {
-        throw new Error("CI publication artifact differs from its checked identity, commit or digest");
-      }
+      validateCIArtifact(receipt, { name: manifest.name, version: manifest.version, commit: process.env.GITHUB_SHA }, readFileSync(artifact));
       npm(["publish", artifact, "--access", "public", "--tag", channel === "preview" ? "pre" : "latest"], project);
     }
   }

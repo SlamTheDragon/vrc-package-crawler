@@ -27,6 +27,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: network-${{ steps.route.outputs.version }}
-          path: src-worker/packages/network/.artifacts/ci/*.tgz
+          path: |
+            src-worker/packages/network/.artifacts/ci/*.tgz
+            src-worker/packages/network/.artifacts/ci/*.tgz.json
+          include-hidden-files: true
           if-no-files-found: error
       # Public/private registry selection is not implied by artifact packaging.

@@ -34,6 +34,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: crawler-client-${{ steps.route.outputs.version }}-windows-unsigned
-          path: src-crawler-client/src-tauri/target/release/bundle/
+          path: |
+            src-crawler-client/src-tauri/target/release/bundle/msi/*.msi
+            src-crawler-client/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
 # ensure output only expose msi installer or exe installer if ever defined, if not, set up build configs in related source code

@@ -3,7 +3,7 @@
     "@types/node": "^26.6.4"
   },
   "scripts": {
-    "setup": "npm install --ignore-scripts",
+    "setup": "npm install --ignore-scripts --package-lock=false",
     "delivery": "node scripts/delivery.mjs",
     "prepare:dev": "node scripts/delivery.mjs prepare",
     "build:dev": "node scripts/delivery.mjs build",

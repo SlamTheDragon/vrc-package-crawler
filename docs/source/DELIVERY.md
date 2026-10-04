@@ -1,7 +1,7 @@
 # Development and tagged delivery
 
-Implementation status, 2026-10-04: the earlier grouped local checks passed for packages, node, Worker, website and desktop development builds.
-The latest registry-consumption and preview-binding changes await the next grouped checkpoint. Remote CI remains unverified.
+Implementation status, 2026-10-05: the grouped local checks passed for packages, node, Worker, website and desktop development builds.
+Preview dependency selection and the replacement D1 binding passed local checks. Remote CI and registry SDK consumption remain unverified.
 Local commands create development outputs only. They do not upload releases, publish packages or deploy a Worker.
 
 ## Version authority
@@ -90,26 +90,80 @@ Related SDK/network builds supply packaged dependencies. Consumer builds import 
 
 Worker deployment downloads the bundle from its build job. It installs only pinned Wrangler tooling and uses `--no-bundle`.
 It does not rebuild source in the deployment job.
+CI creates a receipt for the current single-file Worker bundle, with product, version, channel, commit and SHA-256 digests.
+Deployment checks the bundle bytes and Wrangler config against this receipt before creating a temporary secret file.
+Missing or mismatched receipts stop deployment. Local development builds do not create CI receipts.
 SDK publication downloads the packaged artifact and checks its name, version, commit and SHA-256 digest.
+The shared receipt check requires a valid GitHub commit identity. It rejects development receipts and changed bytes.
+These checks detect handoff errors, not a compromised runner that can replace both the artifact and its receipt.
+Worker, SDK and network uploads explicitly include their hidden output directories, but select only runtime files and receipts.
+They do not upload entire projects, node_modules, local state or credential files.
 Neither path creates tags or pushes branches. GitHub artifacts are build outputs, not automatically created GitHub Releases.
 
 ## Owner setup before remote activation
 
-1. Keep automatic main-branch Cloudflare Builds disconnected. The owner reports this setup is done.
-2. Create protected GitHub environments named `preview` and `production`.
-3. Add required reviewers and allowed tag rules to both environments.
-4. Set environment-scoped Cloudflare account and API token secrets.
-5. Check that both D1 IDs belong to the intended account and represent separate databases.
-6. Set distinct Worker operator secrets for preview and production.
-7. Protect preview access before sending real restricted or personal metadata.
-8. Enable a publication/deployment switch only after its gate passes.
+GitHub environments protect CI jobs. Wrangler environments select Worker settings, resources and runtime secrets.
+They are separate systems. A GitHub environment does not create a Worker or a D1 database.
+An npm or Cloudflare account token does not automatically become a GitHub Actions secret.
+An ignored local `.env` file does not supply secrets to remote CI.
 
-The switches are `VRCP_WORKER_DEPLOY_APPROVED`, `VRCP_CONTAINER_PUBLISH_APPROVED` and `VRCP_SDK_PUBLISH_APPROVED`.
-Each must equal `true` to enable its external action. They are off when absent.
-GitHub environment protection is a panel setting. YAML cannot create required reviewers.
-Store `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in each protected environment.
-Use a least-privilege account token. Never reuse preview credentials as production operator credentials.
-The owner reports environment secrets and `NPM_TOKEN` are configured. Their names, scopes and approvals still need CI checks.
+1. Keep automatic main-branch Cloudflare Builds disconnected. The owner reports this setup is done.
+2. Open this repository's GitHub Settings, then Environments.
+3. Create environments named `preview` and `production`.
+4. Add required reviewers where the repository's GitHub plan permits them.
+5. Keep self-review enabled if the owner is the only reviewer.
+6. Under selected deployment branches and tags, add a Tag rule `worker/v*` for preview.
+7. Add a Tag rule `package/v*` for production's current SDK publication path.
+8. Add the environment secrets from the table below.
+9. Open Settings, then Secrets and variables, then Actions, then Variables.
+10. Add the repository variables from the table below with value `false`.
+11. Check the environment protection, secret names and token scopes before tag promotion.
+12. Protect preview access before sending restricted or personal metadata.
+
+| GitHub location | Name | Purpose |
+| --- | --- | --- |
+| preview environment secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account that owns the Worker and D1. This is not a database ID. |
+| preview environment secret | `CLOUDFLARE_API_TOKEN` | Account-scoped Worker deployment credential. Limit its permissions to the deployment's requirements. |
+| preview environment secret | `OPERATOR_TOKEN` | Project administrator API key. CI installs this binding into the preview Worker. |
+| production environment secret | `NPM_TOKEN` | SDK publishing credential. CI supplies it as both NPM_TOKEN and NODE_AUTH_TOKEN. |
+| repository Actions variable | `VRCP_WORKER_DEPLOY_APPROVED` | Enables preview deployment when equal to true. |
+| repository Actions variable | `VRCP_SDK_PUBLISH_APPROVED` | Enables release SDK publication when equal to true. |
+| repository Actions variable | `VRCP_CONTAINER_PUBLISH_APPROVED` | Enables container publication when equal to true. Keep it absent or false until its gate passes. |
+
+Approval variables belong at repository scope because the job condition runs before the job enters its environment.
+An absent switch disables the external action. These switches do not replace environment approval or artifact checks.
+Environment secrets become available only to jobs that select that environment and pass its protection rules.
+An existing environment named `cloudflare` does not supply secrets to jobs that select `preview` or `production`.
+The current production Worker deployment remains disabled. Its credentials are not necessary for initial SDK publication.
+Future products require their own allowed-tag rules before their protected jobs can run.
+
+### Operator key
+
+`OPERATOR_TOKEN` is a project API credential, not a Cloudflare, npm, user or node token.
+The current Worker requires a 64-character hexadecimal value and checks it as an HTTPS bearer credential.
+It authorizes schema initialization, node issuance/revocation, source profiles and other operator controls.
+Keep this shared administrator key in protected operator tooling, not browser assets or distributed crawler configurations.
+It does not establish creator ownership or replace future per-operator authentication.
+
+Generate 32 random bytes locally. This PowerShell command copies the hexadecimal value without displaying it:
+
+```powershell
+node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))" | Set-Clipboard
+```
+
+Save the value in a password manager. Paste it into the preview environment's OPERATOR_TOKEN secret.
+Clear the clipboard after setup. Use a different key for local development and future production.
+CI deploys this binding with pinned Wrangler 4.147.0 and `--secrets-file`.
+It does not upload Cloudflare or npm credentials as Worker bindings.
+The temporary secret file is removed after the deployment attempt. Remote execution of this path remains unverified.
+
+The read-only GitHub inspection on 2026-10-05 confirmed the expected preview and production secrets from this table.
+It confirmed the Worker and SDK switches at repository scope, both false before activation.
+The later inspection confirmed owner self-review is allowed, with required review still enabled.
+Preview allows only `worker/v*` tags. Production allows only `package/v*` tags.
+The owner authorizes the declared remote preview path for successive milestones, without changing version configs.
+Secret names do not prove token validity or permissions. A real CI run must check those boundaries.
+Check npm publish permission, expiration and non-interactive 2FA requirements before enabling its switch.
 SDK version `0.0.0` publication is authorized after package verification. Its manifest declares the existing Apache-2.0 license asset.
 The SDK private flag is removed. CI publication still requires the checked artifact, release tag and approval switch.
 The complete owner API review hold still blocks `v0.1.0` and later SDK publication.
@@ -125,6 +179,7 @@ Its separate D1 binding and secret configuration are explicit because bindings d
 Worker URLs can be public without access controls. Current public catalog routes do not enforce age or publication-rights gates.
 Do not treat API token checks on other routes as protection for public routes.
 Schema initialization is an authenticated `/v1/operator/init` operation, not an automatic deployment step.
+For initial preview setup, explicitly send `autoSeed: false`. Do not grant source access or start live crawling through initialization.
 Review schema changes before activation. Code rollback does not roll back D1 data.
 The Compose file requires an explicit reviewed CI image. Watchtower and its Docker socket still need a separate review.
 
@@ -137,9 +192,16 @@ The current workflows use product-tag pushes only. Branch-push previews and auto
 If adopted, define the branch, version owner, collision handling and loop prevention before changing triggers.
 npm distribution tags name channels within one package. They do not create separate deployments or make a published version replaceable.
 A second package would need explicit names, dependency routing and the same verification and owner-review gates.
+That proposal does not block the separately authorized release SDK `0.0.0`, which supplies the initial Worker dependency.
 
 Sources: [Wrangler environments](https://developers.cloudflare.com/workers/wrangler/environments/),
 [workflow comparison](https://developers.cloudflare.com/workers/previews/compare-workflows/),
 [external GitHub CI](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/),
+[GitHub environment setup](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments),
+[GitHub Actions secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets),
+[Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/),
+[artifact upload v4](https://github.com/actions/upload-artifact/tree/v4),
+[artifact digest checks](https://docs.github.com/en/actions/tutorials/store-and-share-data#validating-artifacts),
+[npm token permissions](https://docs.npmjs.com/creating-and-viewing-access-tokens/),
 [Bun executable targets](https://bun.sh/docs/bundler/executables),
 [npm publication](https://docs.npmjs.com/cli/v11/commands/npm-publish/).

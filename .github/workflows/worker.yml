@@ -43,7 +43,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: worker-${{ steps.route.outputs.channel }}-bundle
-          path: src-worker/.wrangler/dev-build/${{ steps.route.outputs.environment }}/
+          path: |
+            src-worker/.wrangler/dev-build/${{ steps.route.outputs.environment }}/worker_entry.js
+            src-worker/.wrangler/dev-build/${{ steps.route.outputs.environment }}/worker_entry.js.json
+          include-hidden-files: true
           if-no-files-found: error
   deploy:
     needs: build
