@@ -7,6 +7,8 @@ Local commands create development outputs only. They do not upload releases, pub
 Remote checkpoint: both SDK builds passed on commit 4d44ae2, including artifact upload/download and publication receipt checks.
 Release run 37230866545 and preview run 37230892161 failed at npm publication with EOTP, not compilation.
 Neither package is publicly available yet. The Worker preview tag remains unpushed until registry verification passes.
+Owner approves staged bootstrap and exact-target replacement of both unpublished SDK tags through the new environments.
+Local staging checks pass 36 cases/398 assertions. Real CI upload and npm promotion remain unverified.
 
 ## Version authority
 
@@ -102,7 +104,7 @@ Related SDK/network builds supply packaged dependencies. Consumer builds import 
 | `worker/v` | worker.yml | Automatic preview-only deployment through cloudflare-preview with the switch enabled. Release tags build without production deployment. |
 | `crawler/v` | node-docker.yml | Upload Windows/Linux binaries. Publish a checked musl container only with the publication switch |
 | `crawler-client/v` | node-client.yml | Upload unsigned Windows installers. No updater or crawler installation contract |
-| `package/v` | vrc-packages-api.yml | Upload the checked SDK tarball. Publish release in vrcp-api-release or preview in vrcp-api-preview under separate switches |
+| `package/v` | vrc-packages-api.yml | Build the SDK, then stage it in vrcp-api-release or vrcp-api-preview. npm publication requires owner 2FA |
 | `network/v` | network.yml | Upload the internal tarball. No registry publication |
 | `web/v` | web.yml | Disabled pending hosting selection |
 
@@ -111,7 +113,11 @@ It does not rebuild source in the deployment job.
 CI creates a receipt for the current single-file Worker bundle, with product, version, channel, commit and SHA-256 digests.
 Deployment checks the bundle bytes and Wrangler config against this receipt before creating a temporary secret file.
 Missing or mismatched receipts stop deployment. Local development builds do not create CI receipts.
-SDK publication downloads the packaged artifact and checks its name, version, commit and SHA-256 digest.
+SDK staging downloads the packaged artifact and checks its name, version, commit and SHA-256 digest.
+CI uses npm 11.19.0. It uploads the tarball without source hooks and selects explicit latest for each SDK identity.
+An existing stage must match the SDK identity, version, tag and checksum. Downloaded staged bytes must match the original SHA-256 receipt.
+The stage record contains its ID, checked artifact digest and awaiting-npm-approval status. CI uploads this record separately.
+CI does not approve or reject npm stages. A successful stage job does not prove package publication.
 The shared receipt check requires a valid GitHub commit identity. It rejects development receipts and changed bytes.
 These checks detect handoff errors, not a compromised runner that can replace both the artifact and its receipt.
 Worker, SDK and network uploads explicitly include their hidden output directories, but select only runtime files and receipts.
@@ -166,7 +172,8 @@ Worker artifact paths derive from channel, not the approval-environment name. Wr
 Existing tagged runs retain the workflow and routing from their original commit. Updating main does not retarget those reruns.
 Keep their original environments until those publications finish, or agree a separate retry strategy before deleting them.
 The owner replaced all three original environments and approved the new routing on 2026-10-05.
-The original SDK runs still select deleted names. Do not rerun them without an agreed retry strategy.
+The original SDK runs still select deleted names. The owner approves replacing both unpublished tags through exact-target leases.
+Registry checks and captured tag object IDs precede replacement. Do not rerun the original jobs through deleted environments.
 Other products retain their previous routing. Their environment setup remains separate from this SDK/Worker migration.
 An unknown environment reference can create an empty, unprotected environment. Verify configuration before starting a migrated workflow.
 See [GitHub environment management](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
@@ -177,33 +184,39 @@ Do not supply an account password or a one-time code to an unattended runner.
 Both first publication attempts reached npm publish, then npm required interactive authorization.
 The current token's exact settings remain unknown. Secret presence alone does not establish non-interactive publishing permission.
 
-The following token procedure is temporary bootstrap, not the recommended long-term authentication design.
-The owner's warning requires a decision before changing credentials or publication commands.
-An alternative is staged publication: CI uploads the checked tarball, then the owner approves it with 2FA on npm's website.
-That keeps passwords and one-time codes outside CI. It requires npm CLI 11.15.0 or later and a changed publication command.
-For a new package, npm creates a public 0.0.0-stage placeholder before approval. This extra registry version needs explicit owner acceptance.
-See [staged publication](https://docs.npmjs.com/staged-publishing/). Neither staging nor OIDC is implemented in the current workflow.
+The owner selects staged publication: CI uploads the checked tarball, then the owner approves it with 2FA on npm's website.
+This keeps passwords and one-time codes outside CI. The workflow pins npm 11.19.0, above the 11.15.0 staging minimum.
+For a new package, npm creates a public 0.0.0-stage placeholder before approval. The owner accepts this bootstrap version.
+See [staged publication](https://docs.npmjs.com/staged-publishing/). Staging is implemented. OIDC is not configured.
+Staging success means an upload awaits review, not that the configured SDK is available to Worker CI.
+Record the stage ID alongside the checked CI artifact. The owner must approve the stage before registry verification and Worker tags.
+A pending stage reserves its package version. Public registry metadata alone cannot prove that no pending stage exists.
+Before a staging retry, inspect existing stages instead of uploading the same version again.
+The selected npm tag is fixed for each stage. The approved implementation uses explicit latest for each SDK identity.
+See [npm stage command rules](https://docs.npmjs.com/cli/v11/commands/npm-stage/).
 After bootstrap, configure trusted publishing against the finalized GitHub environment names for continued automatic preview publication.
 
 1. Open npm account settings, then Access Tokens, then Generate New Token.
-2. Create a granular token with Read and write (publish and stage) package permission, not read-only or stage-only permission.
-3. Select Bypass two-factor authentication for this publishing token. Keep account 2FA enabled.
+2. Create a granular token with Read and write (stage only) package permission. Existing publish-and-stage tokens also support staging.
+3. Leave Bypass two-factor authentication disabled. Keep account 2FA enabled.
 4. Limit access to the two SDK packages where possible. First unscoped publication can require broader bootstrap access.
 5. If broader access is necessary, use a short expiry and replace it with narrower credentials after bootstrap.
 6. Replace NPM_TOKEN in `vrcp-api-release` and `vrcp-api-preview`. Never paste the value into chat, source or logs.
-7. Tell the delivery agent that setup is ready. Agree a migrated retry path before publication.
-8. Approve `vrcp-api-release` when GitHub requests it. Preview npm publication retains its separate policy.
-9. Check public registry versions and integrity before starting Worker CI.
+7. Tell the delivery agent that setup is ready. The authorized replacement tags select the new environment names.
+8. Approve `vrcp-api-release` when GitHub requests it. Preview staging has no GitHub review requirement.
+9. After staging passes, open npm's Staged Packages tab and review each SDK identity and configured version.
+10. Approve each stage with your npm account's 2FA. Never delegate this step to an unattended runner.
+11. Check public registry versions and integrity before starting Worker CI.
 
-The Bypass 2FA setting defaults to false. Do not use it where a package or organization forbids this exception.
-Package access, expiry and IP restrictions still apply. A stage-only token requires npm's separate review/promotion workflow.
+Package access, expiry and IP restrictions still apply. Stage-only tokens do not eliminate other token security risks.
 See [token setup](https://docs.npmjs.com/creating-and-viewing-access-tokens/) and [token permissions](https://docs.npmjs.com/about-access-tokens/).
 
 Prefer [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) after bootstrap to remove long-lived publishing tokens.
 Each package must trust owner SlamTheDragon, repository vrc-package-crawler and workflow vrc-packages-api.yml.
 Use vrcp-api-release for the release identity and vrcp-api-preview for the preview identity.
 That transition also requires job-scoped id-token: write and a supported npm CLI. It is not enabled by the current token workflow.
-npm documents removal of direct token publication in January 2027. Track that transition before the temporary bootstrap credentials expire.
+OIDC trust tokens cannot list, view or download stages. Review this workflow's inspection credentials before that migration.
+npm documents removal of direct token publication in January 2027. The current staging flow does not use direct token publication.
 
 ### Operator key
 
@@ -273,7 +286,8 @@ Advance the preview config for later milestones. A moving registry tag cannot si
 The private network package pins the exact SDK alias. Its packed dependencies cannot silently select a later SDK through latest.
 Promotion to the release identity is a separately checked release build and publication, not a renamed preview tarball.
 
-The workflow selects vrcp-api-preview for automatic preview SDK publication and cloudflare-preview for automatic preview Worker deployment.
+The workflow selects vrcp-api-preview for automatic preview SDK staging and cloudflare-preview for automatic preview Worker deployment.
+Each npm stage still requires owner approval with 2FA before the SDK becomes available to Worker CI.
 These environments retain separate npm and Cloudflare credentials. The Worker retains its separate preview D1.
 SDK concurrency is separate per channel. A protected release publication cannot hold later preview publications in the same queue.
 Keep release SDK publication in vrcp-api-release, with its owner review and v0.1 API-review hold.

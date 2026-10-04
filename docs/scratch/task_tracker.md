@@ -17,16 +17,21 @@ Do not approve protected jobs through the owner's saved credential.
 
 ## Trace and grouped evidence — 2026-10-05
 
-Package tag → config/channel sync → SDK build/tests/types/distribution → tarball receipt → protected npm publication.
+Package tag → config sync → SDK checks → tarball receipt → verified npm stage → owner 2FA promotion → registry checks.
 Preview Worker tag → checked registry SDK → compiled network tarball → checked bundle receipt → automatic preview deployment.
 Theory: this existing delivery path can activate real preview without changing release versions or API contracts.
-Current G14 work: apply the owner-approved environment mapping without changing runtime resources or unrelated products.
+Current G14 work: implement owner-approved staged SDK publication and exact-target replacement of both unpublished SDK tags.
+Owner accepts the public 0.0.0-stage bootstrap placeholder. Actual npm promotion still requires owner 2FA.
+Theory: staging can retain the checked CI tarball and recover a lost upload acknowledgment through verified pending-stage bytes.
 SDK preview/release routes select vrcp-api-preview/vrcp-api-release. Worker preview selects cloudflare-preview.
 Worker artifact paths still derive from channel, matching delivery.mjs, not the GitHub environment label.
-Root group passed 33 cases/307 assertions. Script syntax, three real configured tag routes and unchanged release metadata passed.
-No npm authentication change, remote Worker execution or tagged-run retry is claimed.
+Root group passed 36 cases/398 assertions. Script syntax and unchanged release metadata passed.
+Synthetic cases cover lost upload ACK, existing-stage reuse, malformed/duplicate stages, invalid IDs/tags, changed bytes and cleanup.
+npm 11.19.0 is pinned in CI. The staged receipt requires downloaded bytes to match the original SHA-256.
+Staging implementation is checked locally. Actual CI staging and renewed tag replacement are authorized, not yet executed.
+The final remote check confirms both SDK runs are terminal failures at attempt 1, with no newer SDK run and both registry identities absent.
 
-- Root: 33 cases, 307 assertions passed, including the new environment mapping and unchanged unrelated-product routing.
+- Root: 36 cases, 398 assertions passed, including staged handoff/retry, environment routing and unchanged unrelated-product routing.
 - Preview SDK: build, 54 units/621 assertions, types and 31-file packed Node/declaration/native Worker checks passed.
 - Preview network: types and 23-file packed Node/Bun/declaration/native Worker checks passed. Runtime external fetches: zero.
 - A transitive network latest alias caused an npm 404 despite the supplied SDK tarball. The exact network alias removed that dependency drift.
@@ -52,15 +57,18 @@ vrcp-api-release permits package/v* with owner review. Expected enable switches 
 Expected secret names are present. Names do not prove usable tokens, scopes or publication rights.
 
 Calendar/concurrency correction is pushed at c77a00c. No existing SDK tag moved for that correction.
-Next: owner supplies non-interactive npm publishing credentials in both selected environments, or approves a different supported authentication design.
+Next: commit the checked staging path, recheck registry state and replace both authorized unpublished SDK tags through exact-target leases.
+Captured old release tag object: b69e6776deceffe3b45a9aa5ab49053156ce801c. Old preview tag object: 8b6d64286e396588d3d696b30a8ccd1ea69dee95.
+Both dereference to 4d44ae2. Preserve these IDs. No unrestricted force push or version bump is authorized.
 Owner recreated the three environments and explicitly approved their new mapping and automatic Worker preview deployment in chat.
-Owner flags npm's January 2027 direct-token publishing cutoff. Authentication selection remains open, not assumed to be token bypass.
-Research confirms staged publication supports new packages, but creates a public 0.0.0-stage placeholder requiring owner acceptance.
+Owner selects staged bootstrap and accepts the public 0.0.0-stage placeholder in chat. Bypass-2FA tokens are not required.
 Staging requires changed CI commands and npm 11.15.0 or later. Later OIDC setup must match the finalized environment names.
+Pending stages reserve versions and fix the chosen npm tag. Public metadata alone cannot prove their absence.
+A staged upload needs a stage ID and owner promotion, then registry verification. Upload success does not unlock Worker CI.
 Original environments are absent. Existing SDK tagged-run retries still use those deleted names.
-Agree a migrated retry strategy before publication. New main routing cannot change those runs' saved commits.
+Owner approves both replacement tags. New main routing cannot change the original runs' saved commits.
 See DELIVERY.md's npm EOTP recovery. Never send an account password or OTP through chat or store it in CI.
-After the authentication and retry decisions, check the CI artifact handoff and exact registry bytes.
+After new CI staging, await owner npm 2FA promotion, then check exact public registry bytes.
 Check actual CI, downloaded receipts and registry bytes before pushing worker/v2026.10.0-pre.
 Then check automatic preview deployment and its API. Release npm still requires owner approval.
 See [DELIVERY.md](../source/DELIVERY.md) for setup and paths.

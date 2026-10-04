@@ -33,6 +33,52 @@ export function validateCIArtifact(receipt, expected, bytes) {
   }
 }
 
+export function validateSDKStage(stage, expected, bytes) {
+  if (!Object.values(sdkPackageNames).includes(expected.name) ||
+      typeof stage?.id !== "string" || stage.id.length !== 36 ||
+      !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(stage.id) ||
+      stage.packageName !== expected.name || stage.version !== expected.version || stage.tag !== "latest" ||
+      stage.shasum !== createHash("sha1").update(bytes).digest("hex")) {
+    throw new Error("npm stage identity, tag or tarball checksum differs from the checked SDK");
+  }
+  return stage.id;
+}
+
+export function stageSDKArtifact(artifact, expected, receipt, run) {
+  const project = dirname(artifact);
+  const bytes = readFileSync(artifact);
+  validateCIArtifact(receipt, expected, bytes);
+  if (semver.lt(run(["--version"], project, true).trim(), "11.15.0")) throw new Error("npm staging requires CLI 11.15.0 or later");
+  const registry = "--registry=https://registry.npmjs.org";
+  const stages = JSON.parse(run(["stage", "list", expected.name, "--json", registry], project, true));
+  if (!Array.isArray(stages) || stages.some(stage => !stage || typeof stage !== "object")) {
+    throw new Error("npm pending-stage list is malformed");
+  }
+  const matches = stages.filter(stage => stage.packageName === expected.name && stage.version === expected.version);
+  if (matches.length > 1) throw new Error("Multiple npm stages claim the configured SDK version");
+  let stageId;
+  if (matches.length === 1) {
+    stageId = validateSDKStage(matches[0], expected, bytes);
+  } else {
+    const result = JSON.parse(run(["stage", "publish", artifact, "--access", "public", "--tag", "latest",
+      "--ignore-scripts", "--json", registry], project, true))[expected.name];
+    stageId = validateSDKStage({ id: result?.stageId, packageName: result?.name, version: result?.version,
+      tag: "latest", shasum: result?.shasum }, expected, bytes);
+  }
+  validateSDKStage(JSON.parse(run(["stage", "view", stageId, "--json", registry], project, true)), expected, bytes);
+  console.log(JSON.stringify({ name: expected.name, version: expected.version, stageId, status: "staged-unverified" }));
+  const stageDirectory = mkdtempSync(join(tmpdir(), "vrcp-sdk-stage-"));
+  const stagedArtifact = join(stageDirectory, `${expected.name}-${expected.version}-${stageId}.tgz`);
+  try {
+    run(["stage", "download", stageId, "--json", registry], stageDirectory, true);
+    validateCIArtifact(receipt, expected, readFileSync(stagedArtifact));
+  } finally {
+    if (existsSync(stagedArtifact)) unlinkSync(stagedArtifact);
+    rmdirSync(stageDirectory);
+  }
+  return { ...expected, stageId, tag: "latest", sha256: receipt.sha256, status: "awaiting-npm-approval", purpose: "npm-stage" };
+}
+
 export async function resolveTag(tag, workspace = root) {
   if (typeof tag !== "string" || tag.trim() !== tag) throw new Error("Tag must be an exact canonical string");
   const match = /^(crawler|crawler-client|package|network|web|worker)\/v(.+)$/.exec(tag ?? "");
@@ -178,8 +224,10 @@ export async function deliver(action, channel, product, ci = false) {
       if (manifest.private) throw new Error("SDK remains private until its package gate passes. Do not publish by bypassing this hold.");
       const artifact = join(project, ".artifacts/ci", `${manifest.name}-${manifest.version}.tgz`);
       const receipt = JSON.parse(readFileSync(`${artifact}.json`, "utf8"));
-      validateCIArtifact(receipt, { name: manifest.name, version: manifest.version, commit: process.env.GITHUB_SHA }, readFileSync(artifact));
-      npm(["publish", artifact, "--access", "public", "--tag", "latest"], project);
+      const expected = { name: manifest.name, version: manifest.version, commit: process.env.GITHUB_SHA };
+      const stage = stageSDKArtifact(artifact, expected, receipt, npm);
+      writeFileSync(`${artifact}.stage.json`, JSON.stringify({ ...stage, channel }, null, 2) + "\n");
+      return { action, channel, product, purpose: "ci-release", status: stage.status, stageId: stage.stageId };
     }
   }
   return { action, channel, product, purpose: ci ? "ci-release" : "development" };

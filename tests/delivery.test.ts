@@ -3,9 +3,9 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { bumpVersion, distributedArtifact, productDirectories, readVersionConfig, sdkPackageNames, versionFiles } from "../scripts/versioning.mjs";
-import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, validateCIArtifact, validateRegistrySDK, workerSecretBindings } from "../scripts/delivery.mjs";
+import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, stageSDKArtifact, validateCIArtifact, validateRegistrySDK, validateSDKStage, workerSecretBindings } from "../scripts/delivery.mjs";
 
 async function fixture(run: (workspace: string) => Promise<void>) {
   const parent = await realpath(tmpdir());
@@ -154,9 +154,9 @@ test("distributed identity parsing accepts only exact SDK aliases and config-che
   }
 });
 
-test("each SDK identity publishes latest and Worker registry selection still checks its configured version", () => {
+test("each SDK identity stages latest and Worker registry selection still checks its configured version", () => {
   const source = readFileSync(new URL("../scripts/delivery.mjs", import.meta.url), "utf8");
-  expect(source).toContain('npm(["publish", artifact, "--access", "public", "--tag", "latest"], project)');
+  expect(source).toContain('run(["stage", "publish", artifact, "--access", "public", "--tag", "latest",');
   expect(source).toContain('const spec = `${name}@latest`');
   expect(source).toContain('metadata.name !== sdkPackageNames[channel] || metadata.version !== version');
 });
@@ -238,6 +238,106 @@ test("CI artifact generation requires a commit as well as a matching tag push", 
     await expect(requireCI("worker", "release", { ...env, GITHUB_SHA: commit })).rejects.toThrow("tag-push");
   }
   expect((await requireCI("worker", "release", { ...env, GITHUB_SHA: "a".repeat(40) })).product).toBe("worker");
+});
+
+test("npm stages bind checked SDK identity, explicit latest, UUID and artifact checksum", () => {
+  const bytes = Buffer.from("checked development fixture bytes");
+  const stage = { id: "9ab1b418-531d-41df-aa66-2f66bdde947b", packageName: sdkPackageNames.preview,
+    version: "2026.10.0-pre", tag: "latest", shasum: createHash("sha1").update(bytes).digest("hex") };
+  const expected = { name: stage.packageName, version: stage.version };
+  expect(validateSDKStage(stage, expected, bytes)).toBe(stage.id);
+  for (const invalid of [null, {}, { ...stage, id: "../escape" }, { ...stage, id: stage.id + "\n" },
+    { ...stage, packageName: sdkPackageNames.release }, { ...stage, version: "2026.10.1-pre" },
+    { ...stage, tag: "preview" }, { ...stage, shasum: "0".repeat(40) }]) {
+    expect(() => validateSDKStage(invalid, expected, bytes)).toThrow("npm stage");
+  }
+  expect(() => validateSDKStage(stage, { ...expected, name: "unrelated" }, bytes)).toThrow();
+  expect(() => validateSDKStage(stage, expected, Buffer.from("changed"))).toThrow();
+});
+
+test("SDK staging retains checked tarballs, verifies pending bytes and never approves publication in CI", () => {
+  const source = readFileSync(new URL("../scripts/delivery.mjs", import.meta.url), "utf8");
+  const publisher = source.slice(source.indexOf('export function stageSDKArtifact'), source.indexOf('export async function resolveTag'));
+  expect(publisher.indexOf('validateCIArtifact(receipt, expected, bytes)')).toBeLessThan(publisher.indexOf('["stage", "publish", artifact'));
+  expect(publisher).toContain('["stage", "list", expected.name, "--json", registry]');
+  expect(publisher).toContain('matches.length > 1');
+  expect(publisher).toContain('["stage", "view", stageId');
+  expect(publisher).toContain('["stage", "download", stageId');
+  expect(publisher).toContain('validateCIArtifact(receipt, expected, readFileSync(stagedArtifact))');
+  expect(publisher).toContain('"awaiting-npm-approval"');
+  expect(publisher).toContain('"--ignore-scripts", "--json", registry');
+  expect(publisher).not.toContain('["publish", artifact');
+  expect(publisher).not.toContain('["stage", "approve"');
+  expect(publisher).not.toContain('["stage", "reject"');
+  const workflow = readFileSync(new URL("../.github/workflows/vrc-packages-api.yml", import.meta.url), "utf8");
+  expect(workflow).toContain('npm install --global npm@11.19.0');
+  expect(workflow).toContain('src-package/.artifacts/ci/*.tgz.stage.json');
+});
+
+test("staging uploads checked bytes once, recovers a lost ACK and rejects duplicate, malformed or changed stages", async () => {
+  await fixture(async workspace => {
+    const artifact = resolve(workspace, "sdk-fixture.tgz");
+    const bytes = Buffer.from("synthetic unit-fixture bytes, not a release artifact");
+    await writeFile(artifact, bytes);
+    const expected = { name: sdkPackageNames.preview, version: "2026.10.0-pre", commit: "a".repeat(40) };
+    const receipt = { ...expected, purpose: "ci-release", sha256: createHash("sha256").update(bytes).digest("hex") };
+    const stage = { id: "9ab1b418-531d-41df-aa66-2f66bdde947b", packageName: expected.name,
+      version: expected.version, tag: "latest", shasum: createHash("sha1").update(bytes).digest("hex") };
+    let pending: unknown = [];
+    let cliVersion = "11.19.0";
+    let loseACK = true;
+    let uploaded = 0;
+    let downloadedBytes = bytes;
+    const directories: string[] = [];
+    const commands: string[][] = [];
+    const run = (args: string[], cwd: string, capture: boolean) => {
+      commands.push(args);
+      expect(capture).toBe(true);
+      if (args[0] === "--version") return cliVersion;
+      expect(args).toContain("--registry=https://registry.npmjs.org");
+      if (args[1] === "list") return JSON.stringify(pending);
+      if (args[1] === "publish") {
+        expect(args[2]).toBe(artifact);
+        expect(args).toContain("--ignore-scripts");
+        expect(args.slice(args.indexOf("--tag"), args.indexOf("--tag") + 2)).toEqual(["--tag", "latest"]);
+        pending = [stage];
+        uploaded++;
+        if (loseACK) throw new Error("lost upload acknowledgment");
+        return JSON.stringify({ [expected.name]: { name: expected.name, version: expected.version,
+          stageId: stage.id, shasum: stage.shasum } });
+      }
+      if (args[1] === "view") return JSON.stringify(stage);
+      if (args[1] === "download") {
+        directories.push(cwd);
+        writeFileSync(resolve(cwd, `${expected.name}-${expected.version}-${stage.id}.tgz`), downloadedBytes);
+        return "{}";
+      }
+      throw new Error("Unexpected or destructive npm command");
+    };
+    expect(() => stageSDKArtifact(artifact, expected, receipt, run)).toThrow("lost upload acknowledgment");
+    expect(stageSDKArtifact(artifact, expected, receipt, run)).toEqual({ ...expected, stageId: stage.id,
+      tag: "latest", sha256: receipt.sha256, status: "awaiting-npm-approval", purpose: "npm-stage" });
+    expect(uploaded).toBe(1);
+    expect(directories.every(path => !existsSync(path))).toBe(true);
+    downloadedBytes = Buffer.from("changed registry bytes");
+    expect(() => stageSDKArtifact(artifact, expected, receipt, run)).toThrow("CI artifact");
+    expect(directories.every(path => !existsSync(path))).toBe(true);
+    for (const invalid of [{}, [null], [stage, stage], [{ ...stage, tag: "preview" }], [{ ...stage, id: "../escape" }]]) {
+      pending = invalid;
+      expect(() => stageSDKArtifact(artifact, expected, receipt, run)).toThrow();
+    }
+    cliVersion = "11.14.0";
+    expect(() => stageSDKArtifact(artifact, expected, receipt, run)).toThrow("CLI 11.15.0");
+    expect(() => stageSDKArtifact(artifact, expected, { ...receipt, sha256: "changed" }, run)).toThrow("CI artifact");
+    cliVersion = "11.19.0";
+    downloadedBytes = bytes;
+    pending = [];
+    loseACK = false;
+    expect(stageSDKArtifact(artifact, expected, receipt, run).status).toBe("awaiting-npm-approval");
+    expect(uploaded).toBe(2);
+    expect(commands.every(args => !["approve", "reject"].includes(args[1]))).toBe(true);
+    expect(directories.every(path => !existsSync(path))).toBe(true);
+  });
 });
 
 test("registry SDK inputs require exact identity, bytes and compiled distribution contents", () => {
