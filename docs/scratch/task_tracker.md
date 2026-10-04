@@ -26,7 +26,7 @@ The corrected gate passed 46 cases/513 assertions, script syntax, unchanged vers
 The SDK draft-check workflow passed in run 37238419166 at 24bfec4, with no pending drafts.
 Historical Worker retry 37238421582 failed its overwrite guard after the note renderer changed. No overwrite occurred.
 Worker attachments are now removed under owner direction. SDK retries retain original notes and checksums, with metadata and byte checks.
-Remote SDK retry verification remains open. Earlier attachment verification passed 43 cases/466 assertions.
+SDK retries 37239255957 and 37239258107 passed at bf6badd, retaining existing notes, checksums and artifact bytes.
 Negative cases cover altered bytes, duplicate names, unexpected files, wrong source runs, missing jobs and interrupted upload acknowledgment.
 Draft recovery checks existing assets. Published assets cannot be overwritten.
 Attachment runs 37237551535/37237553499/37237555591 passed at commit 12b26f1.
@@ -61,8 +61,7 @@ Published SDK versions and their tags must not move again.
 
 ## Next action and limits
 
-Finish the grouped new-prefix and draft-check gate. Push it without issuing new product tags or version bumps.
-Retry both historical SDK attachments to check retained-note downloads and immutable-asset recovery.
+The corrected group is pushed at bf6badd. Both SDK attachment retries passed; no new product tags or version bumps ran.
 The hourly draft check reads npm metadata, then dispatches original attachment verification. It never approves npm stages.
 Remote operation with no drafts is not proof of a later staged-draft promotion. Keep that live trial open.
 No Worker release, tag or asset deletion ran through this agent. Preview deployment and its CI artifacts remain unchanged.

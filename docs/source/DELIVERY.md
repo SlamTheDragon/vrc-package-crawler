@@ -15,6 +15,8 @@ The unauthenticated operator-init probe returned 401. No remote schema initializ
 SDK release attachments passed remotely at 12b26f1. Runs 37237551535 and 37237553499 attached the original checked outputs.
 The two SDK releases contain five assets each. All checksum entries match uploaded digests.
 Owner correction: Worker environments have no GitHub Release assets. Worker bundles and receipts stay in Actions artifacts.
+SDK retries 37239255957 and 37239258107 passed at bf6badd, retaining original assets after note-renderer changes.
+The hourly draft checker passed its manual CI run 37238419166. No draft existed, so live post-approval promotion remains untested.
 
 ## Version authority
 
