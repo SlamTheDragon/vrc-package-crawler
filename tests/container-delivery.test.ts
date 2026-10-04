@@ -139,6 +139,9 @@ test("Docker workflow has one read-only image build and a protected, channel-gat
   expect(imageBuild.with["build-args"]).toContain("dependencies.outputs.sdk-version");
   expect(imageBuild.with["build-args"]).toContain("dependencies.outputs.network-version");
   expect(imageBuild.with.push).toBeUndefined();
+  expect(imageBuild.env.DOCKER_BUILD_RECORD_UPLOAD).toBe(false);
+  const dockerfile = readFileSync(new URL("../src-crawler/Dockerfile", import.meta.url), "utf8");
+  expect(dockerfile).toContain('"vrc-packages-network@file:$1"');
   const publish = workflow.jobs["publish-container"];
   expect(publish.permissions).toEqual({ contents: "read", packages: "write" });
   expect(publish.if).toContain("VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED");

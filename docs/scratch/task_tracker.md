@@ -58,7 +58,21 @@ Archive and publication receipt artifacts use ci-only-* names, excluded from Git
 The earlier approval-service error cleared. Normal reviewed tools work. No approval checks were bypassed.
 Accepted Docker and registry-consumer rows are merged into the canonical ledger. The owner's root-chain task is queued as R57-C57A.
 Crawler setup passed remote readback. Preserve owner review for the initial publication trial.
-Version-0 trial tags remain absent. No crawler image or release was published in this checkpoint.
+Commit d5456e5 is pushed. Version-0 tags started preview CI 37244055542 and release CI 37244055733.
+Both runs use that commit. Publication still requires owner review. No image or crawler release is proven yet.
+Preview CI passed both standalone binary paths but failed the Docker install step.
+Bun treated a bare network tarball as an addition and still resolved the declared network version from npm, which returned 404.
+The Docker install now names both file dependencies explicitly. Docker build-record uploads are disabled to keep unrelated files out of release inputs.
+The repair checkpoint passed: all root and 137 node tests, node types, script syntax and diff checks.
+A clean product-local Bun 1.4.2 install used both actual release tarballs and passed the installed-identity check.
+The first identity-check invocation used a wrong script path and failed. The corrected absolute-path invocation passed.
+Release CI 37244055733 failed for the same private network lookup. Both Windows builds passed.
+Neither trial reached image publication. GitHub checks found neither crawler release nor container package.
+The owner approves replacing both failed unpublished tags with exact-target leases, without a version bump.
+Old release tag object: f9b91f3d55417ed8f84d9597acd09ca185b91516.
+Old preview tag object: 453041770201c42111fc52fc8d1ea5f79024543d.
+Both pointed to d5456e5fa289ae3ee3132a79d65478f78260aebc. Keep these IDs as recovery evidence.
+Track these run IDs without starting duplicate runs. Root chains remain queued until their delivery paths pass.
 Root command wiring follows verified build and deployment paths. Keep that new owner task queued in the canonical ledger.
 A later approved SDK trial must check live post-approval GitHub Release publication.
 Q-ATTACKER-INTAKE stays unread until pipeline setup finishes. The full goal remains active.

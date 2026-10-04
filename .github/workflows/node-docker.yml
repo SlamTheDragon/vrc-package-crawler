@@ -63,6 +63,8 @@ jobs:
 
       - name: Check the container before publishing
         uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: src-crawler
           file: src-crawler/Dockerfile

@@ -16,7 +16,7 @@ RUN set -- ./.ci-artifacts/vrc-package*-api*.tgz; \
     sdk_artifact="$1" && \
     set -- ./.ci-artifacts/vrc-packages-network-*.tgz && \
     [ "$#" -eq 1 ] && [ -f "$1" ] && \
-    bun install --no-save "vrc-packages-api@file:$sdk_artifact" "$1"
+    bun install --no-save "vrc-packages-api@file:$sdk_artifact" "vrc-packages-network@file:$1"
 COPY . ./
 RUN bun scripts/check_container_dependencies.mjs
 RUN bun run build:node:musl
