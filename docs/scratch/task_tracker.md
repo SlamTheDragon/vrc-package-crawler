@@ -6,6 +6,7 @@ Read the attached objective at each continuation. G14 delivery and G13 dependenc
 The owner approves release SDK 0.0.0, preview SDK 2026.10.0-pre, automatic persistent Worker preview and checked release attachments.
 New tags use vrcp-api, vrcp-network, cloudflare-worker, vrcp-crawler and vrcp-crawler-client prefixes. Config keys stay unchanged.
 The owner retains npm stage approval and requests automatic GitHub Release publication after verified npm publication.
+Owner correction: Worker environments have no GitHub Release assets. Bundles/receipts stay in Actions artifacts.
 Retain the separate persistent preview Worker. Native Previews are a far-future metrics and resource-isolation review.
 Do not approve protected GitHub jobs through saved credentials.
 Keep production Worker and website deployment off. Release SDK v0.1, including prereleases, requires the full owner API review.
@@ -21,12 +22,15 @@ Keep main and product-tag triggers. No automatic branch publication, version bum
 Theory: checked CI assets can attach to existing immutable tags without another build, publication or deployment.
 Product workflow → shared attachment job → original source run/tag/config → receipt check → draft uploads → checked publication status.
 scripts/release-assets.mjs and tests/release-assets.test.ts exercise this path.
-The new tag and draft-check group passed 45 cases/503 assertions, script syntax, unchanged version metadata and diff checks.
-Remote checks for this group remain open. Earlier attachment verification passed 43 cases/466 assertions.
+The corrected gate passed 46 cases/513 assertions, script syntax, unchanged version metadata and diff checks.
+The SDK draft-check workflow passed in run 37238419166 at 24bfec4, with no pending drafts.
+Historical Worker retry 37238421582 failed its overwrite guard after the note renderer changed. No overwrite occurred.
+Worker attachments are now removed under owner direction. SDK retries retain original notes and checksums, with metadata and byte checks.
+Remote SDK retry verification remains open. Earlier attachment verification passed 43 cases/466 assertions.
 Negative cases cover altered bytes, duplicate names, unexpected files, wrong source runs, missing jobs and interrupted upload acknowledgment.
 Draft recovery checks existing assets. Published assets cannot be overwritten.
 Attachment runs 37237551535/37237553499/37237555591 passed at commit 12b26f1.
-SDK release and preview each have five public GitHub Release assets. Worker preview has four.
+SDK release and preview each have five public GitHub Release assets. A later read lists those two releases only.
 Each CHANGELOG.md and CHECKSUMS.sha256 is public. All checksum entries match GitHub's uploaded asset digests.
 
 | Channel | SDK source run | Checked public identity |
@@ -58,9 +62,10 @@ Published SDK versions and their tags must not move again.
 ## Next action and limits
 
 Finish the grouped new-prefix and draft-check gate. Push it without issuing new product tags or version bumps.
-Run sdk-release-reconcile.yml manually and retry the historical Worker attachment to check renamed-workflow compatibility.
+Retry both historical SDK attachments to check retained-note downloads and immutable-asset recovery.
 The hourly draft check reads npm metadata, then dispatches original attachment verification. It never approves npm stages.
 Remote operation with no drafts is not proof of a later staged-draft promotion. Keep that live trial open.
+No Worker release, tag or asset deletion ran through this agent. Preview deployment and its CI artifacts remain unchanged.
 Owner setup: cloudflare-preview needs cloudflare-worker/v*. SDK environments need vrcp-api/v*.
 Keep the SDK workflow filename, existing secrets and reviewer policy. GitHub trusted-publisher mappings remain unchanged.
 SDK GitHub Releases remain drafts until public npm bytes match. Published releases do not change the repository-wide latest pointer.

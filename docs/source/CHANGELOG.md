@@ -11,12 +11,6 @@ Do not treat a checked build as proof of npm publication, container publication 
 - Checked staging retains owner npm approval. Release v0.1 still requires the complete owner API review.
 - Packed-consumer checks exercise Node, declarations and the native Worker runtime. This is a version-0 API, not a stable contract.
 
-## worker
-
-- The API-only coordinator consumes the verified registry SDK and a packaged internal network dependency.
-- Preview uses a separate Worker, D1 and operator secret. Production deployment remains disabled.
-- Schema initialization and live source access are separate actions. Public rights and age controls remain open.
-
 ## network
 
 - Internal node/coordinator contracts are a distributed package, not sibling source imports.

@@ -37,15 +37,10 @@ test("SDK attachments require original CI bytes and identity, not a build-direct
     paths => expect(() => checkedAssets(paths, selected, commit, {}, undefined)).toThrow("stage receipt"));
 });
 
-test("Worker attachments check the tagged configuration digest", () => {
-  const bytes = Buffer.from("synthetic Worker fixture");
-  const config = Buffer.from("synthetic config");
+test("Worker bundles cannot become GitHub Release assets", () => {
   const worker = { product: "worker", version: "2026.10.0-pre", channel: "preview" };
-  const receipt = { ...worker, name: "vrcp-worker", commit, purpose: "ci-release", sha256: digest(bytes), configSha256: digest(config) };
-  fixture({ "worker_entry.js": bytes, "worker_entry.js.json": JSON.stringify(receipt) }, paths => {
-    expect(checkedAssets(paths, worker, commit, { name: "vrcp-worker" }, config).size).toBe(2);
-    expect(() => checkedAssets(paths, worker, commit, { name: "vrcp-worker" }, Buffer.from("changed config"))).toThrow("CI artifact");
-  });
+  expect(() => checkedAssets([], worker, commit, {})).toThrow("CI-only");
+  expect(() => checkSourceRun({}, [], "cloudflare-worker/v2026.10.0-pre", "owner/repo", "worker")).toThrow("CI-only");
 });
 
 test("Binary receipts bind both platforms and reject altered, misplaced and unlisted outputs", () => {
@@ -80,19 +75,18 @@ test("Release notes select one bounded product milestone, not every commit or an
 });
 
 test("A release attachment source must be the same repository, tag, workflow and passed capability jobs", () => {
-  const run = { event: "push", head_branch: "cloudflare-worker/v2026.10.0-pre", head_sha: commit,
-    head_repository: { full_name: "owner/repo" }, path: ".github/workflows/cloudflare-worker.yml" };
-  const jobs = ["build", "deploy"].map(name => ({ name, status: "completed", conclusion: "success" }));
-  expect(() => checkSourceRun(run, jobs, run.head_branch, "owner/repo", "worker")).not.toThrow();
-  const historical = { ...run, head_branch: "worker/v2026.10.0-pre", path: ".github/workflows/worker.yml" };
-  expect(() => checkSourceRun(historical, jobs, historical.head_branch, "owner/repo", "worker")).not.toThrow();
-  expect(() => checkSourceRun({ ...run, path: historical.path }, jobs, run.head_branch, "owner/repo", "worker")).toThrow("source");
+  const run = { event: "push", head_branch: "vrcp-api/v2026.10.0-pre", head_sha: commit,
+    head_repository: { full_name: "owner/repo" }, path: ".github/workflows/vrc-packages-api.yml" };
+  const jobs = ["build", "publish"].map(name => ({ name, status: "completed", conclusion: "success" }));
+  expect(() => checkSourceRun(run, jobs, run.head_branch, "owner/repo", "package")).not.toThrow();
+  const historical = { ...run, head_branch: "package/v2026.10.0-pre" };
+  expect(() => checkSourceRun(historical, jobs, historical.head_branch, "owner/repo", "package")).not.toThrow();
   for (const altered of [{ ...run, event: "pull_request" }, { ...run, head_sha: "main" },
     { ...run, head_repository: { full_name: "attacker/fork" } }, { ...run, path: ".github/workflows/web.yml" }]) {
-    expect(() => checkSourceRun(altered, jobs, run.head_branch, "owner/repo", "worker")).toThrow("source");
+    expect(() => checkSourceRun(altered, jobs, run.head_branch, "owner/repo", "package")).toThrow("source");
   }
-  expect(() => checkSourceRun(run, jobs.slice(0, 1), run.head_branch, "owner/repo", "worker")).toThrow("source");
-  expect(() => checkSourceRun(run, [{ name: "build", status: "completed", conclusion: "failure" }], run.head_branch, "owner/repo", "worker")).toThrow("source");
+  expect(() => checkSourceRun(run, jobs.slice(1), run.head_branch, "owner/repo", "package")).toThrow("source");
+  expect(() => checkSourceRun(run, [{ name: "build", status: "completed", conclusion: "failure" }], run.head_branch, "owner/repo", "package")).toThrow("source");
 });
 
 test("Release upload retries retain exact bytes, never clobber assets and publish only after every upload passes", async () => {
@@ -135,13 +129,14 @@ test("Release upload retries retain exact bytes, never clobber assets and publis
   await expect(attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "notes", files, false, true)).rejects.toThrow("channel");
 });
 
-test("Every product wires checked release assets while website activation remains disabled", () => {
+test("Distributed products wire checked release assets, Worker stays CI-only and website stays disabled", () => {
   const prefixes: Record<string, string> = { "cloudflare-worker": "cloudflare-worker", "vrc-packages-api": "vrcp-api",
     network: "vrcp-network", "node-docker": "vrcp-crawler", "node-client": "vrcp-crawler-client", web: "web" };
   for (const name of ["cloudflare-worker", "vrc-packages-api", "network", "node-docker", "node-client", "web"]) {
     const workflow: any = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
     const job = workflow.jobs["release-assets"];
     expect(workflow.on.push.tags).toEqual([`${prefixes[name]}/v*`]);
+    if (name === "cloudflare-worker") { expect(job).toBeUndefined(); expect(workflow.permissions.contents).toBe("read"); continue; }
     expect(job.uses).toBe("./.github/workflows/release-assets.yml");
     expect(job.permissions.contents).toBe("write");
     expect(job.permissions.actions).toBe("read");
@@ -151,6 +146,55 @@ test("Every product wires checked release assets while website activation remain
   const reusable: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/release-assets.yml", import.meta.url), "utf8"));
   expect(reusable.on.workflow_dispatch.inputs.tag.required).toBe(true);
   expect(reusable.jobs.attach.steps.find((step: any) => step.uses?.startsWith("actions/download-artifact@")).with.path).toContain("runner.temp");
+});
+
+test("SDK promotion retains original notes and checksums when main or the note renderer changes", async () => {
+  const oldNotes = Buffer.from(`# VRC Packages — package 0.0.0\n\nChannel: release.\nCommit: ${commit}.\n[Checked CI run](https://github.com/owner/repo/actions/runs/123)\n\nOriginal milestone.\n`);
+  const tarball = Buffer.from("synthetic artifact");
+  const files = new Map([["package.tgz", tarball], ["CHANGELOG.md", oldNotes]]);
+  const checksum = Buffer.from([...files].map(([name, bytes]) => `${digest(bytes)}  ${name}`).join("\n") + "\n");
+  files.set("CHECKSUMS.sha256", checksum);
+  const assets = [...files].map(([name, bytes], id) => ({ id, name, size: bytes.length, digest: `sha256:${digest(bytes)}`, state: "uploaded" }));
+  const release: any = { id: 1, draft: true, tag_name: "package/v0.0.0", prerelease: false,
+    body: oldNotes.toString() + "\nCurrent delivery status: npm publication pending.\n" };
+  let patches = 0;
+  const api = async (method: string, path: string, body: any) => {
+    if (method === "GET") return path.includes("/tags/") ? release : assets;
+    if (method === "DOWNLOAD") return files.get(assets.find(asset => path.endsWith(`/${asset.id}`))!.name);
+    if (method === "UPLOAD") {
+      expect(path).toContain("name=CHECKSUMS.sha256");
+      const asset = { id: 2, name: "CHECKSUMS.sha256", size: body.length, digest: `sha256:${digest(body)}`, state: "uploaded" };
+      assets.push(asset);
+      return asset;
+    }
+    if (method !== "PATCH") throw new Error("Unexpected overwrite or upload");
+    patches++;
+    Object.assign(release, body);
+    return release;
+  };
+  const candidate = new Map(files);
+  candidate.set("CHANGELOG.md", Buffer.from("Main changed notes"));
+  candidate.set("CHECKSUMS.sha256", Buffer.from("Main changed checksum rendering"));
+  const newBody = `# VRC Packages - package 0.0.0\n[Checked CI run](https://github.com/owner/repo/actions/runs/123)\nCurrent delivery status: npm publication checked.\n`;
+  await attachRelease(api, "owner/repo", release.tag_name, commit, newBody, candidate, false, false);
+  expect(patches).toBe(1);
+  expect(release.draft).toBe(false);
+  expect(release.body).toContain("Original milestone");
+  expect(release.body).toContain("npm publication checked");
+  expect(candidate.get("CHANGELOG.md")).toEqual(oldNotes);
+  expect(candidate.get("CHECKSUMS.sha256")).toEqual(checksum);
+  await attachRelease(api, "owner/repo", release.tag_name, commit, newBody, candidate, false, false);
+  expect(patches).toBe(1);
+  await expect(attachRelease(api, "owner/repo", release.tag_name, "b".repeat(40), newBody, candidate, false, false)).rejects.toThrow("another delivery");
+  const changed = new Map(candidate);
+  changed.set("package.tgz", Buffer.from("altered"));
+  await expect(attachRelease(api, "owner/repo", release.tag_name, commit, newBody, changed, false, false)).rejects.toThrow("checksum index");
+  assets.splice(assets.findIndex(asset => asset.name === "CHECKSUMS.sha256"), 1);
+  await expect(attachRelease(api, "owner/repo", release.tag_name, commit, newBody, new Map(files), false, false)).rejects.toThrow("missing");
+  release.draft = true;
+  await attachRelease(api, "owner/repo", release.tag_name, commit, newBody, new Map(files), false, false);
+  expect(release.draft).toBe(false);
+  expect(patches).toBe(2);
 });
 
 test("SDK draft reconciliation dispatches only public versions with original checked run links", async () => {

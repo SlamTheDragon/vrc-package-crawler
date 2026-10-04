@@ -10,7 +10,7 @@ import { productDirectories, sdkPackageNames } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
-const workflowNames = { package: "vrc-packages-api", worker: "cloudflare-worker", network: "network",
+const workflowNames = { package: "vrc-packages-api", network: "network",
   crawler: "node-docker", "crawler-client": "node-client", web: "web" };
 
 function filesIn(directory) {
@@ -30,7 +30,8 @@ export function allowedBinary(name, product, version) {
 }
 
 /** Check every downloaded file. No unlisted file can become a release asset. */
-export function checkedAssets(paths, selected, commit, manifest, configBytes) {
+export function checkedAssets(paths, selected, commit, manifest) {
+  if (selected.product === "worker") throw new Error("Worker bundles are CI-only, not GitHub Release assets");
   const files = new Map();
   for (const path of paths) {
     const name = basename(path);
@@ -44,12 +45,11 @@ export function checkedAssets(paths, selected, commit, manifest, configBytes) {
     used.add(name);
     return files.get(name);
   };
-  if (["package", "network", "worker"].includes(product)) {
+  if (["package", "network"].includes(product)) {
     const name = product === "package" ? sdkPackageNames[channel] : manifest.name;
-    const asset = product === "worker" ? "worker_entry.js" : `${name}-${version}.tgz`;
+    const asset = `${name}-${version}.tgz`;
     const receipt = JSON.parse(get(`${asset}.json`));
     const expected = { name, version, commit };
-    if (product === "worker") Object.assign(expected, { product, channel, configSha256: hash(configBytes) });
     validateCIArtifact(receipt, expected, get(asset));
     if (product === "package" && files.has(`${asset}.stage.json`)) {
       const stage = JSON.parse(get(`${asset}.stage.json`));
@@ -92,9 +92,9 @@ export function milestoneNotes(markdown, product, selected, commit, runURL, stat
 }
 
 export function checkSourceRun(run, jobs, tag, repository, product) {
-  const workflow = product === "worker" && tag.startsWith("worker/v") ? "worker" : workflowNames[product];
+  if (product === "worker") throw new Error("Worker bundles are CI-only, not GitHub Release assets");
+  const workflow = workflowNames[product];
   const required = product === "crawler" ? ["build-and-push", "standalone-windows"] : ["build"];
-  if (product === "worker" && tag.endsWith("-pre")) required.push("deploy");
   if (run.event !== "push" || run.head_branch !== tag || !/^[a-f0-9]{40}$/.test(run.head_sha ?? "") ||
       run.head_repository?.full_name !== repository || run.path !== `.github/workflows/${workflow}.yml` ||
       required.some(name => !jobs.some(job => job.name === name && job.status === "completed" && job.conclusion === "success"))) {
@@ -124,11 +124,41 @@ export async function attachRelease(api, repository, tag, commit, notes, files, 
   if (!Array.isArray(existing) || existing.length >= 100 || existing.some(asset => !files.has(asset.name))) {
     throw new Error("Unexpected existing release assets");
   }
+  if (existing.some(asset => asset.name === "CHANGELOG.md") && release.body?.includes("\nCurrent delivery status: ")) {
+    // Notes belong to the first attachment, not moving main. Retain checked historical bytes on promotion/retry.
+    const hasChecksums = existing.some(asset => asset.name === "CHECKSUMS.sha256");
+    if (!hasChecksums && !release.draft) throw new Error("Published release checksum asset is missing");
+    for (const name of hasChecksums ? ["CHANGELOG.md", "CHECKSUMS.sha256"] : ["CHANGELOG.md"]) {
+      const asset = existing.find(item => item.name === name);
+      if (!asset || asset.size > 16_384) throw new Error("Missing or oversized attached release notes");
+      const bytes = await api("DOWNLOAD", `${base}/assets/${asset.id}`);
+      if (bytes.length !== asset.size || `sha256:${hash(bytes)}` !== asset.digest) throw new Error("Attached notes differ from their digest");
+      files.set(name, bytes);
+    }
+    if (!hasChecksums) files.set("CHECKSUMS.sha256", Buffer.from([...files].filter(([name]) => name !== "CHECKSUMS.sha256")
+      .map(([name, bytes]) => `${hash(bytes)}  ${name}`).join("\n") + "\n"));
+    const stored = files.get("CHANGELOG.md").toString("utf8");
+    const link = /\[Checked CI run\]\([^)]+\)/.exec(notes)?.[0];
+    if (!link || !stored.includes(link) || !stored.includes(`Commit: ${commit}.\n`) ||
+        !stored.includes(`Channel: ${prerelease ? "preview" : "release"}.`) ||
+        !stored.split("\n")[0].endsWith(` ${tag.split("/v")[1]}`)) throw new Error("Attached notes identify another delivery");
+    const covered = new Set();
+    for (const line of files.get("CHECKSUMS.sha256").toString("utf8").trimEnd().split("\n")) {
+      const match = /^([a-f0-9]{64})  (.+)$/.exec(line);
+      if (!match || match[2] === "CHECKSUMS.sha256" || covered.has(match[2]) || !files.has(match[2]) ||
+          hash(files.get(match[2])) !== match[1]) throw new Error("Attached checksum index differs from checked assets");
+      covered.add(match[2]);
+    }
+    if (covered.size !== files.size - 1) throw new Error("Attached checksum index is incomplete");
+    const statusStart = notes.lastIndexOf("Current delivery status: ");
+    if (statusStart < 0) throw new Error("Missing delivery status for retained notes");
+    notes = `${stored}\n${notes.slice(statusStart)}`;
+  }
   for (const [name, bytes] of files) {
     const asset = existing.find(item => item.name === name);
     if (asset) {
       if (asset.digest !== `sha256:${hash(bytes)}` || asset.size !== bytes.length || asset.state !== "uploaded") {
-        throw new Error("Existing release asset differs. It will not be overwritten");
+        throw new Error(`Existing release asset ${name} differs. It will not be overwritten`);
       }
     } else {
       if (!release.draft) throw new Error("Cannot add missing assets to a published release");
@@ -161,15 +191,28 @@ async function stamp(channel, product, directory, platform) {
 function githubAPI(env) {
   return async (method, path, body, missing = false) => {
     const upload = method === "UPLOAD";
-    const response = await fetch(`https://${upload ? "uploads" : "api"}.github.com${path}`, {
-      method: upload ? "POST" : method, signal: AbortSignal.timeout(60_000), redirect: "error",
-      headers: { authorization: `Bearer ${env.RELEASE_TOKEN}`, accept: "application/vnd.github+json",
+    const download = method === "DOWNLOAD";
+    let response = await fetch(`https://${upload ? "uploads" : "api"}.github.com${path}`, {
+      method: upload ? "POST" : download ? "GET" : method, signal: AbortSignal.timeout(60_000), redirect: download ? "manual" : "error",
+      headers: { authorization: `Bearer ${env.RELEASE_TOKEN}`, accept: download ? "application/octet-stream" : "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28", "content-type": upload ? "application/octet-stream" : "application/json" },
       body: body === undefined ? undefined : upload ? body : JSON.stringify(body)
     });
+    if (download && response.status >= 300 && response.status < 400) {
+      const url = new URL(response.headers.get("location"));
+      if (url.protocol !== "https:" || !["release-assets.githubusercontent.com", "objects.githubusercontent.com"].includes(url.hostname) ||
+          url.username || url.password || url.port) throw new Error("Unexpected release download redirect");
+      response = await fetch(url, { signal: AbortSignal.timeout(60_000), redirect: "error" });
+    }
     if (missing && response.status === 404) return null;
     if (!response.ok) throw new Error(`GitHub release request failed (${response.status})`);
     if (response.status === 204) return null;
+    if (download) {
+      if (Number(response.headers.get("content-length")) > 16_384) throw new Error("Oversized release notes");
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (bytes.length > 16_384) throw new Error("Oversized release notes");
+      return bytes;
+    }
     return response.json();
   };
 }
@@ -239,6 +282,7 @@ async function main(directory) {
     for (const file of ["config.versions.json", "config.preview.versions.json"]) writeFileSync(join(metadataDirectory, file), gitFile(file));
     selected = await resolveTag(tag, metadataDirectory, true);
   } finally { rmSync(metadataDirectory, { recursive: true }); }
+  if (selected.product === "worker") throw new Error("Worker bundles are CI-only, not GitHub Release assets");
   const jobs = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/actions/runs/${runId}/jobs?per_page=100`);
   if (jobs.total_count >= 100) throw new Error("Unexpected job count");
   checkSourceRun(run, jobs.jobs, tag, env.GITHUB_REPOSITORY, selected.product);
@@ -248,9 +292,8 @@ async function main(directory) {
   if (object.type !== "commit" || object.sha !== run.head_sha) throw new Error("Tag differs from artifact source commit");
   const manifest = JSON.parse(gitFile(`${productDirectories[selected.product]}/package.json`));
   // Package builds sync channel identities after checkout. Other manifest names stay fixed.
-  const assets = checkedAssets(filesIn(artifactDirectory), selected, run.head_sha, manifest,
-    selected.product === "worker" ? Buffer.from(gitFile("src-worker/wrangler.toml")) : undefined);
-  let status = selected.product === "worker" && selected.channel === "preview" ? "preview deployed" : "checked artifacts only";
+  const assets = checkedAssets(filesIn(artifactDirectory), selected, run.head_sha, manifest);
+  let status = "checked artifacts only";
   let draft = false;
   if (selected.product === "package") {
     const name = sdkPackageNames[selected.channel];

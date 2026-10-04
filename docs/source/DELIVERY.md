@@ -12,8 +12,9 @@ The authorized SDK tag replacements used exact-target leases. Published SDK tags
 Worker run 37235649307 passed at 8907ef2 for worker/v2026.10.0-pre.
 It deployed version 4a93db4f-8d7f-493b-9d85-76ead98d4510 to the separate persistent preview Worker.
 The unauthenticated operator-init probe returned 401. No remote schema initialization or source grant ran.
-Release attachments passed remotely at 12b26f1. Runs 37237551535, 37237553499 and 37237555591 attached the original checked outputs.
-The two SDK releases contain five assets each. The Worker preview contains four. All checksum entries match uploaded digests.
+SDK release attachments passed remotely at 12b26f1. Runs 37237551535 and 37237553499 attached the original checked outputs.
+The two SDK releases contain five assets each. All checksum entries match uploaded digests.
+Owner correction: Worker environments have no GitHub Release assets. Worker bundles and receipts stay in Actions artifacts.
 
 ## Version authority
 
@@ -120,7 +121,7 @@ It does not deploy the SDK, use Cloudflare credentials or include Worker infrast
 | `vrcp-network/v` | network.yml | Upload the internal tarball. No registry publication |
 | `web/v` | web.yml | Disabled pending hosting selection |
 
-Each successful product delivery calls the shared GitHub Release attachment workflow automatically.
+Each successful distributed-product delivery calls the shared GitHub Release attachment workflow automatically. Worker deployments do not.
 The API workflow keeps its filename because npm trusted publishers match that exact filename.
 The network release is a checked tarball distribution, not an npm publication.
 
@@ -144,12 +145,12 @@ Download these outputs from each Actions run's Artifacts section. npm publicatio
 
 ## Release assets and milestone notes
 
-Each product workflow calls release-assets.yml after its required build and delivery jobs pass.
+Distributed-product workflows call release-assets.yml after required build and delivery jobs pass. Worker workflows do not call it.
 Website CI remains disabled. This wiring does not activate website builds or container publication.
 The attachment job downloads the original CI outputs into runner temporary storage. It never rebuilds them.
 It checks the source repository, tag, commit, product workflow and required successful jobs.
 It checks every file against the original receipt. Extra files, changed bytes and duplicate names stop the job.
-Worker attachments include the checked bundle and receipt, not credentials or local D1 state.
+Worker bundles and receipts remain CI-only. Manual Worker release-asset requests fail before release creation or asset writes.
 Crawler attachments include both platform binaries and receipts. Desktop attachments include unsigned installers and their receipt.
 Container registry references and publication proof need the separate Docker channel gate.
 
@@ -170,7 +171,9 @@ Expired Actions artifacts require owner review. The workflow does not rebuild th
 For earlier tags, run release-assets.yml manually on main. Supply the existing product tag and its original successful run ID.
 This path attaches original artifacts without moving tags, publishing npm packages or deploying a Worker.
 The source run's version configs govern the check, not main's current versions.
-Changelog edits after attachment do not replace published notes. Use the next authorized milestone for further changes.
+Changelog edits after attachment do not replace attached notes. Retries retain their original bytes and complete checksum index.
+The retention check requires the original version, channel, commit and source-run link. Changed artifact bytes still stop the job.
+Use the next authorized milestone for further note changes.
 
 ## Owner setup before remote activation
 
