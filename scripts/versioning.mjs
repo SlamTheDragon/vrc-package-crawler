@@ -51,7 +51,7 @@ export async function readVersionConfig(channel, workspace = root) {
 }
 
 /** Change one config value only. Sync, build, tag and publication remain separate. */
-export async function bumpVersion(channel, product, increment, workspace = root) {
+export async function bumpVersion(channel, product, increment, workspace = root, now = new Date()) {
   if (!products.includes(product) ||
       !(channel === "release" ? ["patch", "minor", "major"] : ["patch"]).includes(increment)) {
     throw new Error("Use bump release <product> <patch|minor|major> or bump preview <product> patch");
@@ -59,9 +59,14 @@ export async function bumpVersion(channel, product, increment, workspace = root)
   const { config, configPath } = await readVersionConfig(channel, workspace);
   const key = `${channel}-${product}`;
   const previous = config[key];
-  config[key] = channel === "preview"
-    ? semver.inc(previous.split("-")[0], "patch") + (semver.prerelease(previous) ? "-pre" : "")
-    : semver.inc(previous, increment);
+  if (channel === "preview") {
+    if (!(now instanceof Date) || !Number.isFinite(now.getTime())) throw new Error("Preview bump requires a valid calendar date");
+    const bumped = semver.parse(semver.inc(previous.split("-")[0], "patch"));
+    if (!bumped) throw new Error("Preview patch exceeds the supported version range");
+    config[key] = `${now.getUTCFullYear()}.${now.getUTCMonth() + 1}.${bumped.patch}${semver.prerelease(previous) ? "-pre" : ""}`;
+  } else {
+    config[key] = semver.inc(previous, increment);
+  }
   await writeFile(configPath, JSON.stringify(config, null, 2) + "\n");
   return { channel, product, previous, version: config[key], configPath };
 }

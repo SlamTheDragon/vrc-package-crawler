@@ -96,7 +96,7 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
 test("bump changes only one authoritative config value, not local metadata or external state", async () => {
   await fixture(async workspace => {
     const before = await readFile(resolve(workspace, "src-worker/package.json"), "utf8");
-    expect((await bumpVersion("preview", "worker", "patch", workspace)).version).toBe("2026.10.2-pre");
+    expect((await bumpVersion("preview", "worker", "patch", workspace, new Date("2026-10-05T00:00:00Z"))).version).toBe("2026.10.2-pre");
     expect((await bumpVersion("release", "worker", "minor", workspace)).version).toBe("0.1.0");
     expect(await readFile(resolve(workspace, "src-worker/package.json"), "utf8")).toBe(before);
     await expect(bumpVersion("release", "worker", "pre", workspace)).rejects.toThrow();
@@ -180,7 +180,7 @@ test("SDK verification builds through its test script before typechecking tests 
 
 test("preview package CalVer increments patch and refuses a trailing prerelease counter", async () => {
   await fixture(async workspace => {
-    expect((await bumpVersion("preview", "package", "patch", workspace)).version).toBe("2026.10.2-pre");
+    expect((await bumpVersion("preview", "package", "patch", workspace, new Date("2026-10-05T00:00:00Z"))).version).toBe("2026.10.2-pre");
     await expect(bumpVersion("preview", "package", "pre", workspace)).rejects.toThrow("patch");
     const path = resolve(workspace, "config.preview.versions.json");
     const { config } = await readVersionConfig("preview", workspace);
@@ -189,6 +189,22 @@ test("preview package CalVer increments patch and refuses a trailing prerelease 
       await writeFile(path, JSON.stringify(config));
       await expect(readVersionConfig("preview", workspace)).rejects.toThrow();
     }
+  });
+});
+
+test("preview bumps derive UTC year and month while only incrementing patch, without build-time mutation", async () => {
+  await fixture(async workspace => {
+    const before = await readFile(resolve(workspace, "src-worker/package.json"), "utf8");
+    expect((await bumpVersion("preview", "package", "patch", workspace, new Date("2026-11-01T00:00:00Z"))).version)
+      .toBe("2026.11.2-pre");
+    expect((await bumpVersion("preview", "package", "patch", workspace, new Date("2027-01-01T00:00:00Z"))).version)
+      .toBe("2027.1.3-pre");
+    expect((await bumpVersion("preview", "web", "patch", workspace, new Date("2027-01-01T00:00:00Z"))).version)
+      .toBe("2027.1.2-pre");
+    const snapshot = await readFile(resolve(workspace, "config.preview.versions.json"), "utf8");
+    await expect(bumpVersion("preview", "package", "patch", workspace, new Date("invalid"))).rejects.toThrow("calendar date");
+    expect(await readFile(resolve(workspace, "config.preview.versions.json"), "utf8")).toBe(snapshot);
+    expect(await readFile(resolve(workspace, "src-worker/package.json"), "utf8")).toBe(before);
   });
 });
 
@@ -263,6 +279,8 @@ test("external workflow guards separate the two npm approvals from preview-only 
   expect(clientArtifact).toContain("/bundle/nsis/*-setup.exe");
   const root = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   expect(root.scripts.setup).toContain("--package-lock=false");
+  expect(readFileSync(new URL("../.github/workflows/vrc-packages-api.yml", import.meta.url), "utf8"))
+    .toContain("group: sdk-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}");
 });
 
 test("preview deployment accepts only the operator binding and rejects missing or malformed secrets", () => {

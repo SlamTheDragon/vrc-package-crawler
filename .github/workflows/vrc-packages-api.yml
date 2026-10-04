@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: sdk-release
+  group: sdk-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}
   cancel-in-progress: false
 jobs:
   build:

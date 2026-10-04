@@ -74,9 +74,10 @@ npm run versions:bump -- preview worker patch
 ```
 
 Release patch, minor and major increments are arithmetic SemVer operations, not automatic calendar updates.
-Preview bumps increase the patch number and retain the pre suffix: `2026.10.0-pre` becomes `2026.10.1-pre`.
+Preview bumps derive year and month from the current UTC calendar, increase patch and retain the pre suffix.
+In the same month, `2026.10.0-pre` becomes `2026.10.1-pre`. In November, that next bump becomes `2026.11.2-pre`.
 The preview SDK uses YYYY.M.Patch-pre. npm requires months without a leading zero. No trailing prerelease counter is allowed.
-Edit calendar-shaped versions directly when a calendar sequence is intended.
+Only the explicit bump command reads the calendar. Builds and publication read the saved config, preserving older tagged builds.
 Sync metadata separately after a config change. Product-only sync does not sync its dependency projects.
 Use an all-product sync when preparing a consistent dependency graph for the selected config.
 
@@ -225,6 +226,7 @@ Add its `NPM_TOKEN` secret with permission to publish the new identity.
 Allow Tag refs matching `package/v*`. Omit required reviewers only if automatic package publication is intended.
 Keep required review on the existing Worker `preview` environment. It retains the separate D1 and Cloudflare secrets.
 The workflow selects `npm-preview` only for preview SDK publication.
+SDK concurrency is separate per channel. A protected release publication cannot hold later preview publications in the same queue.
 The 2026-10-05 metadata inspection confirmed this environment, its NPM_TOKEN, package/v* tag rule and absence of required reviewers.
 Keep release SDK publication in `production`, with its existing approval rule and v0.1 API-review hold.
 Subsequent npm publications require new configured preview versions. Never replace an existing package version or move its release tag.
