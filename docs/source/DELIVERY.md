@@ -13,7 +13,7 @@ Version changes, metadata sync, builds and external publication are separate act
 
 | Product | Version meaning | Tagged destination |
 | --- | --- | --- |
-| package | npm-compatible version from its config | SDK tarball and gated release publication. npm preview publication is deferred. |
+| package | Release SemVer or preview CalVer with pre, from the selected config | Two npm identities from one SDK source. Separate publication environments and switches. |
 | network | npm SemVer for internal contracts, with `pre` for preview distribution | CI tarball only. Registry selection remains open. |
 | worker | Runtime version, with `pre` for preview | Persistent preview Worker or existing production Worker |
 | crawler | Headless executable version | Standalone CI binary and optional container publication |
@@ -24,10 +24,18 @@ Numeric values must fit SemVer syntax. Calendar-shaped values do not become API 
 UI and headless preview values can omit a prerelease label. Distributed npm packages and Worker preview values require `pre`.
 If both configs select the same product version, tag routing fails instead of choosing a channel silently.
 Resolve that ambiguity before a tagged build. A branch name does not select a release channel.
-The current SDK preview value, `2026.10.0-pre`, exceeds the owner's `v0.1.0` publication hold.
-It can support development checks but cannot bypass that hold. npm preview publication is deferred.
-Preview consumers pin the release SDK from `config.versions.json`, not the SDK preview version.
-The owner proposed a second preview package. That proposal is not implemented or published.
+The owner authorizes release `0.0.0` and CalVer preview `2026.10.0-pre` publication after artifact checks.
+Release `v0.1.0` remains the stable `/v1/` milestone and requires the full owner API review.
+That release-version hold does not block the separate preview identity.
+
+| Consumer channel | SDK identity | Dependency selection |
+| --- | --- | --- |
+| Preview Worker and other preview consumers | vrc-package-api-preview | Exact npm alias under vrc-packages-api, from config.preview.versions.json |
+| Release Worker | vrc-packages-api | latest, with its resolved version checked against config.versions.json |
+| Other release consumers and release network | vrc-packages-api | Exact version from config.versions.json |
+
+The two identities share one source tree and export layout. They do not share npm version histories.
+API schema versions remain independent of package versions.
 
 ## Local development
 
@@ -41,9 +49,11 @@ npm run prepare:dev -- preview worker
 npm run build:dev -- preview worker
 ```
 
-Local `prepare` syncs the SDK to its release version, then builds and packs dependencies under each package's `.artifacts/dev/`.
+Local `prepare` syncs the SDK to the selected channel, then builds and packs dependencies under each package's `.artifacts/dev/`.
 It installs tarballs into the selected consumer. It does not use source links or query unpublished internal registry coordinates.
-Worker CI downloads the exact release SDK from npm and checks its identity, SHA-512 integrity and compiled-file allowlist.
+Worker preview CI downloads its configured preview SDK version from npm.
+Release Worker CI resolves the release SDK's latest tag and rejects a version outside the authoritative release config.
+It then packs that exact version, not the moving tag. Both paths check identity, SHA-512 integrity and compiled files.
 It then builds the internal network tarball against that SDK. A missing registry version fails the build without a source fallback.
 This development path does not select a public or private registry for the network package.
 No install scripts run during preparation. Product build commands run their required build hooks explicitly.
@@ -84,7 +94,7 @@ Related SDK/network builds supply packaged dependencies. Consumer builds import 
 | `worker/v` | worker.yml | Preview-only deployment after approval and the switch. Release tags build without production deployment. |
 | `crawler/v` | node-docker.yml | Upload Windows/Linux binaries. Publish a checked musl container only with the publication switch |
 | `crawler-client/v` | node-client.yml | Upload unsigned Windows installers. No updater or crawler installation contract |
-| `package/v` | vrc-packages-api.yml | Upload the checked SDK tarball. Optional npm publication retains the package/API holds |
+| `package/v` | vrc-packages-api.yml | Upload the checked SDK tarball. Publish release in production or preview in npm-preview under separate switches |
 | `network/v` | network.yml | Upload the internal tarball. No registry publication |
 | `web/v` | web.yml | Disabled pending hosting selection |
 
@@ -126,8 +136,10 @@ An ignored local `.env` file does not supply secrets to remote CI.
 | preview environment secret | `CLOUDFLARE_API_TOKEN` | Account-scoped Worker deployment credential. Limit its permissions to the deployment's requirements. |
 | preview environment secret | `OPERATOR_TOKEN` | Project administrator API key. CI installs this binding into the preview Worker. |
 | production environment secret | `NPM_TOKEN` | SDK publishing credential. CI supplies it as both NPM_TOKEN and NODE_AUTH_TOKEN. |
+| npm-preview environment secret | `NPM_TOKEN` | Credential permitted to publish vrc-package-api-preview. No Cloudflare secrets belong here. |
 | repository Actions variable | `VRCP_WORKER_DEPLOY_APPROVED` | Enables preview deployment when equal to true. |
 | repository Actions variable | `VRCP_SDK_PUBLISH_APPROVED` | Enables release SDK publication when equal to true. |
+| repository Actions variable | `VRCP_SDK_PREVIEW_PUBLISH_APPROVED` | Enables preview SDK publication when equal to true. Independent of Worker deployment approval. |
 | repository Actions variable | `VRCP_CONTAINER_PUBLISH_APPROVED` | Enables container publication when equal to true. Keep it absent or false until its gate passes. |
 
 Approval variables belong at repository scope because the job condition runs before the job enters its environment.
@@ -166,8 +178,8 @@ Secret names do not prove token validity or permissions. A real CI run must chec
 Check npm publish permission, expiration and non-interactive 2FA requirements before enabling its switch.
 SDK version `0.0.0` publication is authorized after package verification. Its manifest declares the existing Apache-2.0 license asset.
 The SDK private flag is removed. CI publication still requires the checked artifact, release tag and approval switch.
-The complete owner API review hold still blocks `v0.1.0` and later SDK publication.
-The hold also includes `v0.1` prereleases. It does not block the newly authorized `v0.0.0` release.
+The complete owner API review hold still blocks release-package `v0.1.0` and later publication, including `v0.1` prereleases.
+It does not block authorized release `v0.0.0` or the separately authorized CalVer preview identity.
 
 Production keeps Worker name `vrc-package-crawler` and D1 ID `722bdd0d-92ca-445b-9319-da0b27adf7b2`.
 Preview uses Worker name `vrc-package-crawler-preview` and `vrcp-preview-d1`, ID `fbef6ce1-4145-45ae-ae91-5d617a1f2672`.
@@ -185,14 +197,26 @@ The Compose file requires an explicit reviewed CI image. Watchtower and its Dock
 
 ## Release order and open preview policy
 
-Publish and check the configured release SDK before pushing Worker tags that consume it.
+Publish and check the selected SDK identity and configured version before pushing Worker tags that consume it.
 Do not push all product tags at once and assume npm publication wins the build race.
 Worker preview deployment remains authorized. Production deployment is not part of that authorization.
 The current workflows use product-tag pushes only. Branch-push previews and automatic version increments remain proposals.
 If adopted, define the branch, version owner, collision handling and loop prevention before changing triggers.
 npm distribution tags name channels within one package. They do not create separate deployments or make a published version replaceable.
-A second package would need explicit names, dependency routing and the same verification and owner-review gates.
-That proposal does not block the separately authorized release SDK `0.0.0`, which supplies the initial Worker dependency.
+The owner selects `vrc-package-api-preview` alongside release `vrc-packages-api`.
+The dual-package path uses one SDK source with channel-specific manifests and artifact checks.
+Preview consumers install the preview identity through an exact npm alias under the existing import name.
+Preview publication explicitly updates the preview package's pre tag. Release publication updates the release package's latest tag.
+Promotion to the release identity is a separately checked release build and publication, not a renamed preview tarball.
+
+Create a separate GitHub environment named `npm-preview` for automatic preview package publication.
+Add its `NPM_TOKEN` secret with permission to publish the new identity.
+Allow Tag refs matching `package/v*`. Omit required reviewers only if automatic package publication is intended.
+Keep required review on the existing Worker `preview` environment. It retains the separate D1 and Cloudflare secrets.
+The workflow selects `npm-preview` only for preview SDK publication.
+The 2026-10-05 metadata inspection confirmed this environment, its NPM_TOKEN, package/v* tag rule and absence of required reviewers.
+Keep release SDK publication in `production`, with its existing approval rule and v0.1 API-review hold.
+Subsequent npm publications require new configured preview versions. Never replace an existing package version or move its release tag.
 
 Sources: [Wrangler environments](https://developers.cloudflare.com/workers/wrangler/environments/),
 [workflow comparison](https://developers.cloudflare.com/workers/previews/compare-workflows/),
@@ -203,5 +227,6 @@ Sources: [Wrangler environments](https://developers.cloudflare.com/workers/wrang
 [artifact upload v4](https://github.com/actions/upload-artifact/tree/v4),
 [artifact digest checks](https://docs.github.com/en/actions/tutorials/store-and-share-data#validating-artifacts),
 [npm token permissions](https://docs.npmjs.com/creating-and-viewing-access-tokens/),
+[npm aliases](https://docs.npmjs.com/cli/v11/commands/npm-install/),
 [Bun executable targets](https://bun.sh/docs/bundler/executables),
 [npm publication](https://docs.npmjs.com/cli/v11/commands/npm-publish/).

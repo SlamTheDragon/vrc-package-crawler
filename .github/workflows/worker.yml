@@ -31,7 +31,7 @@ jobs:
       - name: Check network against the registry SDK artifact
         run: |
           npm --prefix src-worker/packages/network run typecheck
-          npm --prefix src-worker/packages/network run test:distribution -- --sdk-tarball "$GITHUB_WORKSPACE/src-package/.artifacts/dev/vrc-packages-api-$(node -p "require('./src-package/package.json').version").tgz"
+          npm --prefix src-worker/packages/network run test:distribution -- --sdk-tarball "$GITHUB_WORKSPACE/src-package/.artifacts/dev/$(node -p "const p=require('./src-package/package.json'); p.name+'-'+p.version").tgz"
       - name: Check Worker and build target
         run: |
           npm --prefix src-worker run check

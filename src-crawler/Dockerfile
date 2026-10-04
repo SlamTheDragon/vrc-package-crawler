@@ -8,7 +8,9 @@ WORKDIR /workspace
 COPY package.json ./
 # CI supplies compiled, verified dependency tarballs, never sibling sources.
 COPY .ci-artifacts/*.tgz ./.ci-artifacts/
-RUN bun install --no-save ./.ci-artifacts/*.tgz
+RUN set -- ./.ci-artifacts/vrc-package*-api*.tgz; \
+    [ "$#" -eq 1 ] && [ -f "$1" ] && \
+    bun install --no-save "vrc-packages-api@file:$1" ./.ci-artifacts/vrc-packages-network-*.tgz
 COPY . ./
 RUN bun run build:node:musl
 

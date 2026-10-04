@@ -20,7 +20,7 @@
 	},
 	"dependencies": {
 		"@trybyte/robotstxt-parser": "2.0.0",
-		"vrc-packages-api": "0.0.0",
+		"vrc-packages-api": "latest",
 		"vrc-packages-network": "0.0.0",
 		"zod": "^4.6.5"
 	},

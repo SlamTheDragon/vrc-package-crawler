@@ -37,7 +37,7 @@ jobs:
           npm --prefix src-package test
           npm --prefix src-package run test:distribution
           npm --prefix src-worker/packages/network run typecheck
-          npm --prefix src-worker/packages/network run test:distribution -- --sdk-tarball "$GITHUB_WORKSPACE/src-package/.artifacts/dev/vrc-packages-api-$(node -p "require('./src-package/package.json').version").tgz"
+          npm --prefix src-worker/packages/network run test:distribution -- --sdk-tarball "$GITHUB_WORKSPACE/src-package/.artifacts/dev/$(node -p "const p=require('./src-package/package.json'); p.name+'-'+p.version").tgz"
           npm --prefix src-crawler run typecheck
           npm --prefix src-crawler test
           node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci

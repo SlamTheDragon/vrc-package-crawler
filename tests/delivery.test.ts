@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { bumpVersion, productDirectories, readVersionConfig, versionFiles } from "../scripts/versioning.mjs";
+import { bumpVersion, distributedArtifact, productDirectories, readVersionConfig, sdkPackageNames, versionFiles } from "../scripts/versioning.mjs";
 import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, validateCIArtifact, validateRegistrySDK, workerSecretBindings } from "../scripts/delivery.mjs";
 
 async function fixture(run: (workspace: string) => Promise<void>) {
@@ -39,6 +39,8 @@ test("tag routing follows the config, not a hardcoded sample or a branch", async
       product: "worker", version: "0.0.1-pre.1", channel: "preview", environment: "preview"
     });
     expect((await resolveTag("web/v0.0.1", workspace)).environment).toBe("production");
+    expect((await resolveTag("package/v0.0.1-pre.1", workspace)).environment).toBe("npm-preview");
+    expect((await resolveTag("package/v0.0.1", workspace)).environment).toBe("production");
     for (const tag of ["v0.0.1", "main", "worker/v0.0.2", "worker/v01.0.1", "unknown/v0.0.1", "worker/v0.0.1\n"]) {
       await expect(resolveTag(tag, workspace)).rejects.toThrow();
     }
@@ -65,7 +67,7 @@ test("selected-product sync pins distributed dependencies without changing anoth
     await versionFiles("sync", "preview", "worker", workspace);
     const worker = JSON.parse(await readFile(resolve(workspace, "src-worker/package.json"), "utf8"));
     expect(worker.version).toBe("0.0.1-pre.1");
-    expect(worker.dependencies).toEqual({ "vrc-packages-api": "0.0.1", "vrc-packages-network": "0.0.1-pre.1" });
+    expect(worker.dependencies).toEqual({ "vrc-packages-api": "npm:vrc-package-api-preview@0.0.1-pre.1", "vrc-packages-network": "0.0.1-pre.1" });
     expect(await readFile(resolve(workspace, "src-crawler/package.json"), "utf8")).toBe(before);
     await versionFiles("check", "preview", "worker", workspace);
     await expect(versionFiles("check", "release", "worker", workspace)).rejects.toThrow("differs");
@@ -76,8 +78,16 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
   await fixture(async workspace => {
     await versionFiles("sync", "preview", "all", workspace);
     await versionFiles("check", "preview", "all", workspace);
+    const sdk = JSON.parse(await readFile(resolve(workspace, "src-package/package.json"), "utf8"));
+    expect(sdk.name).toBe(sdkPackageNames.preview);
+    expect(sdk.version).toBe("0.0.1-pre.1");
     expect(await readFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), "utf8"))
       .toContain('version = "0.0.1-pre.1" # retain owner note');
+    await versionFiles("sync", "release", "all", workspace);
+    await versionFiles("check", "release", "all", workspace);
+    expect(JSON.parse(await readFile(resolve(workspace, "src-package/package.json"), "utf8")).name).toBe(sdkPackageNames.release);
+    expect(JSON.parse(await readFile(resolve(workspace, "src-worker/package.json"), "utf8")).dependencies["vrc-packages-api"]).toBe("latest");
+    expect(JSON.parse(await readFile(resolve(workspace, "src-crawler/package.json"), "utf8")).dependencies["vrc-packages-api"]).toBe("0.0.1");
   });
 });
 
@@ -112,11 +122,37 @@ test("local sessions cannot authorize release artifacts or remote mutation", asy
   await expect(deliver("build", "release", "all")).rejects.toThrow("Usage:");
 });
 
-test("SDK publication does not bypass owner review through prerelease or calendar-shaped versions", () => {
-  for (const version of ["0.0.0", "0.0.0-pre", "0.0.1", "0.0.1-pre.1", "0.0.99"]) expect(() => checkSDKPublicationVersion(version)).not.toThrow();
-  for (const version of ["0.1.0-pre.1", "0.1.0", "1.0.0", "2026.10.0-pre", "invalid"]) {
+test("release SDK retains its API hold while only the preview identity permits CalVer prereleases", () => {
+  for (const version of ["0.0.0", "0.0.1", "0.0.99"]) expect(() => checkSDKPublicationVersion(version)).not.toThrow();
+  for (const version of ["0.0.0-pre", "0.1.0-pre.1", "0.1.0", "1.0.0", "2026.10.0-pre", "invalid"]) {
     expect(() => checkSDKPublicationVersion(version)).toThrow("owner API review hold");
   }
+  expect(() => checkSDKPublicationVersion("2026.10.0-pre", "preview", sdkPackageNames.preview)).not.toThrow();
+  for (const version of ["2026.10.0", "2026.10.0-beta", "invalid"]) {
+    expect(() => checkSDKPublicationVersion(version, "preview", sdkPackageNames.preview)).toThrow();
+  }
+  expect(() => checkSDKPublicationVersion("2026.10.0-pre", "preview", sdkPackageNames.release)).toThrow();
+  expect(() => checkSDKPublicationVersion("0.0.0", "release", sdkPackageNames.preview)).toThrow();
+});
+
+test("distributed identity parsing accepts only exact SDK aliases and config-checked latest", () => {
+  expect(distributedArtifact("vrc-packages-api", "latest", "0.0.0")).toEqual({ name: sdkPackageNames.release, version: "0.0.0" });
+  expect(distributedArtifact("vrc-packages-api", "npm:vrc-package-api-preview@2026.10.0-pre")).toEqual({ name: sdkPackageNames.preview, version: "2026.10.0-pre" });
+  expect(distributedArtifact("vrc-packages-network", "0.0.0")).toEqual({ name: "vrc-packages-network", version: "0.0.0" });
+  for (const [name, spec] of [["vrc-packages-api", "latest"], ["vrc-packages-network", "latest"],
+    ["vrc-packages-api", "npm:unapproved@0.0.0"], ["vrc-packages-api", "npm:vrc-package-api-preview@pre"],
+    ["vrc-packages-api", "^0.0.0"], ["vrc-packages-api", "file:../src-package"], ["unknown", "0.0.0"]]) {
+    expect(() => distributedArtifact(name, spec)).toThrow("Distributed dependency");
+  }
+});
+
+test("packed consumer declarations are checked in installed consumers, not through package self-reference", () => {
+  const config = JSON.parse(readFileSync(new URL("../src-package/tsconfig.json", import.meta.url), "utf8"));
+  expect(config.exclude).toContain("tests/fixtures");
+  const harness = readFileSync(new URL("../src-package/tests/distribution_smoke.mjs", import.meta.url), "utf8");
+  expect(harness).toContain("'--noEmit', '--strict'");
+  expect(harness).toContain("'consumer.mts'");
+  expect(harness).toContain("`vrc-packages-api@file:${tarball}`");
 });
 
 test("CI artifact promotion rejects changed bytes, identity, config, channel, commit and development receipts", () => {
@@ -162,14 +198,22 @@ test("registry SDK inputs require exact identity, bytes and compiled distributio
   }
   expect(() => validateRegistrySDK(result, metadata, "0.0.0", Buffer.from("changed"))).toThrow();
   expect(() => validateRegistrySDK(result, { ...metadata, dist: {} }, "0.0.0", bytes)).toThrow();
+  const preview = { ...result, name: sdkPackageNames.preview, version: "2026.10.0-pre", filename: "vrc-package-api-preview-2026.10.0-pre.tgz" };
+  const previewMetadata = { ...metadata, name: preview.name, version: preview.version };
+  expect(() => validateRegistrySDK(preview, previewMetadata, preview.version, bytes, sdkPackageNames.preview)).not.toThrow();
+  expect(() => validateRegistrySDK(preview, previewMetadata, preview.version, bytes)).toThrow();
+  expect(() => validateRegistrySDK(result, metadata, "0.0.1", bytes)).toThrow();
 });
 
-test("external workflow guards preserve preview-only Worker and release-only npm authority", () => {
+test("external workflow guards separate the two npm approvals from preview-only Worker authority", () => {
   const workflow = (name: string) => Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8")) as {
-    jobs: Record<string, { if?: string | boolean; steps?: { env?: Record<string, string>; with?: { path?: string } }[] }>;
+    jobs: Record<string, { if?: string | boolean; environment?: string; steps?: { env?: Record<string, string>; with?: { path?: string } }[] }>;
   };
   const sdk = workflow("vrc-packages-api").jobs.publish;
   expect(sdk?.if).toContain("needs.build.outputs.channel == 'release'");
+  expect(sdk?.if).toContain("needs.build.outputs.channel == 'preview'");
+  expect(sdk?.if).toContain("vars.VRCP_SDK_PREVIEW_PUBLISH_APPROVED == 'true'");
+  expect(sdk.environment).toBe('${{ needs.build.outputs.environment }}');
   const auth = sdk?.steps?.find(step => step.env?.NODE_AUTH_TOKEN)?.env;
   expect(auth?.NODE_AUTH_TOKEN).toBe('${{ secrets.NPM_TOKEN }}');
   expect(auth?.NPM_TOKEN).toBe(auth?.NODE_AUTH_TOKEN);

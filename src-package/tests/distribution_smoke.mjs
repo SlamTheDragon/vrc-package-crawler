@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 
@@ -18,10 +18,24 @@ const run = (cli, args, cwd = consumer) => execFileSync(process.execPath, [cli, 
 });
 console.log(JSON.stringify({ consumer, status: 'started' }));
 const [packed] = JSON.parse(run(npmCli, ['pack', '--json', '--pack-destination', consumer], packageRoot));
+const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+assert.equal(packed.name, manifest.name);
+assert.equal(packed.version, manifest.version);
 assert.ok(packed.files.every(file => ['package.json', 'README.md', 'LICENSE'].includes(file.path) ||
   /^dist\/.*\.(?:js|d\.ts)$/.test(file.path)), 'Tarball contains non-distribution files');
-run(npmCli, ['install', '--ignore-scripts', '--no-audit', '--no-fund',
-  ...(process.argv.includes('--offline') ? ['--offline'] : []), join(consumer, packed.filename)]);
+const tarball = join(consumer, packed.filename);
+run(npmCli, ['install', '--ignore-scripts', '--package-lock=false', '--no-audit', '--no-fund',
+  ...(process.argv.includes('--offline') ? ['--offline'] : []),
+  ...(manifest.name === 'vrc-packages-api' ? [] : [tarball]), `vrc-packages-api@file:${tarball}`]);
+for (const importName of new Set(['vrc-packages-api', manifest.name])) {
+  const installed = join(consumer, 'node_modules', importName);
+  assert.equal(lstatSync(installed).isSymbolicLink(), false);
+  assert.ok(realpathSync(installed).startsWith(realpathSync(consumer) + sep));
+  const identity = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
+  assert.equal(identity.name, manifest.name);
+  assert.equal(identity.version, manifest.version);
+}
+run('--input-type=module', ['-e', `const sdk = await import(${JSON.stringify(manifest.name)}); if (typeof sdk.VRCPackageClient !== 'function') throw new Error('Direct package import failed');`]);
 cpSync(new URL('./fixtures/distribution/', import.meta.url), consumer, { recursive: true });
 run(join(consumer, 'runtime.mjs'), []);
 execFileSync(process.execPath, ['--no-experimental-strip-types', join(consumer, 'runtime.mjs')], {

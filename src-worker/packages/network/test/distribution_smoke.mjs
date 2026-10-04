@@ -32,14 +32,17 @@ const expectedFiles = ['package.json', 'README.md', 'LICENSE.md',
 assert.deepEqual(packed.files.map(file => file.path).sort(), expectedFiles,
   'Artifact must contain only declared JS/declaration exports and package notices');
 run(npmCli, ['install', '--ignore-scripts', '--package-lock=false', '--no-audit', '--no-fund',
-  ...(args[2] === '--offline' ? ['--offline'] : []), sdkTarball, join(consumer, packed.filename)]);
-for (const [name, version] of [[manifest.name, manifest.version],
-  ['vrc-packages-api', manifest.dependencies['vrc-packages-api']]]) {
+  ...(args[2] === '--offline' ? ['--offline'] : []), `vrc-packages-api@file:${sdkTarball}`, join(consumer, packed.filename)]);
+const sdkSpec = manifest.dependencies['vrc-packages-api'];
+const previewPrefix = 'npm:vrc-package-api-preview@';
+const preview = sdkSpec.startsWith(previewPrefix);
+for (const [name, identity, version] of [[manifest.name, manifest.name, manifest.version],
+  ['vrc-packages-api', preview ? 'vrc-package-api-preview' : 'vrc-packages-api', preview ? sdkSpec.slice(previewPrefix.length) : sdkSpec]]) {
   const installed = join(consumer, 'node_modules', name);
   assert.equal(lstatSync(installed).isSymbolicLink(), false, 'Artifact must not be a workspace link');
   assert.ok(realpathSync(installed).startsWith(realpathSync(consumer) + sep), 'Artifact escaped isolated consumer');
   const installedManifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
-  assert.equal(installedManifest.name, name);
+  assert.equal(installedManifest.name, identity);
   assert.equal(installedManifest.version, version);
 }
 assert.equal(JSON.parse(readFileSync(join(consumer, 'node_modules', manifest.name, 'package.json'), 'utf8')).license,

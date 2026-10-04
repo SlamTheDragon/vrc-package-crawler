@@ -4,7 +4,9 @@ This package supplies the consumer SDK and schemas for operator, user and applic
 
 The root exports VRCPackageClient, VRCPackageClientOptions and VRCPApiError. VRC Packages is the canonical project brand. VRCP abbreviates that name, and P already stands for Packages. Use the exact client spelling VRCPackageClient, not VRCPPackageClient or VRCPPackagesClient. Crawler, Worker and Client describe project components, not the overall brand.
 
-The package remains vrc-packages-api. Version zero retains no aliases for the old client/options/error names. Source, example and packed-consumer fixtures use the new names. The grouped Node/declaration/native Worker checks passed for these exports.
+One SDK source supplies two npm identities: release `vrc-packages-api` and preview `vrc-package-api-preview`.
+Version configs select their versions. Preview uses CalVer with a `pre` suffix.
+Version zero retains no aliases for the old client/options/error names. Package aliases do not add retired API exports.
 
 The taxonomy subpath exposes the three umbrella values: tools, assets and avatars. It does not supply an indexed tag vocabulary or coordinator-internal evidence schemas. VPM version validation belongs to the crawler. Coordinator-owned tags and classification profiles remain under development.
 
@@ -16,6 +18,19 @@ The distribution contains ESM JavaScript and TypeScript declarations. It does no
 - `vrc-packages-api/taxonomy`
 - `vrc-packages-api/auth`
 
+The preview package has the same subpaths under `vrc-package-api-preview`.
+Consumers can keep the release import spelling with an exact npm dependency alias:
+
+```json
+{
+  "dependencies": {
+    "vrc-packages-api": "npm:vrc-package-api-preview@2026.10.0-pre"
+  }
+}
+```
+
+The version above reflects the current preview config. Read that config before selecting another milestone.
+
 Run `bun run build` to create the distribution. Each build removes the generated `dist` directory before compilation. This prevents deleted source files from leaving stale package exports. Source files remain unchanged.
 
 Run `bun run test` to build and test it. `npm pack` runs the build before it creates a tarball. Runtime dependencies remain declared npm dependencies, not bundled copies.
@@ -24,7 +39,13 @@ Run `npm run test:distribution` before release. This test packs the SDK, install
 
 The SDK owns its pinned Worker test tools as development dependencies. The distribution test does not use another project directory. It prints and retains the temporary consumer directory for inspection. The packed SDK contains no Worker test tools or crawler source.
 
-The owner authorizes v0.0.0 publication after package verification. The manifest permits publication and declares the existing Apache-2.0 license asset. CI checks the artifact before publishing it. npm preview publication remains deferred while the owner considers package channels. The complete owner API route review still gates v0.1.0, including its prereleases. See [delivery](../docs/source/DELIVERY.md) for exact config-driven routing and remaining checks. Packaging this SDK does not relocate crawler-internal Worker dependencies.
+The owner authorizes release v0.0.0 and CalVer preview publication after package verification.
+The manifest permits publication and declares the existing Apache-2.0 license asset. CI checks the artifact before publication.
+The complete owner API route review still gates release v0.1.0, including its prereleases. That milestone declares a stable `/v1/` contract.
+Separate preview versions do not waive artifact checks or declare that stable contract.
+See [delivery](../docs/source/DELIVERY.md) for config routing and remaining checks.
+Packaging this SDK does not relocate crawler-internal Worker dependencies.
+The source typecheck excludes installed-consumer fixtures. The distribution gate compiles those fixtures strictly against packed declarations for each identity.
 
 Operator lead rows use the exact Worker snake-case wire fields. The SDK adds no aliases or missing provenance. Approval and rejection require an explicit reason. Unknown fields fail validation. The grouped source and packed-consumer checks passed. Remaining authorization and report-lifecycle gaps still require review.
 

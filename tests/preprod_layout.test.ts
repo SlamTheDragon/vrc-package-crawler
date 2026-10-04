@@ -12,7 +12,6 @@ describe("Pre-production directory layout and configuration conformance", () => 
       ["src-worker/package.json", "vrcp-worker"],
       ["src-web/package.json", "vrcp-web"],
       ["src-crawler-client/package.json", "vrcp-crawler-client"],
-      ["src-package/package.json", "vrc-packages-api"],
       ["src-worker/packages/network/package.json", "vrc-packages-network"]
     ];
     for (const [path, name] of names) {
@@ -20,6 +19,11 @@ describe("Pre-production directory layout and configuration conformance", () => 
       expect(manifest.name).toBe(name);
       expect(manifest.description ?? "").not.toContain("VRChat Package Crawler");
     }
+    const sdk = JSON.parse(readFileSync(join(rootDir, "src-package/package.json"), "utf8"));
+    expect(["vrc-packages-api", "vrc-package-api-preview"]).toContain(sdk.name);
+    const sdkChannel = sdk.name === "vrc-package-api-preview" ? "preview" : "release";
+    const sdkConfig = JSON.parse(readFileSync(join(rootDir, sdkChannel === "preview" ? "config.preview.versions.json" : "config.versions.json"), "utf8"));
+    expect(sdk.version).toBe(sdkConfig[`${sdkChannel}-package`]);
     expect(readFileSync(join(rootDir, "README.md"), "utf8").split(/\r?\n/)[0]).toBe("# VRC Packages");
     const docker = readFileSync(join(rootDir, "src-crawler/Dockerfile"), "utf8");
     expect(docker).toContain("USER vrcpuser");
@@ -30,16 +34,20 @@ describe("Pre-production directory layout and configuration conformance", () => 
 
   test("runtime consumers declare exact artifacts instead of sibling SDK links", () => {
     const release = JSON.parse(readFileSync(join(rootDir, "config.versions.json"), "utf8"));
+    const preview = JSON.parse(readFileSync(join(rootDir, "config.preview.versions.json"), "utf8"));
     const network = JSON.parse(readFileSync(join(rootDir, "src-worker/packages/network/package.json"), "utf8"));
     for (const project of ["src-worker", "src-crawler", "src-web", "src-crawler-client"]) {
       const manifest = JSON.parse(readFileSync(join(rootDir, project, "package.json"), "utf8"));
-      expect(manifest.dependencies["vrc-packages-api"]).toBe(release["release-package"]);
+      const sdkSpec = manifest.dependencies["vrc-packages-api"];
+      const previewSDK = sdkSpec.startsWith("npm:");
+      expect(sdkSpec).toBe(previewSDK ? `npm:vrc-package-api-preview@${preview["preview-package"]}` : project === "src-worker" ? "latest" : release["release-package"]);
       expect(Object.values(manifest.dependencies).some(value => String(value).startsWith("file:"))).toBe(false);
       if (project === "src-worker" || project === "src-crawler") {
-        expect(manifest.dependencies["vrc-packages-network"]).toBe(network.version);
+        expect(manifest.dependencies["vrc-packages-network"]).toBe(previewSDK ? preview["preview-network"] : release["release-network"]);
       }
     }
-    expect(network.dependencies["vrc-packages-api"]).toBe(release["release-package"]);
+    expect(network.dependencies["vrc-packages-api"]).toBe(network.dependencies["vrc-packages-api"].startsWith("npm:")
+      ? `npm:vrc-package-api-preview@${preview["preview-package"]}` : release["release-package"]);
     expect(network.private).toBe(true);
     for (const entry of Object.values(network.exports) as { types: string; import: string }[]) {
       expect(entry.types).toMatch(/^\.\/dist\/.*\.d\.ts$/);

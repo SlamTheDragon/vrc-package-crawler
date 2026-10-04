@@ -42,8 +42,8 @@ jobs:
           if-no-files-found: error
   publish:
     needs: build
-    # npm previews are deferred. Preview tags can check artifacts without publishing them.
-    if: needs.build.outputs.channel == 'release' && vars.VRCP_SDK_PUBLISH_APPROVED == 'true'
+    # Separate package identities and environments. Release v0.1 remains held in delivery.mjs.
+    if: (needs.build.outputs.channel == 'release' && vars.VRCP_SDK_PUBLISH_APPROVED == 'true') || (needs.build.outputs.channel == 'preview' && vars.VRCP_SDK_PREVIEW_PUBLISH_APPROVED == 'true')
     runs-on: ubuntu-latest
     environment: ${{ needs.build.outputs.environment }}
     steps:

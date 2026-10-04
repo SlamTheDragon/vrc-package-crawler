@@ -16,5 +16,6 @@
     "allowJs": true,
     "types": ["bun"]
   },
-  "include": ["src/**/*", "tests/**/*"]
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["tests/fixtures", "node_modules", "dist"]
 }

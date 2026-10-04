@@ -10,6 +10,17 @@ export const productDirectories = {
 };
 const products = Object.keys(productDirectories);
 const distributedProducts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
+export const sdkPackageNames = { release: "vrc-packages-api", preview: "vrc-package-api-preview" };
+
+export function distributedArtifact(name, spec, latestVersion) {
+  const previewPrefix = `npm:${sdkPackageNames.preview}@`;
+  const preview = name === sdkPackageNames.release && typeof spec === "string" && spec.startsWith(previewPrefix);
+  const version = spec === "latest" && name === sdkPackageNames.release ? latestVersion : preview ? spec.slice(previewPrefix.length) : spec;
+  if (!Object.hasOwn(distributedProducts, name) || typeof version !== "string" || semver.valid(version) !== version) {
+    throw new Error("Distributed dependency requires an exact configured version, approved preview alias or checked release latest");
+  }
+  return { name: preview ? sdkPackageNames.preview : name, version };
+}
 
 export async function readVersionConfig(channel, workspace = root) {
   if (!["release", "preview"].includes(channel)) throw new Error("Channel must be release or preview");
@@ -56,9 +67,6 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
     throw new Error("Usage: versioning.mjs <check|sync> <release|preview> [crawler|crawler-client|package|web|worker|network|all]");
   }
   const { config } = await readVersionConfig(channel, workspace);
-  // Preview applications use the published release SDK. SDK preview publication is deferred.
-  const { config: releaseConfig } = channel === "preview" ? await readVersionConfig("release", workspace) : { config };
-
   // Prepare every selected edit before writing. Invalid input leaves files unchanged.
   const edits = [];
   for (const name of product === "all" ? products : [product]) {
@@ -68,9 +76,15 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
     const manifest = JSON.parse(text);
     if (typeof manifest.version !== "string") throw new Error(`Missing package version: ${path}`);
     let changed = manifest.version !== version;
+    if (name === "package" && manifest.name !== sdkPackageNames[channel]) {
+      manifest.name = sdkPackageNames[channel];
+      changed = true;
+    }
     for (const [dependency, dependencyProduct] of Object.entries(distributedProducts)) {
       if (Object.hasOwn(manifest.dependencies ?? {}, dependency)) {
-        const artifactVersion = dependencyProduct === "package" ? releaseConfig["release-package"] : config[`${channel}-${dependencyProduct}`];
+        const artifactVersion = dependencyProduct === "package" && channel === "preview"
+          ? `npm:${sdkPackageNames.preview}@${config["preview-package"]}`
+          : dependencyProduct === "package" && name === "worker" ? "latest" : config[`${channel}-${dependencyProduct}`];
         if (manifest.dependencies[dependency] !== artifactVersion) {
           manifest.dependencies[dependency] = artifactVersion;
           changed = true;

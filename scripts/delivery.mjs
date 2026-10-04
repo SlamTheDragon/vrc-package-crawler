@@ -5,14 +5,15 @@ import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
-import { productDirectories, readVersionConfig, versionFiles } from "./versioning.mjs";
+import { distributedArtifact, productDirectories, readVersionConfig, sdkPackageNames, versionFiles } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const artifacts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
 
-export function checkSDKPublicationVersion(version) {
+export function checkSDKPublicationVersion(version, channel = "release", name = sdkPackageNames.release) {
   const parsed = semver.parse(version);
-  if (!parsed || parsed.major !== 0 || parsed.minor !== 0) {
+  if (channel === "preview" && name === sdkPackageNames.preview && parsed?.prerelease[0] === "pre") return;
+  if (channel !== "release" || name !== sdkPackageNames.release || !parsed || parsed.major !== 0 || parsed.minor !== 0 || parsed.prerelease.length) {
     throw new Error("SDK publication requires a pre-0.1 version. The owner API review hold includes v0.1 prereleases.");
   }
 }
@@ -44,7 +45,7 @@ export async function resolveTag(tag, workspace = root) {
   }
   if (matches.length !== 1) throw new Error("Tag must match exactly one version config. Equal channel values need an explicit channel-tag decision.");
   const channel = matches[0];
-  return { product, version, channel, environment: channel === "preview" ? "preview" : "production" };
+  return { product, version, channel, environment: channel === "preview" ? product === "package" ? "npm-preview" : "preview" : "production" };
 }
 
 export async function requireCI(product, channel, env = process.env) {
@@ -66,17 +67,18 @@ function npm(args, cwd, capture = false) {
   return execFileSync(process.execPath, [cli, ...args], { cwd, stdio: capture ? "pipe" : "inherit", encoding: "utf8" });
 }
 
-function inspectDependencies(project) {
+function inspectDependencies(project, latestVersion) {
   const manifest = JSON.parse(readFileSync(join(project, "package.json"), "utf8"));
   for (const name of Object.keys(artifacts)) {
     const expected = manifest.dependencies?.[name];
     if (!expected) continue;
+    const artifact = distributedArtifact(name, expected, latestVersion);
     const path = join(project, "node_modules", name);
     if (!existsSync(path) || lstatSync(path).isSymbolicLink() || !realpathSync(path).startsWith(realpathSync(project) + sep)) {
       throw new Error(`${name} requires an installed artifact, not a sibling/workspace link. Run delivery prepare first.`);
     }
     const installed = JSON.parse(readFileSync(join(path, "package.json"), "utf8"));
-    if (installed.name !== name || installed.version !== expected) throw new Error(`${name} installed version differs from its declared artifact`);
+    if (installed.name !== artifact.name || installed.version !== artifact.version) throw new Error(`${name} installed identity/version differs from its declared artifact`);
   }
 }
 
@@ -89,10 +91,11 @@ export async function deliver(action, channel, product, ci = false) {
   if (["deploy", "publish"].includes(action) && !ci) throw new Error("Remote actions are CI-only");
   if (action === "deploy" && product !== "worker") throw new Error("Only Worker deployment is configured. Web hosting remains owner-selected.");
   if (action === "publish" && product !== "package") throw new Error("Only SDK npm publication is conditionally authorized. Internal registry remains undecided.");
-  if (action === "publish" && channel === "preview") throw new Error("npm preview publication is deferred pending the owner's package-channel decision");
   if (["pack", "verify"].includes(action) && !["package", "network"].includes(product)) throw new Error("Pack/verify applies only to distributed packages");
   if (ci) await requireCI(product, channel);
   await versionFiles("check", channel, product);
+  const { config } = await readVersionConfig(channel);
+  const sdkVersion = config[`${channel}-package`];
   const project = resolve(root, productDirectories[product]);
   const manifest = JSON.parse(readFileSync(join(project, "package.json"), "utf8"));
 
@@ -102,25 +105,25 @@ export async function deliver(action, channel, product, ci = false) {
     const needsSDK = product === "network" || !!manifest.dependencies?.["vrc-packages-api"];
     for (const name of ["package", ...(needsNetwork ? ["network"] : [])]) {
       if (!needsSDK) break;
-      const dependencyChannel = name === "package" ? "release" : channel;
-      // Preparation selects the dependency's own release identity, not the application's channel.
+      const dependencyChannel = channel;
       if (name === "package") await versionFiles("sync", dependencyChannel, name);
       await versionFiles("check", dependencyChannel, name);
       const dependencyProject = resolve(root, productDirectories[name]);
       if (ci && product === "worker" && name === "package") {
-        inputs.push(packRegistrySDK(dependencyProject));
+        inputs.push(`vrc-packages-api@file:${packRegistrySDK(dependencyProject, channel)}`);
         continue;
       }
       npm(["install", "--no-save", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", ...inputs], dependencyProject);
-      inspectDependencies(dependencyProject);
+      inspectDependencies(dependencyProject, sdkVersion);
       npm(["run", "build"], dependencyProject);
-      inputs.push(pack(dependencyProject, false));
+      const artifact = pack(dependencyProject, false);
+      inputs.push(name === "package" ? `vrc-packages-api@file:${artifact}` : artifact);
     }
     // These are packed JS/type dependencies. No sibling source is read by a consumer build.
     npm(["install", "--no-save", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", ...inputs], project);
-    inspectDependencies(project);
+    inspectDependencies(project, sdkVersion);
   } else {
-    if (!["deploy", "publish"].includes(action)) inspectDependencies(project);
+    if (!["deploy", "publish"].includes(action)) inspectDependencies(project, sdkVersion);
     if (action === "build") {
       if (product === "worker") {
         npm(["run", `build:${channel}`], project);
@@ -141,8 +144,8 @@ export async function deliver(action, channel, product, ci = false) {
     } else if (action === "verify") {
       npm(["run", "typecheck"], project);
       if (product === "package") npm(["test"], project);
-      const sdk = resolve(root, productDirectories.package, ".artifacts/dev",
-        `vrc-packages-api-${manifest.dependencies?.["vrc-packages-api"]}.tgz`);
+      const dependency = product === "network" ? distributedArtifact("vrc-packages-api", manifest.dependencies["vrc-packages-api"], sdkVersion) : null;
+      const sdk = dependency && resolve(root, productDirectories.package, ".artifacts/dev", `${dependency.name}-${dependency.version}.tgz`);
       npm(["run", "test:distribution", ...(product === "network" ? ["--", "--sdk-tarball", sdk] : [])], project);
     } else if (action === "deploy") {
       if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) throw new Error("CI requires protected Cloudflare account/token secrets");
@@ -167,7 +170,7 @@ export async function deliver(action, channel, product, ci = false) {
         rmdirSync(secretDirectory);
       }
     } else if (action === "publish") {
-      checkSDKPublicationVersion(manifest.version);
+      checkSDKPublicationVersion(manifest.version, channel, manifest.name);
       if (manifest.private) throw new Error("SDK remains private until its package gate passes. Do not publish by bypassing this hold.");
       const artifact = join(project, ".artifacts/ci", `${manifest.name}-${manifest.version}.tgz`);
       const receipt = JSON.parse(readFileSync(`${artifact}.json`, "utf8"));
@@ -178,10 +181,10 @@ export async function deliver(action, channel, product, ci = false) {
   return { action, channel, product, purpose: ci ? "ci-release" : "development" };
 }
 
-export function validateRegistrySDK(result, metadata, expected, bytes) {
-  if (metadata.name !== "vrc-packages-api" || metadata.version !== expected ||
+export function validateRegistrySDK(result, metadata, expected, bytes, name = sdkPackageNames.release) {
+  if (!Object.values(sdkPackageNames).includes(name) || metadata.name !== name || metadata.version !== expected ||
       result.name !== metadata.name || result.version !== expected ||
-      result.filename !== `vrc-packages-api-${expected}.tgz` ||
+      result.filename !== `${name}-${expected}.tgz` ||
       !metadata.dist?.integrity || result.integrity !== metadata.dist.integrity ||
       result.integrity !== `sha512-${createHash("sha512").update(bytes).digest("base64")}` ||
       !result.files.every(file => ["package.json", "README.md", "LICENSE", "LICENSE.md"].includes(file.path) ||
@@ -190,18 +193,21 @@ export function validateRegistrySDK(result, metadata, expected, bytes) {
   }
 }
 
-function packRegistrySDK(project) {
-  const { version } = JSON.parse(readFileSync(join(project, "package.json"), "utf8"));
+function packRegistrySDK(project, channel) {
+  const { name, version } = JSON.parse(readFileSync(join(project, "package.json"), "utf8"));
   const registry = "https://registry.npmjs.org";
-  const spec = `vrc-packages-api@${version}`;
+  const spec = `${name}@${channel === "release" ? "latest" : version}`;
   const metadata = JSON.parse(npm(["view", spec, "--json", `--registry=${registry}`], root, true));
+  if (metadata.name !== sdkPackageNames[channel] || metadata.version !== version) {
+    throw new Error("Registry SDK channel resolves outside the authoritative version config");
+  }
   const destination = join(project, ".artifacts/dev");
   mkdirSync(destination, { recursive: true });
-  const [result] = JSON.parse(npm(["pack", spec, "--ignore-scripts", "--json", `--registry=${registry}`,
+  const [result] = JSON.parse(npm(["pack", `${name}@${version}`, "--ignore-scripts", "--json", `--registry=${registry}`,
     "--pack-destination", destination], root, true));
-  const artifact = join(destination, `vrc-packages-api-${version}.tgz`);
+  const artifact = join(destination, `${name}-${version}.tgz`);
   const bytes = readFileSync(artifact);
-  validateRegistrySDK(result, metadata, version, bytes);
+  validateRegistrySDK(result, metadata, version, bytes, name);
   writeFileSync(`${artifact}.json`, JSON.stringify({ name: result.name, version, integrity: result.integrity,
     sha256: createHash("sha256").update(bytes).digest("hex"), purpose: "registry-dependency", registry }, null, 2) + "\n");
   console.log(JSON.stringify({ name: result.name, version, integrity: result.integrity, source: registry }));
