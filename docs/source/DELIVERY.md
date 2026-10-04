@@ -157,11 +157,30 @@ An existing environment named `cloudflare` does not supply secrets to jobs that 
 The current production Worker deployment remains disabled. Its credentials are not necessary for initial SDK publication.
 Future products require their own allowed-tag rules before their protected jobs can run.
 
+### Recreating GitHub environments under new names
+
+Create the replacement environments before deleting the originals. Re-enter secrets and restore reviewers, tag rules and variables.
+Tell the delivery agent each old-to-new name mapping before rerunning jobs. Do not rename Cloudflare resources to match GitHub labels.
+Update GitHub approval routing in scripts/delivery.mjs, its tests and the setup instructions together.
+Worker artifact paths derive from channel, not the approval-environment name. Wrangler preview and production settings remain separate.
+Existing tagged runs retain the workflow and routing from their original commit. Updating main does not retarget those reruns.
+Keep their original environments until those publications finish, or agree a separate retry strategy before deleting them.
+An unknown environment reference can create an empty, unprotected environment. Verify configuration before starting a migrated workflow.
+See [GitHub environment management](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+
 ### npm EOTP recovery
 
 Do not supply an account password or a one-time code to an unattended runner.
 Both first publication attempts reached npm publish, then npm required interactive authorization.
 The current token's exact settings remain unknown. Secret presence alone does not establish non-interactive publishing permission.
+
+The following token procedure is temporary bootstrap, not the recommended long-term authentication design.
+The owner's warning requires a decision before changing credentials or publication commands.
+An alternative is staged publication: CI uploads the checked tarball, then the owner approves it with 2FA on npm's website.
+That keeps passwords and one-time codes outside CI. It requires npm CLI 11.15.0 or later and a changed publication command.
+For a new package, npm creates a public 0.0.0-stage placeholder before approval. This extra registry version needs explicit owner acceptance.
+See [staged publication](https://docs.npmjs.com/staged-publishing/). Neither staging nor OIDC is implemented in the current workflow.
+After bootstrap, configure trusted publishing against the finalized GitHub environment names for continued automatic preview publication.
 
 1. Open npm account settings, then Access Tokens, then Generate New Token.
 2. Create a granular token with Read and write (publish and stage) package permission, not read-only or stage-only permission.

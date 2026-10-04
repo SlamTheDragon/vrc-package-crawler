@@ -19,8 +19,12 @@ Worker preview and release npm retain owner review. Do not approve those jobs th
 Package tag → config/channel sync → SDK build/tests/types/distribution → tarball receipt → protected npm publication.
 Preview Worker tag → checked registry SDK → compiled network tarball → checked bundle receipt → owner-approved deployment.
 Theory: this existing delivery path can activate real preview without changing release versions or API contracts.
+Current G14 work: separate Worker artifact paths from GitHub approval-environment names before the owner's naming migration.
+The Worker workflow now derives upload/download paths from channel, matching delivery.mjs, not the approval environment label.
+Root group passed 33 cases/304 assertions. Saved release config is unchanged. No remote Worker execution is claimed.
+Do not select replacement names or retry publication while the owner changes setup.
 
-- Root: 32 cases, 299 assertions passed, including latest aliases, month/year rollover and separate SDK workflow concurrency.
+- Root: 33 cases, 304 assertions passed, including latest aliases, calendar rollover, SDK concurrency and independent Worker artifact paths.
 - Preview SDK: build, 54 units/621 assertions, types and 31-file packed Node/declaration/native Worker checks passed.
 - Preview network: types and 23-file packed Node/Bun/declaration/native Worker checks passed. Runtime external fetches: zero.
 - A transitive network latest alias caused an npm 404 despite the supplied SDK tarball. The exact network alias removed that dependency drift.
@@ -46,6 +50,11 @@ Expected secret names are present. Names do not prove usable tokens, scopes or p
 
 Calendar/concurrency correction is pushed at c77a00c. No existing SDK tag moved for that correction.
 Next: owner supplies non-interactive npm publishing credentials in both selected environments, or approves a different supported authentication design.
+Owner considers recreating GitHub environments. Current names and secret timestamps remain unchanged. Await an explicit old-to-new mapping.
+Owner flags npm's January 2027 direct-token publishing cutoff. Authentication selection remains open, not assumed to be token bypass.
+Research confirms staged publication supports new packages, but creates a public 0.0.0-stage placeholder requiring owner acceptance.
+Staging requires changed CI commands and npm 11.15.0 or later. Later OIDC setup must match the finalized environment names.
+Keep the original environments for existing SDK tagged-run retries. New routing on main cannot change those runs' saved commits.
 See DELIVERY.md's npm EOTP recovery. Never send an account password or OTP through chat or store it in CI.
 After owner setup, re-run failed jobs without tag/version changes, then verify exact registry bytes.
 Check actual CI, downloaded receipts and registry bytes before pushing worker/v2026.10.0-pre.

@@ -283,6 +283,19 @@ test("external workflow guards separate the two npm approvals from preview-only 
     .toContain("group: sdk-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}");
 });
 
+test("Worker artifact paths follow runtime channel independently of GitHub approval-environment names", () => {
+  const workflow = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/worker.yml", import.meta.url), "utf8")) as {
+    jobs: Record<string, { environment?: string; steps: { uses?: string; with?: { path?: string } }[] }>;
+  };
+  const upload = workflow.jobs.build.steps.find(step => step.uses?.startsWith("actions/upload-artifact@"))?.with?.path;
+  const download = workflow.jobs.deploy.steps.find(step => step.uses?.startsWith("actions/download-artifact@"))?.with?.path;
+  expect(upload).toContain("steps.route.outputs.channel == 'preview' && 'preview' || 'production'");
+  expect(download).toContain("needs.build.outputs.channel == 'preview' && 'preview' || 'production'");
+  expect(upload).not.toContain("outputs.environment");
+  expect(download).not.toContain("outputs.environment");
+  expect(workflow.jobs.deploy.environment).toBe('${{ needs.build.outputs.environment }}');
+});
+
 test("preview deployment accepts only the operator binding and rejects missing or malformed secrets", () => {
   const token = randomBytes(32).toString("hex");
   expect(workerSecretBindings({ OPERATOR_TOKEN: token, NPM_TOKEN: "unrelated" })).toEqual({ OPERATOR_TOKEN: token });

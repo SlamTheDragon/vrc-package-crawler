@@ -44,8 +44,8 @@ jobs:
         with:
           name: worker-${{ steps.route.outputs.channel }}-bundle
           path: |
-            src-worker/.wrangler/dev-build/${{ steps.route.outputs.environment }}/worker_entry.js
-            src-worker/.wrangler/dev-build/${{ steps.route.outputs.environment }}/worker_entry.js.json
+            src-worker/.wrangler/dev-build/${{ steps.route.outputs.channel == 'preview' && 'preview' || 'production' }}/worker_entry.js
+            src-worker/.wrangler/dev-build/${{ steps.route.outputs.channel == 'preview' && 'preview' || 'production' }}/worker_entry.js.json
           include-hidden-files: true
           if-no-files-found: error
   deploy:
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: worker-${{ needs.build.outputs.channel }}-bundle
-          path: src-worker/.wrangler/dev-build/${{ needs.build.outputs.environment }}/
+          path: src-worker/.wrangler/dev-build/${{ needs.build.outputs.channel == 'preview' && 'preview' || 'production' }}/
       - name: Install pinned deployment tool only
         run: npm install --prefix src-worker/.wrangler/ci-tools --no-save --package-lock=false --no-audit --no-fund wrangler@4.147.0
       - name: Deploy approved bundle without rebuilding
