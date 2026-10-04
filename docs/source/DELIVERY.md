@@ -367,7 +367,8 @@ Publication uses GITHUB_TOKEN with packages: write. It needs no NPM_TOKEN or Clo
 Review GHCR package access and visibility before distributing images. Keep consumers on a checked digest rather than latest.
 
 Local Docker is unavailable. Local unit/type checks do not prove image builds, Linux execution or registry publication.
-These exits remain open until an authorized tagged CI trial passes. No crawler image was published by the local checks.
+Corrected preview CI 37244482335 passed image construction and the network-disabled runtime checks at fb9edf6.
+Publication waits for owner approval in vrcp-crawler-preview. Registry digest checks and automatic binary attachments remain open.
 
 ## Release order and open preview policy
 

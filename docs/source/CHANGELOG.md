@@ -21,7 +21,7 @@ Do not treat a checked build as proof of npm publication, container publication 
 - Separate Linux and Windows headless binaries use coordinator-issued leases and scoped source policies.
 - Release and preview containers use separate GHCR packages and matching dependencies.
 - CI checks one image without networking, then hands its checked archive to protected publication without rebuilding.
-- Local checks do not prove Docker execution or registry delivery. The first tagged image trial remains open.
+- The tagged preview trial passed Docker execution and config persistence. Registry delivery and binary attachments await owner publication approval.
 - The desktop shell does not yet install or supervise these binaries. Real-source fleet and durable recovery checks remain open.
 
 ## crawler-client
