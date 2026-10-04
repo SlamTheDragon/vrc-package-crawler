@@ -120,7 +120,7 @@ It does not deploy the SDK, use Cloudflare credentials or include Worker infrast
 | Tag prefix | Workflow | External action |
 | --- | --- | --- |
 | `cloudflare-worker/v` | cloudflare-worker.yml | Automatic preview-only deployment through cloudflare-preview with the switch enabled. Release tags build without production deployment. |
-| `vrcp-crawler/v` | node-docker.yml | Upload Windows/Linux binaries. Publish a checked musl container only with the publication switch |
+| `vrcp-crawler/v` | node-docker.yml | Upload Windows/Linux binaries. Publish the checked musl image through its channel environment and approval switches |
 | `vrcp-crawler-client/v` | node-client.yml | Upload unsigned Windows installers. No updater or crawler installation contract |
 | `vrcp-api/v` | vrc-packages-api.yml | Build the SDK, then stage it in vrcp-api-release or vrcp-api-preview. npm publication requires owner 2FA |
 | `vrcp-network/v` | network.yml | Upload the internal tarball. No registry publication |
@@ -157,7 +157,8 @@ It checks the source repository, tag, commit, product workflow and required succ
 It checks every file against the original receipt. Extra files, changed bytes and duplicate names stop the job.
 Worker bundles and receipts remain CI-only. Manual Worker release-asset requests fail before release creation or asset writes.
 Crawler attachments include both platform binaries and receipts. Desktop attachments include unsigned installers and their receipt.
-Container registry references and publication proof need the separate Docker channel gate.
+Container archives and publication receipts remain CI-only. Attachment downloads exclude artifacts named `ci-only-*`.
+Binary attachments wait for successful platform builds and successful or disabled container publication.
 
 [CHANGELOG.md](CHANGELOG.md) holds one current milestone summary per product. Do not append an entry for each commit.
 CI selects that product's notes. Version configs remain the only version authority.
@@ -210,7 +211,9 @@ An ignored local `.env` file does not supply secrets to remote CI.
 | repository Actions variable | `VRCP_WORKER_DEPLOY_APPROVED` | Enables preview deployment when equal to true. |
 | repository Actions variable | `VRCP_SDK_PUBLISH_APPROVED` | Enables release SDK publication when equal to true. |
 | repository Actions variable | `VRCP_SDK_PREVIEW_PUBLISH_APPROVED` | Enables preview SDK publication when equal to true. Independent of Worker deployment approval. |
-| repository Actions variable | `VRCP_CONTAINER_PUBLISH_APPROVED` | Enables container publication when equal to true. Keep it absent or false until its gate passes. |
+| repository Actions variable | `VRCP_CONTAINER_PUBLISH_APPROVED` | Container master switch. A separate channel switch must also equal true. |
+| repository Actions variable | `VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED` | Enables preview image publication through vrcp-crawler-preview when the master switch also equals true. |
+| repository Actions variable | `VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED` | Enables release image publication through vrcp-crawler-release when the master switch also equals true. |
 
 Approval variables belong at repository scope because the job condition runs before the job enters its environment.
 An absent switch disables the external action. These switches do not replace environment approval or artifact checks.
@@ -329,6 +332,42 @@ Native fresh/repeated checks execute 62 statements through one binding call with
 This count is not proof of Free-tier quota compliance. R14-C14 retains the invocation-budget and migration work.
 Review schema changes before activation. Code rollback does not roll back D1 data.
 The Compose file requires an explicit reviewed CI image. Watchtower and its Docker socket still need a separate review.
+
+## Docker delivery channels
+
+The owner selects separate image packages. Each uses its configured version and a moving latest tag.
+
+| Channel | GHCR package under the repository owner | GitHub environment |
+| --- | --- | --- |
+| Release | vrcp-crawler-node | vrcp-crawler-release |
+| Preview | vrcp-crawler-node-preview | vrcp-crawler-preview |
+
+Release builds use release SDK and network versions. Preview builds use preview versions and the preview SDK identity.
+The internal network dependency remains a packed input, not a public npm package.
+Docker arguments come from the selected version config. The builder checks installed manifests before compiling.
+An SDK identity, dependency version or declaration mismatch stops the build.
+
+The Linux build job has read-only repository access. It does not log into GHCR or request package write access.
+CI builds one Linux amd64 image. Network-disabled checks exercise its version, help, non-root user, volume persistence and missing-token failure.
+Persistence checks cover a config file across containers, not SQLite outbox recovery or a running fleet.
+CI saves the checked image with its ID, archive digest, commit, channel and dependency identities.
+The publication job checks the archive before registry login. It loads the image without rebuilding.
+The script repeats byte and image checks before registry writes.
+
+This workflow refuses to overwrite a version with different image bytes. A same-image retry does not push the version again.
+The latest tag can advance from an older reviewed version. A retry cannot move it backward or replace the same version.
+Registry readback must match the checked image. A publication receipt records its digest-qualified reference.
+Authentication or transport failures stop publication. Only explicit missing-manifest responses permit a first publication.
+Other authorized registry writers remain outside these CI safeguards. GHCR itself does not enforce this workflow's version policy.
+
+Before crawler tags, create the two crawler environments and allow Tag refs matching `vrcp-crawler/v*`.
+For the initial trial, owner review in each environment is recommended. Omitting reviewers permits automatic publication after the switches enable it.
+Enable only the selected channel switch after setup review. The master switch alone does not enable publication.
+Publication uses GITHUB_TOKEN with packages: write. It needs no NPM_TOKEN or Cloudflare credentials.
+Review GHCR package access and visibility before distributing images. Keep consumers on a checked digest rather than latest.
+
+Local Docker is unavailable. Local unit/type checks do not prove image builds, Linux execution or registry publication.
+These exits remain open until an authorized tagged CI trial passes. No crawler image was published by the local checks.
 
 ## Release order and open preview policy
 

@@ -89,6 +89,21 @@ test("A release attachment source must be the same repository, tag, workflow and
   expect(() => checkSourceRun(run, [{ name: "build", status: "completed", conclusion: "failure" }], run.head_branch, "owner/repo", "package")).toThrow("source");
 });
 
+test("crawler releases require both platform checks and a passed or disabled container publication", () => {
+  const run = { event: "push", head_branch: "vrcp-crawler/v0.0.0", head_sha: commit,
+    head_repository: { full_name: "owner/repo" }, path: ".github/workflows/node-docker.yml" };
+  const binaries = ["build-linux", "standalone-windows"].map(name => ({ name, status: "completed", conclusion: "success" }));
+  for (const conclusion of ["success", "skipped"]) {
+    expect(() => checkSourceRun(run, [...binaries, { name: "publish-container", status: "completed", conclusion }], run.head_branch, "owner/repo", "crawler")).not.toThrow();
+  }
+  for (const conclusion of ["failure", "cancelled", "timed_out"]) {
+    expect(() => checkSourceRun(run, [...binaries, { name: "publish-container", status: "completed", conclusion }], run.head_branch, "owner/repo", "crawler")).toThrow("source");
+  }
+  expect(() => checkSourceRun(run, binaries, run.head_branch, "owner/repo", "crawler")).toThrow("source");
+  const historical = { ...run, head_branch: "crawler/v0.0.0" };
+  expect(() => checkSourceRun(historical, [{ name: "build-and-push", status: "completed", conclusion: "success" }, binaries[1]], historical.head_branch, "owner/repo", "crawler")).not.toThrow();
+});
+
 test("Release upload retries retain exact bytes, never clobber assets and publish only after every upload passes", async () => {
   const files = new Map([["CHANGELOG.md", Buffer.from("synthetic notes")], ["CHECKSUMS.sha256", Buffer.from("synthetic checksums")]]);
   let release: any = null;

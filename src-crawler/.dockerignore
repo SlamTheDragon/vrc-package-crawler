@@ -4,5 +4,7 @@
 !bunfig.toml
 !src/
 !src/**
+!scripts/
+!scripts/check_container_dependencies.mjs
 !.ci-artifacts/
 !.ci-artifacts/*.tgz

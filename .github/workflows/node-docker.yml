@@ -12,13 +12,11 @@ concurrency:
   group: crawler-release
   cancel-in-progress: false
 jobs:
-  build-and-push:
+  build-linux:
     runs-on: ubuntu-latest
-    environment: ${{ needs.route.outputs.environment }}
     needs: route
     permissions:
       contents: read
-      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -56,43 +54,64 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/vrcp-crawler-node
-          tags: |
-            type=raw,value=${{ needs.route.outputs.version }}
-            type=raw,value=latest,enable=${{ needs.route.outputs.channel == 'release' }}
-            type=raw,value=pre,enable=${{ needs.route.outputs.channel == 'preview' }}
+      - id: dependencies
+        name: Read configured dependency identities
+        run: |
+          node -e 'const c=process.env.VRCP_BUILD_CHANNEL; const v=require(c==="preview"?"./config.preview.versions.json":"./config.versions.json"); console.log("sdk-name="+require("./src-package/package.json").name); console.log("sdk-version="+v[c+"-package"]); console.log("network-version="+v[c+"-network"]);' >> "$GITHUB_OUTPUT"
+        env:
+          VRCP_BUILD_CHANNEL: ${{ needs.route.outputs.channel }}
 
       - name: Check the container before publishing
         uses: docker/build-push-action@v6
         with:
           context: src-crawler
           file: src-crawler/Dockerfile
+          platforms: linux/amd64
           load: true
+          provenance: false
           tags: vrcp-node-check:${{ github.sha }}
-      - run: docker run --rm --network none vrcp-node-check:${{ github.sha }} --help
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+          build-args: |
+            VRCP_BUILD_CHANNEL=${{ needs.route.outputs.channel }}
+            VRCP_SDK_VERSION=${{ steps.dependencies.outputs.sdk-version }}
+            VRCP_NETWORK_VERSION=${{ steps.dependencies.outputs.network-version }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.route.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            io.vrcp.channel=${{ needs.route.outputs.channel }}
+            io.vrcp.sdk.name=${{ steps.dependencies.outputs.sdk-name }}
+            io.vrcp.sdk.version=${{ steps.dependencies.outputs.sdk-version }}
+            io.vrcp.network.version=${{ steps.dependencies.outputs.network-version }}
+      - name: Check Linux runtime, restart persistence and missing-token failure without network access
+        run: |
+          image="vrcp-node-check:$GITHUB_SHA"
+          volume="vrcp-check-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          container="vrcp-no-token-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker volume create "$volume"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; docker volume rm "$volume" >/dev/null' EXIT
+          test "$(docker run --rm --network none "$image" --version)" = "$VRCP_EXPECTED_VERSION"
+          docker run --rm --network none "$image" --help
+          docker run --rm --network none --volume "$volume:/app/data" "$image" init ci-runtime-check
+          docker run --rm --network none --volume "$volume:/app/data" --entrypoint sh "$image" -c 'test "$(id -u)" -ne 0 && test -s node.config.json && printf ci-persistence > persistence-check'
+          docker run --rm --network none --volume "$volume:/app/data" --entrypoint sh "$image" -c 'test "$(cat persistence-check)" = ci-persistence && test -s node.config.json'
+          set +e
+          timeout 20s docker run --name "$container" --rm --network none --volume "$volume:/app/data" "$image"
+          status=$?
+          set -e
+          test "$status" -eq 1
+        env:
+          VRCP_EXPECTED_VERSION: ${{ needs.route.outputs.version }}
+      - name: Save the checked image without a second build
+        run: node scripts/container-delivery.mjs seal '${{ needs.route.outputs.channel }}'
+      - uses: actions/upload-artifact@v4
         with:
-          context: src-crawler
-          file: src-crawler/Dockerfile
-          push: ${{ vars.VRCP_CONTAINER_PUBLISH_APPROVED == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          name: ci-only-crawler-${{ needs.route.outputs.version }}-container
+          path: |
+            src-crawler/.artifacts/ci/container/container.tar
+            src-crawler/.artifacts/ci/container/container.receipt.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
   standalone-windows:
     needs: route
     runs-on: windows-latest
@@ -137,8 +156,47 @@ jobs:
       - run: npm install --ignore-scripts --package-lock=false
       - id: route
         run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
+  publish-container:
+    needs: [route, build-linux, standalone-windows]
+    if: vars.VRCP_CONTAINER_PUBLISH_APPROVED == 'true' && ((needs.route.outputs.channel == 'preview' && vars.VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED == 'true') || (needs.route.outputs.channel == 'release' && vars.VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED == 'true'))
+    runs-on: ubuntu-latest
+    environment: ${{ needs.route.outputs.channel == 'preview' && 'vrcp-crawler-preview' || 'vrcp-crawler-release' }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - run: npm install --ignore-scripts --package-lock=false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-only-crawler-${{ needs.route.outputs.version }}-container
+          path: src-crawler/.artifacts/ci/container
+      - name: Check archive and loaded image before registry login
+        run: node scripts/container-delivery.mjs load '${{ needs.route.outputs.channel }}'
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish checked bytes to the selected image package
+        run: node scripts/container-delivery.mjs publish '${{ needs.route.outputs.channel }}'
+        env:
+          VRCP_CONTAINER_PUBLISH_APPROVED: ${{ vars.VRCP_CONTAINER_PUBLISH_APPROVED }}
+          VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED: ${{ vars.VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED }}
+          VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED: ${{ vars.VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-only-crawler-${{ needs.route.outputs.version }}-publication
+          path: src-crawler/.artifacts/ci/container-publication.json
+          include-hidden-files: true
+          if-no-files-found: error
   release-assets:
-    needs: [build-and-push, standalone-windows]
+    needs: [build-linux, standalone-windows, publish-container]
+    if: always() && needs.build-linux.result == 'success' && needs.standalone-windows.result == 'success' && (needs.publish-container.result == 'success' || needs.publish-container.result == 'skipped')
     permissions:
       contents: write
       actions: read

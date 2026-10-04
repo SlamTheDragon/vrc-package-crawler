@@ -3,6 +3,9 @@
 # Stage 1: Build standalone Linux crawler node binary
 FROM oven/bun:1.4.2-alpine AS builder
 WORKDIR /workspace
+ARG VRCP_BUILD_CHANNEL
+ARG VRCP_SDK_VERSION
+ARG VRCP_NETWORK_VERSION
 
 # Build context is src-crawler. Dependencies must be distributed artifacts.
 COPY package.json ./
@@ -15,6 +18,7 @@ RUN set -- ./.ci-artifacts/vrc-package*-api*.tgz; \
     [ "$#" -eq 1 ] && [ -f "$1" ] && \
     bun install --no-save "vrc-packages-api@file:$sdk_artifact" "$1"
 COPY . ./
+RUN bun scripts/check_container_dependencies.mjs
 RUN bun run build:node:musl
 
 # Stage 2: Minimal hardened runtime image

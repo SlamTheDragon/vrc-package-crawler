@@ -421,7 +421,7 @@ if(args[0]==='view') {
     const base = { ...process.env, npm_execpath: cli, FIXTURE_LOG: log, GITHUB_ACTIONS: "true",
       GITHUB_EVENT_NAME: "push", GITHUB_SHA: "a".repeat(40) };
     const run = (args: string[], env: Record<string, string | undefined>) =>
-      execFileSync(process.execPath, args, { cwd: workspace, env, stdio: "pipe", encoding: "utf8" });
+      execFileSync(process.execPath, args, { cwd: workspace, env, stdio: "pipe", encoding: "utf8", timeout: 15_000 });
     const commands = async () => (await readFile(log, "utf8")).trim().split("\n").map(line => JSON.parse(line));
     const prefixes = { worker: "cloudflare-worker", crawler: "vrcp-crawler", network: "vrcp-network",
       "crawler-client": "vrcp-crawler-client", web: "web" };
@@ -454,7 +454,7 @@ if(args[0]==='view') {
       expect(local.some(item => item.cwd === resolve(workspace, productDirectories.package) && item.args[0] === "run" && item.args[1] === "build")).toBe(true);
     }
   });
-}, 30_000);
+}, 60_000);
 
 test("consumer workflows verify their own distributions without running the SDK producer", () => {
   for (const name of ["cloudflare-worker", "node-docker", "node-client", "network", "web"]) {

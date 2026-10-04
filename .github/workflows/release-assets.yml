@@ -34,6 +34,7 @@ jobs:
       - run: npm install --ignore-scripts --package-lock=false
       - uses: actions/download-artifact@v4
         with:
+          pattern: '!ci-only-*'
           path: ${{ runner.temp }}/vrcp-release-inputs
           run-id: ${{ inputs.source-run || github.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

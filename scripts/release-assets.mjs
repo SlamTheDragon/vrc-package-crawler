@@ -94,10 +94,12 @@ export function milestoneNotes(markdown, product, selected, commit, runURL, stat
 export function checkSourceRun(run, jobs, tag, repository, product) {
   if (product === "worker") throw new Error("Worker bundles are CI-only, not GitHub Release assets");
   const workflow = workflowNames[product];
-  const required = product === "crawler" ? ["build-and-push", "standalone-windows"] : ["build"];
+  const required = product === "crawler" ? [tag.startsWith("crawler/v") ? "build-and-push" : "build-linux", "standalone-windows"] : ["build"];
   if (run.event !== "push" || run.head_branch !== tag || !/^[a-f0-9]{40}$/.test(run.head_sha ?? "") ||
       run.head_repository?.full_name !== repository || run.path !== `.github/workflows/${workflow}.yml` ||
-      required.some(name => !jobs.some(job => job.name === name && job.status === "completed" && job.conclusion === "success"))) {
+      required.some(name => !jobs.some(job => job.name === name && job.status === "completed" && job.conclusion === "success")) ||
+      (product === "crawler" && !tag.startsWith("crawler/v") && !jobs.some(job => job.name === "publish-container" &&
+        job.status === "completed" && ["success", "skipped"].includes(job.conclusion)))) {
     throw new Error("Release source is not the checked product-tag build");
   }
 }
