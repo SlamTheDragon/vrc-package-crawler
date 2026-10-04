@@ -4,6 +4,10 @@ Implementation status, 2026-10-05: the grouped local checks passed for packages,
 Preview dependency selection and the replacement D1 binding passed local checks. Remote CI and registry SDK consumption remain unverified.
 Local commands create development outputs only. They do not upload releases, publish packages or deploy a Worker.
 
+Remote checkpoint: both SDK builds passed on commit 4d44ae2, including artifact upload/download and publication receipt checks.
+Release run 37230866545 and preview run 37230892161 failed at npm publication with EOTP, not compilation.
+Neither package is publicly available yet. The Worker preview tag remains unpushed until registry verification passes.
+
 ## Version authority
 
 `config.versions.json` supplies release versions. `config.preview.versions.json` supplies preview versions.
@@ -152,6 +156,32 @@ Environment secrets become available only to jobs that select that environment a
 An existing environment named `cloudflare` does not supply secrets to jobs that select `preview` or `production`.
 The current production Worker deployment remains disabled. Its credentials are not necessary for initial SDK publication.
 Future products require their own allowed-tag rules before their protected jobs can run.
+
+### npm EOTP recovery
+
+Do not supply an account password or a one-time code to an unattended runner.
+Both first publication attempts reached npm publish, then npm required interactive authorization.
+The current token's exact settings remain unknown. Secret presence alone does not establish non-interactive publishing permission.
+
+1. Open npm account settings, then Access Tokens, then Generate New Token.
+2. Create a granular token with Read and write (publish and stage) package permission, not read-only or stage-only permission.
+3. Select Bypass two-factor authentication for this publishing token. Keep account 2FA enabled.
+4. Limit access to the two SDK packages where possible. First unscoped publication can require broader bootstrap access.
+5. If broader access is necessary, use a short expiry and replace it with narrower credentials after bootstrap.
+6. Replace NPM_TOKEN in GitHub's production and npm-preview environments. Never paste the value into chat, source or logs.
+7. Tell the delivery agent that setup is ready. Re-run failed publication jobs without moving tags or increasing versions.
+8. Approve the protected production environment when GitHub requests it. Preview npm publication retains its separate policy.
+9. Check public registry versions and integrity before starting Worker CI.
+
+The Bypass 2FA setting defaults to false. Do not use it where a package or organization forbids this exception.
+Package access, expiry and IP restrictions still apply. A stage-only token requires npm's separate review/promotion workflow.
+See [token setup](https://docs.npmjs.com/creating-and-viewing-access-tokens/) and [token permissions](https://docs.npmjs.com/about-access-tokens/).
+
+Prefer [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) after bootstrap to remove long-lived publishing tokens.
+Each package must trust owner SlamTheDragon, repository vrc-package-crawler and workflow vrc-packages-api.yml.
+Use production for the release identity and npm-preview for the preview identity.
+That transition also requires job-scoped id-token: write and a supported npm CLI. It is not enabled by the current token workflow.
+npm documents removal of direct token publication in January 2027. Track that transition before the temporary bootstrap credentials expire.
 
 ### Operator key
 
