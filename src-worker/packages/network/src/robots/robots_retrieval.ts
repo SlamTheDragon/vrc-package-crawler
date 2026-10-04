@@ -1,4 +1,3 @@
-import { CRAWLER_USER_AGENT } from "./crawler_identity.ts";
 import { MAX_ROBOTS_BYTES, OriginRobotsSnapshotSchema, type OriginRobotsSnapshot } from "./robots_snapshot.ts";
 
 export type RobotsFetcher = (url: string, init: RequestInit) => Promise<Response>;
@@ -41,7 +40,7 @@ async function boundedRobotsBody(response: Response): Promise<string> {
 
 /** RFC 9309 redirects, with each hop delegated to a caller-supplied safe transport. */
 export async function retrieveRobotsSnapshot(
-  origin: string, fetcher: RobotsFetcher, signal?: AbortSignal
+  { origin, userAgent }: { origin: string; userAgent: string }, fetcher: RobotsFetcher, signal?: AbortSignal
 ): Promise<RobotsRetrieval> {
   OriginRobotsSnapshotSchema.parse({ origin, statusCode: 599, body: "" });
   const redirects: string[] = [];
@@ -49,7 +48,7 @@ export async function retrieveRobotsSnapshot(
   for (let hop = 0; hop <= 5; hop++) {
     let response: Response;
     try {
-      response = await fetcher(target, { headers: { "user-agent": CRAWLER_USER_AGENT, accept: "text/plain" },
+      response = await fetcher(target, { headers: { "user-agent": userAgent, accept: "text/plain" },
         redirect: "manual", signal });
     } catch (cause) {
       return failure(origin, redirects, cause instanceof Error ? cause.message : String(cause));

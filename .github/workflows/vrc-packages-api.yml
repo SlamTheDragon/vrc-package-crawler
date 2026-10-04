@@ -1,0 +1,64 @@
+name: SDK tagged artifact and gated npm publication
+
+# NPM_TOKEN is owner-configured. The package and API review holds remain explicit.
+
+on:
+  push:
+    tags: ['package/v*']
+permissions:
+  contents: read
+concurrency:
+  group: sdk-release
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.route.outputs.channel }}
+      environment: ${{ steps.route.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: npm install --ignore-scripts --package-lock=false
+      - id: route
+        run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
+      - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
+      - run: bun test ./tests
+      - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' package --ci
+      - run: node scripts/delivery.mjs verify '${{ steps.route.outputs.channel }}' package --ci
+      - run: node scripts/delivery.mjs pack '${{ steps.route.outputs.channel }}' package --ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-${{ steps.route.outputs.channel }}
+          path: src-package/.artifacts/ci/
+          if-no-files-found: error
+  publish:
+    needs: build
+    # npm previews are deferred. Preview tags can check artifacts without publishing them.
+    if: needs.build.outputs.channel == 'release' && vars.VRCP_SDK_PUBLISH_APPROVED == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.build.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: npm install --ignore-scripts --package-lock=false
+      - run: node scripts/versioning.mjs sync '${{ needs.build.outputs.channel }}'
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk-${{ needs.build.outputs.channel }}
+          path: src-package/.artifacts/ci/
+      - run: node scripts/delivery.mjs publish '${{ needs.build.outputs.channel }}' package --ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

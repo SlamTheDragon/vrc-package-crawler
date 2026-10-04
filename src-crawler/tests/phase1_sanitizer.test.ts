@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { cleanTitle, unescapeHtml, cleanTrackingParams } from "../src/shared/text/catalog_hygiene.ts";
+import { cleanTitle, unescapeHtml, cleanTrackingParams } from "vrc-packages-network/catalog-hygiene";
 import { cleanAuthorName, cleanDescription, extractReadmeDescription, normalizeListingTitle } from "../src/utils/text/sanitizer.ts";
 
 describe("Phase 1: Front-Stage Sanitization & Normalization", () => {

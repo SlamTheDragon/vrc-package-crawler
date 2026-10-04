@@ -43,9 +43,9 @@ const runtime = new Miniflare(convertV4MiniflareOptions({ workers: [{
 }] }));
 try {
   const response = await runtime.dispatchFetch('https://packed-sdk.test');
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 200, response.status === 200 ? undefined : await response.text());
   assert.deepEqual(await response.json(), { platform: 'vpm', umbrella: 'tools', tokenValid: true,
-    clientReady: true, publicIndex: true, reason: 'Packed Worker fixture' });
+    clientReady: true, publicIndex: true, reason: 'Packed Worker fixture', redirectRejected: true });
   assert.equal(externalFetches, 0);
 } finally { await runtime.dispose(); }
 console.log(JSON.stringify({ check: 'packed_sdk_distribution', node: true, types: true,

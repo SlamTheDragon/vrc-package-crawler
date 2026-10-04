@@ -70,6 +70,13 @@ export const CatalogDeltaResponseSchema = z.strictObject({
 });
 export type CatalogDeltaResponse = z.infer<typeof CatalogDeltaResponseSchema>;
 
+export const CatalogDeltaQuerySchema = z.strictObject({
+  limit: z.number().int().min(1).max(100).default(50),
+  cursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/)
+    .refine(value => decodeCatalogDeltaCursor(value) !== null, "Invalid delta cursor").optional()
+});
+export type CatalogDeltaQuery = z.input<typeof CatalogDeltaQuerySchema>;
+
 export {
   CatalogPackageSchema,
   CatalogCursorSchema,

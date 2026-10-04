@@ -12,7 +12,7 @@ This runbook describes the current pre-production interfaces. It does not establ
 | Website | `src-web/` | Astro/Svelte starter. SDK, authentication and panels are not integrated. |
 | Desktop client | `src-crawler-client/` | Tauri/Svelte starter. Node bundling and supervision are not integrated. |
 
-Worker tests live in `src-worker/test/`. Its support folder contains the test-only SQLite comparator. The production Worker still imports some crawler contracts. Independent dependency delivery remains unfinished.
+Worker tests live in `src-worker/test/`. Its support folder contains the test-only SQLite comparator. Shared pure contracts have a distributed package home under `src-worker/packages/network`. Production callers and tests no longer import sibling source. Artifact/runtime checks remain open.
 
 ## 2. SDK Integration
 
@@ -45,7 +45,7 @@ Protect credentials. Do not log issuance responses or embed the operator secret 
 ```typescript
 const registration = await userClient.app.register({
   schemaVersion: 1,
-  appName: "MyVrcPackageManager",
+  appName: "MyVRCPManager",
   description: "VRChat package discovery"
 });
 // Store registration.appToken securely. Do not log it.
@@ -103,7 +103,7 @@ docker compose -f src-crawler/docker-compose.yml config
 
 The compose file includes Watchtower with the host Docker socket. It is not a verified safe update workflow. Its image name differs from the workflow's publication name. Inspect and settle image trust, update timing, persistence and credential handling before fleet use.
 
-`.github/workflows/node-docker.yml` defines image publication on qualifying main pushes, version tags and manual dispatch. It targets `ghcr.io/<repository-owner>/vrcp-crawler-node`. Successful CI publication, Linux startup and restart-safe submission remain unverified. Watchtower does not guarantee uninterrupted leases or result recovery.
+`.github/workflows/node-docker.yml` builds only on `crawler/v<configured-version>` tag pushes. The container publication switch defaults off. The image target is `ghcr.io/<repository-owner>/vrcp-crawler-node`. Successful CI publication, Linux startup and restart-safe submission remain unverified. Watchtower does not guarantee uninterrupted leases or result recovery.
 
 ## 4. API and Deployment References
 
@@ -113,50 +113,27 @@ Use [the Cloudflare setup checklist](docs/research/CRAWLER_DEPENDENCY_RESEARCH.m
 
 LEGAL.md states draft covenants, not measured implementation. Terms headers are not uniformly emitted by every handler. No remote build, deployment, source permission or legal compliance is inferred from this runbook.
 
-## 5. Version Metadata and Explicit Setup
+## 5. Development and Tagged Delivery
 
-The root version files supply product versions. Release versions use standard SemVer. Preview versions use the pre prerelease label, such as 2026.10.0-pre. API schemaVersion values do not change with a product version.
+Use [DELIVERY.md](docs/source/DELIVERY.md) for command syntax, version authority, CI targets and owner panel setup.
+Root setup installs orchestration dependencies only. Prepare a selected consumer from development tarballs before building.
+Each src-* remains independent. No sibling link, source copy or unpublished registry coordinate supplies shared contracts.
 
-Install root tool dependencies with bun install. There is no root install hook that installs the five projects. Run bun run setup explicitly for developer setup. This does not prove independent installation: current sibling imports and SDK file links remain G13 failures. Do not use this setup sequence as a remote CI workaround.
+Local builds create development outputs only. Desktop builds omit installers.
+Only product-tag CI builds create release artifacts. Remote actions require approved environment setup and explicit switches.
+Worker production keeps its current identity and D1 ID. A persistent preview Worker has a separate D1 binding and secret.
+UI version channels do not create staging environments. API schemaVersion does not follow product versions.
 
-The version commands do not install, build, tag, publish or deploy:
+Version bump changes one config value. Sync changes selected manifests, distributed dependency versions and Cargo metadata.
+Sync checks all input before writing, but an I/O failure can leave partial edits. Inspect the diff after such failures.
+SDK pre-0.1 publication requires artifact verification. The complete owner API review hold still blocks v0.1.0 and later.
+The network registry channel, website hosting, desktop signing and node installation/update contracts remain open.
 
-```sh
-bun run versions:sync:release
-bun run versions:sync:preview
-bun run versions:check:release
-bun run versions:check:preview
-# Select one product instead of all five:
-node scripts/versioning.mjs sync release crawler
-```
+### Local Cleanup
 
-Sync changes selected package manifests and the desktop Cargo package version. It preserves SDK publication protection and dependency declarations. It checks all config values before writing. File-write failures can leave partial edits, so inspect the diff before a release. Check reports drift without changing files. These commands remain unverified until the G14 checkpoint.
-
-The node --version command and user-agent read its local manifest. Worker structured logs include the local Worker version. Frontend metadata reads each frontend's local manifest. Tauri reads its local package.json through [the supported version-path setting](https://v2.tauri.app/reference/config/#version). No product reads another src-* source file for version metadata. Existing unrelated cross-project imports remain unresolved.
-
-Product tag names and release-event routing remain deferred. Root publish/preview/bump placeholders are not release implementations. Cloudflare panel setup remains an owner task. SDK registry publication requires G15 verification and complete owner API review, regardless of the configured version.
-
-### Local Product Builds
-
-Root build commands check the selected product's manifest against the chosen version config before its local build. They do not sync versions, bump, tag, publish or deploy. Node.js and root tool dependencies are required. Install product dependencies separately. These commands remain unrun under G14.
-
-| Product | Release command | Preview command |
-| --- | --- | --- |
-| Crawler, host target | `bun run build:release:crawler` | `bun run build:preview:crawler` |
-| Crawler, Linux target | `bun run build:release:crawler:linux` | `bun run build:preview:crawler:linux` |
-| Desktop client | `bun run build:release:crawler-client` | `bun run build:preview:crawler-client` |
-| Consumer SDK | `bun run build:release:package` | `bun run build:preview:package` |
-| Static website | `bun run build:release:web` | `bun run build:preview:web` |
-| API Worker | `bun run build:release:worker` | `bun run build:preview:worker` |
-
-Preview selects metadata, not a Cloudflare Preview or deployed environment. Worker builds use the project's Wrangler dry-run command. Local build routing does not change CI triggers or establish independent artifact installation.
-
-### Explicit Worker Deployment — Not Yet Ready to Run
-
-The root command bun run deploy:release:worker checks release metadata, then calls the Worker's deploy script with wrangler.toml. Unlike build:release:worker, this command changes the remote deployment. It targets the top-level Worker, not a named production environment. No command ran during implementation.
-
-Before use, finish dependency isolation, gate checks, account/resource review, secret setup and deployment approval. Disconnect automatic main-push Builds in the Cloudflare panel. Local scripts cannot change that setting. Do not run the command as a readiness check.
-
-Default and Preview D1 configuration now use the same logical VRCP_D1 binding. Their database IDs remain distinct and unchanged. The entry point does not consume VRCP_PREVIEW_D1. [Cloudflare requires matching binding names with preview-safe resources](https://developers.cloudflare.com/workers/previews/configuration/#what-goes-in-the-previews-block).
-
-No Preview deployment command or activation occurred. Review Preview secrets, public URL access, database sharing/migrations and existing-project migration before enabling it. Multiple branches can share a configured Preview database. A metadata preview build does not test that resource boundary.
+Cleanup requires a product and defaults to a dry run. Reset targets only the selected node_modules directory.
+Inspect the target list before adding --apply. Deletion has no recovery copy. Stop processes that use those outputs first.
+The current cleanup allowlist still includes earlier node binary paths and the earlier Worker api-build path.
+New development artifact/cache targets need review before expansion. Never add whole runtime state directories as cleanup targets.
+Keep node databases, secrets, bin, logs and local D1 state outside generated output cleanup.
+No real cleanup ran during this iteration. Isolated safety fixtures do not eliminate concurrent-filesystem or partial-deletion risks.

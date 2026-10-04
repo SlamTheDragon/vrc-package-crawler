@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { PlatformSchema } from "../src/shared/protocol/node_protocol.ts";
+import { PlatformSchema } from "vrc-packages-network/node";
 
 test("node setup help reflects schema capabilities and Worker registration", () => {
   const result = Bun.spawnSync([process.execPath, "run", "src/main.ts", "--help"], {

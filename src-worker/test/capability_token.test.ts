@@ -7,7 +7,7 @@ import {
   parseCapabilityToken,
   isCapabilityToken
 } from "../src/domain/security/capability_token.ts";
-import { PlatformSchema, type Platform } from "../../src-crawler/src/shared/protocol/node_protocol.ts";
+import { PlatformSchema, type Platform } from "vrc-packages-network/node";
 
 describe("Capability Token Encoding and Decoding", () => {
   test("generates node-token entropy with portable Web Crypto", () => {

@@ -1,5 +1,5 @@
 import { IanaRegistry } from "./iana.ts";
-import { unescapeHtml } from "../../shared/text/catalog_hygiene.ts";
+import { unescapeHtml } from "vrc-packages-network/catalog-hygiene";
 
 export function normalizeListingTitle(title: string): string {
   if (!title) return "";

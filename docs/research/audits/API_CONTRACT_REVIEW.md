@@ -65,16 +65,16 @@ Auth labels: O = configured operator secret, U = active user token, A = active a
 ## Cross-route checks and release blockers
 
 1. **Authorization is not permission enforcement.** App handlers authenticate active tokens but never check their permissions arrays. Storage returns catalog:read, catalog:search and demand:feedback. Define what limits report types and search access. Do not invent a new grant.
-2. **Search promises differ from storage.** queryOrigin defaults to user_authored but storage ignores it. Tags match title/category/avatar text, not attached canonical tags. LIKE treats percent and underscore as patterns. Invalid cursor content silently removes pagination constraints. totalEstimated counts the remaining cursor-filtered rows. SDK search clamps limits and omits cursor. Decide search semantics before changing the contract.
-3. **Reports lack a complete review path.** Demand and issue reports become demand signals. Issue reports default to refresh_demand. Their reason field is discarded. Removal reports use catalog_reports, but operator takedown routes read creator_opt_outs. No route lists, reviews or resolves pending removal reports. Keep pending removal non-destructive while deciding review transitions.
+2. **Search promises differ from storage.** queryOrigin defaults to user_authored but storage ignores it. Tags match title/category/avatar text, not attached canonical tags. LIKE treats percent and underscore as patterns. Invalid cursor content silently removes pagination constraints. totalEstimated counts the remaining cursor-filtered rows. SDK search now forwards the existing nullable cursor and rejects limits outside 1–50 instead of clamping. Source and packed-consumer fixtures remain unrun. Decide the remaining search semantics before changing the contract.
+3. **Reports lack a complete review path.** Demand and issue reports become demand signals. Issue reports default to refresh_demand. Their accepted reason now persists in metadata_json. It overrides a conflicting metadata reason. New persistence fixtures remain unrun. Removal reports use catalog_reports, but operator takedown routes read creator_opt_outs. No route lists, reviews or resolves pending removal reports. Keep pending removal non-destructive while deciding review transitions.
 4. **Moderation can change unrelated state.** verifyTakedown rejects a notice by restoring delisted rows and removing URL suppression without checking which action caused that state. Direct submitDelistRequest still delists before proof. The verify actor argument is unused. Review competing notices, suppression reasons, audit and restoration rules together.
 5. **Public projections need rights checks.** Existing publication-class gap remains R13-C3. Index includes delisted rows. Delta derives current state, cannot replay all intermediate events, and loses hard deletions. Epoch is returned but not bound into its cursor. Accepted identity links and all projected fronts require separate publication review.
 6. **Transport/errors differ.** JSON bodies have a 256 KiB limit. Bad JSON returns 400, oversized bodies 413, unsupported media 415. Known routes generally reject invalid credentials with 401. Node payload validation runs before auth. Wrong methods return 404, not 405. Most handler errors include schemaVersion/code/error, but top-level init unauthorized, fallback and exception responses omit version/code. App handlers map storage conflicts to 500. Some errors expose storage messages. No shared stable error contract exists.
 7. **Browser integration is incomplete.** Public/app responses have wildcard CORS, but no OPTIONS preflight handler or allowed authorization/content-type headers exist. User/operator responses lack CORS. A native SDK consumer is not proof of a browser dashboard. Decide approved frontend origins before adding authenticated CORS.
 8. **Pagination is not uniform.** Public pages default to 50, operator pages to 100, owned apps to 50. Maximum is 100 except search at 50. Public/operator list handlers reject unknown and duplicate query keys. Mutation and node routes do not apply the same query policy. Search cursors accept up to 256 characters without semantic validation. Existing Unicode/long-ID cursor issue remains R49-C29.
-9. **Package surface and installation remain open.** Direct-delisting schemas and user re-exports are removed. Export-absence fixtures are written, not run. Pending removal reports remain. All 14 SDK POST bodies now use existing request schemas before transport. Five operator action paths now validate identifiers with existing scalar schemas. Invalid-input/no-fetch fixtures are written, not run. This does not settle query validation or strict wire parity. Source-profile SDK validation is less strict than Worker policy. Lead mapping drops unknown fields and adds defaults. Worker lacks a declared SDK dependency. Other consumers use file links, and tests import sibling sources. These violate independent-project delivery. Resolve internal contract distribution without moving node jobs into the consumer SDK.
+9. **Package surface and installation remain open.** Direct-delisting schemas and user re-exports are removed. Export-absence fixtures are written, not run. Pending removal reports remain. All 14 SDK POST bodies now use existing request schemas before transport. Five operator action paths now validate identifiers with existing scalar schemas. Invalid-input/no-fetch fixtures are written, not run. This does not settle query validation or strict wire parity. Source-profile SDK validation is less strict than Worker policy. Owner-selected strict lead rows now reject aliases and unknown fields. Approval/rejection require explicit reasons. Their new fixtures remain unrun. Worker lacks a declared SDK dependency. Other consumers use file links, and tests import sibling sources. These violate independent-project delivery. Resolve internal contract distribution without moving node jobs into the consumer SDK.
 
-Critical path follow-up, R53-C37: provisioning and revocation schemas accept node IDs consisting of one or two dots. URL normalization can change those path segments. Check issuance-to-revocation behavior before changing the ID contract. UUID case handling also needs a Worker/SDK check because the dispatch patterns accept lowercase only. Current path fixtures do not prove either edge case.
+Identifier follow-up, R53-C37: issuance now rejects dot/dot-dot node IDs. Node requests reuse that public operator schema through the SDK dependency. SDK and Worker UUID action paths normalize valid IDs before storage. Operator listings normalize decoded UUID fields after cursor validation. Raw user app UUID cursors also normalize case. Node IDs, timestamps and encoded cursor strings keep their original case. New fixtures remain unrun. Native D1 and packed-artifact checks still need to prove these paths.
 
 The table covers all route handlers and current SDK methods. It does not establish all storage race/restart paths. Existing tests are historical evidence. No tests, typechecks, builds or publish commands ran for this review.
 
@@ -84,6 +84,8 @@ R53-C37 integrity follow-up: issuance and lead approval previously committed the
 
 DTO means data transfer object: the JSON shape sent over HTTP.
 
+Owner decision, 2026-10-04: strict wire DTOs, no convenience mapping. SDK preprocessing and reason defaults are removed. New parity and packed-consumer fixtures remain unrun. The following diagram records the previous defect, not current behavior. Owner comments below remain as review evidence.
+
 ```mermaid
 flowchart TD
   A[Worker HTTP response: strict snake-case JSON] --> B[Current SDK preprocessing]
@@ -92,20 +94,20 @@ flowchart TD
   C -. Not the Worker wire contract .-> E[Worker strict validation can reject this model]
 ```
 
-| Example | Worker wire contract | Current SDK behavior | Decision needed |
-| --- | --- | --- | --- |
-| lead_key / leadKey | Only lead_key in a lead row. | Accepts either, then emits both. | Keep wire data unchanged, or map after strict validation? |
-| discovered_from_url | Required, non-null string. | Missing value becomes null. | Do not erase required provenance during validation. |
-| Extra row property | Rejected by strict schema. | Preprocessing drops unknown properties. | Should invalid wire data fail instead? |
-| Approval without reason | Rejected. | Client supplies Operator approved. | Require a caller reason, or retain a documented client default? |
+| Example                 | Worker wire contract         | Current SDK behavior                    | Decision needed                                                 | author comments                                                                   |
+| ----------------------- | ---------------------------- | --------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| lead_key / leadKey      | Only lead_key in a lead row. | Accepts either, then emits both.        | Keep wire data unchanged, or map after strict validation?       | use one naming convention only (snake_case preferred)                             |
+| discovered_from_url     | Required, non-null string.   | Missing value becomes null.             | Do not erase required provenance during validation.             | proceed                                                                           |
+| Extra row property      | Rejected by strict schema.   | Preprocessing drops unknown properties. | Should invalid wire data fail instead?                          | auto handle with best practices, i will only provide general top level directions |
+| Approval without reason | Rejected.                    | Client supplies Operator approved.      | Require a caller reason, or retain a documented client default? | i dont know                                                                       |
 
-Proposed separation, not yet accepted:
+Selected strict path, implemented but unverified:
 
 ```mermaid
 flowchart LR
   A[Worker HTTP JSON] --> B[Strict shared wire validation]
   B --> C[Validated wire DTO]
-  C --> D[Optional explicit camelCase mapping]
+  C --> D[Consumer uses unchanged snake-case lead fields]
 ```
 
 This preserves one network contract. Convenience mapping changes names only after validation. It must not invent provenance or weaken source-access policy.

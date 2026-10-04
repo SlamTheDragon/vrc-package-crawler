@@ -1,4 +1,4 @@
-/** Supported public GitHub REST endpoint, excluding search, HTML, content and archive URLs. */
+/** Supported public GitHub REST target, excluding search, HTML, content and archives. */
 export function githubApiRepositoryIdentity(value: string): string | null {
   let url: URL;
   try { url = new URL(value); } catch { return null; }
@@ -78,4 +78,3 @@ export function isCustomDomainProductTarget(value: string): boolean {
     return url.pathname !== "/" && url.pathname.length > 1;
   } catch { return false; }
 }
-

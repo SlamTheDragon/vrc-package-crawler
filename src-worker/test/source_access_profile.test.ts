@@ -7,7 +7,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { getTestOutputDir } from "./helpers/test_directory.js";
-import { CreateSourceAccessProfileSchema as ConsumerProfileSchema } from "../../src-package/src/protocol/operator.js";
+import { CreateSourceAccessProfileSchema as ConsumerProfileSchema } from "vrc-packages-api";
 
 const input = {
   schemaVersion: 1 as const, platform: "vpm" as const, origin: "https://packages.example.org",

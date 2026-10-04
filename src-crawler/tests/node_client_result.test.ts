@@ -1,7 +1,8 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { CoordinatorClient } from "../src/client/node_client.ts";
 import { logger } from "../src/utils/logging/logger.ts";
-import { ResultRequestSchema, type ResultRequest, type ResultResponse } from "../src/shared/protocol/node_protocol.ts";
+import { CRAWLER_USER_AGENT } from "../src/shared/robots/crawler_identity.ts";
+import { ResultRequestSchema, type ResultRequest, type ResultResponse } from "vrc-packages-network/node";
 
 function fixture() {
   const nodeId = "result-client-fixture";
@@ -56,7 +57,7 @@ describe("Node result receipt validation", () => {
           start(controller) { controller.enqueue(new TextEncoder().encode(JSON.stringify({ token }))); },
           cancel() { bodyCancels++; },
         }), { status: 401 });
-        response.json = async () => { bodyReads++; return { token }; };
+        Object.defineProperty(response, "json", { value: async () => { bodyReads++; return { token }; } });
         return response;
       }, async () => {
         await expect(client.submit(request)).rejects.toThrow("Coordinator 401");
@@ -81,7 +82,7 @@ describe("Node result receipt validation", () => {
     await withTransport(async () => {
       if (++calls === 2) return Response.json(receipt);
       const response = new Response(new ReadableStream({ cancel() { bodyCancels++; } }), { status: 503 });
-      response.json = async () => { bodyReads++; throw new Error("Error body must not be read"); };
+      Object.defineProperty(response, "json", { value: async () => { bodyReads++; throw new Error("Error body must not be read"); } });
       return response;
     }, async () => {
       expect(await client.submit(request)).toEqual(receipt);
@@ -100,6 +101,8 @@ describe("Node result receipt validation", () => {
       expect(wire.redirect).toBe("manual");
       expect(wire.headers.get("content-type")).toBe("application/json");
       expect(wire.headers.get("authorization")).toBe(`Bearer ${token}`);
+      expect(wire.headers.get("user-agent")).toBe(CRAWLER_USER_AGENT);
+      expect(CRAWLER_USER_AGENT).toMatch(/^VRCPDiscoveryBot\//);
       const body = await wire.text();
       bodies.push(body);
       expect(ResultRequestSchema.parse(JSON.parse(body))).toEqual({
@@ -162,7 +165,7 @@ describe("Node result receipt validation", () => {
           expect(wire.redirect).toBe("manual");
           const response = new Response(new ReadableStream({ cancel() { bodyCancels++; } }), { status,
             headers: { location: "http://unreviewed.invalid/receive" } });
-          response.json = async () => { bodyReads++; throw new Error("Redirect body must not be read"); };
+          Object.defineProperty(response, "json", { value: async () => { bodyReads++; throw new Error("Redirect body must not be read"); } });
           return response;
         }, async () => {
           await expect(operation()).rejects.toThrow("Coordinator redirects are not allowed");

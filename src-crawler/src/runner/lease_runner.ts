@@ -1,4 +1,4 @@
-import type { CrawlJob, ResultRequest, ResultResponse } from "../shared/protocol/node_protocol.ts";
+import type { CrawlJob, ResultRequest, ResultResponse } from "vrc-packages-network/node";
 import { fetchJobOutcome } from "../adapters/observation_adapter.ts";
 import { logger } from "../utils/logging/logger.ts";
 

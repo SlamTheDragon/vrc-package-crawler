@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import crypto from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { ResultResponseSchema, type CrawlJob, type ResultResponse } from "../shared/protocol/node_protocol.ts";
+import { ResultResponseSchema, type CrawlJob, type ResultResponse } from "vrc-packages-network/node";
 
 export interface NodeRunRecord {
   runId: string;

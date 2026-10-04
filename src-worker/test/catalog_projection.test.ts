@@ -4,7 +4,7 @@ import { handleOperatorRequest } from "../src/api/operator_handler";
 import { LocalCoordinatorStore } from "./support/local_sqlite.js";
 import { OPERATOR_PROTOCOL_VERSION } from "../src/api/protocol/operator_protocol.js";
 import { CatalogListResponseSchema, decodeCatalogCursor } from "vrc-packages-api";
-import { PROTOCOL_VERSION } from "../../src-crawler/src/shared/protocol/node_protocol.js";
+import { PROTOCOL_VERSION } from "vrc-packages-network/node";
 import { approveFixtureSource, seedApprovedFixtureJob } from "./helpers/source_access_fixture.js";
 
 const OPERATOR_TOKEN = "a".repeat(64);

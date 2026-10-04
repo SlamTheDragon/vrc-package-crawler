@@ -3,7 +3,7 @@ import {
   ResultRequestSchema, ResultResponseSchema,
   type ClaimRequest, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse, type ResultRequest, type ResultResponse,
   type Platform
-} from "../../../src-crawler/src/shared/protocol/node_protocol.js";
+} from "vrc-packages-network/node";
 
 export interface NodePrincipal {
   nodeId: string;

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { handleNodeRequest } from "../../src/api/handler.ts";
 import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
-import { ClaimResponseSchema, NODE_API_JSON_SCHEMAS, PROTOCOL_VERSION, ResultResponseSchema, PlatformSchema } from "../../../src-crawler/src/shared/protocol/node_protocol.js";
+import { ClaimResponseSchema, NODE_API_JSON_SCHEMAS, PROTOCOL_VERSION, ResultResponseSchema, PlatformSchema } from "vrc-packages-network/node";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +9,6 @@ import crypto from "node:crypto";
 import { approveFixtureSource, seedApprovedFixtureJob } from "../helpers/source_access_fixture.ts";
 import { getTestOutputDir } from "../helpers/test_directory.ts";
 import { DEFAULT_SEED_JOBS } from "../../src/storage/default_seeds.ts";
-import { fetchJobOutcome } from "../../../src-crawler/src/adapters/observation_adapter.js";
 
 function allowFixtureOrigin(store: LocalCoordinatorStore, ...origins: string[]): void {
   for (const origin of origins) store.recordRobotsSnapshot(origin, 404);
@@ -215,7 +214,7 @@ describe("local coordinator protocol", () => {
   });
 
   test("upgrades existing local evidence tables with nullable provenance markers", () => {
-    const directory = mkdtempSync(join(getTestOutputDir(), "vrc-coordinator-migrate-"));
+    const directory = mkdtempSync(join(getTestOutputDir(), "vrcp-coordinator-migrate-"));
     const databasePath = join(directory, "coordinator.db");
     const old = new Database(databasePath, { create: true });
     old.run(`CREATE TABLE crawl_jobs (
@@ -639,10 +638,16 @@ describe("local coordinator protocol", () => {
       const claim = await post("/v1/node/jobs/claim", { schemaVersion: 1, nodeId: "node-a", capabilities: ["booth"] });
       expect(claim.body.status).toBe("leased");
       store.suppressUrl(url, "creator opt-out");
+      const heartbeat = await post("/v1/node/heartbeat", { schemaVersion: 1, nodeId: "node-a",
+        capabilities: ["booth"], state: "fetching", activeJobId: claim.body.job.jobId,
+        activeLeaseId: claim.body.job.leaseId });
+      expect(heartbeat.status).toBe(403);
       const result = await post("/v1/node/jobs/result", { schemaVersion: 1, nodeId: "node-a",
         jobId: claim.body.job.jobId, leaseId: claim.body.job.leaseId,
         idempotencyKey: "suppressed-result-001", outcome: { kind: "gone" } });
       expect(result.status).toBe(403);
+      expect(store.db.query("SELECT count(*) AS n FROM job_results").get()).toEqual({ n: 0 });
+      expect(store.db.query("SELECT count(*) AS n FROM source_versions").get()).toEqual({ n: 0 });
       expect((await post("/v1/node/jobs/claim", { schemaVersion: 1, nodeId: "node-a", capabilities: ["booth"] })).body.status).toBe("empty");
       expect(() => store.seedJob(url, "booth")).toThrow();
       expect((store.db.prepare(`SELECT kind,contributor_node_id,submission_lease_id
@@ -865,10 +870,10 @@ describe("local coordinator protocol", () => {
       const parsedClaim = ClaimResponseSchema.parse(claim.body);
       if (parsedClaim.status !== "leased") throw new Error("Expected a BOOTH browse lease");
       expect(parsedClaim.job.purpose).toBe("discovery");
-      const outcome = await fetchJobOutcome(parsedClaim.job, async () => new Response(
-        `<a href="/ja/items/12345">tool</a><a href="/ja/items/67890">asset</a>`,
-        { headers: { "content-type": "text/html" } }));
-      expect(outcome.kind).toBe("discovery");
+      const outcome = { kind: "discovery", leads: [
+        { kind: "storefront_product", url: "https://booth.pm/ja/items/12345" },
+        { kind: "storefront_product", url: "https://booth.pm/ja/items/67890" }
+      ] };
       const base = { schemaVersion: 1, nodeId: "browse-node", jobId: claim.body.job.jobId,
         leaseId: claim.body.job.leaseId, idempotencyKey: "booth-browse-leads-001" };
       const forgedFacts = { ...base, idempotencyKey: "booth-browse-forged-facts-001",

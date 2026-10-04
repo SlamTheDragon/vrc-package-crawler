@@ -1,0 +1,39 @@
+name: Build & Publish Crawler Client
+
+# Independent Windows shell build. No bundled crawler or updater contract is implied.
+
+on:
+  push:
+    tags: ['crawler-client/v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm install --ignore-scripts --package-lock=false
+      - id: route
+        run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
+      - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
+      - run: bun test ./tests
+      - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' crawler-client --ci
+      - run: npm --prefix src-package run test:distribution
+      - run: npm --prefix src-crawler-client run check
+      - run: node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' crawler-client --ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crawler-client-${{ steps.route.outputs.version }}-windows-unsigned
+          path: src-crawler-client/src-tauri/target/release/bundle/
+          if-no-files-found: error
+# ensure output only expose msi installer or exe installer if ever defined, if not, set up build configs in related source code

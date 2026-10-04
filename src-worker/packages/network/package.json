@@ -1,0 +1,73 @@
+{
+  "name": "vrc-packages-network",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Internal leased-ingestion contracts and pure policy for VRC Packages nodes and coordinator.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "exports": {
+    "./node": {
+      "types": "./dist/protocol/node_protocol.d.ts",
+      "import": "./dist/protocol/node_protocol.js"
+    },
+    "./evidence": {
+      "types": "./dist/policy/evidence_class.d.ts",
+      "import": "./dist/policy/evidence_class.js"
+    },
+    "./ip-policy": {
+      "types": "./dist/policy/ip_policy.d.ts",
+      "import": "./dist/policy/ip_policy.js"
+    },
+    "./source-targets": {
+      "types": "./dist/policy/source_targets.d.ts",
+      "import": "./dist/policy/source_targets.js"
+    },
+    "./source-paths": {
+      "types": "./dist/policy/source_path_policy.d.ts",
+      "import": "./dist/policy/source_path_policy.js"
+    },
+    "./vpm-version": {
+      "types": "./dist/taxonomy/vpm_version.d.ts",
+      "import": "./dist/taxonomy/vpm_version.js"
+    },
+    "./robots": {
+      "types": "./dist/robots/robots_snapshot.d.ts",
+      "import": "./dist/robots/robots_snapshot.js"
+    },
+    "./identity": {
+      "types": "./dist/robots/crawler_identity.d.ts",
+      "import": "./dist/robots/crawler_identity.js"
+    },
+    "./robots-retrieval": {
+      "types": "./dist/robots/robots_retrieval.d.ts",
+      "import": "./dist/robots/robots_retrieval.js"
+    },
+    "./catalog-hygiene": {
+      "types": "./dist/text/catalog_hygiene.d.ts",
+      "import": "./dist/text/catalog_hygiene.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:distribution": "node test/distribution_smoke.mjs",
+    "build": "tsc --project tsconfig.json",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "semver": "^7.8.5",
+    "vrc-packages-api": "0.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.7.1",
+    "typescript": "^7.0.2",
+    "miniflare": "5.20261001.0-alpha",
+    "wrangler": "4.147.0"
+  }
+}

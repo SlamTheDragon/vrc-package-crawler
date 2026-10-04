@@ -5,6 +5,28 @@ const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
 
 describe("robots access failures", () => {
+  test("new HTTP identity preserves both new and earlier bot-specific refusals", async () => {
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      expect(new Headers(init.headers).get("user-agent")).toMatch(/^VRCPDiscoveryBot\//);
+      return new Response("User-agent: *\nAllow: /\nUser-agent: VRCPDiscoveryBot\nDisallow: /new\n" +
+        "User-agent: VRCDiscoveryBot\nDisallow: /earlier");
+    }) as any;
+    const robots = new RobotsEnforcer();
+    expect(await robots.isAllowed("https://example.org/new/item")).toBe(false);
+    expect(await robots.isAllowed("https://example.org/earlier/item")).toBe(false);
+    expect(await robots.isAllowed("https://example.org/public")).toBe(true);
+  });
+
+  test("snapshot refresh replaces both restrictive matchers", async () => {
+    let body = "User-agent: VRCDiscoveryBot\nDisallow: /item";
+    globalThis.fetch = (async () => new Response(body)) as any;
+    const robots = new RobotsEnforcer();
+    expect(await robots.isAllowed("https://example.org/item")).toBe(false);
+    (await robots.getRobots("https://example.org")).fetchedAt = 0;
+    body = "User-agent: VRCPDiscoveryBot\nAllow: /\nUser-agent: VRCDiscoveryBot\nAllow: /";
+    expect(await robots.isAllowed("https://example.org/item")).toBe(true);
+  });
+
   test("a network failure disallows the origin instead of silently allowing it", async () => {
     globalThis.fetch = (async () => { throw new Error("offline"); }) as any;
     const robots = new RobotsEnforcer();

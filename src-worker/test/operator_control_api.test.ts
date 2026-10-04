@@ -14,6 +14,61 @@ function operatorRequest(path: string, method = "GET", body?: unknown, token = o
 }
 
 describe("separate operator control API", () => {
+  test("operator pagination normalizes decoded UUIDs without changing timestamps or accepting noncanonical cursors", async () => {
+    const store = new LocalCoordinatorStore();
+    const id = "abcdefab-cdef-4abc-8def-abcdefabcdef";
+    const timestamp = "2026-10-04T00:00:00.000Z";
+    const calls: unknown[] = [];
+    store.listAutoQueueRulesPage = (_limit, cursor) => { calls.push(cursor); return { rules: [], nextCursor: null }; };
+    store.listSourceAccessProfilesPage = (_limit, cursor) => { calls.push(cursor); return { profiles: [], nextCursor: null }; };
+    store.listTakedownsPage = (_type, _limit, cursor) => { calls.push(cursor); return { records: [], nextCursor: null }; };
+    try {
+      for (const [route, timeField, idField] of [
+        ["autoqueue-rules", "createdAt", "ruleId"],
+        ["source-profiles", "createdAt", "profileId"],
+        ["takedowns", "recordedAt", "takedownId"]
+      ] as const) {
+        for (const value of [id, id.toUpperCase(), id.replace("abcdefab", "AbCdEfAb")]) {
+          const encoded = btoa(JSON.stringify({ [timeField]: timestamp, [idField]: value }))
+            .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+          const path = `/v1/operator/${route}?cursor=${encoded}`;
+          const before = calls.length;
+          expect((await handleOperatorRequest(operatorRequest(path), store, operatorToken)).status).toBe(200);
+          expect(calls.slice(before)).toEqual([{ [timeField]: timestamp, [idField]: id }]);
+          for (const invalid of [encoded + "=", "invalid-cursor"]) {
+            expect((await handleOperatorRequest(operatorRequest(`/v1/operator/${route}?cursor=${encodeURIComponent(invalid)}`), store, operatorToken)).status).toBe(400);
+          }
+          expect(calls.length).toBe(before + 1);
+        }
+      }
+    } finally { store.close(); }
+  });
+  test("UUID action paths normalize case and reject malformed IDs before storage", async () => {
+    const store = new LocalCoordinatorStore();
+    const id = "abcdefab-cdef-4abc-8def-abcdefabcdef";
+    const calls: string[] = [];
+    store.disableSourceAccessProfile = (value) => { calls.push(value); throw new Error("Source profile not found"); };
+    store.disableAutoQueueRule = (value) => { calls.push(value); throw new Error("Rule not found"); };
+    store.verifyTakedown = (value) => { calls.push(value); throw new Error("Takedown not found"); };
+    try {
+      for (const [route, action, body] of [
+        ["source-profiles", "disable", { schemaVersion: 1, reason: "Reviewed profile" }],
+        ["autoqueue-rules", "disable", { schemaVersion: 1, reason: "Reviewed rule" }],
+        ["takedowns", "verify", { schemaVersion: 1, verdict: "accepted" }]
+      ] as const) {
+        const path = `/v1/operator/${route}/${id.toUpperCase()}/${action}`;
+        expect((await handleOperatorRequest(operatorRequest(path, "POST", body, "b".repeat(64)), store, operatorToken)).status).toBe(401);
+        const before = calls.length;
+        expect((await handleOperatorRequest(operatorRequest(path, "POST", body), store, operatorToken)).status).toBe(404);
+        expect(calls.slice(before)).toEqual([id]);
+        for (const malformed of ["-".repeat(36), "a".repeat(36), "not-a-uuid"]) {
+          const invalid = `/v1/operator/${route}/${malformed}/${action}`;
+          expect((await handleOperatorRequest(operatorRequest(invalid, "POST", body), store, operatorToken)).status).toBe(404);
+        }
+        expect(calls.length).toBe(before + 1);
+      }
+    } finally { store.close(); }
+  });
   test("manual enqueue audits atomically and preserves existing job state in the SQLite comparator", async () => {
     const store = new LocalCoordinatorStore();
     const input = { schemaVersion: 1, url: "https://queue.example/index.json", platform: "vpm", purpose: "metadata", minDelayMs: 1000, reason: "Offline fixture" };

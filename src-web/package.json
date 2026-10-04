@@ -1,5 +1,5 @@
 {
-  "name": "src-web",
+  "name": "vrcp-web",
   "type": "module",
   "version": "2026.10.0",
   "engines": {
@@ -16,7 +16,7 @@
     "astro": "^7.3.5",
     "svelte": "^5.57.1",
     "typescript": "^6.0.3",
-    "vrc-packages-api": "file:../src-package"
+    "vrc-packages-api": "0.0.0"
   },
   "allowScripts": {
     "esbuild": true

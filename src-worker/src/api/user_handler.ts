@@ -71,10 +71,11 @@ export async function handleUserRequest(
   if (isAppList || appMatch) {
     const parsed = UserAppListQuerySchema.safeParse(Object.fromEntries(url.searchParams));
     if (!parsed.success || [...url.searchParams.keys()].some(key => url.searchParams.getAll(key).length > 1)) return failure(400, "invalid_query", "Invalid app list query");
-    const appId = appMatch?.[1];
-    if (appId && !UserAppResponseSchema.shape.app.shape.appId.safeParse(appId).success) return failure(404, "not_found", "App not found");
+    const parsedId = appMatch ? UserAppResponseSchema.shape.app.shape.appId.safeParse(appMatch[1]) : null;
+    if (parsedId && !parsedId.success) return failure(404, "not_found", "App not found");
+    const appId = parsedId?.success ? parsedId.data.toLowerCase() : undefined;
     try {
-      const page = await store.listUserApps(user.userId, appId ? 1 : parsed.data.limit, appId ? null : parsed.data.cursor ?? null, appId);
+      const page = await store.listUserApps(user.userId, appId ? 1 : parsed.data.limit, appId ? null : parsed.data.cursor?.toLowerCase() ?? null, appId);
       if (appId) return page.apps[0] ? json(UserAppResponseSchema.parse({ schemaVersion: 1, app: page.apps[0] })) : failure(404, "not_found", "App not found");
       return json(UserAppListResponseSchema.parse(page));
     } catch (error) {

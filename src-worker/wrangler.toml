@@ -4,7 +4,7 @@ compatibility_date = "2026-10-02"
 compatibility_flags = ["nodejs_compat"]
 main = "src/worker_entry.ts"
 workers_dev = true
-preview_urls = true
+preview_urls = false
 
 [secrets]
 required = ["OPERATOR_TOKEN"]
@@ -14,11 +14,22 @@ binding = "VRCP_D1"
 database_id = "722bdd0d-92ca-445b-9319-da0b27adf7b2"
 remote = false
 
-# Preserve the owner-selected IDs. Remote resource isolation still needs review before deployment.
-[[previews.d1_databases]]
+# Persistent preview Worker with a separate owner-provisioned database.
+[env.preview]
+name = "vrc-package-crawler-preview"
+workers_dev = true
+preview_urls = false
+
+[env.preview.secrets]
+required = ["OPERATOR_TOKEN"]
+
+[[env.preview.d1_databases]]
 binding = "VRCP_D1"
-database_id = "9c3b2e28-861d-44fe-8df1-2c80f4e0c53c"
+database_id = "fbef6ce1-4145-45ae-ae91-5d617a1f2672"
 remote = false
+
+[observability]
+enabled = true
 
 [observability.logs]
 enabled = true
@@ -27,17 +38,20 @@ invocation_logs = true
 persist = true
 
 [observability.traces]
-enabled = false
-head_sampling_rate = 1
+enabled = true
+head_sampling_rate = 0.01
 persist = true
 
-[previews.observability.logs]
+[env.preview.observability]
+enabled = true
+
+[env.preview.observability.logs]
 enabled = true
 head_sampling_rate = 1
 invocation_logs = true
 persist = true
 
-[previews.observability.traces]
-enabled = false
-head_sampling_rate = 1
+[env.preview.observability.traces]
+enabled = true
+head_sampling_rate = 0.01
 persist = true

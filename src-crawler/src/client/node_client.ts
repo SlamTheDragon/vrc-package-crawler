@@ -3,9 +3,10 @@ import {
   ResultRequestSchema, ResultResponseSchema, PROTOCOL_VERSION,
   type Platform, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse,
   type ResultRequest, type ResultResponse
-} from "../shared/protocol/node_protocol.ts";
+} from "vrc-packages-network/node";
 
 import { logger } from "../utils/logging/logger.ts";
+import { CRAWLER_USER_AGENT } from "../shared/robots/crawler_identity.ts";
 
 /**
  * Resolves a target API path against a coordinator baseUrl without stripping subpaths.
@@ -77,7 +78,8 @@ export class CoordinatorClient {
       try {
         const response = await fetch(targetUrl, {
           method: "POST",
-          headers: { "content-type": "application/json", authorization: `Bearer ${this.token}` },
+          headers: { "content-type": "application/json", authorization: `Bearer ${this.token}`,
+            "user-agent": CRAWLER_USER_AGENT },
           body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs), redirect: "manual"
         });
 

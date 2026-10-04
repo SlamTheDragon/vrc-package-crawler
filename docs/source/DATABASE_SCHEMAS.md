@@ -3,7 +3,7 @@
 > **Document Status:** Candidate Source — v0 Pre-Production Architecture  
 > **Last Updated:** 2026-10-03
 > **Target Subsystems:** Coordinator storage (Cloudflare D1, including local workerd D1) · Node storage (`node.db` by default) · Activity logging
-> **Code Source:** `src-worker/src/storage/d1/` · `src-crawler/src/storage/` · `src-crawler/src/shared/protocol/`
+> **Code Source:** `src-worker/src/storage/d1/` · `src-crawler/src/storage/` · `src-worker/packages/network/src/protocol/`
 
 ---
 

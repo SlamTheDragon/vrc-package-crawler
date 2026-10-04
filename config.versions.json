@@ -3,5 +3,6 @@
     "release-crawler-client": "0.0.0",
     "release-package": "0.0.0",
     "release-web": "2026.10.0",
-    "release-worker": "0.0.0"
+    "release-worker": "0.0.0",
+    "release-network": "0.0.0"
 }

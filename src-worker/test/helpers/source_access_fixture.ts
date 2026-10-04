@@ -1,4 +1,4 @@
-import type { Platform } from "../../../src-crawler/src/shared/protocol/node_protocol.ts";
+import type { Platform } from "vrc-packages-network/node";
 import type { SourcePurpose } from "../../src/domain/access/source_access_profile.ts";
 import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
 

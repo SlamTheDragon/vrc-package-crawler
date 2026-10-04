@@ -1,15 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as cheerio from "cheerio";
-import type { CrawlJob, DiscoveryLead, Observation, ResultRequest, VpmListingIssue } from "../shared/protocol/node_protocol.ts";
-import { isVpmVersion } from "../shared/taxonomy/vpm_version.ts";
+import type { CrawlJob, DiscoveryLead, Observation, ResultRequest, VpmListingIssue } from "vrc-packages-network/node";
+import { isVpmVersion } from "vrc-packages-network/vpm-version";
 import { classifyAccessFailure, retryAfterSeconds } from "../shared/protocol/access_outcome.ts";
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
   isShopifyProductSitemapTarget, shopifyProductLead,
-  isSellfyProductTarget, sellfyProductIdentity, isCustomDomainProductTarget } from "../shared/policy/source_targets.ts";
+  isSellfyProductTarget, sellfyProductIdentity, isCustomDomainProductTarget } from "vrc-packages-network/source-targets";
 import { CRAWLER_USER_AGENT } from "../shared/robots/crawler_identity.ts";
 import { UnsafeMetadataTarget } from "../client/public_metadata_fetch.ts";
-import { cleanTitle, cleanTrackingParams } from "../shared/text/catalog_hygiene.ts";
+import { cleanTitle, cleanTrackingParams } from "vrc-packages-network/catalog-hygiene";
 import { cleanAuthorName, cleanDescription } from "../utils/text/sanitizer.ts";
 
 type Outcome = ResultRequest["outcome"];

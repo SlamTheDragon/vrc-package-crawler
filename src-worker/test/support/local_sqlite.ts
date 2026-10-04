@@ -13,7 +13,7 @@ import {
   ClaimRequestSchema, ObservationSchema, PlatformSchema, PROTOCOL_VERSION, STOREFRONT_PLATFORMS, observationMatchesPlatform,
   type ClaimRequest, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse,
   type Observation, type Platform, type ResultRequest, type ResultResponse
-} from "../../../src-crawler/src/shared/protocol/node_protocol.ts";
+} from "vrc-packages-network/node";
 import { CoordinatorConflict, type CoordinatorStore, type NodePrincipal } from "../../src/api/handler.ts";
 import { type PublicCatalogStore } from "../../src/api/public_handler.ts";
 import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../src/domain/security/capability_token.ts";
@@ -34,16 +34,16 @@ import {
   type CatalogSearchResponse
 } from "vrc-packages-api";
 import { type UserStore, type UserPrincipal } from "../../src/api/user_handler.ts";
-import { isPrivateOrReservedIp } from "../../../src-crawler/src/shared/policy/ip_policy.ts";
+import { isPrivateOrReservedIp } from "vrc-packages-network/ip-policy";
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
-  isShopifyProductSitemapTarget, shopifyProductLead, isSellfyProductTarget } from "../../../src-crawler/src/shared/policy/source_targets.ts";
-import { isItchSearchUrl } from "../../../src-crawler/src/shared/policy/source_path_policy.ts";
-import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "../../../src-crawler/src/shared/robots/robots_snapshot.ts";
+  isShopifyProductSitemapTarget, shopifyProductLead, isSellfyProductTarget } from "vrc-packages-network/source-targets";
+import { isItchSearchUrl } from "vrc-packages-network/source-paths";
+import { OriginRobotsSnapshotSchema, robotsResultAllowsMissingFile, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "vrc-packages-network/robots";
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
-import { CRAWLER_ROBOTS_TOKEN } from "../../../src-crawler/src/shared/robots/crawler_identity.ts";
+import { ROBOTS_RESTRICTION_TOKENS } from "vrc-packages-network/identity";
 import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../src/domain/classification/taxonomy.ts";
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../src/domain/classification/avatar_compatibility.ts";
-import { cleanTitle, cleanTrackingParams } from "../../../src-crawler/src/shared/text/catalog_hygiene.ts";
+import { cleanTitle, cleanTrackingParams } from "vrc-packages-network/catalog-hygiene";
 import { DEFAULT_SEED_JOBS } from "../../src/storage/default_seeds.ts";
 import { encodeLeadCursor, encodeTakedownCursor, type TakedownCursor, type TakedownRecord,
   type LeadCursor, type LeadRow } from "../../src/api/protocol/operator_protocol.ts";
@@ -99,7 +99,7 @@ export type IdentityLink = {
 export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogStore, UserStore {
   readonly db: Database;
   private readonly now: () => number;
-  private readonly robotsMatchers = new Map<string, { snapshotId: string; matcher: CrawlerRules }>();
+  private readonly robotsMatchers = new Map<string, { snapshotId: string; matchers: readonly CrawlerRules[] }>();
 
   constructor(databasePath: string = ":memory:", now: () => number = Date.now, autoSeed: boolean = false) {
     if (databasePath !== ":memory:" && databasePath !== "") {
@@ -572,11 +572,12 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     if (job.robots_status_code < 200 || job.robots_status_code >= 300) return false;
     let cached = this.robotsMatchers.get(job.origin);
     if (!cached || cached.snapshotId !== job.robots_snapshot_id) {
+      const rules = compileRobotsText(job.robots_body, { policy: "rfc9309" });
       cached = { snapshotId: job.robots_snapshot_id,
-        matcher: compileRobotsText(job.robots_body, { policy: "rfc9309" }).forCrawler(CRAWLER_ROBOTS_TOKEN) };
+        matchers: ROBOTS_RESTRICTION_TOKENS.map(token => rules.forCrawler(token)) };
       this.robotsMatchers.set(job.origin, cached);
     }
-    return cached.matcher.isAllowed(job.url);
+    return cached.matchers.every(matcher => matcher.isAllowed(job.url));
   }
 
   /** Operator read model: source evidence only, never an installable VPM repository. */

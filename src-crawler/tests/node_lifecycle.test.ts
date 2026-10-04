@@ -5,7 +5,7 @@ import { CoordinatorClient } from "../src/client/node_client.ts";
 import { CrawlerNodeDaemon } from "../src/runner/daemon.ts";
 import { runLeasedJob } from "../src/runner/lease_runner.ts";
 import { LocalNodeStore } from "../src/storage/local_sqlite.ts";
-import { CrawlJobSchema, type ClaimResponse } from "../src/shared/protocol/node_protocol.ts";
+import { CrawlJobSchema, type ClaimResponse } from "vrc-packages-network/node";
 import type { NodeRuntimeConfig } from "../src/config/runtime_config.ts";
 
 const config: NodeRuntimeConfig = { nodeId: "lifecycle-node", baseUrl: "https://coordinator.example",

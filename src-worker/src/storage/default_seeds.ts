@@ -1,4 +1,4 @@
-import type { Platform, JobPurpose } from "../../../src-crawler/src/shared/protocol/node_protocol.js";
+import type { Platform, JobPurpose } from "vrc-packages-network/node";
 
 export interface DefaultSeedJob {
   url: string;

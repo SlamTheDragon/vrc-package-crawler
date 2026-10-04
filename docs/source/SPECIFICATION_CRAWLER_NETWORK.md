@@ -2,7 +2,7 @@
 
 > **Document Status:** Current source reference with open capability gaps
 > **Target Subsystem:** Coordinator, Ingestion Gateway, and Cloudflare Worker Infrastructure  
-> **Source Directory:** `src-worker/src/` and `src-crawler/src/shared/`
+> **Source Directory:** `src-worker/src/` and the independent package `src-worker/packages/network/`
 
 ---
 
@@ -31,7 +31,7 @@ The coordinator currently supports these responsibilities:
 
 ## 2. Protocol Boundaries and Endpoints
 
-The route draft is [`API_ROUTES.md`](API_ROUTES.md). Runtime schemas live in [`src-crawler/src/shared/protocol/`](../../src-crawler/src/shared/protocol/). Handlers define executable routes. [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md) describes storage.
+The route draft is [`API_ROUTES.md`](API_ROUTES.md). Internal node schemas live in the [network package](../../src-worker/packages/network/README.md). Worker and node consumers import its declared package exports. The consumer SDK contains operator/user/app contracts, not node job methods. Current exact artifact dependencies are not published. Clean installation and mixed-fixture separation remain open at G13. Handlers define executable routes. [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md) describes storage.
 
 ### 2.1 Crawler Node Protocol (`/v1/node/*`)
 Requires `Authorization: Bearer <NODE_TOKEN>` (`vrcp_<64-hex><4-hex>`). The 4-hex suffix encodes the node's assigned capability bitmask.

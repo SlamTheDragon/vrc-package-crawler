@@ -4,14 +4,15 @@ import { resolve } from "node:path";
 import semver from "semver";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const products = ["crawler", "crawler-client", "package", "web", "worker"];
+export const productDirectories = {
+  crawler: "src-crawler", "crawler-client": "src-crawler-client", package: "src-package",
+  web: "src-web", worker: "src-worker", network: "src-worker/packages/network"
+};
+const products = Object.keys(productDirectories);
+const distributedProducts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
 
-/** Sync metadata only. This command never builds, tags, publishes or deploys. */
-export async function versionFiles(mode, channel, product = "all", workspace = root) {
-  if (!["check", "sync"].includes(mode) || !["release", "preview"].includes(channel) ||
-      (product !== "all" && !products.includes(product))) {
-    throw new Error("Usage: versioning.mjs <check|sync> <release|preview> [crawler|crawler-client|package|web|worker|all]");
-  }
+export async function readVersionConfig(channel, workspace = root) {
+  if (!["release", "preview"].includes(channel)) throw new Error("Channel must be release or preview");
   const configPath = resolve(workspace, channel === "release" ? "config.versions.json" : "config.preview.versions.json");
   const config = JSON.parse(await readFile(configPath, "utf8"));
   const keys = products.map(name => `${channel}-${name}`);
@@ -26,18 +27,57 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
     }
     const prerelease = semver.prerelease(value);
     if (channel === "release" && prerelease !== null) throw new Error(`${key} must not contain a prerelease label`);
-    if (channel === "preview" && prerelease?.[0] !== "pre") throw new Error(`${key} must use the pre prerelease label`);
+    // UI/headless artifacts can retain stable versions in the preview config. They are not Worker environments.
+    const requiresPrerelease = ["package", "network", "worker"].some(product => key === `preview-${product}`);
+    if (channel === "preview" && ((requiresPrerelease && prerelease === null) ||
+        (prerelease !== null && prerelease[0] !== "pre"))) throw new Error(`${key} must use the pre prerelease label when required`);
   }
+  return { config, configPath };
+}
+
+/** Change one config value only. Sync, build, tag and publication remain separate. */
+export async function bumpVersion(channel, product, increment, workspace = root) {
+  if (!products.includes(product) ||
+      !(channel === "release" ? ["patch", "minor", "major"] : ["pre"]).includes(increment)) {
+    throw new Error("Use bump release <product> <patch|minor|major> or bump preview <product> pre");
+  }
+  const { config, configPath } = await readVersionConfig(channel, workspace);
+  const key = `${channel}-${product}`;
+  const previous = config[key];
+  config[key] = increment === "pre" ? semver.inc(previous, "prerelease", "pre") : semver.inc(previous, increment);
+  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n");
+  return { channel, product, previous, version: config[key], configPath };
+}
+
+/** Sync metadata only. This command never builds, tags, publishes or deploys. */
+export async function versionFiles(mode, channel, product = "all", workspace = root) {
+  if (!["check", "sync"].includes(mode) || !["release", "preview"].includes(channel) ||
+      (product !== "all" && !products.includes(product))) {
+    throw new Error("Usage: versioning.mjs <check|sync> <release|preview> [crawler|crawler-client|package|web|worker|network|all]");
+  }
+  const { config } = await readVersionConfig(channel, workspace);
+  // Preview applications use the published release SDK. SDK preview publication is deferred.
+  const { config: releaseConfig } = channel === "preview" ? await readVersionConfig("release", workspace) : { config };
 
   // Prepare every selected edit before writing. Invalid input leaves files unchanged.
   const edits = [];
   for (const name of product === "all" ? products : [product]) {
     const version = config[`${channel}-${name}`];
-    const path = resolve(workspace, `src-${name}/package.json`);
+    const path = resolve(workspace, productDirectories[name], "package.json");
     const text = await readFile(path, "utf8");
     const manifest = JSON.parse(text);
     if (typeof manifest.version !== "string") throw new Error(`Missing package version: ${path}`);
-    if (manifest.version !== version) {
+    let changed = manifest.version !== version;
+    for (const [dependency, dependencyProduct] of Object.entries(distributedProducts)) {
+      if (Object.hasOwn(manifest.dependencies ?? {}, dependency)) {
+        const artifactVersion = dependencyProduct === "package" ? releaseConfig["release-package"] : config[`${channel}-${dependencyProduct}`];
+        if (manifest.dependencies[dependency] !== artifactVersion) {
+          manifest.dependencies[dependency] = artifactVersion;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
       manifest.version = version;
       const indent = text.match(/\n([\t ]+)"/)?.[1] ?? "  ";
       edits.push({ path, content: JSON.stringify(manifest, null, indent) + "\n" });
@@ -79,8 +119,13 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [mode, channel, product, ...extra] = process.argv.slice(2);
   try {
-    if (extra.length) throw new Error("Unexpected version command arguments");
-    console.log(JSON.stringify(await versionFiles(mode, channel, product)));
+    if (mode === "bump") {
+      if (extra.length !== 1) throw new Error("Bump requires one increment");
+      console.log(JSON.stringify(await bumpVersion(channel, product, extra[0])));
+    } else {
+      if (extra.length) throw new Error("Unexpected version command arguments");
+      console.log(JSON.stringify(await versionFiles(mode, channel, product)));
+    }
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Version metadata command failed");
     process.exitCode = 1;

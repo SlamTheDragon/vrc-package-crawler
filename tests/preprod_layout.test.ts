@@ -5,6 +5,48 @@ import { join } from "node:path";
 describe("Pre-production directory layout and configuration conformance", () => {
   const rootDir = join(import.meta.dir, "..");
 
+  test("project names distinguish the VRC Packages brand from VRCP components", () => {
+    const names = [
+      ["package.json", "vrc-packages"],
+      ["src-crawler/package.json", "vrcp-crawler-node"],
+      ["src-worker/package.json", "vrcp-worker"],
+      ["src-web/package.json", "vrcp-web"],
+      ["src-crawler-client/package.json", "vrcp-crawler-client"],
+      ["src-package/package.json", "vrc-packages-api"],
+      ["src-worker/packages/network/package.json", "vrc-packages-network"]
+    ];
+    for (const [path, name] of names) {
+      const manifest = JSON.parse(readFileSync(join(rootDir, path), "utf8"));
+      expect(manifest.name).toBe(name);
+      expect(manifest.description ?? "").not.toContain("VRChat Package Crawler");
+    }
+    expect(readFileSync(join(rootDir, "README.md"), "utf8").split(/\r?\n/)[0]).toBe("# VRC Packages");
+    const docker = readFileSync(join(rootDir, "src-crawler/Dockerfile"), "utf8");
+    expect(docker).toContain("USER vrcpuser");
+    expect(docker).not.toMatch(/\bvrc(?:user|group)\b/);
+    expect(docker).not.toContain("COPY src-package");
+    expect(readFileSync(join(rootDir, "src-crawler/.dockerignore"), "utf8")).toContain("!src/**");
+  });
+
+  test("runtime consumers declare exact artifacts instead of sibling SDK links", () => {
+    const release = JSON.parse(readFileSync(join(rootDir, "config.versions.json"), "utf8"));
+    const network = JSON.parse(readFileSync(join(rootDir, "src-worker/packages/network/package.json"), "utf8"));
+    for (const project of ["src-worker", "src-crawler", "src-web", "src-crawler-client"]) {
+      const manifest = JSON.parse(readFileSync(join(rootDir, project, "package.json"), "utf8"));
+      expect(manifest.dependencies["vrc-packages-api"]).toBe(release["release-package"]);
+      expect(Object.values(manifest.dependencies).some(value => String(value).startsWith("file:"))).toBe(false);
+      if (project === "src-worker" || project === "src-crawler") {
+        expect(manifest.dependencies["vrc-packages-network"]).toBe(network.version);
+      }
+    }
+    expect(network.dependencies["vrc-packages-api"]).toBe(release["release-package"]);
+    expect(network.private).toBe(true);
+    for (const entry of Object.values(network.exports) as { types: string; import: string }[]) {
+      expect(entry.types).toMatch(/^\.\/dist\/.*\.d\.ts$/);
+      expect(entry.import).toMatch(/^\.\/dist\/.*\.js$/);
+    }
+  });
+
   test("contains required directories in pre-production architecture", () => {
     const requiredDirs = [
       ".agents",
@@ -48,11 +90,12 @@ describe("Pre-production directory layout and configuration conformance", () => 
     const node = JSON.parse(readFileSync(join(rootDir, "src-crawler/package.json"), "utf8"));
     const worker = JSON.parse(readFileSync(join(rootDir, "src-worker/package.json"), "utf8"));
     expect(node.scripts.node).toBe("bun run src/main.ts");
-    expect(node.scripts["build:node"]).toContain("vrcp-crawler-node.exe src/main.ts");
+    expect(node.scripts["build:dev"]).toContain("dist/dev/vrcp-crawler-node.exe src/main.ts");
     expect(node.scripts["build:node:linux"]).toContain("vrcp-crawler-node-linux src/main.ts");
     expect(Object.keys(node.scripts).some(key => key.includes("coordinator"))).toBe(false);
-    expect(worker.scripts.build).toContain("wrangler deploy --dry-run");
-    expect(worker.scripts.build).toContain("--config wrangler.toml");
+    expect(worker.scripts.build).toBe("npm run build:preview");
+    expect(worker.scripts["build:preview"]).toContain("wrangler deploy --dry-run");
+    expect(worker.scripts["build:preview"]).toContain("--env preview");
     expect(worker.scripts.test).toBe("bun test ./test");
     expect(worker.scripts["test:workers"]).toBe("vitest run");
     expect(worker.scripts["test:runtime"]).toBe("node test/coordinator_runtime_smoke.mjs");
@@ -85,7 +128,11 @@ describe("Pre-production directory layout and configuration conformance", () => 
     expect(existsSync(join(rootDir, "src-web/src/worker/storage/local_sqlite.ts"))).toBe(false);
     expect(existsSync(join(rootDir, "src-worker/test/support/local_sqlite.ts"))).toBe(true);
     expect(existsSync(join(rootDir, "src-worker/test/d1_coordinator_store.test.ts"))).toBe(true);
-    expect(existsSync(join(rootDir, "src-worker/test/integration/node_daemon.test.ts"))).toBe(true);
+    expect(existsSync(join(rootDir, "src-worker/test/integration/node_daemon.test.ts"))).toBe(false);
+    expect(existsSync(join(rootDir, "src-worker/test/integration/node_lease_runner.test.ts"))).toBe(false);
+    expect(existsSync(join(rootDir, "src-crawler/tests/node_daemon.test.ts"))).toBe(true);
+    expect(existsSync(join(rootDir, "src-crawler/tests/node_lease_runner.test.ts"))).toBe(true);
+    expect(existsSync(join(rootDir, "src-crawler/tests/shopify_sitemap_discovery.test.ts"))).toBe(true);
     expect(existsSync(join(rootDir, "src-worker/src/storage/d1/coordinator.ts"))).toBe(true);
     expect(existsSync(join(rootDir, "src-web/tests/worker/d1_coordinator_store.test.ts"))).toBe(false);
     expect(existsSync(join(rootDir, "src-crawler/tests/d1_coordinator_store.test.ts"))).toBe(false);
@@ -102,11 +149,13 @@ describe("Pre-production directory layout and configuration conformance", () => 
     expect(databases[0].binding).toBe("VRCP_D1");
     expect(databases[0].database_id).toBe("722bdd0d-92ca-445b-9319-da0b27adf7b2");
     expect(databases[0].remote).toBe(false);
-    const previews = (config.previews as { d1_databases: typeof databases }).d1_databases;
+    const previews = (config.env as { preview: { d1_databases: typeof databases } }).preview.d1_databases;
     expect(previews).toHaveLength(1);
     expect(previews[0].binding).toBe(databases[0].binding);
     expect(previews[0].database_id).not.toBe(databases[0].database_id);
     expect(previews[0].remote).toBe(false);
+    expect(config.previews).toBeUndefined();
+    expect(config.preview_urls).toBe(false);
     expect(existsSync(join(rootDir, "src-crawler", "wrangler.toml"))).toBe(false);
   });
 });

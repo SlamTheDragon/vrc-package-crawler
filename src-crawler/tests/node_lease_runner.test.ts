@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { runLeasedJob } from "../src/runner/lease_runner.ts";
-import { CrawlJobSchema, ResultRequestSchema, type ResultRequest, type ResultResponse } from "../src/shared/protocol/node_protocol.ts";
+import { CoordinatorClient } from "../src/client/node_client.ts";
+import { HeartbeatRequestSchema, HeartbeatResponseSchema } from "vrc-packages-network/node";
+import { CrawlJobSchema, ResultRequestSchema, type ResultRequest, type ResultResponse } from "vrc-packages-network/node";
 
 const fixtureJob = CrawlJobSchema.parse({ jobId: "lease-runner-job", leaseId: crypto.randomUUID(),
   platform: "vpm", purpose: "metadata", url: "https://example.org/index.json", origin: "https://example.org",
@@ -8,6 +10,63 @@ const fixtureJob = CrawlJobSchema.parse({ jobId: "lease-runner-job", leaseId: cr
   etag: null, lastModified: null });
 
 describe("node lease runner", () => {
+  test("HTTP authority refusal aborts an active fetch without submission", async () => {
+    const originalFetch = globalThis.fetch;
+    let heartbeats = 0;
+    let submissions = 0;
+    let aborted = false;
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? new Request(input, init) : new Request(input.toString(), init);
+      if (new URL(request.url).pathname !== "/v1/node/heartbeat") {
+        submissions++;
+        throw new Error("Refused lease attempted submission");
+      }
+      expect(HeartbeatRequestSchema.parse(await request.json())).toMatchObject({ state: "fetching",
+        activeJobId: fixtureJob.jobId, activeLeaseId: fixtureJob.leaseId });
+      return ++heartbeats === 1 ? Response.json(HeartbeatResponseSchema.parse({ schemaVersion: 1,
+        status: "alive", serverTime: new Date().toISOString() })) :
+        Response.json({ schemaVersion: 1, code: "forbidden", error: "Lease suppressed" }, { status: 403 });
+    }) as typeof fetch;
+    const client = new CoordinatorClient("https://coordinator.invalid", "fixture-only-not-a-live-credential",
+      "abort-node", ["vpm"], { maxRetries: 0 });
+    try {
+      await expect(runLeasedJob(fixtureJob, client, async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new Error("request aborted"));
+        }, { once: true })), 10)).rejects.toThrow("Coordinator 403");
+      expect(aborted).toBe(true);
+      expect(submissions).toBe(0);
+    } finally { globalThis.fetch = originalFetch; }
+  });
+
+  test("a BOOTH browse lease submits discovery leads through the wire contract", async () => {
+    const job = CrawlJobSchema.parse({ ...fixtureJob, platform: "booth", purpose: "discovery",
+      url: "https://booth.pm/ja/browse/3D%E3%83%84%E3%83%BC%E3%83%AB%E3%83%BB%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0?page=1",
+      origin: "https://booth.pm", retainClasses: ["normalized_facts"] });
+    const submitted: ResultRequest[] = [];
+    let heartbeats = 0;
+    const client = {
+      heartbeat: async () => { heartbeats++; },
+      submit: async (payload: Omit<ResultRequest, "schemaVersion" | "nodeId">): Promise<ResultResponse> => {
+        submitted.push(ResultRequestSchema.parse(JSON.parse(JSON.stringify({ ...payload,
+          schemaVersion: 1, nodeId: "browse-runner" }))));
+        return { schemaVersion: 1, status: "accepted", jobId: job.jobId,
+          duplicate: false, sourceVersionCreated: false };
+      }
+    };
+    const { outcome, result } = await runLeasedJob(job, client,
+      async () => new Response('<a href="/ja/items/12345">item</a>',
+        { headers: { "content-type": "text/html" } }), 10);
+    expect(outcome).toEqual({ kind: "discovery", leads: [
+      { kind: "storefront_product", url: "https://booth.pm/ja/items/12345" }
+    ] });
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]?.outcome).toEqual(outcome);
+    expect(result).toMatchObject({ status: "accepted", sourceVersionCreated: false });
+    expect(heartbeats).toBe(2);
+  });
+
   test("omits unapproved creator prose before the serialized result submission", async () => {
     const submitted: ResultRequest[] = [];
     const client = {

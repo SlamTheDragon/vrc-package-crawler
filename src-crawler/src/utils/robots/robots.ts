@@ -1,13 +1,14 @@
 import { compileRobotsText, type CrawlerRules } from "@trybyte/robotstxt-parser";
 import { logger } from "../logging/logger.ts";
-import { CRAWLER_ROBOTS_TOKEN, CRAWLER_USER_AGENT } from "../../shared/robots/crawler_identity.ts";
-import { MAX_ROBOTS_BYTES } from "../../shared/robots/robots_snapshot.ts";
+import { CRAWLER_USER_AGENT } from "../../shared/robots/crawler_identity.ts";
+import { ROBOTS_RESTRICTION_TOKENS } from "vrc-packages-network/identity";
+import { MAX_ROBOTS_BYTES } from "vrc-packages-network/robots";
 
 export interface CachedRobotsRecord {
   host: string;
   fetchedAt: number;
   statusCode: number;
-  matcher?: CrawlerRules;
+  matchers?: readonly CrawlerRules[];
   truncated?: boolean;
 }
 
@@ -64,7 +65,8 @@ export class RobotsEnforcer {
         const source = await boundedRobotsText(response);
         record.truncated = source.truncated;
         if (!source.truncated) {
-          record.matcher = compileRobotsText(source.text, { policy: "rfc9309" }).forCrawler(CRAWLER_ROBOTS_TOKEN);
+          const rules = compileRobotsText(source.text, { policy: "rfc9309" });
+          record.matchers = ROBOTS_RESTRICTION_TOKENS.map(token => rules.forCrawler(token));
         }
       }
       // 3xx, 5xx and access refusals fail closed. RFC 9309 allows 4xx to be
@@ -86,7 +88,7 @@ export class RobotsEnforcer {
       const parsed = new URL(targetUrl);
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
       const robots = await this.getRobots(parsed.origin);
-      if (robots.matcher) return robots.matcher.isAllowed(parsed.href);
+      if (robots.matchers) return robots.matchers.every(matcher => matcher.isAllowed(parsed.href));
       return robots.statusCode === 404 || robots.statusCode === 410;
     } catch {
       return false;

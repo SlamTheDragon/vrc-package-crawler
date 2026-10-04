@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { VRCPackageClient, VRCPApiError } from "../src/client.ts";
 import { encodeLeadCursor, decodeLeadCursor } from "../src/protocol/operator.ts";
 import { encodeCatalogCursor } from "../src/types/package.ts";
+import { encodeCatalogDeltaCursor } from "../src/protocol/catalog.ts";
 
 describe("VRCPackageClient SDK", () => {
   it("reads owned app metadata through user-authenticated GET routes", async () => {
@@ -114,8 +115,8 @@ describe("VRCPackageClient SDK", () => {
       return new Response(JSON.stringify({
         schemaVersion: 1,
         items: [],
-        count: 0,
-        queryOrigin: "user_authored"
+        nextCursor: null,
+        totalEstimated: 0
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
@@ -128,12 +129,15 @@ describe("VRCPackageClient SDK", () => {
     const res = await client.index.search({
       query: "kikyo dress",
       queryOrigin: "user_authored",
-      limit: 10
+      limit: 10,
+      cursor: "opaque-search-cursor"
     });
 
     expect((capturedHeaders as Record<string, string>)["Authorization"]).toBe(`Bearer ${dummyAppToken}`);
     expect(capturedBody.queryOrigin).toBe("user_authored");
     expect(capturedBody.query).toBe("kikyo dress");
+    expect(capturedBody.cursor).toBe("opaque-search-cursor");
+    expect(capturedBody.limit).toBe(10);
     expect(res.schemaVersion).toBe(1);
   });
 
@@ -148,6 +152,7 @@ describe("VRCPackageClient SDK", () => {
   });
 
   it("synchronizes delta updates", async () => {
+    const cursor = encodeCatalogDeltaCursor({ updatedAt: "2026-10-01T12:00:00.000Z", canonicalId: "item-delta-0" });
     let requestedUrl = "";
     const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
       requestedUrl = input.toString();
@@ -170,8 +175,10 @@ describe("VRCPackageClient SDK", () => {
       fetch: mockFetch as typeof fetch
     });
 
-    const res = await client.index.syncDeltas({ cursor: "cursor-1" });
-    expect(requestedUrl).toContain("/v1/app/index/delta?cursor=cursor-1");
+    const res = await client.index.syncDeltas({ cursor });
+    expect(new URL(requestedUrl).pathname).toBe("/v1/app/index/delta");
+    expect(new URL(requestedUrl).searchParams.get("cursor")).toBe(cursor);
+    expect(new URL(requestedUrl).searchParams.get("limit")).toBe("50");
     expect(res.epoch).toBe("epoch-1");
     expect(res.deltas.length).toBe(1);
   });
@@ -313,15 +320,15 @@ describe("VRCPackageClient SDK", () => {
           schemaVersion: 1,
           leads: [
             {
-              leadKey: "a".repeat(64),
-              leadKind: "vpm_listing",
-              targetUrl: "https://example.com/vpm.json",
-              firstSeenAt: "2026-10-01T10:00:00.000Z",
-              lastSeenAt: "2026-10-01T10:00:00.000Z",
+              lead_key: "a".repeat(64),
+              kind: "vpm_listing",
+              target_url: "https://example.com/vpm.json",
+              first_seen_at: "2026-10-01T10:00:00.000Z",
+              last_seen_at: "2026-10-01T10:00:00.000Z",
               status: "pending_review",
-              reviewedAt: null,
-              reviewedBy: null,
-              reviewReason: null
+              claimed_package_id: null,
+              discovered_from_url: "https://example.com/catalog",
+              discovered_from_item_key: null
             }
           ],
           nextCursor: null
@@ -403,10 +410,10 @@ describe("VRCPackageClient SDK", () => {
 
     const res = await client.operator.leads.list({ status: "pending_review" });
     expect(res.leads.length).toBe(1);
-    expect(res.leads[0].leadKey).toBe("b".repeat(64));
     expect(res.leads[0].lead_key).toBe("b".repeat(64));
-    expect(res.leads[0].leadKind).toBe("vpm_listing");
-    expect(res.leads[0].targetUrl).toBe("https://example.com/feed.json");
+    expect(res.leads[0].kind).toBe("vpm_listing");
+    expect(res.leads[0].target_url).toBe("https://example.com/feed.json");
+    expect("leadKey" in res.leads[0]).toBe(false);
     expect(res.nextCursor).toBe(coordCursor);
 
     const decoded = decodeLeadCursor(res.nextCursor!, "pending_review");

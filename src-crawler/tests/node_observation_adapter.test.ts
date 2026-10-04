@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { parseGitHubRepository, parseObservation, parseVpmListingRecipe, parseVpmRepository, parseCuratedDiscoveryLeads, fetchJobOutcome } from "../src/adapters/observation_adapter.ts";
-import { CrawlJobSchema, ResultRequestSchema } from "../src/shared/protocol/node_protocol.ts";
-import { CRAWLER_USER_AGENT, CRAWLER_ROBOTS_TOKEN } from "../src/shared/robots/crawler_identity.ts";
+import { CrawlJobSchema, ResultRequestSchema } from "vrc-packages-network/node";
+import { CRAWLER_USER_AGENT } from "../src/shared/robots/crawler_identity.ts";
+import { CRAWLER_ROBOTS_TOKEN } from "vrc-packages-network/identity";
 
 const job = CrawlJobSchema.parse({
   jobId: "test", leaseId: "c2dd6562-6fa4-4cd2-84ae-0c090ba29733", platform: "vpm",
@@ -43,7 +44,7 @@ describe("standalone node observation adapter", () => {
       .toEqual({ kind: "temporary_failure", reason: "BOOTH browse exceeds one bounded lead batch" });
   });
 
-  test("uses the same declared identity as the legacy crawler and robots matcher", async () => {
+  test("uses the declared VRCP bot identity and robots product token", async () => {
     const suppliedHeaders: Headers[] = [];
     await fetchJobOutcome(job, async (_input, init) => {
       suppliedHeaders.push(new Headers(init?.headers));

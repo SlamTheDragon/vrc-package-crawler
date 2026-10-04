@@ -5,7 +5,7 @@ import { initializeCoordinatorConfig, loadCoordinatorRuntimeConfig } from "./sup
 import { getTestOutputDir } from "./helpers/test_directory.js";
 
 const tempRoot = getTestOutputDir();
-function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrc-coordinator-config-")); }
+function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrcp-coordinator-config-")); }
 function removeFixtureDirectory(directory: string): void {
   if (!realpathSync(directory).startsWith(tempRoot + sep)) throw new Error("Unexpected config fixture path");
   rmSync(directory, { recursive: true, force: true });

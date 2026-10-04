@@ -19,8 +19,12 @@ This is the current entry point for agents working in this repository. `DELEGATE
 
 ## Delivery discipline
 
+- Canonical brand: **VRC Packages**, abbreviated **VRCP**. P means Packages. Use `VRCP*`, `vrcp-`, `vrcp_`, or `vrc-packages*`/`vrc_packages*` for project-owned names. Do not use bare VRC/Vrc component names. Preserve actual upstream names and repository URLs. Exact SDK names are `VRCPackageClient`, `VRCPackageClientOptions`, and `VRCPApiError`, not doubled-P variants. The approved bot target is `VRCPDiscoveryBot/{version}`. Coordinate its robots matching and snapshot transition before claiming that rename complete.
+
 - Treat each `src-*` folder as an independent project. Never import sibling source or tests through relative paths, aliases or symlinks. Consume reused code only as declared, distributed package dependencies. A `file:../src-*` link does not prove that boundary.
 - SDK npm publication is conditionally authorized. Do not publish v0.1.0 until thorough package verification and the owner's complete `docs/source/API_ROUTES.md` review pass. Reconcile each route, method, permission and SDK contract with implementation. This owner-review hold overrides the general deferred-review rule.
+- Owner update, 2026-10-04: pre-0.1 releases starting at v0.0.1 are allowed while API contracts develop. Verify the distributed package before publishing. The v0.1.0 full owner-review hold remains. Do not treat a bootstrap workflow or an unverified local build as release readiness.
+- Owner selects strict lead wire DTOs without convenience aliases or invented audit reasons. Lead rows keep the Worker's snake-case fields. Approval and rejection require an explicit caller reason. This does not authorize a blanket rename of every existing API field.
 - Pick one capability gate and one bounded vertical slice. The 2–3-file constraint applies only to `docs/scratch/`.
 - Owner correction, 2026-10-04: implement a capability gate or related gate group before test verification and checkpoint write-ups. Slices are not gates. This supersedes per-slice failing-test and full-suite requirements in older skills/rules.
 - Keep changes marked unverified until the gate checkpoint passes. At that checkpoint, run the relevant tests, typechecks and runtime/build checks together. Do not invent smaller gates to justify repeated tests. Keep continuation records concise.

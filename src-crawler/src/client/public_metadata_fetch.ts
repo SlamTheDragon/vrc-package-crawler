@@ -1,7 +1,7 @@
 import dns from "node:dns/promises";
 import https from "node:https";
-import { isPrivateOrReservedIp } from "../shared/policy/ip_policy.ts";
-import { isItchSearchUrl } from "../shared/policy/source_path_policy.ts";
+import { isPrivateOrReservedIp } from "vrc-packages-network/ip-policy";
+import { isItchSearchUrl } from "vrc-packages-network/source-paths";
 import { logger } from "../utils/logging/logger.ts";
 
 const MAX_METADATA_BYTES = 2_000_000;

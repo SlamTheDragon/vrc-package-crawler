@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { fetchPublicMetadata, UnsafeMetadataTarget } from "../src/client/public_metadata_fetch.ts";
 import { fetchJobOutcome } from "../src/adapters/observation_adapter.ts";
-import { CrawlJobSchema } from "../src/shared/protocol/node_protocol.ts";
+import { CrawlJobSchema } from "vrc-packages-network/node";
 import { CoordinatorClient } from "../src/client/node_client.ts";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";

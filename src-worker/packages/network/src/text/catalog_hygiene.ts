@@ -1,5 +1,5 @@
 /**
- * Unescapes standard HTML entity codes
+ * Unescapes the supported HTML entity codes.
  */
 export function unescapeHtml(text: string): string {
   if (!text) return "";

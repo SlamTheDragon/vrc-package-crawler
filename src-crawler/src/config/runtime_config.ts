@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
-import { NodeIdSchema, PlatformSchema, type Platform } from "../shared/protocol/node_protocol.ts";
+import { NodeIdSchema, PlatformSchema, type Platform } from "vrc-packages-network/node";
 import { coordinatorEndpointAllowed } from "../client/node_client.ts";
 
 const MAX_CONFIG_BYTES = 64 * 1024;

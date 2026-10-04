@@ -2,7 +2,7 @@ import validSemver from "semver/functions/valid.js";
 import compareSemver from "semver/functions/compare.js";
 import cleanSemver from "semver/functions/clean.js";
 
-/** Manifest identities require strict SemVer, without leading v or whitespace. */
+/** Manifest versions require strict SemVer, without leading v or whitespace. */
 export function isVpmVersion(version: string): boolean {
   return version === version.trim() && /^[0-9]/.test(version) && validSemver(version) !== null;
 }

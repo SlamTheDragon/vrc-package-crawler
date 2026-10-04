@@ -1,4 +1,4 @@
-/** Known explicit robots exclusion checked on 2026-09-27. Dynamic per-origin rules remain G3/G5 work. */
+/** Known robots exclusion checked on 2026-09-27; runtime robots checks still apply. */
 export function isItchSearchUrl(url: string): boolean {
   try {
     const parsed = new URL(url);

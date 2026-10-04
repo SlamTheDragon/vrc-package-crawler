@@ -2,7 +2,9 @@
 
 This package supplies the consumer SDK and schemas for operator, user and application APIs. It does not supply a crawler node or job runner.
 
-The root exports VRCPackageClient, VRCPackageClientOptions and VRCPApiError. These names use the owner's VRCP identity and singular Package spelling. The package remains vrc-packages-api. Version zero retains no aliases for the old client/options/error names. Source, example and packed-consumer fixtures use the new names. Runtime and declaration checks for this rename remain pending under G15.
+The root exports VRCPackageClient, VRCPackageClientOptions and VRCPApiError. VRC Packages is the canonical project brand. VRCP abbreviates that name, and P already stands for Packages. Use the exact client spelling VRCPackageClient, not VRCPPackageClient or VRCPPackagesClient. Crawler, Worker and Client describe project components, not the overall brand.
+
+The package remains vrc-packages-api. Version zero retains no aliases for the old client/options/error names. Source, example and packed-consumer fixtures use the new names. The grouped Node/declaration/native Worker checks passed for these exports.
 
 The taxonomy subpath exposes the three umbrella values: tools, assets and avatars. It does not supply an indexed tag vocabulary or coordinator-internal evidence schemas. VPM version validation belongs to the crawler. Coordinator-owned tags and classification profiles remain under development.
 
@@ -22,7 +24,9 @@ Run `npm run test:distribution` before release. This test packs the SDK, install
 
 The SDK owns its pinned Worker test tools as development dependencies. The distribution test does not use another project directory. It prints and retains the temporary consumer directory for inspection. The packed SDK contains no Worker test tools or crawler source.
 
-Registry publication remains blocked by `private: true`. Remove this guard only after G15 package verification and the owner's complete API route review pass. Package identity, release version and license metadata also need review. Cloudflare Builds must consume an approved distribution rather than importing this package's source across project folders. Packaging this SDK does not relocate crawler-internal Worker dependencies.
+The owner authorizes v0.0.0 publication after package verification. The manifest permits publication and declares the existing Apache-2.0 license asset. CI checks the artifact before publishing it. npm preview publication remains deferred while the owner considers package channels. The complete owner API route review still gates v0.1.0, including its prereleases. See [delivery](../docs/source/DELIVERY.md) for exact config-driven routing and remaining checks. Packaging this SDK does not relocate crawler-internal Worker dependencies.
+
+Operator lead rows use the exact Worker snake-case wire fields. The SDK adds no aliases or missing provenance. Approval and rejection require an explicit reason. Unknown fields fail validation. The grouped source and packed-consumer checks passed. Remaining authorization and report-lifecycle gaps still require review.
 
 ## Public catalog pages
 

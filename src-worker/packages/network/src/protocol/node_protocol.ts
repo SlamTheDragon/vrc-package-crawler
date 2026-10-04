@@ -1,4 +1,6 @@
+/** Internal leased-ingestion contract; not part of the consumer SDK API. */
 import { z } from "zod";
+import { IssueNodeCredentialSchema } from "vrc-packages-api";
 import { EvidenceClassSchema } from "../policy/evidence_class.ts";
 import { isVpmVersion } from "../taxonomy/vpm_version.ts";
 
@@ -14,7 +16,7 @@ export const STOREFRONT_PLATFORMS: ReadonlySet<Platform> = new Set([
 export const JobPurposeSchema = z.enum(["discovery", "metadata"]);
 export type JobPurpose = z.infer<typeof JobPurposeSchema>;
 
-export const NodeIdSchema = z.string().min(1).max(100).regex(/^[A-Za-z0-9._-]+$/);
+export const NodeIdSchema = IssueNodeCredentialSchema.shape.nodeId;
 const JobIdSchema = z.string().min(1).max(120);
 const HttpsUrlSchema = z.url().refine((value) => new URL(value).protocol === "https:", "HTTPS URL required");
 

@@ -1,7 +1,8 @@
 {
-    "preview-crawler": "2026.10.0-pre",
-    "preview-crawler-client": "2026.10.0-pre",
-    "preview-package": "2026.10.0-pre",
-    "preview-web": "2026.10.0-pre",
-    "preview-worker": "2026.10.0-pre"
+  "preview-crawler": "2026.10.0-pre",
+  "preview-crawler-client": "2026.10.0-pre",
+  "preview-package": "2026.10.0-pre",
+  "preview-web": "2026.10.0-pre",
+  "preview-worker": "2026.10.0-pre",
+  "preview-network": "2026.10.0-pre"
 }

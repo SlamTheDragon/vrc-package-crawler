@@ -9,7 +9,7 @@ import {
   type CatalogDelta,
   decodeCatalogCursor, encodeCatalogCursor, VRCPackageClient
 } from "vrc-packages-api";
-import { PROTOCOL_VERSION } from "../../src-crawler/src/shared/protocol/node_protocol.js";
+import { PROTOCOL_VERSION } from "vrc-packages-network/node";
 import { seedApprovedFixtureJob } from "./helpers/source_access_fixture.js";
 
 function publicGet(path: string): Request {

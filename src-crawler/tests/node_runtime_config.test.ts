@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/config/runtime_config.ts";
+import { initializeNodeConfig, loadNodeRuntimeConfig, NodeRuntimeConfigSchema } from "../src/config/runtime_config.ts";
+import { ClaimRequestSchema, HeartbeatRequestSchema } from "vrc-packages-network/node";
 import { coordinatorEndpointAllowed, resolveCoordinatorUrl, isTransientEdgeStatus, CoordinatorClient } from "../src/client/node_client.ts";
 import { loadScopedGitHubTokenFromEnvFile } from "../src/adapters/observation_adapter.ts";
 
@@ -16,6 +17,15 @@ function removeFixtureDirectory(directory: string): void {
 }
 
 describe("standalone node runtime configuration", () => {
+  test("node config, claim and heartbeat reject URL navigation IDs but retain dotted IDs", () => {
+    for (const nodeId of [".", "..", "...", "Node.1", "node-1", "node_1"]) {
+      const valid = nodeId !== "." && nodeId !== "..";
+      const identity = { schemaVersion: 1, nodeId, capabilities: ["vpm"] };
+      expect(NodeRuntimeConfigSchema.safeParse({ ...identity, coordinatorUrl: "http://127.0.0.1:8787" }).success).toBe(valid);
+      expect(ClaimRequestSchema.safeParse(identity).success).toBe(valid);
+      expect(HeartbeatRequestSchema.safeParse({ ...identity, state: "idle" }).success).toBe(valid);
+    }
+  });
   test("loads a strict non-secret config from the launch directory and requires a separate key", () => {
     const directory = fixtureDirectory();
     try {
@@ -118,8 +128,8 @@ describe("standalone node runtime configuration", () => {
 
 describe("coordinatorEndpointAllowed dual-mode Cloudflare endpoint validation", () => {
   test("accepts valid production Cloudflare Worker URLs over HTTPS", () => {
-    expect(coordinatorEndpointAllowed("https://vrc-coordinator.workers.dev")).toBe(true);
-    expect(coordinatorEndpointAllowed("https://vrc-coordinator.workers.dev/v1/node/jobs/claim")).toBe(true);
+    expect(coordinatorEndpointAllowed("https://vrcp-coordinator.workers.dev")).toBe(true);
+    expect(coordinatorEndpointAllowed("https://vrcp-coordinator.workers.dev/v1/node/jobs/claim")).toBe(true);
     expect(coordinatorEndpointAllowed("https://custom-coordinator.example.com")).toBe(true);
     expect(coordinatorEndpointAllowed("https://subdomain.domain.org:8443/api")).toBe(true);
   });
@@ -142,9 +152,9 @@ describe("coordinatorEndpointAllowed dual-mode Cloudflare endpoint validation", 
   });
 
   test("rejects embedded user credentials, URL fragments, and invalid protocols", () => {
-    expect(coordinatorEndpointAllowed("https://user:pass@vrc-coordinator.workers.dev")).toBe(false);
+    expect(coordinatorEndpointAllowed("https://user:pass@vrcp-coordinator.workers.dev")).toBe(false);
     expect(coordinatorEndpointAllowed("http://user:pass@127.0.0.1:8787")).toBe(false);
-    expect(coordinatorEndpointAllowed("https://vrc-coordinator.workers.dev#anchor")).toBe(false);
+    expect(coordinatorEndpointAllowed("https://vrcp-coordinator.workers.dev#anchor")).toBe(false);
     expect(coordinatorEndpointAllowed("ws://127.0.0.1:8787")).toBe(false);
     expect(coordinatorEndpointAllowed("ftp://127.0.0.1:8787")).toBe(false);
     expect(coordinatorEndpointAllowed("not-a-valid-url")).toBe(false);
@@ -205,7 +215,7 @@ describe("coordinator client transport & edge resilience", () => {
       }) as any;
 
       const client = new CoordinatorClient(
-        "https://vrc-coordinator.workers.dev",
+        "https://vrcp-coordinator.workers.dev",
         secret,
         "test-node-1",
         ["vpm"],
@@ -233,7 +243,7 @@ describe("coordinator client transport & edge resilience", () => {
       }) as any;
 
       const client = new CoordinatorClient(
-        "https://vrc-coordinator.workers.dev",
+        "https://vrcp-coordinator.workers.dev",
         secret,
         "test-node-1",
         ["vpm"],

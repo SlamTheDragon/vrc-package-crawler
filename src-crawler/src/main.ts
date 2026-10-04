@@ -4,7 +4,7 @@ import { CoordinatorClient } from "./client/node_client.ts";
 import { CrawlerNodeDaemon } from "./runner/daemon.ts";
 import { initializeNodeConfig, loadNodeRuntimeConfig } from "./config/runtime_config.ts";
 import { LocalNodeStore } from "./storage/local_sqlite.ts";
-import { NodeIdSchema, PlatformSchema, type Platform } from "./shared/protocol/node_protocol.ts";
+import { NodeIdSchema, PlatformSchema, type Platform } from "vrc-packages-network/node";
 import { loadScopedGitHubTokenFromEnvFile } from "./adapters/observation_adapter.ts";
 import { logger } from "./utils/logging/logger.ts";
 import { version } from "../package.json";
@@ -24,7 +24,7 @@ if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
 }
 
 function printSetupGuide(): void {
-  console.log(`=== VRCP Package Crawler Node Setup Guide ===
+  console.log(`=== VRCP Crawler Node Setup Guide ===
 
 To initialize a new crawler node configuration, specify a unique node identifier:
 

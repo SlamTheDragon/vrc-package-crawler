@@ -1,9 +1,6 @@
 services:
   crawler-node:
-    build:
-      context: ..
-      dockerfile: src-crawler/Dockerfile
-    image: ghcr.io/vrc-package-crawler/node:latest
+    image: ${VRCP_NODE_IMAGE:?Set a reviewed CI-built image digest before starting the node}
     container_name: vrcp-crawler-node
     restart: unless-stopped
     volumes:

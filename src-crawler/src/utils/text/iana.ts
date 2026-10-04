@@ -1,3 +1,5 @@
+import { CRAWLER_USER_AGENT } from "../../shared/robots/crawler_identity.ts";
+
 export class IanaRegistry {
   private static tlds: Set<string> = new Set();
   private static isInitialized = false;
@@ -10,8 +12,7 @@ export class IanaRegistry {
     if (process.env.IANA_REFRESH === "1") try {
       console.info("[IANA] Fetching official Root Zone Database from data.iana.org...");
       const resp = await fetch("https://data.iana.org/TLD/tlds-alpha-by-domain.txt", {
-        // FIXME: multimple identities found, please check other documents and consolidate this into one singular static value files
-        headers: { "User-Agent": "VRCPackageCrawler/2.0 (IANA Root Zone Synchronizer)" }
+        headers: { "User-Agent": CRAWLER_USER_AGENT }
       });
 
       if (resp.ok) {

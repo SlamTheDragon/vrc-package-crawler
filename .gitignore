@@ -2,6 +2,8 @@
 node_modules/
 .bun-cache/
 .wrangler/
+.artifacts/
+.ci-artifacts/
 
 # Build output (use dist/ for distribution binaries)
 dist/

@@ -1,47 +1,81 @@
-# Active gate and continuation checkpoint
+# Active delivery gate and continuation checkpoint
 
-## Active slice — G14 explicit Worker release routing and Preview binding
+## Owner authority
 
-Working theory: explicit Wrangler deployment scripts are owner-approved, but the Preview binding differs from env.VRCP_D1 in the entry point. Preserve resource IDs and align the logical binding. Add an explicit root release command that checks Worker version metadata before the configured deployment. Make the Worker deploy script select wrangler.toml. Do not run either command, change remote settings or choose product tags. Preview activation/secrets/access review remains deferred. Types/build/runtime checks remain deferred to the related gates.
+Goal remains active. Read the attached goal objective at each continuation.
+G14 delivery and its G13 dependencies remain the priority. Preserve staged owner edits.
+Local builds create development artifacts only. CI creates release artifacts.
+The two version configs remain authoritative. No numeric values were changed.
+The owner permits SDK 0.0.0 publication and Worker preview deployment after checks.
+The full SDK v0.1.0 API-review hold remains, including prereleases.
+Website CI and hosting are deferred. No new branch-push trigger or automatic version bump is approved.
 
-Preview now declares VRCP_D1, with both database IDs unchanged. A static Worker-owned fixture checks matching logical names and distinct IDs. It is unrun and does not validate TOML semantics or remote isolation. Root deploy:release:worker checks selected release metadata before the Worker deploy script, which explicitly selects wrangler.toml. No command ran. This targets the top-level Worker, not an invented production environment. Q-WORKER-PREVIEW retains activation, secrets, access and shared-resource decisions. Regenerate binding types and check native runtime at the related gate, not in this slice.
+## Current delivery changes
 
-SDK request() now passes redirect:error. A new fixture checks all four auth namespaces, unchanged rejection identity and no retry. The packed consumer fixture checks the same Request policy. Both remain unrun. Native Node/Bun/workerd/browser redirect rejection still needs gate coverage. Existing arbitrary VRCPApiError bodies and unbounded success/error reads remain a separate critical contract review, not silently removed.
+Product-tag workflows route from the exact config versions, not sample tags.
+Local prepare installs compiled SDK/network tarballs without sibling source links.
+The internal network package remains private and supplies ten compiled module exports.
+Worker CI now requires the exact release SDK from npm, with identity, SHA-512 and file checks.
+It builds the internal network tarball against that SDK. No registry-to-source fallback exists.
+Preview consumers pin the release SDK. Their own product versions still come from the preview config.
+Preparation syncs the dependency SDK metadata to release before building or obtaining its artifact.
 
-Owner follow-up distinguishes public front placement from app authentication. The crypto research now maps that flow and adds a whole-handler CPU benchmark requirement. Workers Free has a documented 10 ms CPU limit, but no measured crypto-route budget exists. Database/network wait differs from CPU. No storefront check, algorithm selection or benchmark ran.
+SDK publication accepts pre-0.1 versions including the newly authorized 0.0.0.
+Its manifest permits publication and declares the existing Apache-2.0 license asset.
+npm preview publication is disabled in both the command and workflow.
+The owner proposed two package names: one preview-only and one release channel.
+That proposal remains open. Do not publish a second identity or waive the API-review hold.
+The initial npm check returned 404 for vrc-packages-api. The release must publish before Worker tags consume it.
 
-R55-C55A now uses the owner's exact VRCPackageClient spelling, with VRCPackageClientOptions and VRCPApiError. Source declarations, exception name, unit/packed consumers, Worker fixtures and runbooks changed together. New export-surface, error-name and negative declaration fixtures reject old aliases. They remain unrun. Root title, node CLI banner and library comment already use VRCP. C55B retains bot-specific robots/cache risks. IANA identity/version duplication remains open. Preserve vrcp-/vrcp_ and vrc-packages/vrc_packages exceptions, packages/p naming and upstream brands. No bot, package, credential or external resource changed.
+Worker preview now binds vrcp-preview-d1, ID fbef6ce1-4145-45ae-ae91-5d617a1f2672.
+An authenticated Cloudflare listing confirmed it separately from production on 2026-10-04.
+Production remains vrc-package-crawler with D1 722bdd0d-92ca-445b-9319-da0b27adf7b2.
+Worker deployment is preview-only in CI. Release tags build without production deployment.
+The owner reports main-push Cloudflare Builds are disconnected and environment/npm secrets are configured.
+These reports do not establish GitHub protection rules, switch values or token scopes.
+No remote schema, data, secret or deployment write ran.
 
-README and DELEGATES now qualify historical packed checks, avoid an incomplete token example, and distinguish accepted queryOrigin from unused attribution. DELEGATES lists all twelve product/channel build commands. They check metadata before local builds, without publication or deployment. Preview metadata is not a deployed Cloudflare environment. Node/network drafts already describe metadata byte limits, periodic authority checks, concurrent fetch/heartbeat, shutdown drain and missing outbox recovery. These descriptions follow source inspection, not runtime verification.
+Crawler CI defines standalone Windows/Linux binaries in addition to Docker.
+The client download, signature, updater and supervision contract remains future work.
+The desktop development build uses debug/no-bundle. Its redundant Svelte $lib paths are removed.
+CONTRIBUTING.md defines project responsibility, gated changes, versions and source-safety boundaries.
 
-## Delivered changes awaiting related-gate checks
+## Measured checkpoint — before the latest delivery edits
 
-| Gate or slice | Current physical evidence | Remaining boundary |
+| Check | Result | Limit |
 | --- | --- | --- |
-| R15-C17 bookkeeping | Terminal writes/counters share immediate SQLite transactions. Receipts require matching job identity. Repeats do not count twice. Completed tasks resist late failure/progress. Accepted recovery clears the error and retains the first failure count. Rollback/restart/replay fixtures are unrun. | Payload/key remain in memory. This is not a durable outbox. Retention, quota, identity scope and terminal rejection need decisions. |
-| R15-C17 lifecycle | Stop combines with authority cancellation. Daemon rechecks after claim/heartbeat. CLI drains task/receipt work before storage/log cleanup. Fatal one-shot runs retain failure and exit code 1. Stop-file polling runs every 100 ms during start(), with finally cleanup. Ten node-owned fixtures are unrun. | Check real signal/stdin/stop-file drain, timer cleanup, exit codes and log failure. Coordinator calls/backoff still drain under existing bounds. In-flight submission can commit. Abrupt death remains unrecovered. |
-| R48-C28 transport | Matching receipts were checked earlier. Recent post changes reject redirects, cancel failed bodies and avoid error-JSON logging. Retry options require nonnegative safe integers. Five new fixtures cover redirects, credential echoes, cancellation and option bounds. Worker token-generator import is removed. | New fixtures are unrun. Check native Bun behavior and exception redaction. Success JSON and lease fields remain unbounded under Q-NODE-ENVELOPE. Defaults/formulas are unchanged. |
-| G13 ownership | Commit 98ccecb moved token issuance, profile matching and operator DTOs into Worker ownership. Pure title/link extraction no longer imports crawler README/author/IANA logic. Later forwarding/re-export cleanup and six lead-contract fixtures remain unverified. | Worker shared imports still have node callers. Resolve Q-INTERNAL-DISTRIBUTION. No copied code, sibling installs, aliases or file links satisfy independent distribution. |
-| G13/R52-C35 fixtures | Ten comparator servers are removed. Output/preloads are project-local. Three pure runner fixtures moved to crawler tests with schema-validated submission. Three more crawler fixtures own unique paths and guarded cleanup. Scoped search finds no explicit sibling references in crawler tests. | Search is not whole-graph proof. Mixed integrations and SDK file links/Docker copies remain. Preserve coverage until distributed/native replacements exist. Inspect exact root artifact paths before deletion. |
-| G14 versions | Sync/check uses semver and prepares manifest/Cargo edits before writes. Preview uses pre. Products read their own manifests. Tauri reads package.json. Setup is explicit. Native hooks call dev:web/build:web. Twelve build commands check selected metadata before local builds. Worker stays dry-run. | Commands/install/builds are unrun. Check config, drift, selected/all products, native metadata, routing and partial write failure. Product tags/events remain undecided. |
-| G15 API/SDK | Audit compares 26 handlers and 23 SDK methods. SDK POST bodies and five action IDs use schemas. Retired delist exports are removed. Issuance/lead promotion batch mutations with audit. Rollback fixtures are unrun. SDK private:true remains. | Owner full API review and runtime/artifact checks precede v0.1.0. Permissions, report review, owned nodes, dot-only IDs, UUID case, attribution, CORS and stable errors remain open. Lead aliases/defaults differ. |
+| Unit suites | Root 20, SDK 54, Worker 233, node 133. Total 440 passing cases. | Does not prove all code paths or remote CI. The new registry/version changes are not included. |
+| SDK distribution | 31-file tarball passed Node, strict declarations and native Worker. Zero external fetches. | Registry publication and installed-registry consumption remain untested. |
+| Internal distribution | 23-file tarball passed Node, Bun, declarations and native Worker. Zero external fetches. | No public/internal registry release. |
+| Worker targets | Production and preview dry-runs and isolated native D1 passed. | The newly supplied preview binding needs the related checkpoint. No remote runtime proof. |
+| Node executable | Windows development compile passed startup, help and version 0.0.0. | Docker/Linux CI has not run. |
+| Website | Astro static build passed for one page. | Starter only. CI remains disabled. |
+| Desktop | Svelte check passed with zero errors/warnings. Native debug executable built without an installer. | Framework alias warning and Rust cache access warning occurred. Alias repair awaits check. No integrated node supervisor. |
+| Workflow syntax | Six YAML workflows parsed. | Not GitHub execution or actionlint proof. |
 
-Finish related implementation before gate checks. A slice is not a gate. G13 checks must cover tokens, profiles, helpers, receipts, lead differences, types, workerd/D1 and clean artifact consumption. Do not run retired loopback comparators.
+The SDK native check exposed workerd rejecting redirect:error.
+The transport now uses manual redirects and rejects 3xx and opaque redirects.
+The repaired source and packed fixtures passed. Unbounded success/error bodies remain open.
+Node-owned fixtures replace mixed Worker/node comparator tests. Scoped searches found no sibling source imports.
+These searches are not whole-graph proof. Separate-process real-source ingestion remains absent.
 
-## Research and critical decisions
+## Open risks and next action
 
-R54-C38 direction is accepted: downstream apps check creator challenges. Worker validates authorized attestations and commits removal without Worker/fleet storefront probes. Shared-secret matching and backend SDK helpers remain candidates. C38A–C retain verifier admission, target scope, challenge issuer, key custody and atomic replay/action decisions. Ordinary reports stay pending. A signature cannot prove an authorized verifier's observation truthful.
+Finish the package-channel decision before publication/tag promotion.
+Then run the affected delivery, distribution, binding, build and native checks as one related checkpoint.
+Check registry ownership and the exact published SDK before Worker tag pushes.
+Do not push all tags concurrently and rely on a publication race.
+Review protected environments, repo-level switches, operator secrets and preview access without logging credentials.
+Preview URLs can be public. Public catalog routes lack rights and age-disclosure controls.
+Keep preview test data synthetic until those publication boundaries are settled.
 
-R54-C38R has a [separate research shelf](../research/topics/05_cryptographic_delegation.md). Primary references checked on 2026-10-04 compare authenticators, payment-style events, JWS, fine-grained grants and identity services. HMAC/JWS HS256 and asymmetric JWS remain candidates. TOTP does not bind removal data. DPoP does not authenticate its body. Auth0/Firebase supply identity, not storefront proof. No protocol, dependency, benchmark or publication was selected.
+Preserve the owner no-lockfile choice. Floating external dependencies limit reproducibility.
+Docker is unavailable locally. Docker and Windows installer CI still need real runner checks.
+No cleanup, tag, push, npm publication or Worker deployment ran in this iteration.
+Local baseline is 3edcdc4. Remote main was 98ccecb at the read-only check. No remote tags were returned.
+No gate or the full real-source pre-production goal is complete.
 
-C39A–D propose G16 fleet work, not approved timing changes. Code has one five-minute lease, five-second active checks, thirty-second idle heartbeats, one-second empty delay and immediate submission. Idealized ten-node idle traffic is 892,800 calls/day before latency, not measurement. Assignment, active authority, upload and source revisit are separate clocks. HTTP batching does not necessarily reduce D1 rows. Receipt replay does not authorize a first expired result. See [infrastructure research](../research/topics/01_crawler_systems_and_infrastructure.md#fleet-batching-and-staggered-sync--proposal-2026-10-04).
-
-Other critical choices: internal artifact/channel, response/field limits, outbox budget, node ownership, publication rights, robots transport, real seeds/profiles, four-database consistency, dynamic tags and SDK license/registry identity. Questions/replies remain in UNMERGED_IMPLEMENTATION_PLAN.md. A clarification request is not acceptance.
-
-## Historical evidence and next action
-
-R49/R50 checks preceded R51: 383 Bun tests, three native tests, SDK/node/Worker types and packed SDK checks passed. Prior API bundle: 2596.36 KiB, gzip 414.76 KiB. These results do not verify current changes. Supplied Cloudflare log dbb64f2f proves the earlier isolated build failed with sixteen missing dependency imports. Docker/Linux CI errors remain undiagnosed.
-
-No recent implementation gate is complete. No runtime test, typecheck, build, deployment, tag or registry publication ran for these changes. Cloudflare main-push Builds remain owner-controlled. Explicit Wrangler workflows are accepted in principle. Product/channel tags and events remain undecided. Root publish/preview/bump placeholders are not release implementations.
-
-Next: continue independent source reconciliation and accepted implementation without copying code or inventing artifact approval. Preserve staged owner edits and unrelated Docker changes. Keep three scratch files and two canonical-ledger tables. The full local real-source pre-production objective remains active.
+Security transcript intake remains queued behind delivery.
+Latest direction: downstream apps observe creator challenges, admitted apps submit proofs, operators/staff review takedowns manually.
+Age assurance before app-token issuance and malicious-node threats require flow review before cryptographic choices.
+Other critical work remains in the ledgers: robots transport, reviewed seeds/profiles, publication rights, API permissions, owned-node provisioning and fleet/outbox budgets.

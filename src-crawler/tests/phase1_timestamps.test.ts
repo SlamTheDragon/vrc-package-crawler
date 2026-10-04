@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { cleanTitle } from "../src/shared/text/catalog_hygiene.ts";
+import { cleanTitle } from "vrc-packages-network/catalog-hygiene";
 import { cleanAuthorName } from "../src/utils/text/sanitizer.ts";
 
 describe("Phase 1 - Task 1.4: Timestamp Invariant & Disallow Crawl Fetch Time for Missing Dates", () => {

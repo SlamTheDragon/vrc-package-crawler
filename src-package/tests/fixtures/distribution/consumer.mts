@@ -6,9 +6,13 @@ import { UmbrellaSchema } from 'vrc-packages-api/taxonomy';
 import { isAppToken } from 'vrc-packages-api/auth';
 
 // @ts-expect-error Version-zero SDK does not retain the old client spelling.
-import { VrcPackagesClient } from 'vrc-packages-api';
+import { VRCPackagesClient } from 'vrc-packages-api';
 // @ts-expect-error Version-zero SDK does not retain the old options spelling.
-import type { VrcPackagesClientOptions } from 'vrc-packages-api';
+import type { VRCPackagesClientOptions } from 'vrc-packages-api';
+// @ts-expect-error The P in VRCP already stands for Packages.
+import { VRCPPackageClient } from 'vrc-packages-api';
+// @ts-expect-error The options name must not repeat Package after VRCP.
+import type { VRCPPackageClientOptions } from 'vrc-packages-api';
 
 // @ts-expect-error Coordinator classification types are not consumer API contracts.
 import type { DesktopToolSubtype } from 'vrc-packages-api/taxonomy';
@@ -36,3 +40,26 @@ async function checkPublicIndexTypes() {
   void version;
 }
 void checkPublicIndexTypes;
+
+async function checkSearchPaginationTypes() {
+  const page = await client.index.search({ queryOrigin: 'app_automated', cursor: null, limit: 1 });
+  if (page.nextCursor) await client.index.search({ queryOrigin: 'app_automated', cursor: page.nextCursor, limit: 1 });
+  // @ts-expect-error Search cursors are nullable text, not numeric offsets.
+  await client.index.search({ queryOrigin: 'app_automated', cursor: 1 });
+}
+void checkSearchPaginationTypes;
+
+async function checkStrictLeadTypes() {
+  const page = await client.operator.leads.list();
+  for (const lead of page.leads) {
+    const key: string = lead.lead_key;
+    // @ts-expect-error Lead wire rows have no camel-case alias.
+    void lead.leadKey;
+    await client.operator.leads.approve(key, { reason: 'Reviewed listing' });
+    // @ts-expect-error Operators must supply an approval reason.
+    await client.operator.leads.approve(key);
+    // @ts-expect-error Operators must supply a rejection reason.
+    await client.operator.leads.reject(key, {});
+  }
+}
+void checkStrictLeadTypes;

@@ -1,6 +1,8 @@
 import type { LocalCoordinatorStore } from "./local_sqlite.ts";
-import { retrieveRobotsSnapshot, type RobotsFetcher } from "../../../src-crawler/src/shared/robots/robots_retrieval.ts";
-import { ROBOTS_REFRESH_TIMEOUT_MS } from "../../../src-crawler/src/shared/robots/robots_snapshot.ts";
+import { retrieveRobotsSnapshot, type RobotsFetcher } from "vrc-packages-network/robots-retrieval";
+import { crawlerUserAgent } from "vrc-packages-network/identity";
+import { version } from "../../package.json";
+import { ROBOTS_REFRESH_TIMEOUT_MS } from "vrc-packages-network/robots";
 
 export const ROBOTS_REFRESH_POLL_MS = 60_000;
 export const ROBOTS_REFRESH_BATCH_LIMIT = 10;
@@ -14,7 +16,7 @@ export async function refreshRobotsWithLease(
     AbortSignal.timeout(ROBOTS_REFRESH_TIMEOUT_MS);
   try {
     if (shutdownSignal?.aborted) throw new Error("Robots refresh cancelled");
-    const snapshot = await retrieveRobotsSnapshot(origin, fetcher, signal);
+    const snapshot = await retrieveRobotsSnapshot({ origin, userAgent: crawlerUserAgent(version) }, fetcher, signal);
     // An aborted transport returns a 599 snapshot. Shutdown is not evidence of
     // origin failure, so leave the prior snapshot untouched and release the lease.
     if (shutdownSignal?.aborted) throw new Error("Robots refresh cancelled");

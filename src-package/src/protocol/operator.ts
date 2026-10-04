@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PlatformSchema, type Platform } from "../types/platform.ts";
-import { CatalogPackageSchema, type CatalogPackage } from "../types/package.ts";
+import { CatalogPackageSchema, decodeCatalogCursor, type CatalogPackage } from "../types/package.ts";
 
 export const OPERATOR_PROTOCOL_VERSION = 1 as const;
 
@@ -49,62 +49,17 @@ export const LeadKindSchema = z.enum([
 ]);
 export type LeadKind = z.infer<typeof LeadKindSchema>;
 
-export const LeadRowSchema = z.preprocess((val: any) => {
-  if (val && typeof val === "object") {
-    const leadKey = val.leadKey ?? val.lead_key;
-    const leadKind = val.leadKind ?? val.kind;
-    const targetUrl = val.targetUrl ?? val.target_url;
-    const firstSeenAt = val.firstSeenAt ?? val.first_seen_at;
-    const lastSeenAt = val.lastSeenAt ?? val.last_seen_at;
-    const claimedPackageId = val.claimedPackageId ?? val.claimed_package_id ?? null;
-    const discoveredFromUrl = val.discoveredFromUrl ?? val.discovered_from_url ?? null;
-    const discoveredFromItemKey = val.discoveredFromItemKey ?? val.discovered_from_item_key ?? null;
-    return {
-      leadKey,
-      lead_key: leadKey,
-      leadKind,
-      kind: leadKind,
-      targetUrl,
-      target_url: targetUrl,
-      firstSeenAt,
-      first_seen_at: firstSeenAt,
-      lastSeenAt,
-      last_seen_at: lastSeenAt,
-      status: val.status,
-      claimedPackageId,
-      claimed_package_id: claimedPackageId,
-      discoveredFromUrl,
-      discovered_from_url: discoveredFromUrl,
-      discoveredFromItemKey,
-      discovered_from_item_key: discoveredFromItemKey,
-      reviewedAt: val.reviewedAt ?? null,
-      reviewedBy: val.reviewedBy ?? null,
-      reviewReason: val.reviewReason ?? null
-    };
-  }
-  return val;
-}, z.strictObject({
-  leadKey: z.string().regex(/^[a-f0-9]{64}$/),
-  lead_key: z.string().regex(/^[a-f0-9]{64}$/).optional(),
-  leadKind: z.string(),
-  kind: z.string().optional(),
-  targetUrl: z.string(),
-  target_url: z.string().optional(),
-  firstSeenAt: z.string(),
-  first_seen_at: z.string().optional(),
-  lastSeenAt: z.string(),
-  last_seen_at: z.string().optional(),
+export const LeadRowSchema = z.strictObject({
+  lead_key: z.string(),
+  kind: z.string(),
+  target_url: z.string(),
+  claimed_package_id: z.string().nullable(),
+  discovered_from_url: z.string(),
+  discovered_from_item_key: z.string().nullable(),
   status: LeadStatusSchema,
-  claimedPackageId: z.string().nullable().optional(),
-  claimed_package_id: z.string().nullable().optional(),
-  discoveredFromUrl: z.string().nullable().optional(),
-  discovered_from_url: z.string().nullable().optional(),
-  discoveredFromItemKey: z.string().nullable().optional(),
-  discovered_from_item_key: z.string().nullable().optional(),
-  reviewedAt: z.string().nullable().optional(),
-  reviewedBy: z.string().nullable().optional(),
-  reviewReason: z.string().nullable().optional()
-}));
+  first_seen_at: z.string(),
+  last_seen_at: z.string()
+});
 export type LeadRow = z.infer<typeof LeadRowSchema>;
 
 export const LeadCursorSchema = z.strictObject({
@@ -135,13 +90,13 @@ export function decodeLeadCursor(value: string, status?: LeadStatus): LeadCursor
 export const ApproveLeadSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
   minDelayMs: z.number().int().min(0).max(86_400_000).optional(),
-  reason: z.string().trim().min(3).max(300).default("Operator approved")
+  reason: z.string().trim().min(3).max(300)
 });
 export type ApproveLead = z.infer<typeof ApproveLeadSchema>;
 
 export const RejectLeadSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
-  reason: z.string().trim().min(3).max(300).default("Operator rejected")
+  reason: z.string().trim().min(3).max(300)
 });
 export type RejectLead = z.infer<typeof RejectLeadSchema>;
 
@@ -155,13 +110,13 @@ export type LeadListResponse = z.infer<typeof LeadListResponseSchema>;
 export const LeadActionResponseSchema = z.discriminatedUnion("status", [
   z.strictObject({
     schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
-    leadKey: z.string().regex(/^[a-f0-9]{64}$/),
+    leadKey: z.string(),
     status: z.literal("approved"),
     jobId: z.string()
   }),
   z.strictObject({
     schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
-    leadKey: z.string().regex(/^[a-f0-9]{64}$/),
+    leadKey: z.string(),
     status: z.literal("rejected")
   })
 ]);
@@ -363,7 +318,7 @@ export type AutoQueueRuleResponse = z.infer<typeof AutoQueueRuleResponseSchema>;
 
 export const IssueNodeCredentialSchema = z.strictObject({
   schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
-  nodeId: z.string().min(1).max(100).regex(/^[A-Za-z0-9._-]+$/),
+  nodeId: z.string().min(1).max(100).regex(/^(?!\.{1,2}$)[A-Za-z0-9._-]+$/),
   capabilities: z.array(PlatformSchema).min(1).max(PlatformSchema.options.length).optional(),
   reason: z.string().trim().min(3).max(300)
 });
@@ -460,3 +415,20 @@ export const VerifyTakedownResponseSchema = z.strictObject({
   updatedAt: z.string().datetime()
 });
 export type VerifyTakedownResponse = z.infer<typeof VerifyTakedownResponseSchema>;
+
+const OperatorPageQuerySchema = z.strictObject({
+  limit: z.number().int().min(1).max(100).default(100),
+  cursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).optional()
+});
+export const OperatorLeadListQuerySchema = OperatorPageQuerySchema.extend({
+  status: LeadStatusSchema.default("pending_review")
+}).refine(query => query.cursor === undefined || decodeLeadCursor(query.cursor, query.status) !== null, "Invalid lead cursor");
+export const OperatorProfileListQuerySchema = OperatorPageQuerySchema.refine(
+  query => query.cursor === undefined || decodeProfileCursor(query.cursor) !== null, "Invalid profile cursor");
+export const OperatorRuleListQuerySchema = OperatorPageQuerySchema.refine(
+  query => query.cursor === undefined || decodeRuleCursor(query.cursor) !== null, "Invalid rule cursor");
+export const OperatorCatalogListQuerySchema = OperatorPageQuerySchema.refine(
+  query => query.cursor === undefined || decodeCatalogCursor(query.cursor) !== null, "Invalid catalog cursor");
+export const OperatorTakedownListQuerySchema = OperatorPageQuerySchema.extend({
+  requesterType: TakedownRecordSchema.shape.requesterType.optional()
+}).refine(query => query.cursor === undefined || decodeTakedownCursor(query.cursor) !== null, "Invalid takedown cursor");

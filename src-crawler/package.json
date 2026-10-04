@@ -1,7 +1,7 @@
 {
-  "name": "vrc-package-crawler",
+  "name": "vrcp-crawler-node",
   "version": "0.0.0",
-  "description": "VRChat Package Crawler - Yet Another Discovery Tool that crawls the public VRChat Web Ecosystem for VCC, Tooling, Assets, World Creation, Avatars & many more. Not affiliated with VRChat Inc.",
+  "description": "Headless crawler node for VRC Packages (VRCP). Fetches coordinator-leased public metadata. Not affiliated with VRChat Inc.",
   "license": "AGPL-3.0-or-later",
   "module": "src/index.ts",
   "main": "src/index.ts",
@@ -9,10 +9,12 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "node": "bun run src/main.ts",
-    "build": "bun run build:node",
-    "build:node": "bun build --compile --outfile=dist/local-node/vrcp-crawler-node.exe src/main.ts",
+    "build": "bun run build:dev",
+    "build:dev": "bun build --compile --outfile=dist/dev/vrcp-crawler-node.exe src/main.ts",
+    "build:node": "bun run build:dev",
     "build:linux": "bun run build:node:linux",
-    "build:node:linux": "bun build --compile --target=bun-linux-x64 --outfile=dist/local-node/vrcp-crawler-node-linux src/main.ts",
+    "build:node:linux": "bun build --compile --target=bun-linux-x64 --outfile=dist/dev/vrcp-crawler-node-linux src/main.ts",
+    "build:node:musl": "bun build --compile --target=bun-linux-x64-musl --outfile=dist/dev/vrcp-crawler-node-linux src/main.ts",
     "test": "bun test",
     "check:docs": "bun run ../.agents/scripts/check_doc_links.ts"
   },
@@ -26,7 +28,8 @@
     "@types/node": "^26.6.3",
     "cheerio": "^1.2.0",
     "semver": "^7.8.5",
-    "vrc-packages-api": "file:../src-package",
+    "vrc-packages-api": "0.0.0",
+    "vrc-packages-network": "0.0.0",
     "zod": "^4.6.5"
   }
 }

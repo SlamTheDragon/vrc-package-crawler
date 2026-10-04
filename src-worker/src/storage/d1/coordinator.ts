@@ -6,15 +6,15 @@ import { EnqueueJobRequestSchema, type EnqueueJobRequest,
   type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront,
   encodeCatalogCursor, decodeCatalogCursor, type CatalogDelta, type CatalogDeltaCursor,
   encodeCatalogDeltaCursor } from "vrc-packages-api";
-import { CRAWLER_ROBOTS_TOKEN } from "../../../../src-crawler/src/shared/robots/crawler_identity.js";
-import { isPrivateOrReservedIp } from "../../../../src-crawler/src/shared/policy/ip_policy.js";
-import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "../../../../src-crawler/src/shared/protocol/node_protocol.js";
+import { ROBOTS_RESTRICTION_TOKENS } from "vrc-packages-network/identity";
+import { isPrivateOrReservedIp } from "vrc-packages-network/ip-policy";
+import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "vrc-packages-network/node";
 import { type LeadCursor, type LeadRow, encodeLeadCursor,
   encodeTakedownCursor, type TakedownCursor, type TakedownRecord } from "../../api/protocol/operator_protocol.js";
-import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "../../../../src-crawler/src/shared/robots/robots_snapshot.js";
+import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "vrc-packages-network/robots";
 import { type SourceAccessProfile, SourceAccessProfileSchema, sourceAccessProfileMatches, type SourcePurpose, type ProfileCursor, encodeProfileCursor, type CreateSourceAccessProfile, CreateSourceAccessProfileSchema, sourcePathScopesOverlap } from "../../domain/access/source_access_profile.js";
-import { isItchSearchUrl } from "../../../../src-crawler/src/shared/policy/source_path_policy.js";
-import { isBoothBrowseTarget, boothItemIdentity, isShopifyProductSitemapTarget, shopifyProductLead, githubApiRepositoryIdentity, isSellfyProductTarget } from "../../../../src-crawler/src/shared/policy/source_targets.js";
+import { isItchSearchUrl } from "vrc-packages-network/source-paths";
+import { isBoothBrowseTarget, boothItemIdentity, isShopifyProductSitemapTarget, shopifyProductLead, githubApiRepositoryIdentity, isSellfyProductTarget } from "vrc-packages-network/source-targets";
 import { type CoordinatorStore, type NodePrincipal, CoordinatorConflict } from "../../api/handler.ts";
 import type { OperatorStore } from "../../api/operator_handler.ts";
 import type { PublicCatalogStore } from "../../api/public_handler.ts";
@@ -39,8 +39,8 @@ import type { UserStore } from "../../api/user_handler.ts";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils.js";
 import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../domain/classification/taxonomy.ts";
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../domain/classification/avatar_compatibility.ts";
-import { cleanTitle, cleanTrackingParams } from "../../../../src-crawler/src/shared/text/catalog_hygiene.js";
-import { STOREFRONT_PLATFORMS } from "../../../../src-crawler/src/shared/protocol/node_protocol.js";
+import { cleanTitle, cleanTrackingParams } from "vrc-packages-network/catalog-hygiene";
+import { STOREFRONT_PLATFORMS } from "vrc-packages-network/node";
 import { DEFAULT_SEED_JOBS } from "../default_seeds.js";
 import type {
   D1Database,
@@ -103,7 +103,7 @@ function approvedRobotsJobDelaySql(origin: string, now: string): string {
 }
 
 export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatalogStore, UserStore {
-  private readonly robotsMatchers = new Map<string, { snapshotId: string; matcher: CrawlerRules; }>();
+  private readonly robotsMatchers = new Map<string, { snapshotId: string; matchers: readonly CrawlerRules[]; }>();
 
   constructor(
     readonly db: D1Database,
@@ -185,13 +185,14 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     if (job.robots_status_code < 200 || job.robots_status_code >= 300) return false;
     let cached = this.robotsMatchers.get(job.origin);
     if (!cached || cached.snapshotId !== job.robots_snapshot_id) {
+      const rules = compileRobotsText(job.robots_body, { policy: "rfc9309" });
       cached = {
         snapshotId: job.robots_snapshot_id,
-        matcher: compileRobotsText(job.robots_body, { policy: "rfc9309" }).forCrawler(CRAWLER_ROBOTS_TOKEN)
+        matchers: ROBOTS_RESTRICTION_TOKENS.map(token => rules.forCrawler(token))
       };
       this.robotsMatchers.set(job.origin, cached);
     }
-    return cached.matcher.isAllowed(job.url);
+    return cached.matchers.every(matcher => matcher.isAllowed(job.url));
   }
 
   async activeSourceAccessProfileForTarget(platform: Platform, target: string, purpose: SourcePurpose): Promise<SourceAccessProfile | null> {
@@ -576,9 +577,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       if (job.platform === "vpm" && complete) {
         const vpmId = observation.sourceItemKey;
         const umbrella = deriveUmbrellaFromTags(observation.platformTags, "tools");
-        const originUpdated = observation.originUpdatedAt;
-        const publishedAt = originUpdated ?? null;
-        const timestampConfidence = originUpdated ? "confirmed" : "observed";
+        // The observation records modification, not publication. Keep that evidence in source_versions.
         batchStmts.push(
           this.db.prepare(`INSERT INTO canonical_packages
             (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at,published_at,timestamp_confidence)
@@ -586,15 +585,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
             ON CONFLICT(canonical_id) DO UPDATE SET
               display_name=excluded.display_name,
               vpm_id=COALESCE(excluded.vpm_id,canonical_packages.vpm_id),
-              updated_at=excluded.updated_at,
-              published_at=COALESCE(excluded.published_at, canonical_packages.published_at),
-              timestamp_confidence=CASE
-                WHEN excluded.timestamp_confidence = 'confirmed' THEN 'confirmed'
-                WHEN canonical_packages.timestamp_confidence = 'confirmed' THEN 'confirmed'
-                WHEN excluded.timestamp_confidence = 'inferred' THEN 'inferred'
-                ELSE COALESCE(canonical_packages.timestamp_confidence, excluded.timestamp_confidence)
-              END`).bind(
-            vpmId, umbrella, deriveCategoryFromTags(observation.platformTags, "vpm_package"), "active", cleanTitle(observation.title), vpmId, now, now, publishedAt, timestampConfidence),
+              updated_at=excluded.updated_at`).bind(
+            vpmId, umbrella, deriveCategoryFromTags(observation.platformTags, "vpm_package"), "active", cleanTitle(observation.title), vpmId, now, now, null, null),
           this.db.prepare(`INSERT OR IGNORE INTO identity_links
             (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
             VALUES (?,?,?,'vpm_id',1.0,'accepted',?,?)`).bind(
@@ -758,24 +750,15 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
             ? desktopClassification.subtype
             : "storefront_package"
         );
-        const originUpdated = observation.originUpdatedAt;
-        const publishedAt = originUpdated ?? null;
-        const timestampConfidence = originUpdated ? "confirmed" : "observed";
+        // No publication date exists in this wire observation. Do not substitute modification time.
         batchStmts.push(
           this.db.prepare(`INSERT INTO canonical_packages
             (canonical_id,umbrella,category,lifecycle,display_name,vpm_id,created_at,updated_at,published_at,timestamp_confidence)
             VALUES (?,?,?,?,?,NULL,?,?,?,?)
             ON CONFLICT(canonical_id) DO UPDATE SET
               display_name=excluded.display_name,
-              updated_at=excluded.updated_at,
-              published_at=COALESCE(excluded.published_at, canonical_packages.published_at),
-              timestamp_confidence=CASE
-                WHEN excluded.timestamp_confidence = 'confirmed' THEN 'confirmed'
-                WHEN canonical_packages.timestamp_confidence = 'confirmed' THEN 'confirmed'
-                WHEN excluded.timestamp_confidence = 'inferred' THEN 'inferred'
-                ELSE COALESCE(canonical_packages.timestamp_confidence, excluded.timestamp_confidence)
-              END`).bind(
-            canonicalId, umbrella, category, "active", cleanTitle(observation.title), now, now, publishedAt, timestampConfidence),
+              updated_at=excluded.updated_at`).bind(
+            canonicalId, umbrella, category, "active", cleanTitle(observation.title), now, now, null, null),
           this.db.prepare(`INSERT OR IGNORE INTO identity_links
             (link_id,source_key,canonical_id,evidence_kind,confidence,review_state,created_at,reviewed_at)
             VALUES (?,?,?,'cross_storefront_link',1.0,'accepted',?,?)`).bind(
@@ -1387,7 +1370,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       createdAt: pkg.created_at,
       updatedAt: pkg.updated_at,
       publishedAt: pkg.published_at ?? null,
-      timestampConfidence: (pkg.timestamp_confidence as any) ?? "observed",
+      timestampConfidence: (pkg.timestamp_confidence as CatalogPackage["timestampConfidence"]) ?? null,
       acceptedLinks,
       fronts
     };

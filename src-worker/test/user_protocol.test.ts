@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { LocalCoordinatorStore } from "./support/local_sqlite.js";
 import { handleUserRequest } from "../src/api/user_handler.ts";
-import { isUserToken, USER_TOKEN_PREFIX } from "../../src-crawler/src/shared/identity_config.js";
+import { isUserToken, USER_TOKEN_PREFIX } from "vrc-packages-api/auth";
 
 function jsonRequest(path: string, method: string, body?: unknown, token?: string): Request {
   const headers: Record<string, string> = {
@@ -77,16 +77,16 @@ describe("User Protocol (/v1/user/*)", () => {
       const page = await response.json() as any;
       expect(page.apps).toHaveLength(1);
       expect(page.nextCursor).toBe(page.apps[0].appId);
-      const next = await handleUserRequest(jsonRequest(`/v1/user/apps?limit=1&cursor=${page.nextCursor}`, "GET", undefined, user.token), store);
+      const next = await handleUserRequest(jsonRequest(`/v1/user/apps?limit=1&cursor=${page.nextCursor.toUpperCase()}`, "GET", undefined, user.token), store);
       const second = await next.json() as any;
       expect(second.apps).toHaveLength(1);
       expect(second.nextCursor).toBeNull();
       expect(new Set([...page.apps, ...second.apps].map(app => app.appId))).toEqual(new Set(owned.map(app => app.appId)));
-      const detail = await handleUserRequest(jsonRequest(`/v1/user/apps/${owned[0].appId}`, "GET", undefined, user.token), store);
+      const detail = await handleUserRequest(jsonRequest(`/v1/user/apps/${owned[0].appId.toUpperCase()}`, "GET", undefined, user.token), store);
       expect(detail.status).toBe(200);
       const app = (await detail.json() as any).app;
       expect(Object.keys(app).sort()).toEqual(["appId", "appName", "createdAt", "permissions", "revokedAt"].sort());
-      for (const id of [foreign.appId, unowned.appId, crypto.randomUUID()]) {
+      for (const id of [foreign.appId.toUpperCase(), unowned.appId.toUpperCase(), crypto.randomUUID()]) {
         expect((await handleUserRequest(jsonRequest(`/v1/user/apps/${id}`, "GET", undefined, user.token), store)).status).toBe(404);
       }
       for (const query of ["limit=0", "limit=101", "cursor=bad", "ownerId=other", "limit=1&limit=2"]) {

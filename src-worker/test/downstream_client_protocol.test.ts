@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { LocalCoordinatorStore } from "./support/local_sqlite.js";
 import { handleDownstreamRequest } from "../src/api/downstream_handler.ts";
 import { DOWNSTREAM_PROTOCOL_VERSION } from "vrc-packages-api";
-import { VRCPackageClient } from "../../src-package/src/client.js";
-import { type ReportSubmissionRequest } from "../../src-package/src/protocol/downstream.js";
+import { VRCPackageClient } from "vrc-packages-api";
+import { type ReportSubmissionRequest } from "vrc-packages-api";
 
 describe("Downstream Client Protocol & Demand Feedback Signals", () => {
   test("actual report HTTP receipts satisfy the SDK for demand, issue and removal", async () => {
@@ -20,8 +20,9 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
         return response;
       }, { preconnect() {} }) });
     const reports: ReportSubmissionRequest[] = [
-      { schemaVersion: 1, reportType: "demand_signal", signalKind: "search_miss", query: "receipt fixture", zeroHits: true },
-      { schemaVersion: 1, reportType: "issue_report", reportKind: "broken_link", targetUrl: "https://receipt.example/product" },
+      { schemaVersion: 1, reportType: "demand_signal", signalKind: "search_miss", query: "receipt fixture", zeroHits: true, reason: "Expected tool missing" },
+      { schemaVersion: 1, reportType: "issue_report", reportKind: "broken_link", targetUrl: "https://receipt.example/product",
+        reason: " Product link returns 404 ", metadata: { reason: "Caller metadata must not replace the report reason", source: "fixture" } },
       { schemaVersion: 1, reportType: "removal_request", canonicalId: "receipt-target", reason: "Incorrect attribution" }
     ];
     for (const report of reports) {
@@ -30,6 +31,14 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
       const table = report.reportType === "removal_request" ? "catalog_reports" : "downstream_demand_signals";
       const column = report.reportType === "removal_request" ? "report_id" : "signal_id";
       expect((store.db.prepare(`SELECT app_id FROM ${table} WHERE ${column}=?`).get(receipt.reportId) as { app_id: string }).app_id).toBe(app.appId);
+      if (report.reportType !== "removal_request") {
+        const row = store.db.prepare("SELECT metadata_json FROM downstream_demand_signals WHERE signal_id=?")
+          .get(receipt.reportId) as { metadata_json: string };
+        const metadata = JSON.parse(row.metadata_json);
+        expect(metadata.reason).toBe(report.reason!.trim());
+        expect(metadata.reportType).toBe(report.reportType);
+        if (report.metadata) expect(metadata.source).toBe("fixture");
+      }
     }
     expect(statuses).toEqual([200, 200, 202]);
   });

@@ -4,7 +4,7 @@ import { runLeasedJob } from "./lease_runner.ts";
 import { fetchPublicMetadata } from "../client/public_metadata_fetch.ts";
 import type { NodeRuntimeConfig } from "../config/runtime_config.ts";
 import type { LocalNodeStore } from "../storage/local_sqlite.ts";
-import type { HeartbeatRequest } from "../shared/protocol/node_protocol.ts";
+import type { HeartbeatRequest } from "vrc-packages-network/node";
 import { logger } from "../utils/logging/logger.ts";
 
 export interface CrawlerNodeDaemonOptions {

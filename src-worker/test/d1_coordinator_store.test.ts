@@ -8,10 +8,10 @@ import {
   type D1ExecResult
 } from "../src/storage/d1/definitions.ts";
 import workerEntry, { type Env } from "../src/worker_entry.ts";
-import { PlatformSchema } from "../../src-crawler/src/shared/protocol/node_protocol.js";
+import { PlatformSchema } from "vrc-packages-network/node";
 import { DEFAULT_SEED_JOBS } from "../src/storage/default_seeds.ts";
 import { decodeCatalogCursor } from "vrc-packages-api";
-import { VRCPackageClient } from "../../src-package/src/client.js";
+import { VRCPackageClient } from "vrc-packages-api";
 
 export function createMockD1Database(db = new Database(":memory:")): D1Database {
   db.run("PRAGMA foreign_keys = ON;");
@@ -73,6 +73,20 @@ export function createMockD1Database(db = new Database(":memory:")): D1Database 
 }
 
 describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
+  it("preserves earlier bot refusals and replaces both matchers with the snapshot", async () => {
+    const fixture = await claimRaceFixture(["https://race.example/index.json"]);
+    try {
+      for (const bot of ["VRCPDiscoveryBot", "VRCDiscoveryBot"]) {
+        await fixture.store.recordRobotsSnapshot("https://race.example", 200,
+          `User-agent: *\nAllow: /\nUser-agent: ${bot}\nDisallow: /index.json`);
+        expect((await fixture.claimBoth()).every(result => result.status === "empty")).toBe(true);
+      }
+      await fixture.store.recordRobotsSnapshot("https://race.example", 200,
+        "User-agent: VRCPDiscoveryBot\nAllow: /\nUser-agent: VRCDiscoveryBot\nAllow: /");
+      expect((await fixture.claimBoth()).filter(result => result.status === "leased")).toHaveLength(1);
+    } finally { fixture.sqlite.close(); }
+  });
+
   it("reserves robots refresh atomically and preserves pacing across release", async () => {
     const fixture = await claimRaceFixture(["https://race.example/index.json"]);
     try {
@@ -1105,7 +1119,11 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     expect(remainingFronts).toHaveLength(0);
   });
 
-  it("submitting a non-VPM storefront observation in D1 automatically creates canonical package and front", async () => {
+  it.each([
+    { originUpdatedAt: null, publishedAt: null },
+    { originUpdatedAt: "2024-01-02T03:04:05.000Z", publishedAt: null },
+    { originUpdatedAt: "2024-01-02T03:04:05.000Z", publishedAt: "2023-01-02T03:04:05.000Z" }
+  ])("storefront ingestion keeps modification and publication separate: %j", async ({ originUpdatedAt, publishedAt }) => {
     const mockDb = createMockD1Database();
     const store = new Coordinator(mockDb);
     await store.initSchema();
@@ -1144,6 +1162,14 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     expect(claimRes.status).toBe("leased");
     if (claimRes.status !== "leased") throw new Error("Expected leased status");
 
+    if (publishedAt) {
+      await store.upsertCanonicalPackage({
+        canonicalId: "booth.pm/ja/items/54321", umbrella: "assets", category: "shader",
+        lifecycle: "active", displayName: "Awesome Shader Asset", publishedAt,
+        timestampConfidence: "confirmed"
+      });
+    }
+
     const submitRes = await store.submit({
       schemaVersion: 1,
       nodeId: "node-booth",
@@ -1158,7 +1184,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
           summary: "",
           author: "ShaderDev",
           outboundLinks: [],
-          originUpdatedAt: null,
+          originUpdatedAt,
           price: 2000,
           currency: "JPY",
           availability: "available",
@@ -1174,6 +1200,16 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
     expect(canonical).not.toBeNull();
     expect(canonical?.canonicalId).toBe("booth.pm/ja/items/54321");
     expect(canonical?.displayName).toBe("Awesome Shader Asset");
+    expect(canonical?.publishedAt).toBe(publishedAt);
+    expect(canonical?.timestampConfidence).toBe(publishedAt ? "confirmed" : null);
+    const publicPage = await store.listCanonicalPackagesPage(100, null);
+    const publicPackage = publicPage.packages.find(pkg => pkg.canonicalId === canonical?.canonicalId);
+    expect(publicPackage?.publishedAt).toBe(publishedAt);
+    expect(publicPackage?.timestampConfidence).toBe(publishedAt ? "confirmed" : null);
+    const sourceVersion = await mockDb.prepare("SELECT payload_json FROM source_versions WHERE source_key=?")
+      .bind("booth:https://booth.pm/ja/items/54321:booth.pm/ja/items/54321")
+      .first<{ payload_json: string }>();
+    expect(JSON.parse(sourceVersion!.payload_json).originUpdatedAt).toBe(originUpdatedAt);
     expect(canonical?.vpmId).toBeNull();
     expect(canonical?.category).toBe("shader");
     expect(canonical?.umbrella).toBe("assets");

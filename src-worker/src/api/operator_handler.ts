@@ -2,18 +2,18 @@ import { CoordinatorConflict, readJson } from "./handler.js";
 import { RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeRequest,
   EnqueueJobRequestSchema, EnqueueJobResponseSchema, type EnqueueJobRequest,
   AutoQueueRuleListResponseSchema, AutoQueueRuleResponseSchema,
-  CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, decodeRuleCursor,
+  CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, decodeRuleCursor, RuleCursorSchema,
   IssueNodeCredentialSchema, NodeCredentialResponseSchema, CatalogListResponseSchema,
   decodeCatalogCursor, type IssueNodeCredential, type AutoQueueRule, type CreateAutoQueueRule,
   type RuleCursor, type CatalogCursor, type CatalogPackage } from "vrc-packages-api";
 import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, LeadStatusSchema,
   OPERATOR_PROTOCOL_VERSION, RejectLeadSchema, decodeLeadCursor,
-  decodeTakedownCursor, TakedownListResponseSchema,
+  decodeTakedownCursor, TakedownListResponseSchema, TakedownCursorSchema,
   VerifyTakedownRequestSchema, VerifyTakedownResponseSchema,
   type LeadCursor, type LeadRow, type TakedownCursor, type TakedownRecord } from "./protocol/operator_protocol.js";
 import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   SourceAccessProfileListResponseSchema, SourceAccessProfileResponseSchema,
-  decodeProfileCursor, type CreateSourceAccessProfile, type SourceAccessProfile,
+  decodeProfileCursor, ProfileCursorSchema, type CreateSourceAccessProfile, type SourceAccessProfile,
   type ProfileCursor } from "../domain/access/source_access_profile.js";
 import { parseCapabilityToken } from "../domain/security/capability_token.js";
 import { workerLogger } from "../worker_logger";
@@ -86,18 +86,18 @@ export async function handleOperatorRequest(
   const ruleListing = request.method === "GET" && url.pathname === "/v1/operator/autoqueue-rules";
   const ruleCreate = request.method === "POST" && url.pathname === "/v1/operator/autoqueue-rules";
   const ruleDisable = request.method === "POST" &&
-    /^\/v1\/operator\/autoqueue-rules\/([a-f0-9-]{36})\/disable$/.exec(url.pathname);
+    /^\/v1\/operator\/autoqueue-rules\/([^/]+)\/disable$/.exec(url.pathname);
   const profileListing = request.method === "GET" && url.pathname === "/v1/operator/source-profiles";
   const profileCreate = request.method === "POST" && url.pathname === "/v1/operator/source-profiles";
   const nodeIssue = request.method === "POST" && url.pathname === "/v1/operator/nodes";
   const nodeRevoke = request.method === "POST" && /^\/v1\/operator\/nodes\/([A-Za-z0-9._-]{1,100})\/revoke$/.exec(url.pathname);
   const jobEnqueue = request.method === "POST" && url.pathname === "/v1/operator/jobs";
   const profileDisable = request.method === "POST" &&
-    /^\/v1\/operator\/source-profiles\/([a-f0-9-]{36})\/disable$/.exec(url.pathname);
+    /^\/v1\/operator\/source-profiles\/([^/]+)\/disable$/.exec(url.pathname);
   const catalogListing = request.method === "GET" && url.pathname === "/v1/operator/catalog";
   const takedownListing = request.method === "GET" && url.pathname === "/v1/operator/takedowns";
   const takedownVerify = request.method === "POST" &&
-    /^\/v1\/operator\/takedowns\/([a-f0-9-]{36})\/verify$/.exec(url.pathname);
+    /^\/v1\/operator\/takedowns\/([^/]+)\/verify$/.exec(url.pathname);
   if (!nodeRevoke && !jobEnqueue && !listing && !ruleListing && !ruleCreate && !ruleDisable && !profileListing && !profileCreate && !nodeIssue &&
       !profileDisable && !catalogListing && !takedownListing && !takedownVerify && !(request.method === "POST" && leadAction)) {
     return failure(404, "not_found", "Route not found");
@@ -105,6 +105,11 @@ export async function handleOperatorRequest(
   if (!await authorized(request, configuredToken)) {
     workerLogger.warn("Operator bearer credential invalid or missing", { path: url.pathname });
     return failure(401, "unauthorized", "Operator bearer credential required");
+  }
+  if ((ruleDisable && !RuleCursorSchema.shape.ruleId.safeParse(ruleDisable[1]).success) ||
+      (profileDisable && !ProfileCursorSchema.shape.profileId.safeParse(profileDisable[1]).success) ||
+      (takedownVerify && !TakedownCursorSchema.shape.takedownId.safeParse(takedownVerify[1]).success)) {
+    return failure(404, "not_found", "Route not found");
   }
   if (listing) {
     const status = LeadStatusSchema.safeParse(url.searchParams.get("status") || "pending_review");
@@ -131,7 +136,7 @@ export async function handleOperatorRequest(
       return failure(400, "invalid_query", "Rule limit or cursor is invalid");
     }
     return json(AutoQueueRuleListResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
-      ...await store.listAutoQueueRulesPage(limit, cursor) }));
+      ...await store.listAutoQueueRulesPage(limit, cursor ? { ...cursor, ruleId: cursor.ruleId.toLowerCase() } : null) }));
   }
   if (profileListing) {
     const limit = Number(url.searchParams.get("limit") || 100);
@@ -144,7 +149,7 @@ export async function handleOperatorRequest(
       return failure(400, "invalid_query", "Profile limit or cursor is invalid");
     }
     return json(SourceAccessProfileListResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
-      ...await store.listSourceAccessProfilesPage(limit, cursor) }));
+      ...await store.listSourceAccessProfilesPage(limit, cursor ? { ...cursor, profileId: cursor.profileId.toLowerCase() } : null) }));
   }
   if (catalogListing) {
     const limit = Number(url.searchParams.get("limit") || 100);
@@ -177,7 +182,7 @@ export async function handleOperatorRequest(
       return failure(400, "invalid_query", "Takedown limit or cursor is invalid");
     }
     return json(TakedownListResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
-      ...await store.listTakedownsPage(requesterTypeParam || undefined, limit, cursor) }));
+      ...await store.listTakedownsPage(requesterTypeParam || undefined, limit, cursor ? { ...cursor, takedownId: cursor.takedownId.toLowerCase() } : null) }));
   }
   let body: unknown;
   try { body = await readJson(request); }
@@ -217,7 +222,7 @@ export async function handleOperatorRequest(
     if (profileDisable) {
       const parsed = DisableSourceAccessProfileSchema.safeParse(body);
       if (!parsed.success) return failure(400, "invalid_payload", "Disable body is invalid");
-      const profile = await store.disableSourceAccessProfile(profileDisable[1], "operator-api",
+      const profile = await store.disableSourceAccessProfile(profileDisable[1].toLowerCase(), "operator-api",
         parsed.data.reason);
       return json(SourceAccessProfileResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
         profile }));
@@ -231,13 +236,13 @@ export async function handleOperatorRequest(
     if (ruleDisable) {
       const parsed = DisableAutoQueueRuleSchema.safeParse(body);
       if (!parsed.success) return failure(400, "invalid_payload", "Disable body is invalid");
-      const rule = await store.disableAutoQueueRule(ruleDisable[1], "operator-api", parsed.data.reason);
+      const rule = await store.disableAutoQueueRule(ruleDisable[1].toLowerCase(), "operator-api", parsed.data.reason);
       return json(AutoQueueRuleResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION, rule }));
     }
     if (takedownVerify) {
       const parsed = VerifyTakedownRequestSchema.safeParse(body);
       if (!parsed.success) return failure(400, "invalid_payload", "Verify takedown body is invalid");
-      const result = await store.verifyTakedown(takedownVerify[1], parsed.data.verdict, "operator-api", parsed.data.notes);
+      const result = await store.verifyTakedown(takedownVerify[1].toLowerCase(), parsed.data.verdict, "operator-api", parsed.data.notes);
       return json(VerifyTakedownResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
         ...result }));
     }

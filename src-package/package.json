@@ -1,26 +1,59 @@
 {
   "name": "vrc-packages-api",
   "version": "0.0.0",
-  "private": true,
-  "description": "TypeScript SDK, schemas, and taxonomy for the VRChat Package Crawler ecosystem",
+  "private": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SlamTheDragon/vrc-package-crawler.git",
+    "directory": "src-package"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "description": "Typed operator, user and application API client and schemas for VRC Packages (VRCP).",
   "module": "dist/index.js",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist/**/*.js", "dist/**/*.d.ts", "LICENSE", "README.md"],
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "LICENSE",
+    "README.md"
+  ],
   "type": "module",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./protocol": { "types": "./dist/protocol/index.d.ts", "import": "./dist/protocol/index.js" },
-    "./types": { "types": "./dist/types/index.d.ts", "import": "./dist/types/index.js" },
-    "./taxonomy": { "types": "./dist/taxonomy/index.d.ts", "import": "./dist/taxonomy/index.js" },
-    "./auth": { "types": "./dist/auth/index.d.ts", "import": "./dist/auth/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol/index.d.ts",
+      "import": "./dist/protocol/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
+    },
+    "./taxonomy": {
+      "types": "./dist/taxonomy/index.d.ts",
+      "import": "./dist/taxonomy/index.js"
+    },
+    "./auth": {
+      "types": "./dist/auth/index.d.ts",
+      "import": "./dist/auth/index.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun run build && bun test",
     "test:distribution": "node tests/distribution_smoke.mjs",
     "build": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\" && tsc --project tsconfig.build.json",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "publish:release": "node ../scripts/delivery.mjs publish release package --ci",
+    "publish:preview": "node ../scripts/delivery.mjs publish preview package --ci",
+    "preview": "npm run build"
   },
   "dependencies": {
     "zod": "^4.6.5"

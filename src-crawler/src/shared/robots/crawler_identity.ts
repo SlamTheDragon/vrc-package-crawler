@@ -1,5 +1,5 @@
-/** Network identity for crawler nodes and coordinator. */
+/** Node HTTP identity uses the node's config-synchronized product version. */
 import { version } from "../../../package.json";
+import { crawlerUserAgent } from "vrc-packages-network/identity";
 
-export const CRAWLER_ROBOTS_TOKEN = "VRCDiscoveryBot";
-export const CRAWLER_USER_AGENT = `VRCDiscoveryBot/${version} (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)`;
+export const CRAWLER_USER_AGENT = crawlerUserAgent(version);

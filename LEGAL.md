@@ -143,8 +143,10 @@ The crawler voluntarily honors RFC 9309 as an operational signal. The crawler ch
 6.2. **Transparent User-Agent Identification.**  
 All HTTP requests include an honest User-Agent header identifying the project and contact email:
 ```http
-User-Agent: VRCDiscoveryBot/1.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)
+User-Agent: VRCPDiscoveryBot/0.0.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)
 ```
+
+The version above is an example. Each runtime reads its config-synchronized product version. During the bot-name transition, robots checks retain restrictions for the earlier product token too. This naming change does not grant access or override source terms.
 
 6.3. **Host-Isolated AIMD Rate Limiting.**  
 The crawler applies Additive Increase / Multiplicative Decrease (AIMD) rate limiting per hostname with randomized jitter. Configured baseline request delays range from 1.2 to 3.0 seconds depending on the host (e.g., 3.0 seconds for Gumroad, 1.5 seconds for BOOTH and itch.io, 1.2 seconds for Jinxxy). The adaptive limiter backs off upon high latency or HTTP 429 signals up to several seconds.

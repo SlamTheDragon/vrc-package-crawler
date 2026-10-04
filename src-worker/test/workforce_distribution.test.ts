@@ -6,7 +6,7 @@ import { LocalCoordinatorStore } from "./support/local_sqlite.js";
 import { handleOperatorRequest } from "../src/api/operator_handler.ts";
 import { handleNodeRequest } from "../src/api/handler.ts";
 import { parseCapabilityToken } from "../src/domain/security/capability_token.js";
-import { PROTOCOL_VERSION, type Platform } from "../../src-crawler/src/shared/protocol/node_protocol.js";
+import { PROTOCOL_VERSION, type Platform } from "vrc-packages-network/node";
 import { OPERATOR_PROTOCOL_VERSION } from "../src/api/protocol/operator_protocol.js";
 
 describe("Workforce Distribution & Capability-Encoded Node Tokens", () => {

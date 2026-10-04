@@ -1,4 +1,4 @@
-import { PlatformSchema, type Platform } from "../../../../src-crawler/src/shared/protocol/node_protocol.ts";
+import { PlatformSchema, type Platform } from "vrc-packages-network/node";
 
 /**
  * Deterministic bitmask mapping for platform capabilities.

@@ -150,7 +150,8 @@ export async function handleDownstreamRequest(
           ...data.metadata,
           reportType: data.reportType,
           reportKind: data.reportKind,
-          canonicalId: data.canonicalId
+          canonicalId: data.canonicalId,
+          ...(data.reason !== undefined ? { reason: data.reason } : {})
         }
       };
     } else if (feedbackParsed && feedbackParsed.success) {

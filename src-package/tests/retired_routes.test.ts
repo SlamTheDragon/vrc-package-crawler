@@ -6,7 +6,7 @@ import * as downstream from "../src/protocol/downstream.ts";
 test("SDK exports use owner-approved VRCP identity without old-name aliases", () => {
   expect(typeof sdk.VRCPackageClient).toBe("function");
   expect(typeof sdk.VRCPApiError).toBe("function");
-  for (const name of ["VrcPackagesClient", "VrcApiError", "VRCPPackagesClient"]) {
+  for (const name of ["VrcPackagesClient", "VrcApiError", "VRCPPackageClient", "VRCPPackagesClient"]) {
     expect(Object.hasOwn(sdk, name)).toBe(false);
   }
   const error = new sdk.VRCPApiError(403, "Fixture rejection", "forbidden");

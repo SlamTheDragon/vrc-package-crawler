@@ -1,0 +1,159 @@
+import { expect, test } from "bun:test";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { isAbsolute, relative, resolve, sep } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { bumpVersion, productDirectories, readVersionConfig, versionFiles } from "../scripts/versioning.mjs";
+import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, validateRegistrySDK, workerSecretBindings } from "../scripts/delivery.mjs";
+
+async function fixture(run: (workspace: string) => Promise<void>) {
+  const parent = await realpath(tmpdir());
+  const workspace = await mkdtemp(resolve(parent, "vrcp-delivery-"));
+  try {
+    for (const channel of ["release", "preview"]) {
+      const config = Object.fromEntries(Object.keys(productDirectories).map(name =>
+        [`${channel}-${name}`, channel === "release" ? "0.0.1" : "0.0.1-pre.1"]));
+      await writeFile(resolve(workspace, channel === "release" ? "config.versions.json" : "config.preview.versions.json"), JSON.stringify(config));
+    }
+    for (const [name, path] of Object.entries(productDirectories)) {
+      await mkdir(resolve(workspace, path), { recursive: true });
+      const dependencies = name === "package" ? {} : { "vrc-packages-api": "0.0.1" };
+      if (["crawler", "worker"].includes(name)) dependencies["vrc-packages-network"] = "0.0.1";
+      await writeFile(resolve(workspace, path, "package.json"), JSON.stringify({ name, version: "0.0.1", dependencies }));
+    }
+    await mkdir(resolve(workspace, "src-crawler-client/src-tauri"));
+    await writeFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), '[package]\nversion = "0.0.1" # retain owner note\n');
+    await writeFile(resolve(workspace, "src-crawler-client/src-tauri/tauri.conf.json"), '{"version":"../package.json"}');
+    await run(workspace);
+  } finally {
+    const path = relative(parent, await realpath(workspace));
+    if (!path || isAbsolute(path) || path === ".." || path.startsWith(`..${sep}`)) throw new Error("Unsafe fixture cleanup");
+    await rm(workspace, { recursive: true });
+  }
+}
+
+test("tag routing follows the config, not a hardcoded sample or a branch", async () => {
+  await fixture(async workspace => {
+    expect(await resolveTag("worker/v0.0.1-pre.1", workspace)).toEqual({
+      product: "worker", version: "0.0.1-pre.1", channel: "preview", environment: "preview"
+    });
+    expect((await resolveTag("web/v0.0.1", workspace)).environment).toBe("production");
+    for (const tag of ["v0.0.1", "main", "worker/v0.0.2", "worker/v01.0.1", "unknown/v0.0.1", "worker/v0.0.1\n"]) {
+      await expect(resolveTag(tag, workspace)).rejects.toThrow();
+    }
+  });
+});
+
+test("stable UI preview versions are allowed but equal channel tags remain ambiguous", async () => {
+  await fixture(async workspace => {
+    const path = resolve(workspace, "config.preview.versions.json");
+    const { config } = await readVersionConfig("preview", workspace);
+    config["preview-web"] = "0.0.1";
+    await writeFile(path, JSON.stringify(config));
+    expect((await readVersionConfig("preview", workspace)).config["preview-web"]).toBe("0.0.1");
+    await expect(resolveTag("web/v0.0.1", workspace)).rejects.toThrow("exactly one");
+    config["preview-package"] = "0.0.1";
+    await writeFile(path, JSON.stringify(config));
+    await expect(readVersionConfig("preview", workspace)).rejects.toThrow("pre");
+  });
+});
+
+test("selected-product sync pins distributed dependencies without changing another product", async () => {
+  await fixture(async workspace => {
+    const before = await readFile(resolve(workspace, "src-crawler/package.json"), "utf8");
+    await versionFiles("sync", "preview", "worker", workspace);
+    const worker = JSON.parse(await readFile(resolve(workspace, "src-worker/package.json"), "utf8"));
+    expect(worker.version).toBe("0.0.1-pre.1");
+    expect(worker.dependencies).toEqual({ "vrc-packages-api": "0.0.1", "vrc-packages-network": "0.0.1-pre.1" });
+    expect(await readFile(resolve(workspace, "src-crawler/package.json"), "utf8")).toBe(before);
+    await versionFiles("check", "preview", "worker", workspace);
+    await expect(versionFiles("check", "release", "worker", workspace)).rejects.toThrow("differs");
+  });
+});
+
+test("all-product sync preserves Cargo comments and Tauri manifest ownership", async () => {
+  await fixture(async workspace => {
+    await versionFiles("sync", "preview", "all", workspace);
+    await versionFiles("check", "preview", "all", workspace);
+    expect(await readFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), "utf8"))
+      .toContain('version = "0.0.1-pre.1" # retain owner note');
+  });
+});
+
+test("bump changes only one authoritative config value, not local metadata or external state", async () => {
+  await fixture(async workspace => {
+    const before = await readFile(resolve(workspace, "src-worker/package.json"), "utf8");
+    expect((await bumpVersion("preview", "worker", "pre", workspace)).version).toBe("0.0.1-pre.2");
+    expect((await bumpVersion("release", "worker", "minor", workspace)).version).toBe("0.1.0");
+    expect(await readFile(resolve(workspace, "src-worker/package.json"), "utf8")).toBe(before);
+    await expect(bumpVersion("release", "worker", "pre", workspace)).rejects.toThrow();
+  });
+});
+
+test("invalid configs and later native metadata fail before any sync writes", async () => {
+  await fixture(async workspace => {
+    const before = await readFile(resolve(workspace, "src-worker/package.json"), "utf8");
+    await writeFile(resolve(workspace, "src-crawler-client/src-tauri/tauri.conf.json"), '{"version":"1.0.0"}');
+    await expect(versionFiles("sync", "preview", "all", workspace)).rejects.toThrow("Tauri must read");
+    expect(await readFile(resolve(workspace, "src-worker/package.json"), "utf8")).toBe(before);
+    await writeFile(resolve(workspace, "config.preview.versions.json"), '{"preview-worker":"1.0.0-pre", "extra":true}');
+    await expect(versionFiles("sync", "preview", "worker", workspace)).rejects.toThrow("exactly");
+  });
+});
+
+test("local sessions cannot authorize release artifacts or remote mutation", async () => {
+  for (const env of [{}, { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/tags/worker/v0.0.0" },
+    { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/main" }]) {
+    await expect(requireCI("worker", "release", env)).rejects.toThrow("tag-push");
+  }
+  await expect(deliver("deploy", "release", "worker")).rejects.toThrow("CI-only");
+  await expect(deliver("publish", "preview", "package")).rejects.toThrow("CI-only");
+  await expect(deliver("build", "release", "all")).rejects.toThrow("Usage:");
+});
+
+test("SDK publication does not bypass owner review through prerelease or calendar-shaped versions", () => {
+  for (const version of ["0.0.0", "0.0.0-pre", "0.0.1", "0.0.1-pre.1", "0.0.99"]) expect(() => checkSDKPublicationVersion(version)).not.toThrow();
+  for (const version of ["0.1.0-pre.1", "0.1.0", "1.0.0", "2026.10.0-pre", "invalid"]) {
+    expect(() => checkSDKPublicationVersion(version)).toThrow("owner API review hold");
+  }
+});
+
+test("registry SDK inputs require exact identity, bytes and compiled distribution contents", () => {
+  const bytes = Buffer.from("fixture tarball bytes");
+  const integrity = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+  const metadata = { name: "vrc-packages-api", version: "0.0.0", dist: { integrity } };
+  const result = { name: metadata.name, version: metadata.version, filename: "vrc-packages-api-0.0.0.tgz",
+    integrity, files: [{ path: "package.json" }, { path: "dist/index.js" }, { path: "dist/index.d.ts" }] };
+  expect(() => validateRegistrySDK(result, metadata, "0.0.0", bytes)).not.toThrow();
+  for (const invalid of [{ ...result, name: "other" }, { ...result, version: "0.0.1" },
+    { ...result, filename: "../escape.tgz" }, { ...result, integrity: "sha512-invalid" },
+    { ...result, files: [{ path: "src/index.ts" }] }]) {
+    expect(() => validateRegistrySDK(invalid, metadata, "0.0.0", bytes)).toThrow("Registry SDK");
+  }
+  expect(() => validateRegistrySDK(result, metadata, "0.0.0", Buffer.from("changed"))).toThrow();
+  expect(() => validateRegistrySDK(result, { ...metadata, dist: {} }, "0.0.0", bytes)).toThrow();
+});
+
+test("external workflow guards preserve preview-only Worker and release-only npm authority", () => {
+  const workflow = (name: string) => Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8")) as {
+    jobs: Record<string, { if?: string | boolean; steps?: { env?: Record<string, string> }[] }>;
+  };
+  const sdk = workflow("vrc-packages-api").jobs.publish;
+  expect(sdk?.if).toContain("needs.build.outputs.channel == 'release'");
+  const auth = sdk?.steps?.find(step => step.env?.NODE_AUTH_TOKEN)?.env;
+  expect(auth?.NODE_AUTH_TOKEN).toBe('${{ secrets.NPM_TOKEN }}');
+  expect(auth?.NPM_TOKEN).toBe(auth?.NODE_AUTH_TOKEN);
+  expect(workflow("worker").jobs.deploy?.if).toContain("needs.build.outputs.channel == 'preview'");
+  expect(workflow("worker").jobs.deploy?.steps?.find(step => step.env?.OPERATOR_TOKEN)?.env?.OPERATOR_TOKEN)
+    .toBe('${{ secrets.OPERATOR_TOKEN }}');
+  expect(workflow("web").jobs.build?.if).toBe(false);
+});
+
+test("preview deployment accepts only the operator binding and rejects missing or malformed secrets", () => {
+  const token = randomBytes(32).toString("hex");
+  expect(workerSecretBindings({ OPERATOR_TOKEN: token, NPM_TOKEN: "unrelated" })).toEqual({ OPERATOR_TOKEN: token });
+  for (const env of [{}, { OPERATOR_TOKEN: "short" }, { OPERATOR_TOKEN: "g".repeat(64) }]) {
+    expect(() => workerSecretBindings(env)).toThrow("64-hex OPERATOR_TOKEN");
+  }
+});

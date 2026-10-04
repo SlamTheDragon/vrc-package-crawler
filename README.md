@@ -1,103 +1,21 @@
-# VRCP Package Crawler
+# VRC Packages
 
-An open-source, polite discovery and indexing engine for public VRChat creator packages (Tools, Assets, Avatars).
+VRC Packages (VRCP) is an open-source, polite discovery and indexing engine for public VRChat creator packages (Tools, Assets, Avatars).
 
 The project develops metadata discovery from VPM repositories, GitHub and creator storefronts. Catalog records link to original publisher fronts. Real-source fleet ingestion remains a pre-production gate. The policy excludes archive and executable downloads (`.zip`, `.unitypackage`, `.vpmz`, `.fbx`).
 
 ---
 
-## Architecture Overview
+## Documentation
 
-The system operates across three decoupled operational domains:
-
-```mermaid
-flowchart LR
-    subgraph CrawlerFleet["Crawler Node Fleet"]
-        N1["Crawler Node (Docker / Standalone)"]
-        N2["Crawler Node (Docker / Standalone)"]
-    end
-
-    subgraph Coordinator["API Worker Coordinator (D1 / Local workerd D1)"]
-        API["REST Coordinator API (/v1/*)"]
-        Store["Lease Engine, Pacing Clock & Robots Cache"]
-    end
-
-    subgraph Downstream["Downstream Consumers & Ecosystem"]
-        SDK["vrc-packages-api (src-package SDK)"]
-        CLI["Community Package Managers (VCC / vrc-get)"]
-        Web["Future Web Registry"]
-    end
-
-    N1 -- "Lease Claim & Submission" --> API
-    N2 -- "Lease Claim & Submission" --> API
-    API --- Store
-    SDK -- "Catalog Query & Delta Sync" --> API
-    CLI --> SDK
-    Web --> SDK
-```
-
-1. **Coordinator (`src-worker/src/`, entry `worker_entry.ts`)**:
-   - Manages origin-wide AIMD pacing clocks, RFC 9309 robots caching, and scoped crawler job leases.
-   - Validates observation receipts, records discovery leads and projects canonical packages from source evidence. Publication-rights enforcement remains under review.
-   - Runs locally through Wrangler/workerd with D1. There is no coordinator binary. The SQLite comparator lives under Worker test support.
-2. **Crawler Nodes (`src-crawler/src/`, entry `main.ts`)**:
-   - Headless, standalone workers executing coordinator-leased jobs.
-   - Includes a standalone binary build and Docker configuration. Fleet updates and restart-safe result submission still need checks.
-   - Uses DNS-pinned HTTPS transport, a 2,000,000-byte metadata limit and default 5-second coordinator authority checks.
-3. **Consumer SDK (`src-package/`)**:
-   - Named `vrc-packages-api` for downstream application developers. Historical isolated tarball checks passed before the recent changes. Current artifact verification, owner API review and registry release remain open.
-   - Supplies typed clients for catalog search, delta synchronization, app registration, owned app views and operator controls. Removal reports remain pending review.
-4. **Web Surface (`src-web/`)**:
-   - Separate Astro site with Svelte integration. The current page is starter content. SDK, authentication and operator panels are not wired.
-5. **Crawler Client (`src-crawler-client/`)**:
-   - Tauri/Svelte starter shell. It does not yet bundle, configure or supervise the crawler node.
-
----
-
-## Repository Layout
-
-```
-vrc-package-crawler/
-  .agents/                    Agent specifications, operational rules, and link auditing tools
-  src-crawler/                Standalone crawler node
-    src/
-      main.ts                 Node CLI and daemon entry
-      adapters/               Observation extraction
-      client/                 Internal coordinator lease client
-      config/                 Node runtime configuration
-      runner/                 Daemon and lease execution
-      storage/                Node-local SQLite telemetry
-      shared/                 Versioned API protocol schemas (Zod) and platform definitions
-      utils/                  Pacing clock, robots cache, logger, and DNS guardrails
-    dist/                     Compiled node binaries
-  src-package/                Downstream client SDK (`vrc-packages-api`) and shared wire schemas
-    src/
-      client.ts               Downstream API client
-      protocol/               Consumer and operator wire schemas
-      types/                  Domain entities and token formats
-      taxonomy/               Fixed umbrella wire schema, not indexed tag values
-  src-worker/                 API-only Worker project
-    src/                      Worker entry, API handlers, D1 storage and classification
-    test/                     Worker contract tests and native D1 smoke
-      integration/            Cross-runtime protocol tests
-      support/                Test-only SQLite comparator and helpers
-  src-web/                    Separate Astro/Svelte website starter
-  src-crawler-client/         Separate Tauri/Svelte desktop starter
-    src-tauri/                Rust shell and desktop configuration
-  docs/                       Source drafts, research and decision ledgers
-    scratch/                  Exactly three lifecycle documents
-    research/                 Platform access matrices, robots analysis, and market research
-    source/                   Architecture specifications (`API_ROUTES.md`, `DATABASE_SCHEMAS.md`)
-  tests/                      Root layout and shared test helpers
-  AGENTS.md                   Agent entry point and operational boundaries
-  DELEGATES.md                Downstream developer runbook & Docker node operations manual
-  LEGAL.md                    Legal notices, operational covenants, and terms of service
-  LICENSE.md                  GNU Affero General Public License v3.0 (AGPL-3.0)
-```
+Read repository documentation at [docs/source](docs/source).
 
 ---
 
 ## Prerequisites & Development
+
+Use [the delivery guide](docs/source/DELIVERY.md) for config-driven builds, packed development dependencies and tagged CI paths.
+Local commands do not publish or deploy. Worker preview/production routing is separate from UI artifact versions.
 
 - **Bun** >= 1.4.0 (required for runtime, compilation, and testing)
 - **Node.js** (required for root version commands and the native Worker test harness)

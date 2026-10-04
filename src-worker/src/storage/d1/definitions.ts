@@ -1,4 +1,4 @@
-import type { Platform } from "../../../../src-crawler/src/shared/protocol/node_protocol.js";
+import type { Platform } from "vrc-packages-network/node";
 import type { SourcePurpose } from "../../domain/access/source_access_profile.js";
 
 

@@ -4,6 +4,7 @@ import {
 import {
   type CatalogDeltaResponse,
   CatalogDeltaResponseSchema,
+  CatalogDeltaQuerySchema,
   type PublicCatalogListQuery,
   PublicCatalogListQuerySchema,
   type PublicCatalogListResponse,
@@ -28,6 +29,8 @@ import { UserAppListQuerySchema, UserAppListResponseSchema, UserAppResponseSchem
   type UserAppListQuery, type UserAppListResponse, type UserAppResponse } from "./protocol/user.ts";
 import {
   type LeadStatus,
+  OperatorLeadListQuerySchema, OperatorProfileListQuerySchema, OperatorRuleListQuerySchema,
+  OperatorCatalogListQuerySchema, OperatorTakedownListQuerySchema,
   LeadCursorSchema, ProfileCursorSchema, RuleCursorSchema, TakedownCursorSchema,
   ApproveLeadSchema, RejectLeadSchema,
   CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
@@ -99,6 +102,7 @@ export interface CatalogSearchParams {
   platform?: Platform;
   tags?: string[];
   limit?: number;
+  cursor?: string | null;
 }
 
 export interface SyncDeltasParams {
@@ -170,8 +174,13 @@ export class VRCPackageClient {
       method,
       headers,
       body: requestBody,
-      redirect: "error"
+      redirect: "manual"
     });
+
+    if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+      await response.body?.cancel();
+      throw new VRCPApiError(response.status, "API redirects are not permitted");
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -222,7 +231,8 @@ export class VRCPackageClient {
         category: params.category,
         platform: params.platform,
         tags: params.tags,
-        limit: Math.min(params.limit ?? 50, 50)
+        limit: params.limit ?? 50,
+        cursor: params.cursor
       };
       const res = await this.request<unknown>("/v1/app/index/search", "POST", {
         auth: "app",
@@ -235,11 +245,12 @@ export class VRCPackageClient {
      * Pages current catalog changes (GET /v1/app/index/delta), not an immutable event log.
      */
     syncDeltas: async (params: SyncDeltasParams = {}): Promise<CatalogDeltaResponse> => {
+      const query = CatalogDeltaQuerySchema.parse(params);
       const res = await this.request<unknown>("/v1/app/index/delta", "GET", {
         auth: "none",
         queryParams: {
-          cursor: params.cursor,
-          limit: params.limit
+          cursor: query.cursor,
+          limit: query.limit
         }
       });
       return CatalogDeltaResponseSchema.parse(res);
@@ -284,10 +295,11 @@ export class VRCPackageClient {
     apps: {
       list: async (params: Partial<UserAppListQuery> = {}): Promise<UserAppListResponse> => {
         const query = UserAppListQuerySchema.parse(params);
+        if (query.cursor) query.cursor = query.cursor.toLowerCase();
         return UserAppListResponseSchema.parse(await this.request<unknown>("/v1/user/apps", "GET", { auth: "user", queryParams: query }));
       },
       get: async (appId: string): Promise<UserAppResponse> => {
-        const id = UserAppSchema.shape.appId.parse(appId);
+        const id = UserAppSchema.shape.appId.parse(appId).toLowerCase();
         return UserAppResponseSchema.parse(await this.request<unknown>(`/v1/user/apps/${id}`, "GET", { auth: "user" }));
       }
     }
@@ -321,12 +333,13 @@ export class VRCPackageClient {
         limit?: number;
         cursor?: string;
       } = {}): Promise<LeadListResponse> => {
+        const query = OperatorLeadListQuerySchema.parse(params);
         const res = await this.request<unknown>("/v1/operator/leads", "GET", {
           auth: "operator",
           queryParams: {
-            status: params.status,
-            limit: params.limit,
-            cursor: params.cursor
+            status: query.status,
+            limit: query.limit,
+            cursor: query.cursor
           }
         });
         return LeadListResponseSchema.parse(res);
@@ -337,16 +350,12 @@ export class VRCPackageClient {
        */
       approve: async (
         leadKey: string,
-        params: { minDelayMs?: number; reason?: string } = {}
+        params: { minDelayMs?: number; reason: string }
       ): Promise<LeadActionResponse> => {
         const id = LeadCursorSchema.shape.leadKey.parse(leadKey);
         const res = await this.request<unknown>(`/v1/operator/leads/${id}/approve`, "POST", {
           auth: "operator",
-          body: ApproveLeadSchema.parse({
-            schemaVersion: 1,
-            minDelayMs: params.minDelayMs,
-            reason: params.reason ?? "Operator approved"
-          })
+          body: ApproveLeadSchema.parse({ schemaVersion: 1, ...params })
         });
         return LeadActionResponseSchema.parse(res);
       },
@@ -356,15 +365,12 @@ export class VRCPackageClient {
        */
       reject: async (
         leadKey: string,
-        params: { reason?: string } = {}
+        params: { reason: string }
       ): Promise<LeadActionResponse> => {
         const id = LeadCursorSchema.shape.leadKey.parse(leadKey);
         const res = await this.request<unknown>(`/v1/operator/leads/${id}/reject`, "POST", {
           auth: "operator",
-          body: RejectLeadSchema.parse({
-            schemaVersion: 1,
-            reason: params.reason ?? "Operator rejected"
-          })
+          body: RejectLeadSchema.parse({ schemaVersion: 1, ...params })
         });
         return LeadActionResponseSchema.parse(res);
       }
@@ -375,11 +381,12 @@ export class VRCPackageClient {
        * Lists source-access profiles (GET /v1/operator/source-profiles).
        */
       list: async (params: { limit?: number; cursor?: string } = {}): Promise<SourceAccessProfileListResponse> => {
+        const query = OperatorProfileListQuerySchema.parse(params);
         const res = await this.request<unknown>("/v1/operator/source-profiles", "GET", {
           auth: "operator",
           queryParams: {
-            limit: params.limit,
-            cursor: params.cursor
+            limit: query.limit,
+            cursor: query.cursor
           }
         });
         return SourceAccessProfileListResponseSchema.parse(res);
@@ -400,7 +407,7 @@ export class VRCPackageClient {
        * Disables a source-access profile (POST /v1/operator/source-profiles/{id}/disable).
        */
       disable: async (profileId: string, reason: string): Promise<SourceAccessProfileResponse> => {
-        const id = ProfileCursorSchema.shape.profileId.parse(profileId);
+        const id = ProfileCursorSchema.shape.profileId.parse(profileId).toLowerCase();
         const res = await this.request<unknown>(`/v1/operator/source-profiles/${id}/disable`, "POST", {
           auth: "operator",
           body: DisableSourceAccessProfileSchema.parse({ schemaVersion: 1, reason })
@@ -414,11 +421,12 @@ export class VRCPackageClient {
        * Lists auto-queue rules (GET /v1/operator/autoqueue-rules).
        */
       list: async (params: { limit?: number; cursor?: string } = {}): Promise<AutoQueueRuleListResponse> => {
+        const query = OperatorRuleListQuerySchema.parse(params);
         const res = await this.request<unknown>("/v1/operator/autoqueue-rules", "GET", {
           auth: "operator",
           queryParams: {
-            limit: params.limit,
-            cursor: params.cursor
+            limit: query.limit,
+            cursor: query.cursor
           }
         });
         return AutoQueueRuleListResponseSchema.parse(res);
@@ -439,7 +447,7 @@ export class VRCPackageClient {
        * Disables an auto-queue rule (POST /v1/operator/autoqueue-rules/{id}/disable).
        */
       disable: async (ruleId: string, reason: string): Promise<AutoQueueRuleResponse> => {
-        const id = RuleCursorSchema.shape.ruleId.parse(ruleId);
+        const id = RuleCursorSchema.shape.ruleId.parse(ruleId).toLowerCase();
         const res = await this.request<unknown>(`/v1/operator/autoqueue-rules/${id}/disable`, "POST", {
           auth: "operator",
           body: DisableAutoQueueRuleSchema.parse({ schemaVersion: 1, reason })
@@ -473,11 +481,12 @@ export class VRCPackageClient {
        * Lists canonical packages with operator oversight (GET /v1/operator/catalog).
        */
       list: async (params: { limit?: number; cursor?: string } = {}): Promise<CatalogListResponse> => {
+        const query = OperatorCatalogListQuerySchema.parse(params);
         const res = await this.request<unknown>("/v1/operator/catalog", "GET", {
           auth: "operator",
           queryParams: {
-            limit: params.limit,
-            cursor: params.cursor
+            limit: query.limit,
+            cursor: query.cursor
           }
         });
         return CatalogListResponseSchema.parse(res);
@@ -493,12 +502,13 @@ export class VRCPackageClient {
         limit?: number;
         cursor?: string;
       } = {}): Promise<TakedownListResponse> => {
+        const query = OperatorTakedownListQuerySchema.parse(params);
         const res = await this.request<unknown>("/v1/operator/takedowns", "GET", {
           auth: "operator",
           queryParams: {
-            requesterType: params.requesterType,
-            limit: params.limit,
-            cursor: params.cursor
+            requesterType: query.requesterType,
+            limit: query.limit,
+            cursor: query.cursor
           }
         });
         return TakedownListResponseSchema.parse(res);
@@ -511,7 +521,7 @@ export class VRCPackageClient {
         takedownId: string,
         request: { verdict: "accepted" | "rejected"; notes?: string }
       ): Promise<VerifyTakedownResponse> => {
-        const id = TakedownCursorSchema.shape.takedownId.parse(takedownId);
+        const id = TakedownCursorSchema.shape.takedownId.parse(takedownId).toLowerCase();
         const res = await this.request<unknown>(`/v1/operator/takedowns/${id}/verify`, "POST", {
           auth: "operator",
           body: VerifyTakedownRequestSchema.parse({

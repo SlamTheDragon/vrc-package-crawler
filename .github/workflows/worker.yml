@@ -1,0 +1,72 @@
+name: Worker tagged deployment
+on:
+  push:
+    tags: ['worker/v*']
+permissions:
+  contents: read
+concurrency:
+  group: worker-release
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.route.outputs.channel }}
+      environment: ${{ steps.route.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: npm install --ignore-scripts --package-lock=false
+      - id: route
+        run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
+      - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
+      - run: bun test ./tests
+      - name: Prepare distributed dependencies
+        run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' worker --ci
+      - name: Check network against the registry SDK artifact
+        run: |
+          npm --prefix src-worker/packages/network run typecheck
+          npm --prefix src-worker/packages/network run test:distribution -- --sdk-tarball "$GITHUB_WORKSPACE/src-package/.artifacts/dev/vrc-packages-api-$(node -p "require('./src-package/package.json').version").tgz"
+      - name: Check Worker and build target
+        run: |
+          npm --prefix src-worker run check
+          npm --prefix src-worker test
+          node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' worker --ci
+          npm --prefix src-worker run test:runtime
+        env:
+          VRCP_WORKER_BUILD_CHANNEL: ${{ steps.route.outputs.channel }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worker-${{ steps.route.outputs.channel }}-bundle
+          path: src-worker/.wrangler/dev-build/${{ steps.route.outputs.environment }}/
+          if-no-files-found: error
+  deploy:
+    needs: build
+    # Current owner authorization is preview-only. Release tags still build artifacts.
+    if: needs.build.outputs.channel == 'preview' && vars.VRCP_WORKER_DEPLOY_APPROVED == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.build.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - run: npm install --ignore-scripts --package-lock=false
+      - run: node scripts/versioning.mjs sync '${{ needs.build.outputs.channel }}'
+      - uses: actions/download-artifact@v4
+        with:
+          name: worker-${{ needs.build.outputs.channel }}-bundle
+          path: src-worker/.wrangler/dev-build/${{ needs.build.outputs.environment }}/
+      - name: Install pinned deployment tool only
+        run: npm install --prefix src-worker/.wrangler/ci-tools --no-save --package-lock=false --no-audit --no-fund wrangler@4.147.0
+      - name: Deploy approved bundle without rebuilding
+        run: node scripts/delivery.mjs deploy '${{ needs.build.outputs.channel }}' worker --ci
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OPERATOR_TOKEN: ${{ secrets.OPERATOR_TOKEN }}

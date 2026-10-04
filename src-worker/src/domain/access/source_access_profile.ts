@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { PlatformSchema, JobPurposeSchema, type Platform, type JobPurpose } from "../../../../src-crawler/src/shared/protocol/node_protocol.ts";
-import { isPrivateOrReservedIp } from "../../../../src-crawler/src/shared/policy/ip_policy.ts";
+import { PlatformSchema, JobPurposeSchema, type Platform, type JobPurpose } from "vrc-packages-network/node";
+import { isPrivateOrReservedIp } from "vrc-packages-network/ip-policy";
 import { CreateSourceAccessProfileSchema as ConsumerSourceAccessProfileSchema,
   isCanonicalSourceAccessPath } from "vrc-packages-api";
 

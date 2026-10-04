@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { isVpmVersion, compareVpmVersions, cleanVpmVersion } from "../src/shared/taxonomy/vpm_version.ts";
+import { isVpmVersion, compareVpmVersions, cleanVpmVersion } from "vrc-packages-network/vpm-version";
 
 describe("Crawler VPM version validation", () => {
   it("keeps manifest validation strict and uses SemVer ordering", () => {

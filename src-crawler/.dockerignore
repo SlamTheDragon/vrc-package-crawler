@@ -1,0 +1,8 @@
+**
+!package.json
+!tsconfig.json
+!bunfig.toml
+!src/
+!src/**
+!.ci-artifacts/
+!.ci-artifacts/*.tgz

@@ -1,0 +1,32 @@
+name: Website tagged static artifact
+on:
+  push:
+    tags: ['web/v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    if: false
+    # Owner defers website CI and hosting selection. Local development builds remain available.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - run: npm install --ignore-scripts --package-lock=false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - id: route
+        run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
+      - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
+      - run: bun test ./tests
+      - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' web --ci
+      - run: node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' web --ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-${{ steps.route.outputs.version }}
+          path: src-web/dist/
+          if-no-files-found: error
+      # Hosting, API origin and Firebase setup remain separate owner decisions.

@@ -14,12 +14,12 @@ import {
 	ClaimResponseSchema,
 	HeartbeatResponseSchema,
 	ResultResponseSchema
-} from '../../src-crawler/src/shared/protocol/node_protocol.ts';
-import { NodeCredentialResponseSchema } from 'vrc-packages-api';
+} from 'vrc-packages-network/node';
+import { NodeCredentialResponseSchema, PublicCatalogListResponseSchema } from 'vrc-packages-api';
 import { SourceAccessProfileListResponseSchema } from '../src/domain/access/source_access_profile.ts';
 import { EnqueueJobResponseSchema, RevokeNodeResponseSchema, AutoQueueRuleResponseSchema,
-  AutoQueueRuleListResponseSchema } from '../../src-package/src/protocol/operator.ts';
-import { VRCPackageClient } from '../../src-package/src/client.ts';
+  AutoQueueRuleListResponseSchema } from 'vrc-packages-api';
+import { VRCPackageClient } from 'vrc-packages-api';
 const operatorToken = randomBytes(32).toString('hex');
 // Bundle the real store into memory for native binding tests. No fixture is deployed.
 const storageModule = execFileSync('bun', [
@@ -111,8 +111,25 @@ export async function refreshFixture(env) {
   const snapshot = await env.VRCP_D1.prepare('SELECT status_code FROM origin_robots WHERE origin=?').bind(origin).first();
   check(snapshot.status_code === 404, 'Rejected replay changed snapshot');
   await env.VRCP_D1.prepare("UPDATE crawl_jobs SET state='blocked' WHERE origin=?").bind(origin).run();
+  const botOrigin = 'https://native-bot-policy.example';
+  await store.createSourceAccessProfile({ schemaVersion: 1, platform: 'vpm', origin: botOrigin,
+    pathScope: '/index.json', method: 'GET', purpose: 'metadata', minDelayMs: 1000,
+    expiresAt: new Date(clock + 3600000).toISOString(), reviewReference: 'OFFLINE-BOT-IDENTITY',
+    reason: 'Hermetic bot-specific refusal check', retainClasses: ['normalized_facts'], publishClasses: []
+  }, 'offline-fixture');
+  await store.seedJob(botOrigin + '/index.json', 'vpm', 1000, undefined, 'metadata');
+  const botNode = 'native-bot-node';
+  const botToken = await store.createNodeCredential(botNode, ['vpm']);
+  const botPrincipal = await store.authenticate(botNode, botToken);
+  const botRequest = { schemaVersion: 1, nodeId: botNode, capabilities: ['vpm'] };
+  for (const bot of ['VRCPDiscoveryBot', 'VRCDiscoveryBot']) {
+    await store.recordRobotsSnapshot(botOrigin, 200, 'User-agent: *\nAllow: /\nUser-agent: ' + bot + '\nDisallow: /index.json');
+    check((await store.claim(botRequest, botPrincipal)).status === 'empty', 'Bot rename bypassed a specific refusal');
+  }
+  await store.recordRobotsSnapshot(botOrigin, 200, 'User-agent: VRCPDiscoveryBot\nAllow: /\nUser-agent: VRCDiscoveryBot\nAllow: /');
+  check((await store.claim(botRequest, botPrincipal)).status === 'leased', 'Replaced snapshot retained stale matchers');
   return { status: 'passed', refreshRace: true, staleCompletion: true, profileRevocation: true,
-    pacingRollback: true, completionRollback: true };
+    pacingRollback: true, completionRollback: true, botRestrictions: true };
 }
 async function operatorAtomicityFixture(env, store, clock) {
   const db = env.VRCP_D1, existingNode = 'native-audit-rotation', freshNode = 'native-audit-new';
@@ -135,6 +152,8 @@ async function operatorAtomicityFixture(env, store, clock) {
   check(await store.authenticate(freshNode, retriedToken) !== null, 'Credential retry failed');
   const issuanceAudit = await db.prepare('SELECT COUNT(*) AS count FROM node_credential_actions WHERE node_id=?').bind(freshNode).first();
   check(issuanceAudit.count === 1, 'Issuance retry did not commit exactly one audit');
+  const issuanceReason = await db.prepare("SELECT actor,reason FROM node_credential_actions WHERE node_id=? AND action='issue'").bind(freshNode).first();
+  check(issuanceReason.actor === 'offline-fixture' && issuanceReason.reason === 'Offline retry', 'Issuance audit lost actor or reason');
 
   const sourceUrl = 'https://native-approval-source.example/index.json';
   const sourceJob = await store.seedJob(sourceUrl, 'vpm', 1000, undefined, 'discovery');
@@ -230,8 +249,11 @@ export async function discoveryFixture(env) {
   }
   return { cases };
 }`;
+const buildChannel = process.env.VRCP_WORKER_BUILD_CHANNEL ?? 'preview';
+assert.ok(['preview', 'release'].includes(buildChannel), 'Invalid runtime build channel');
 const workerConfig = unstable_readConfig({
-	config: fileURLToPath(new URL('../wrangler.toml', import.meta.url))
+	config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)),
+  env: buildChannel === 'preview' ? 'preview' : ''
 });
 assert.ok(!workerConfig.assets?.directory, 'Runtime smoke requires the API-only Worker');
 assert.equal(workerConfig.d1_databases.length, 1);
@@ -257,7 +279,7 @@ const runtime = new Miniflare(
 						type: 'ESModule',
 						path: 'coordinator.mjs',
 						contents: readFileSync(
-							new URL('../.wrangler/api-build/worker_entry.js', import.meta.url),
+							new URL(`../.wrangler/dev-build/${buildChannel === 'preview' ? 'preview' : 'production'}/worker_entry.js`, import.meta.url),
 							'utf8'
 						)
 					}
@@ -303,11 +325,20 @@ try {
     } });
   for (const report of [
     { schemaVersion: 1, reportType: 'demand_signal', signalKind: 'search_miss', query: 'native receipt', zeroHits: true },
-    { schemaVersion: 1, reportType: 'issue_report', reportKind: 'wrong_metadata', canonicalId: 'native-receipt-target' },
+    { schemaVersion: 1, reportType: 'issue_report', reportKind: 'wrong_metadata', canonicalId: 'native-receipt-target',
+      reason: ' Native metadata mismatch ', metadata: { reason: 'Do not replace accepted reason', source: 'native-fixture' } },
     { schemaVersion: 1, reportType: 'removal_request', canonicalId: 'native-receipt-target', reason: 'Native receipt fixture' }
   ]) {
     const receipt = await reportingClient.reports.submit(report);
     assert.deepEqual(Object.keys(receipt).sort(), ['schemaVersion', 'status', 'reportId', 'recordedAt'].sort());
+    if (report.reportType === 'issue_report') {
+      const db = await runtime.getD1Database('VRCP_D1');
+      const row = await db.prepare('SELECT metadata_json FROM downstream_demand_signals WHERE signal_id=?').bind(receipt.reportId).first();
+      const metadata = JSON.parse(row.metadata_json);
+      assert.equal(metadata.reason, report.reason.trim());
+      assert.equal(metadata.source, 'native-fixture');
+      assert.equal(metadata.canonicalId, report.canonicalId);
+    }
   }
   assert.deepEqual(reportStatuses, [200, 200, 202]);
   console.log(JSON.stringify({ check: 'native_HTTP_report_sdk_receipts', statuses: reportStatuses, passed: true }));
@@ -472,7 +503,7 @@ try {
 				summary: '',
 				author: 'Offline fixture publisher',
 				outboundLinks: [],
-				originUpdatedAt: null
+				originUpdatedAt: '2024-01-02T03:04:05.000Z'
 			}
 		}
 	};
@@ -481,6 +512,13 @@ try {
 	);
 	assert.equal(receipt.status, 'accepted');
 	assert.equal(receipt.duplicate, false);
+	const catalogResponse = await runtime.dispatchFetch('https://offline.invalid/v1/app/index');
+	assert.equal(catalogResponse.status, 200);
+	const catalog = PublicCatalogListResponseSchema.parse(await catalogResponse.json());
+	const ingestedPackage = catalog.packages.find(pkg => pkg.canonicalId === 'com.offline.runtime-smoke');
+	assert.ok(ingestedPackage);
+	assert.equal(ingestedPackage.publishedAt, null);
+	assert.equal(ingestedPackage.timestampConfidence, null);
 	const replay = ResultResponseSchema.parse(
 		await post('/v1/node/jobs/result', resultPayload, winner.token)
 	);

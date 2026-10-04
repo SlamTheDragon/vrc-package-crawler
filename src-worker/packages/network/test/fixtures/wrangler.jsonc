@@ -1,0 +1,5 @@
+{
+  "name": "vrcp-network-artifact-check",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-04"
+}

@@ -2,26 +2,56 @@ name: Build & Publish Crawler Node Container
 
 on:
   push:
-    branches:
-      - main
     tags:
-      - 'v*'
-    paths:
-      - 'src-crawler/**'
-      - 'src-package/**'
-      - '.github/workflows/node-docker.yml'
-  workflow_dispatch:
+      - 'crawler/v*'
 
 permissions:
   contents: read
-  packages: write
-
+# Standalone artifacts are not yet an installation/supervision contract for the Tauri shell.
+concurrency:
+  group: crawler-release
+  cancel-in-progress: false
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    environment: ${{ needs.route.outputs.environment }}
+    needs: route
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: npm install --ignore-scripts --package-lock=false
+      - run: node scripts/versioning.mjs sync '${{ needs.route.outputs.channel }}'
+      - run: bun test ./tests
+      - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
+      - name: Verify package contracts and node
+        run: |
+          npm --prefix src-package test
+          npm --prefix src-package run test:distribution
+          npm --prefix src-worker/packages/network run typecheck
+          npm --prefix src-worker/packages/network run test:distribution -- --sdk-tarball "$GITHUB_WORKSPACE/src-package/.artifacts/dev/vrc-packages-api-$(node -p "require('./src-package/package.json').version").tgz"
+          npm --prefix src-crawler run typecheck
+          npm --prefix src-crawler test
+          node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci
+          src-crawler/dist/dev/vrcp-crawler-node-linux --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crawler-${{ needs.route.outputs.version }}-linux-x64
+          path: src-crawler/dist/dev/vrcp-crawler-node-linux
+          if-no-files-found: error
+      - name: Supply only packed dependencies to Docker
+        run: |
+          mkdir -p src-crawler/.ci-artifacts
+          cp src-package/.artifacts/dev/*.tgz src-crawler/.ci-artifacts/
+          cp src-worker/packages/network/.artifacts/dev/*.tgz src-crawler/.ci-artifacts/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -39,17 +69,67 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/vrcp-crawler-node
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=tag
-            type=sha,prefix=sha-
+            type=raw,value=${{ needs.route.outputs.version }}
+            type=raw,value=latest,enable=${{ needs.route.outputs.channel == 'release' }}
+            type=raw,value=pre,enable=${{ needs.route.outputs.channel == 'preview' }}
+
+      - name: Check the container before publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: src-crawler
+          file: src-crawler/Dockerfile
+          load: true
+          tags: vrcp-node-check:${{ github.sha }}
+      - run: docker run --rm --network none vrcp-node-check:${{ github.sha }} --help
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: src-crawler
           file: src-crawler/Dockerfile
-          push: true
+          push: ${{ vars.VRCP_CONTAINER_PUBLISH_APPROVED == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  standalone-windows:
+    needs: route
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: npm install --ignore-scripts --package-lock=false
+      - run: node scripts/versioning.mjs sync '${{ needs.route.outputs.channel }}'
+      - run: bun test ./tests
+      - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
+      - run: npm --prefix src-crawler run typecheck
+      - run: npm --prefix src-crawler test
+      - run: node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci
+      - run: src-crawler/dist/dev/vrcp-crawler-node.exe --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crawler-${{ needs.route.outputs.version }}-windows-x64
+          path: src-crawler/dist/dev/vrcp-crawler-node.exe
+          if-no-files-found: error
+  route:
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.route.outputs.channel }}
+      environment: ${{ steps.route.outputs.environment }}
+      version: ${{ steps.route.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - run: npm install --ignore-scripts --package-lock=false
+      - id: route
+        run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"

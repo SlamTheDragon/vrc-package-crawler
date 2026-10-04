@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
 import { LocalNodeStore } from "../src/storage/local_sqlite.ts";
-import type { CrawlJob, ResultResponse } from "../src/shared/protocol/node_protocol.ts";
+import type { CrawlJob, ResultResponse } from "vrc-packages-network/node";
 const outputPath = resolve(import.meta.dir, "../dist/tests");
 mkdirSync(outputPath, { recursive: true });
 const tempRoot = realpathSync(outputPath);

@@ -265,6 +265,17 @@ describe("src-package wire protocols", () => {
   });
 
   it("validates operator request schemas: leads, profiles, rules, nodes, takedowns", () => {
+    const wireLead = { lead_key: "a".repeat(64), kind: "vpm_listing", target_url: "https://publisher.example/index.json",
+      claimed_package_id: null, discovered_from_url: "https://directory.example/catalog", discovered_from_item_key: null,
+      status: "pending_review" as const, first_seen_at: "2026-10-04T00:00:00.000Z", last_seen_at: "2026-10-04T00:00:00.000Z" };
+    expect(LeadRowSchema.parse(wireLead)).toEqual(wireLead);
+    for (const input of [{ ...wireLead, leadKey: wireLead.lead_key }, { ...wireLead, extra: true },
+      { ...wireLead, discovered_from_url: undefined }, { ...wireLead, discovered_from_url: null }]) {
+      expect(LeadRowSchema.safeParse(input).success).toBe(false);
+    }
+    for (const schema of [ApproveLeadSchema, RejectLeadSchema]) {
+      expect(schema.safeParse({ schemaVersion: 1 }).success).toBe(false);
+    }
     // Approve / Reject Lead
     expect(() => ApproveLeadSchema.parse({
       schemaVersion: 1,

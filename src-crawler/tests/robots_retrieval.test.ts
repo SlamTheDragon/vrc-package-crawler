@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CRAWLER_USER_AGENT } from "../src/shared/robots/crawler_identity.ts";
-import { MAX_ROBOTS_BYTES } from "../src/shared/robots/robots_snapshot.ts";
-import { retrieveRobotsSnapshot, type RobotsFetcher } from "../src/shared/robots/robots_retrieval.ts";
+import { MAX_ROBOTS_BYTES } from "vrc-packages-network/robots";
+import { retrieveRobotsSnapshot, type RobotsFetcher } from "vrc-packages-network/robots-retrieval";
 import { fetchPublicMetadata } from "../src/client/public_metadata_fetch.ts";
 
 describe("coordinator robots retrieval", () => {
@@ -16,7 +16,7 @@ describe("coordinator robots retrieval", () => {
         : new Response("User-agent: *\nDisallow: /private", { status: 200,
           headers: { "content-type": "text/plain" } });
     };
-    const result = await retrieveRobotsSnapshot("https://start.example.org", fetcher);
+    const result = await retrieveRobotsSnapshot({ origin: "https://start.example.org", userAgent: CRAWLER_USER_AGENT }, fetcher);
     expect(result).toEqual({ origin: "https://start.example.org", statusCode: 200,
       body: "User-agent: *\nDisallow: /private", redirects: [1, 2, 3, 4, 5].map((n) =>
         `https://redirect-${n}.example.org/rules.txt`) });
@@ -25,7 +25,7 @@ describe("coordinator robots retrieval", () => {
 
   test("denies a sixth redirect and never fetches its target", async () => {
     let calls = 0;
-    const result = await retrieveRobotsSnapshot("https://start.example.org", async () => {
+    const result = await retrieveRobotsSnapshot({ origin: "https://start.example.org", userAgent: CRAWLER_USER_AGENT }, async () => {
       calls++;
       return new Response(null, { status: 301, headers: { location: `/rule-${calls}` } });
     });
@@ -38,21 +38,21 @@ describe("coordinator robots retrieval", () => {
     for (const location of ["http://example.org/robots.txt", "https://localhost/robots.txt",
       "https://example.org:8443/robots.txt", "https://user:secret@example.org/robots.txt", "https://example.org/a#b", "http://["]) {
       let calls = 0;
-      const result = await retrieveRobotsSnapshot("https://start.example.org", async () => {
+      const result = await retrieveRobotsSnapshot({ origin: "https://start.example.org", userAgent: CRAWLER_USER_AGENT }, async () => {
         calls++;
         return new Response(null, { status: 302, headers: { location } });
       });
       expect(result.statusCode).toBe(599);
       expect(calls).toBe(1);
     }
-    const missing = await retrieveRobotsSnapshot("https://start.example.org", async () =>
+    const missing = await retrieveRobotsSnapshot({ origin: "https://start.example.org", userAgent: CRAWLER_USER_AGENT }, async () =>
       new Response(null, { status: 302 }));
     expect(missing.statusCode).toBe(599);
   });
 
   test("a redirected host is checked again by the pinned transport", async () => {
     const seen: string[] = [];
-    const result = await retrieveRobotsSnapshot("https://start.example.org", async (url, init) => {
+    const result = await retrieveRobotsSnapshot({ origin: "https://start.example.org", userAgent: CRAWLER_USER_AGENT }, async (url, init) => {
       seen.push(url);
       if (seen.length === 1) return new Response(null, { status: 302,
         headers: { location: "https://internal.example.org/robots.txt" } });
@@ -65,12 +65,12 @@ describe("coordinator robots retrieval", () => {
 
   test("treats missing as unavailable but server errors and network failures as denied", async () => {
     for (const status of [404, 410, 403, 429, 503]) {
-      const result = await retrieveRobotsSnapshot("https://start.example.org", async () =>
+      const result = await retrieveRobotsSnapshot({ origin: "https://start.example.org", userAgent: CRAWLER_USER_AGENT }, async () =>
         new Response("ignored", { status }));
       expect(result.statusCode).toBe(status);
       expect(result.body).toBe("");
     }
-    const offline = await retrieveRobotsSnapshot("https://start.example.org", async () => {
+    const offline = await retrieveRobotsSnapshot({ origin: "https://start.example.org", userAgent: CRAWLER_USER_AGENT }, async () => {
       throw new Error("offline");
     });
     expect(offline.statusCode).toBe(599);
@@ -86,10 +86,10 @@ describe("coordinator robots retrieval", () => {
       new Response("<html></html>", { status: 200, headers: { "content-type": "text/html" } }),
       new Response(new Uint8Array([0xff]), { status: 200 })
     ]) {
-      const result = await retrieveRobotsSnapshot("https://start.example.org", async () => response);
+      const result = await retrieveRobotsSnapshot({ origin: "https://start.example.org", userAgent: CRAWLER_USER_AGENT }, async () => response);
       expect(result.statusCode).toBe(599);
     }
-    const exact = await retrieveRobotsSnapshot("https://start.example.org", async () =>
+    const exact = await retrieveRobotsSnapshot({ origin: "https://start.example.org", userAgent: CRAWLER_USER_AGENT }, async () =>
       new Response("a".repeat(MAX_ROBOTS_BYTES), { status: 200 }));
     expect(exact.statusCode).toBe(200);
     expect(new TextEncoder().encode(exact.body).byteLength).toBe(MAX_ROBOTS_BYTES);
