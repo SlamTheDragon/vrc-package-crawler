@@ -99,10 +99,10 @@ Related SDK/network builds supply packaged dependencies. Consumer builds import 
 
 | Tag prefix | Workflow | External action |
 | --- | --- | --- |
-| `worker/v` | worker.yml | Preview-only deployment after approval and the switch. Release tags build without production deployment. |
+| `worker/v` | worker.yml | Automatic preview-only deployment through cloudflare-preview with the switch enabled. Release tags build without production deployment. |
 | `crawler/v` | node-docker.yml | Upload Windows/Linux binaries. Publish a checked musl container only with the publication switch |
 | `crawler-client/v` | node-client.yml | Upload unsigned Windows installers. No updater or crawler installation contract |
-| `package/v` | vrc-packages-api.yml | Upload the checked SDK tarball. Publish release in production or preview in npm-preview under separate switches |
+| `package/v` | vrc-packages-api.yml | Upload the checked SDK tarball. Publish release in vrcp-api-release or preview in vrcp-api-preview under separate switches |
 | `network/v` | network.yml | Upload the internal tarball. No registry publication |
 | `web/v` | web.yml | Disabled pending hosting selection |
 
@@ -127,11 +127,11 @@ An ignored local `.env` file does not supply secrets to remote CI.
 
 1. Keep automatic main-branch Cloudflare Builds disconnected. The owner reports this setup is done.
 2. Open this repository's GitHub Settings, then Environments.
-3. Create environments named `preview` and `production`.
-4. Add required reviewers where the repository's GitHub plan permits them.
+3. Create `cloudflare-preview`, `vrcp-api-preview` and `vrcp-api-release` environments.
+4. Require owner review in `vrcp-api-release`. The owner selects automatic deployment/publication in the two preview environments.
 5. Keep self-review enabled if the owner is the only reviewer.
-6. Under selected deployment branches and tags, add a Tag rule `worker/v*` for preview.
-7. Add a Tag rule `package/v*` for production's current SDK publication path.
+6. Under selected deployment branches and tags, add a Tag rule `worker/v*` for `cloudflare-preview`.
+7. Add a Tag rule `package/v*` for each SDK environment.
 8. Add the environment secrets from the table below.
 9. Open Settings, then Secrets and variables, then Actions, then Variables.
 10. Add the repository variables from the table below with value `false`.
@@ -140,11 +140,11 @@ An ignored local `.env` file does not supply secrets to remote CI.
 
 | GitHub location | Name | Purpose |
 | --- | --- | --- |
-| preview environment secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account that owns the Worker and D1. This is not a database ID. |
-| preview environment secret | `CLOUDFLARE_API_TOKEN` | Account-scoped Worker deployment credential. Limit its permissions to the deployment's requirements. |
-| preview environment secret | `OPERATOR_TOKEN` | Project administrator API key. CI installs this binding into the preview Worker. |
-| production environment secret | `NPM_TOKEN` | SDK publishing credential. CI supplies it as both NPM_TOKEN and NODE_AUTH_TOKEN. |
-| npm-preview environment secret | `NPM_TOKEN` | Credential permitted to publish vrc-packages-api-preview. No Cloudflare secrets belong here. |
+| cloudflare-preview environment secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account that owns the Worker and D1. This is not a database ID. |
+| cloudflare-preview environment secret | `CLOUDFLARE_API_TOKEN` | Account-scoped Worker deployment credential. Limit its permissions to the deployment's requirements. |
+| cloudflare-preview environment secret | `OPERATOR_TOKEN` | Project administrator API key. CI installs this binding into the preview Worker. |
+| vrcp-api-release environment secret | `NPM_TOKEN` | SDK publishing credential. CI supplies it as both NPM_TOKEN and NODE_AUTH_TOKEN. |
+| vrcp-api-preview environment secret | `NPM_TOKEN` | Credential permitted to publish vrc-packages-api-preview. No Cloudflare secrets belong here. |
 | repository Actions variable | `VRCP_WORKER_DEPLOY_APPROVED` | Enables preview deployment when equal to true. |
 | repository Actions variable | `VRCP_SDK_PUBLISH_APPROVED` | Enables release SDK publication when equal to true. |
 | repository Actions variable | `VRCP_SDK_PREVIEW_PUBLISH_APPROVED` | Enables preview SDK publication when equal to true. Independent of Worker deployment approval. |
@@ -153,7 +153,7 @@ An ignored local `.env` file does not supply secrets to remote CI.
 Approval variables belong at repository scope because the job condition runs before the job enters its environment.
 An absent switch disables the external action. These switches do not replace environment approval or artifact checks.
 Environment secrets become available only to jobs that select that environment and pass its protection rules.
-An existing environment named `cloudflare` does not supply secrets to jobs that select `preview` or `production`.
+Secrets belong to the selected environment. Another environment's secrets do not substitute for a missing name.
 The current production Worker deployment remains disabled. Its credentials are not necessary for initial SDK publication.
 Future products require their own allowed-tag rules before their protected jobs can run.
 
@@ -165,6 +165,9 @@ Update GitHub approval routing in scripts/delivery.mjs, its tests and the setup 
 Worker artifact paths derive from channel, not the approval-environment name. Wrangler preview and production settings remain separate.
 Existing tagged runs retain the workflow and routing from their original commit. Updating main does not retarget those reruns.
 Keep their original environments until those publications finish, or agree a separate retry strategy before deleting them.
+The owner replaced all three original environments and approved the new routing on 2026-10-05.
+The original SDK runs still select deleted names. Do not rerun them without an agreed retry strategy.
+Other products retain their previous routing. Their environment setup remains separate from this SDK/Worker migration.
 An unknown environment reference can create an empty, unprotected environment. Verify configuration before starting a migrated workflow.
 See [GitHub environment management](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
 
@@ -187,9 +190,9 @@ After bootstrap, configure trusted publishing against the finalized GitHub envir
 3. Select Bypass two-factor authentication for this publishing token. Keep account 2FA enabled.
 4. Limit access to the two SDK packages where possible. First unscoped publication can require broader bootstrap access.
 5. If broader access is necessary, use a short expiry and replace it with narrower credentials after bootstrap.
-6. Replace NPM_TOKEN in GitHub's production and npm-preview environments. Never paste the value into chat, source or logs.
-7. Tell the delivery agent that setup is ready. Re-run failed publication jobs without moving tags or increasing versions.
-8. Approve the protected production environment when GitHub requests it. Preview npm publication retains its separate policy.
+6. Replace NPM_TOKEN in `vrcp-api-release` and `vrcp-api-preview`. Never paste the value into chat, source or logs.
+7. Tell the delivery agent that setup is ready. Agree a migrated retry path before publication.
+8. Approve `vrcp-api-release` when GitHub requests it. Preview npm publication retains its separate policy.
 9. Check public registry versions and integrity before starting Worker CI.
 
 The Bypass 2FA setting defaults to false. Do not use it where a package or organization forbids this exception.
@@ -198,7 +201,7 @@ See [token setup](https://docs.npmjs.com/creating-and-viewing-access-tokens/) an
 
 Prefer [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) after bootstrap to remove long-lived publishing tokens.
 Each package must trust owner SlamTheDragon, repository vrc-package-crawler and workflow vrc-packages-api.yml.
-Use production for the release identity and npm-preview for the preview identity.
+Use vrcp-api-release for the release identity and vrcp-api-preview for the preview identity.
 That transition also requires job-scoped id-token: write and a supported npm CLI. It is not enabled by the current token workflow.
 npm documents removal of direct token publication in January 2027. Track that transition before the temporary bootstrap credentials expire.
 
@@ -216,16 +219,16 @@ Generate 32 random bytes locally. This PowerShell command copies the hexadecimal
 node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))" | Set-Clipboard
 ```
 
-Save the value in a password manager. Paste it into the preview environment's OPERATOR_TOKEN secret.
+Save the value in a password manager. Paste it into cloudflare-preview's OPERATOR_TOKEN secret.
 Clear the clipboard after setup. Use a different key for local development and future production.
 CI deploys this binding with pinned Wrangler 4.147.0 and `--secrets-file`.
 It does not upload Cloudflare or npm credentials as Worker bindings.
 The temporary secret file is removed after the deployment attempt. Remote execution of this path remains unverified.
 
-The read-only GitHub inspection on 2026-10-05 confirmed the expected preview and production secrets from this table.
-It confirmed the Worker and SDK switches at repository scope, both false before activation.
-The later inspection confirmed owner self-review is allowed, with required review still enabled.
-Preview allows only `worker/v*` tags. Production allows only `package/v*` tags.
+The read-only GitHub inspection on 2026-10-05 confirmed all three current environments and the expected secret names.
+cloudflare-preview permits worker/v* tags. Each SDK environment permits package/v* tags.
+The two preview environments have no required reviewer. The owner explicitly accepts automatic preview deployment/publication.
+vrcp-api-release requires owner review and permits self-review. All three SDK/Worker enable switches are true.
 The owner authorizes the declared remote preview path for successive milestones, without changing version configs.
 Secret names do not prove token validity or permissions. A real CI run must check those boundaries.
 Check npm publish permission, expiration and non-interactive 2FA requirements before enabling its switch.
@@ -270,14 +273,10 @@ Advance the preview config for later milestones. A moving registry tag cannot si
 The private network package pins the exact SDK alias. Its packed dependencies cannot silently select a later SDK through latest.
 Promotion to the release identity is a separately checked release build and publication, not a renamed preview tarball.
 
-Create a separate GitHub environment named `npm-preview` for automatic preview package publication.
-Add its `NPM_TOKEN` secret with permission to publish the new identity.
-Allow Tag refs matching `package/v*`. Omit required reviewers only if automatic package publication is intended.
-Keep required review on the existing Worker `preview` environment. It retains the separate D1 and Cloudflare secrets.
-The workflow selects `npm-preview` only for preview SDK publication.
+The workflow selects vrcp-api-preview for automatic preview SDK publication and cloudflare-preview for automatic preview Worker deployment.
+These environments retain separate npm and Cloudflare credentials. The Worker retains its separate preview D1.
 SDK concurrency is separate per channel. A protected release publication cannot hold later preview publications in the same queue.
-The 2026-10-05 metadata inspection confirmed this environment, its NPM_TOKEN, package/v* tag rule and absence of required reviewers.
-Keep release SDK publication in `production`, with its existing approval rule and v0.1 API-review hold.
+Keep release SDK publication in vrcp-api-release, with its owner review and v0.1 API-review hold.
 Subsequent npm publications require new configured preview versions. Never replace an existing package version or move its release tag.
 
 Sources: [Wrangler environments](https://developers.cloudflare.com/workers/wrangler/environments/),

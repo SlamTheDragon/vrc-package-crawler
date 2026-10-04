@@ -45,7 +45,11 @@ export async function resolveTag(tag, workspace = root) {
   }
   if (matches.length !== 1) throw new Error("Tag must match exactly one version config. Equal channel values need an explicit channel-tag decision.");
   const channel = matches[0];
-  return { product, version, channel, environment: channel === "preview" ? product === "package" ? "npm-preview" : "preview" : "production" };
+  const environment = product === "package"
+    ? channel === "preview" ? "vrcp-api-preview" : "vrcp-api-release"
+    : product === "worker" && channel === "preview" ? "cloudflare-preview"
+    : channel === "preview" ? "preview" : "production";
+  return { product, version, channel, environment };
 }
 
 export async function requireCI(product, channel, env = process.env) {

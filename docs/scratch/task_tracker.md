@@ -12,19 +12,21 @@ The private network package pins its SDK alias to the config version. No sibling
 Main remains the working branch. No branch-push publication or automatic version bumps.
 Local outputs are development-only. CI authors release artifacts. Preserve the owner's no-lockfile choice.
 Website CI/hosting and production Worker deployment remain off. Release SDK v0.1, including prereleases, requires full owner API review.
-Worker preview and release npm retain owner review. Do not approve those jobs through the owner's saved credential.
+Owner approves cloudflare-preview and vrcp-api-preview without required reviewers. Release npm in vrcp-api-release retains owner review.
+Do not approve protected jobs through the owner's saved credential.
 
 ## Trace and grouped evidence — 2026-10-05
 
 Package tag → config/channel sync → SDK build/tests/types/distribution → tarball receipt → protected npm publication.
-Preview Worker tag → checked registry SDK → compiled network tarball → checked bundle receipt → owner-approved deployment.
+Preview Worker tag → checked registry SDK → compiled network tarball → checked bundle receipt → automatic preview deployment.
 Theory: this existing delivery path can activate real preview without changing release versions or API contracts.
-Current G14 work: separate Worker artifact paths from GitHub approval-environment names before the owner's naming migration.
-The Worker workflow now derives upload/download paths from channel, matching delivery.mjs, not the approval environment label.
-Root group passed 33 cases/304 assertions. Saved release config is unchanged. No remote Worker execution is claimed.
-Do not select replacement names or retry publication while the owner changes setup.
+Current G14 work: apply the owner-approved environment mapping without changing runtime resources or unrelated products.
+SDK preview/release routes select vrcp-api-preview/vrcp-api-release. Worker preview selects cloudflare-preview.
+Worker artifact paths still derive from channel, matching delivery.mjs, not the GitHub environment label.
+Root group passed 33 cases/307 assertions. Script syntax, three real configured tag routes and unchanged release metadata passed.
+No npm authentication change, remote Worker execution or tagged-run retry is claimed.
 
-- Root: 33 cases, 304 assertions passed, including latest aliases, calendar rollover, SDK concurrency and independent Worker artifact paths.
+- Root: 33 cases, 307 assertions passed, including the new environment mapping and unchanged unrelated-product routing.
 - Preview SDK: build, 54 units/621 assertions, types and 31-file packed Node/declaration/native Worker checks passed.
 - Preview network: types and 23-file packed Node/Bun/declaration/native Worker checks passed. Runtime external fetches: zero.
 - A transitive network latest alias caused an npm 404 despite the supplied SDK tarball. The exact network alias removed that dependency drift.
@@ -45,20 +47,22 @@ Release CI run 37230866545 and preview run 37230892161 both passed build, distri
 Both publish jobs downloaded artifacts and passed receipt checks, then npm failed with EOTP requiring interactive authorization.
 Public npm metadata for both identities remains 404. No package publication is claimed.
 The updated workflow separates future SDK concurrency by channel without removing approval requirements.
-GitHub npm-preview permits package/v* without review. preview and production retain owner review and correct tag policies.
+GitHub cloudflare-preview permits worker/v* without review. vrcp-api-preview permits package/v* without review.
+vrcp-api-release permits package/v* with owner review. Expected enable switches remain true.
 Expected secret names are present. Names do not prove usable tokens, scopes or publication rights.
 
 Calendar/concurrency correction is pushed at c77a00c. No existing SDK tag moved for that correction.
 Next: owner supplies non-interactive npm publishing credentials in both selected environments, or approves a different supported authentication design.
-Owner considers recreating GitHub environments. Current names and secret timestamps remain unchanged. Await an explicit old-to-new mapping.
+Owner recreated the three environments and explicitly approved their new mapping and automatic Worker preview deployment in chat.
 Owner flags npm's January 2027 direct-token publishing cutoff. Authentication selection remains open, not assumed to be token bypass.
 Research confirms staged publication supports new packages, but creates a public 0.0.0-stage placeholder requiring owner acceptance.
 Staging requires changed CI commands and npm 11.15.0 or later. Later OIDC setup must match the finalized environment names.
-Keep the original environments for existing SDK tagged-run retries. New routing on main cannot change those runs' saved commits.
+Original environments are absent. Existing SDK tagged-run retries still use those deleted names.
+Agree a migrated retry strategy before publication. New main routing cannot change those runs' saved commits.
 See DELIVERY.md's npm EOTP recovery. Never send an account password or OTP through chat or store it in CI.
-After owner setup, re-run failed jobs without tag/version changes, then verify exact registry bytes.
+After the authentication and retry decisions, check the CI artifact handoff and exact registry bytes.
 Check actual CI, downloaded receipts and registry bytes before pushing worker/v2026.10.0-pre.
-Then await owner approval of protected jobs and check the deployed preview API.
+Then check automatic preview deployment and its API. Release npm still requires owner approval.
 See [DELIVERY.md](../source/DELIVERY.md) for setup and paths.
 
 Preview D1: fbef6ce1-4145-45ae-ae91-5d617a1f2672. Production D1: 722bdd0d-92ca-445b-9319-da0b27adf7b2.

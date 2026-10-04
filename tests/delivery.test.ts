@@ -36,11 +36,14 @@ async function fixture(run: (workspace: string) => Promise<void>) {
 test("tag routing follows the config, not a hardcoded sample or a branch", async () => {
   await fixture(async workspace => {
     expect(await resolveTag("worker/v2026.10.1-pre", workspace)).toEqual({
-      product: "worker", version: "2026.10.1-pre", channel: "preview", environment: "preview"
+      product: "worker", version: "2026.10.1-pre", channel: "preview", environment: "cloudflare-preview"
     });
     expect((await resolveTag("web/v0.0.1", workspace)).environment).toBe("production");
-    expect((await resolveTag("package/v2026.10.1-pre", workspace)).environment).toBe("npm-preview");
-    expect((await resolveTag("package/v0.0.1", workspace)).environment).toBe("production");
+    expect((await resolveTag("package/v2026.10.1-pre", workspace)).environment).toBe("vrcp-api-preview");
+    expect((await resolveTag("package/v0.0.1", workspace)).environment).toBe("vrcp-api-release");
+    expect((await resolveTag("worker/v0.0.1", workspace)).environment).toBe("production");
+    expect((await resolveTag("crawler/v2026.10.1-pre", workspace)).environment).toBe("preview");
+    expect((await resolveTag("crawler/v0.0.1", workspace)).environment).toBe("production");
     for (const tag of ["v0.0.1", "main", "worker/v0.0.2", "worker/v01.0.1", "unknown/v0.0.1", "worker/v0.0.1\n"]) {
       await expect(resolveTag(tag, workspace)).rejects.toThrow();
     }
