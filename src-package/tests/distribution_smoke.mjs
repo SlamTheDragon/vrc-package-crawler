@@ -48,7 +48,7 @@ run(join(packageRoot, 'node_modules/wrangler/bin/wrangler.js'), [
   'deploy', '--dry-run', '--autoconfig=false', '--config', join(consumer, 'wrangler.jsonc'), '--outdir', join(consumer, 'bundle')
 ]);
 let externalFetches = 0;
-const runtime = new Miniflare(convertV4MiniflareOptions({ workers: [{
+const runtime = new Miniflare(convertV4MiniflareOptions({ rootPath: realpathSync(consumer), workers: [{
   name: 'packed-sdk', modules: true, scriptPath: join(consumer, 'bundle/worker.js'),
   compatibilityDate: '2026-10-02', outboundService: () => {
     externalFetches++;

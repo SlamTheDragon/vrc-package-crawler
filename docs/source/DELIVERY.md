@@ -24,13 +24,13 @@ Numeric values must fit SemVer syntax. Calendar-shaped values do not become API 
 UI and headless preview values can omit a prerelease label. Distributed npm packages and Worker preview values require `pre`.
 If both configs select the same product version, tag routing fails instead of choosing a channel silently.
 Resolve that ambiguity before a tagged build. A branch name does not select a release channel.
-The owner authorizes release `0.0.0` and CalVer preview `2026.10.0-pre` publication after artifact checks.
+The owner authorizes release `0.0.0` and configured CalVer preview publication after artifact checks.
 Release `v0.1.0` remains the stable `/v1/` milestone and requires the full owner API review.
 That release-version hold does not block the separate preview identity.
 
 | Consumer channel | SDK identity | Dependency selection |
 | --- | --- | --- |
-| Preview Worker and other preview consumers | vrc-package-api-preview | Exact npm alias under vrc-packages-api, from config.preview.versions.json |
+| Preview Worker and other preview consumers | vrc-packages-api-preview | Exact npm alias under vrc-packages-api, from config.preview.versions.json |
 | Release Worker | vrc-packages-api | latest, with its resolved version checked against config.versions.json |
 | Other release consumers and release network | vrc-packages-api | Exact version from config.versions.json |
 
@@ -69,10 +69,12 @@ Change one version config value without building or publishing:
 
 ```sh
 npm run versions:bump -- release worker patch
-npm run versions:bump -- preview worker pre
+npm run versions:bump -- preview worker patch
 ```
 
-Patch, minor and major increments are arithmetic SemVer operations, not automatic calendar updates.
+Release patch, minor and major increments are arithmetic SemVer operations, not automatic calendar updates.
+Preview bumps increase the patch number and retain the pre suffix: `2026.10.0-pre` becomes `2026.10.1-pre`.
+The preview SDK uses YYYY.M.Patch-pre. npm requires months without a leading zero. No trailing prerelease counter is allowed.
 Edit calendar-shaped versions directly when a calendar sequence is intended.
 Sync metadata separately after a config change. Product-only sync does not sync its dependency projects.
 Use an all-product sync when preparing a consistent dependency graph for the selected config.
@@ -136,7 +138,7 @@ An ignored local `.env` file does not supply secrets to remote CI.
 | preview environment secret | `CLOUDFLARE_API_TOKEN` | Account-scoped Worker deployment credential. Limit its permissions to the deployment's requirements. |
 | preview environment secret | `OPERATOR_TOKEN` | Project administrator API key. CI installs this binding into the preview Worker. |
 | production environment secret | `NPM_TOKEN` | SDK publishing credential. CI supplies it as both NPM_TOKEN and NODE_AUTH_TOKEN. |
-| npm-preview environment secret | `NPM_TOKEN` | Credential permitted to publish vrc-package-api-preview. No Cloudflare secrets belong here. |
+| npm-preview environment secret | `NPM_TOKEN` | Credential permitted to publish vrc-packages-api-preview. No Cloudflare secrets belong here. |
 | repository Actions variable | `VRCP_WORKER_DEPLOY_APPROVED` | Enables preview deployment when equal to true. |
 | repository Actions variable | `VRCP_SDK_PUBLISH_APPROVED` | Enables release SDK publication when equal to true. |
 | repository Actions variable | `VRCP_SDK_PREVIEW_PUBLISH_APPROVED` | Enables preview SDK publication when equal to true. Independent of Worker deployment approval. |
@@ -203,7 +205,9 @@ Worker preview deployment remains authorized. Production deployment is not part 
 The current workflows use product-tag pushes only. Branch-push previews and automatic version increments remain proposals.
 If adopted, define the branch, version owner, collision handling and loop prevention before changing triggers.
 npm distribution tags name channels within one package. They do not create separate deployments or make a published version replaceable.
-The owner selects `vrc-package-api-preview` alongside release `vrc-packages-api`.
+The owner selects `vrc-packages-api-preview` alongside release `vrc-packages-api`.
+On 2026-10-05 this name replaced the unpublished `vrc-package-api-preview` to follow the `vrc-packages*` naming rule.
+The failed first `package/v2026.10.0-pre` run published nothing. The owner directs reuse of patch 0, so that Git tag moves to the corrected commit.
 The dual-package path uses one SDK source with channel-specific manifests and artifact checks.
 Preview consumers install the preview identity through an exact npm alias under the existing import name.
 Preview publication explicitly updates the preview package's pre tag. Release publication updates the release package's latest tag.

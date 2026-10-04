@@ -10,7 +10,7 @@ export const productDirectories = {
 };
 const products = Object.keys(productDirectories);
 const distributedProducts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
-export const sdkPackageNames = { release: "vrc-packages-api", preview: "vrc-package-api-preview" };
+export const sdkPackageNames = { release: "vrc-packages-api", preview: "vrc-packages-api-preview" };
 
 export function distributedArtifact(name, spec, latestVersion) {
   const previewPrefix = `npm:${sdkPackageNames.preview}@`;
@@ -37,11 +37,14 @@ export async function readVersionConfig(channel, workspace = root) {
       throw new Error(`${key} must be a canonical SemVer version`);
     }
     const prerelease = semver.prerelease(value);
+    if (key === "preview-package" && !/^\d{4}\.(?:[1-9]|1[0-2])\.\d+-pre$/.test(value)) {
+      throw new Error("preview-package must use YYYY.M.Patch-pre with an npm-compatible month and no trailing prerelease counter");
+    }
     if (channel === "release" && prerelease !== null) throw new Error(`${key} must not contain a prerelease label`);
     // UI/headless artifacts can retain stable versions in the preview config. They are not Worker environments.
     const requiresPrerelease = ["package", "network", "worker"].some(product => key === `preview-${product}`);
     if (channel === "preview" && ((requiresPrerelease && prerelease === null) ||
-        (prerelease !== null && prerelease[0] !== "pre"))) throw new Error(`${key} must use the pre prerelease label when required`);
+        (prerelease !== null && (prerelease.length !== 1 || prerelease[0] !== "pre")))) throw new Error(`${key} must use only the pre prerelease label when required`);
   }
   return { config, configPath };
 }
@@ -49,13 +52,15 @@ export async function readVersionConfig(channel, workspace = root) {
 /** Change one config value only. Sync, build, tag and publication remain separate. */
 export async function bumpVersion(channel, product, increment, workspace = root) {
   if (!products.includes(product) ||
-      !(channel === "release" ? ["patch", "minor", "major"] : ["pre"]).includes(increment)) {
-    throw new Error("Use bump release <product> <patch|minor|major> or bump preview <product> pre");
+      !(channel === "release" ? ["patch", "minor", "major"] : ["patch"]).includes(increment)) {
+    throw new Error("Use bump release <product> <patch|minor|major> or bump preview <product> patch");
   }
   const { config, configPath } = await readVersionConfig(channel, workspace);
   const key = `${channel}-${product}`;
   const previous = config[key];
-  config[key] = increment === "pre" ? semver.inc(previous, "prerelease", "pre") : semver.inc(previous, increment);
+  config[key] = channel === "preview"
+    ? semver.inc(previous.split("-")[0], "patch") + (semver.prerelease(previous) ? "-pre" : "")
+    : semver.inc(previous, increment);
   await writeFile(configPath, JSON.stringify(config, null, 2) + "\n");
   return { channel, product, previous, version: config[key], configPath };
 }

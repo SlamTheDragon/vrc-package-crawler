@@ -4,7 +4,7 @@ This package supplies the consumer SDK and schemas for operator, user and applic
 
 The root exports VRCPackageClient, VRCPackageClientOptions and VRCPApiError. VRC Packages is the canonical project brand. VRCP abbreviates that name, and P already stands for Packages. Use the exact client spelling VRCPackageClient, not VRCPPackageClient or VRCPPackagesClient. Crawler, Worker and Client describe project components, not the overall brand.
 
-One SDK source supplies two npm identities: release `vrc-packages-api` and preview `vrc-package-api-preview`.
+One SDK source supplies two npm identities: release `vrc-packages-api` and preview `vrc-packages-api-preview`.
 Version configs select their versions. Preview uses CalVer with a `pre` suffix.
 Version zero retains no aliases for the old client/options/error names. Package aliases do not add retired API exports.
 
@@ -18,18 +18,18 @@ The distribution contains ESM JavaScript and TypeScript declarations. It does no
 - `vrc-packages-api/taxonomy`
 - `vrc-packages-api/auth`
 
-The preview package has the same subpaths under `vrc-package-api-preview`.
+The preview package has the same subpaths under `vrc-packages-api-preview`.
 Consumers can keep the release import spelling with an exact npm dependency alias:
 
 ```json
 {
   "dependencies": {
-    "vrc-packages-api": "npm:vrc-package-api-preview@2026.10.0-pre"
+    "vrc-packages-api": "npm:vrc-packages-api-preview@2026.10.0-pre"
   }
 }
 ```
 
-The version above reflects the current preview config. Read that config before selecting another milestone.
+This is an example alias. Read the preview config for the current milestone version.
 
 Run `bun run build` to create the distribution. Each build removes the generated `dist` directory before compilation. This prevents deleted source files from leaving stale package exports. Source files remain unchanged.
 

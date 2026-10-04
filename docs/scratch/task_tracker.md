@@ -26,7 +26,7 @@ Preview consumers use the preview SDK through exact npm aliases.
 The release Worker declares latest. CI checks its resolved version against the release config before packing exact bytes.
 
 SDK 0.0.0 publication is authorized. Its manifest permits publication with the existing Apache-2.0 asset.
-The owner authorizes CalVer preview publication under vrc-package-api-preview, separate from release vrc-packages-api.
+The owner authorizes CalVer preview publication under vrc-packages-api-preview, separate from release vrc-packages-api.
 Use one SDK source and channel-specific manifests. Preview consumers need exact npm aliases and registry artifact checks.
 Use a separate npm-preview environment for package approval, without changing the Worker preview review boundary.
 Release v0.1.0 remains held as the stable /v1/ contract milestone. The separate preview package is exempt from that release-version hold.
@@ -39,7 +39,7 @@ CI deploys preview only. The owner reports main-push Cloudflare Builds disconnec
 GitHub exposes preview/production with the expected secrets. The authorized Worker/SDK repository switches are now true.
 Both environments permit owner self-review. Preview allows worker/v* tags. Production allows package/v* tags.
 The npm-preview environment is confirmed with NPM_TOKEN, package/v* tags and no required reviewer.
-Its separate VRCP_SDK_PREVIEW_PUBLISH_APPROVED switch is still absent. Activate it only after local distribution checks.
+Its separate VRCP_SDK_PREVIEW_PUBLISH_APPROVED switch is now true after the local distribution gate.
 Enable only the authorized SDK/preview switches for the release sequence. Required owner review remains in place.
 Secret names do not prove usable credentials. [The setup guide](../source/DELIVERY.md) maps these controls.
 OPERATOR_TOKEN is the shared administrator API key. Pinned Wrangler 4.147.0 uploads only this 64-hex runtime binding.
@@ -73,7 +73,15 @@ Scoped searches found no sibling imports, but do not prove the whole graph. Sepa
 
 ## Open risks and next action
 
-Commit the checked dual SDK routing. Enable the separate preview-publication switch and push its exact configured package tag.
+Dual SDK routing was committed and pushed as 5817cfe. Preview SDK tag package/v2026.10.0-pre triggered CI run 37220635759.
+That run failed before packing or publication. Clean-runner types imported dist before a build created it.
+Verification now runs the SDK build/test script before typechecking. Root regression checks pass 30 cases.
+Owner decisions, 2026-10-05: preview SDK name is vrc-packages-api-preview (the vrc-packages* rule). Neither name existed on npm.
+Preview format is YYYY.M.Patch-pre. Bumps add one to patch, with no trailing counter. Preview-package stays at 2026.10.0-pre.
+Nothing was published, so the owner directs reuse of patch 0. The package/v2026.10.0-pre Git tag moves to the corrected commit.
+Authorized sequence: clean-clone CI reproduction, push main, move the SDK tag, check the registry artifact,
+push worker/v2026.10.0-pre, then POST /v1/operator/init with autoSeed false. Its default is true.
+The Worker preview environment keeps required review. The owner approves that deployment job, not the agent.
 Check owner-created GitHub environments, secret names, token scopes, tag rules and repository switches without reading values.
 Check registry ownership and the exact published SDK before Worker tag pushes. Do not rely on a publication race.
 Preview URLs can be public. Public catalog routes lack rights and age-disclosure controls.
@@ -81,8 +89,8 @@ Keep preview test data synthetic until those publication boundaries are settled.
 
 Preserve the owner no-lockfile choice. Floating external dependencies limit reproducibility.
 Docker is unavailable locally. Docker and Windows installer CI still need real runner checks.
-Delivery repairs were committed as 5fb297d. Remote main remains 3fba15d.
-SDK and Worker approval switches were enabled. No cleanup, tag, push, publication or Worker deployment ran.
+Delivery repairs were committed as 5fb297d. Remote main now includes dual routing commit 5817cfe.
+SDK release, SDK preview and Worker preview switches are enabled. No cleanup, npm publication or Worker deployment ran.
 The owner's dual-package direction arrived before tag promotion. Its local routing gate now passed.
 After preview SDK registry verification, activate Worker preview. Initialize only preview D1 without seeds.
 Record remote outcomes separately from local proof.

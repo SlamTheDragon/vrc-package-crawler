@@ -34,10 +34,10 @@ assert.deepEqual(packed.files.map(file => file.path).sort(), expectedFiles,
 run(npmCli, ['install', '--ignore-scripts', '--package-lock=false', '--no-audit', '--no-fund',
   ...(args[2] === '--offline' ? ['--offline'] : []), `vrc-packages-api@file:${sdkTarball}`, join(consumer, packed.filename)]);
 const sdkSpec = manifest.dependencies['vrc-packages-api'];
-const previewPrefix = 'npm:vrc-package-api-preview@';
+const previewPrefix = 'npm:vrc-packages-api-preview@';
 const preview = sdkSpec.startsWith(previewPrefix);
 for (const [name, identity, version] of [[manifest.name, manifest.name, manifest.version],
-  ['vrc-packages-api', preview ? 'vrc-package-api-preview' : 'vrc-packages-api', preview ? sdkSpec.slice(previewPrefix.length) : sdkSpec]]) {
+  ['vrc-packages-api', preview ? 'vrc-packages-api-preview' : 'vrc-packages-api', preview ? sdkSpec.slice(previewPrefix.length) : sdkSpec]]) {
   const installed = join(consumer, 'node_modules', name);
   assert.equal(lstatSync(installed).isSymbolicLink(), false, 'Artifact must not be a workspace link');
   assert.ok(realpathSync(installed).startsWith(realpathSync(consumer) + sep), 'Artifact escaped isolated consumer');
@@ -62,7 +62,7 @@ run(join(packageRoot, 'node_modules/wrangler/bin/wrangler.js'), [
   '--outdir', join(consumer, 'bundle')
 ]);
 let externalFetches = 0;
-const runtime = new Miniflare(convertV4MiniflareOptions({ workers: [{
+const runtime = new Miniflare(convertV4MiniflareOptions({ rootPath: realpathSync(consumer), workers: [{
   name: 'vrcp-network-artifact-check', modules: true, scriptPath: join(consumer, 'bundle/worker.js'),
   compatibilityDate: '2026-10-04', outboundService: () => {
     externalFetches++;

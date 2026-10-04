@@ -13,7 +13,7 @@ async function fixture(run: (workspace: string) => Promise<void>) {
   try {
     for (const channel of ["release", "preview"]) {
       const config = Object.fromEntries(Object.keys(productDirectories).map(name =>
-        [`${channel}-${name}`, channel === "release" ? "0.0.1" : "0.0.1-pre.1"]));
+        [`${channel}-${name}`, channel === "release" ? "0.0.1" : "2026.10.1-pre"]));
       await writeFile(resolve(workspace, channel === "release" ? "config.versions.json" : "config.preview.versions.json"), JSON.stringify(config));
     }
     for (const [name, path] of Object.entries(productDirectories)) {
@@ -35,11 +35,11 @@ async function fixture(run: (workspace: string) => Promise<void>) {
 
 test("tag routing follows the config, not a hardcoded sample or a branch", async () => {
   await fixture(async workspace => {
-    expect(await resolveTag("worker/v0.0.1-pre.1", workspace)).toEqual({
-      product: "worker", version: "0.0.1-pre.1", channel: "preview", environment: "preview"
+    expect(await resolveTag("worker/v2026.10.1-pre", workspace)).toEqual({
+      product: "worker", version: "2026.10.1-pre", channel: "preview", environment: "preview"
     });
     expect((await resolveTag("web/v0.0.1", workspace)).environment).toBe("production");
-    expect((await resolveTag("package/v0.0.1-pre.1", workspace)).environment).toBe("npm-preview");
+    expect((await resolveTag("package/v2026.10.1-pre", workspace)).environment).toBe("npm-preview");
     expect((await resolveTag("package/v0.0.1", workspace)).environment).toBe("production");
     for (const tag of ["v0.0.1", "main", "worker/v0.0.2", "worker/v01.0.1", "unknown/v0.0.1", "worker/v0.0.1\n"]) {
       await expect(resolveTag(tag, workspace)).rejects.toThrow();
@@ -66,8 +66,8 @@ test("selected-product sync pins distributed dependencies without changing anoth
     const before = await readFile(resolve(workspace, "src-crawler/package.json"), "utf8");
     await versionFiles("sync", "preview", "worker", workspace);
     const worker = JSON.parse(await readFile(resolve(workspace, "src-worker/package.json"), "utf8"));
-    expect(worker.version).toBe("0.0.1-pre.1");
-    expect(worker.dependencies).toEqual({ "vrc-packages-api": "npm:vrc-package-api-preview@0.0.1-pre.1", "vrc-packages-network": "0.0.1-pre.1" });
+    expect(worker.version).toBe("2026.10.1-pre");
+    expect(worker.dependencies).toEqual({ "vrc-packages-api": "npm:vrc-packages-api-preview@2026.10.1-pre", "vrc-packages-network": "2026.10.1-pre" });
     expect(await readFile(resolve(workspace, "src-crawler/package.json"), "utf8")).toBe(before);
     await versionFiles("check", "preview", "worker", workspace);
     await expect(versionFiles("check", "release", "worker", workspace)).rejects.toThrow("differs");
@@ -80,9 +80,9 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
     await versionFiles("check", "preview", "all", workspace);
     const sdk = JSON.parse(await readFile(resolve(workspace, "src-package/package.json"), "utf8"));
     expect(sdk.name).toBe(sdkPackageNames.preview);
-    expect(sdk.version).toBe("0.0.1-pre.1");
+    expect(sdk.version).toBe("2026.10.1-pre");
     expect(await readFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), "utf8"))
-      .toContain('version = "0.0.1-pre.1" # retain owner note');
+      .toContain('version = "2026.10.1-pre" # retain owner note');
     await versionFiles("sync", "release", "all", workspace);
     await versionFiles("check", "release", "all", workspace);
     expect(JSON.parse(await readFile(resolve(workspace, "src-package/package.json"), "utf8")).name).toBe(sdkPackageNames.release);
@@ -94,7 +94,7 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
 test("bump changes only one authoritative config value, not local metadata or external state", async () => {
   await fixture(async workspace => {
     const before = await readFile(resolve(workspace, "src-worker/package.json"), "utf8");
-    expect((await bumpVersion("preview", "worker", "pre", workspace)).version).toBe("0.0.1-pre.2");
+    expect((await bumpVersion("preview", "worker", "patch", workspace)).version).toBe("2026.10.2-pre");
     expect((await bumpVersion("release", "worker", "minor", workspace)).version).toBe("0.1.0");
     expect(await readFile(resolve(workspace, "src-worker/package.json"), "utf8")).toBe(before);
     await expect(bumpVersion("release", "worker", "pre", workspace)).rejects.toThrow();
@@ -137,10 +137,10 @@ test("release SDK retains its API hold while only the preview identity permits C
 
 test("distributed identity parsing accepts only exact SDK aliases and config-checked latest", () => {
   expect(distributedArtifact("vrc-packages-api", "latest", "0.0.0")).toEqual({ name: sdkPackageNames.release, version: "0.0.0" });
-  expect(distributedArtifact("vrc-packages-api", "npm:vrc-package-api-preview@2026.10.0-pre")).toEqual({ name: sdkPackageNames.preview, version: "2026.10.0-pre" });
+  expect(distributedArtifact("vrc-packages-api", "npm:vrc-packages-api-preview@2026.10.0-pre")).toEqual({ name: sdkPackageNames.preview, version: "2026.10.0-pre" });
   expect(distributedArtifact("vrc-packages-network", "0.0.0")).toEqual({ name: "vrc-packages-network", version: "0.0.0" });
   for (const [name, spec] of [["vrc-packages-api", "latest"], ["vrc-packages-network", "latest"],
-    ["vrc-packages-api", "npm:unapproved@0.0.0"], ["vrc-packages-api", "npm:vrc-package-api-preview@pre"],
+    ["vrc-packages-api", "npm:unapproved@0.0.0"], ["vrc-packages-api", "npm:vrc-packages-api-preview@pre"],
     ["vrc-packages-api", "^0.0.0"], ["vrc-packages-api", "file:../src-package"], ["unknown", "0.0.0"]]) {
     expect(() => distributedArtifact(name, spec)).toThrow("Distributed dependency");
   }
@@ -153,6 +153,31 @@ test("packed consumer declarations are checked in installed consumers, not throu
   expect(harness).toContain("'--noEmit', '--strict'");
   expect(harness).toContain("'consumer.mts'");
   expect(harness).toContain("`vrc-packages-api@file:${tarball}`");
+});
+
+test("SDK verification builds through its test script before typechecking tests that import dist", () => {
+  const source = readFileSync(new URL("../scripts/delivery.mjs", import.meta.url), "utf8");
+  const verify = source.slice(source.indexOf('} else if (action === "verify")'), source.indexOf('} else if (action === "deploy")'));
+  const sdkTest = verify.indexOf('if (product === "package") npm(["test"], project)');
+  const types = verify.indexOf('npm(["run", "typecheck"], project)');
+  expect(sdkTest).toBeGreaterThan(-1);
+  expect(types).toBeGreaterThan(sdkTest);
+  const manifest = JSON.parse(readFileSync(new URL("../src-package/package.json", import.meta.url), "utf8"));
+  expect(manifest.scripts.test).toMatch(/build\s*&&\s*bun test/);
+});
+
+test("preview package CalVer increments patch and refuses a trailing prerelease counter", async () => {
+  await fixture(async workspace => {
+    expect((await bumpVersion("preview", "package", "patch", workspace)).version).toBe("2026.10.2-pre");
+    await expect(bumpVersion("preview", "package", "pre", workspace)).rejects.toThrow("patch");
+    const path = resolve(workspace, "config.preview.versions.json");
+    const { config } = await readVersionConfig("preview", workspace);
+    for (const invalid of ["2026.10.0-pre.0", "2026.13.0-pre", "2026.01.0-pre", "0.0.1-pre", "2026.10.0-beta"]) {
+      config["preview-package"] = invalid;
+      await writeFile(path, JSON.stringify(config));
+      await expect(readVersionConfig("preview", workspace)).rejects.toThrow();
+    }
+  });
 });
 
 test("CI artifact promotion rejects changed bytes, identity, config, channel, commit and development receipts", () => {
@@ -198,7 +223,7 @@ test("registry SDK inputs require exact identity, bytes and compiled distributio
   }
   expect(() => validateRegistrySDK(result, metadata, "0.0.0", Buffer.from("changed"))).toThrow();
   expect(() => validateRegistrySDK(result, { ...metadata, dist: {} }, "0.0.0", bytes)).toThrow();
-  const preview = { ...result, name: sdkPackageNames.preview, version: "2026.10.0-pre", filename: "vrc-package-api-preview-2026.10.0-pre.tgz" };
+  const preview = { ...result, name: sdkPackageNames.preview, version: "2026.10.0-pre", filename: "vrc-packages-api-preview-2026.10.0-pre.tgz" };
   const previewMetadata = { ...metadata, name: preview.name, version: preview.version };
   expect(() => validateRegistrySDK(preview, previewMetadata, preview.version, bytes, sdkPackageNames.preview)).not.toThrow();
   expect(() => validateRegistrySDK(preview, previewMetadata, preview.version, bytes)).toThrow();

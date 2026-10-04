@@ -142,8 +142,8 @@ export async function deliver(action, channel, product, ci = false) {
       npm(["run", "build"], project);
       console.log(JSON.stringify({ artifact: pack(project, ci), purpose: ci ? "ci-release" : "development" }));
     } else if (action === "verify") {
-      npm(["run", "typecheck"], project);
       if (product === "package") npm(["test"], project);
+      npm(["run", "typecheck"], project);
       const dependency = product === "network" ? distributedArtifact("vrc-packages-api", manifest.dependencies["vrc-packages-api"], sdkVersion) : null;
       const sdk = dependency && resolve(root, productDirectories.package, ".artifacts/dev", `${dependency.name}-${dependency.version}.tgz`);
       npm(["run", "test:distribution", ...(product === "network" ? ["--", "--sdk-tarball", sdk] : [])], project);

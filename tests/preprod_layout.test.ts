@@ -20,8 +20,8 @@ describe("Pre-production directory layout and configuration conformance", () => 
       expect(manifest.description ?? "").not.toContain("VRChat Package Crawler");
     }
     const sdk = JSON.parse(readFileSync(join(rootDir, "src-package/package.json"), "utf8"));
-    expect(["vrc-packages-api", "vrc-package-api-preview"]).toContain(sdk.name);
-    const sdkChannel = sdk.name === "vrc-package-api-preview" ? "preview" : "release";
+    expect(["vrc-packages-api", "vrc-packages-api-preview"]).toContain(sdk.name);
+    const sdkChannel = sdk.name === "vrc-packages-api-preview" ? "preview" : "release";
     const sdkConfig = JSON.parse(readFileSync(join(rootDir, sdkChannel === "preview" ? "config.preview.versions.json" : "config.versions.json"), "utf8"));
     expect(sdk.version).toBe(sdkConfig[`${sdkChannel}-package`]);
     expect(readFileSync(join(rootDir, "README.md"), "utf8").split(/\r?\n/)[0]).toBe("# VRC Packages");
@@ -40,14 +40,14 @@ describe("Pre-production directory layout and configuration conformance", () => 
       const manifest = JSON.parse(readFileSync(join(rootDir, project, "package.json"), "utf8"));
       const sdkSpec = manifest.dependencies["vrc-packages-api"];
       const previewSDK = sdkSpec.startsWith("npm:");
-      expect(sdkSpec).toBe(previewSDK ? `npm:vrc-package-api-preview@${preview["preview-package"]}` : project === "src-worker" ? "latest" : release["release-package"]);
+      expect(sdkSpec).toBe(previewSDK ? `npm:vrc-packages-api-preview@${preview["preview-package"]}` : project === "src-worker" ? "latest" : release["release-package"]);
       expect(Object.values(manifest.dependencies).some(value => String(value).startsWith("file:"))).toBe(false);
       if (project === "src-worker" || project === "src-crawler") {
         expect(manifest.dependencies["vrc-packages-network"]).toBe(previewSDK ? preview["preview-network"] : release["release-network"]);
       }
     }
     expect(network.dependencies["vrc-packages-api"]).toBe(network.dependencies["vrc-packages-api"].startsWith("npm:")
-      ? `npm:vrc-package-api-preview@${preview["preview-package"]}` : release["release-package"]);
+      ? `npm:vrc-packages-api-preview@${preview["preview-package"]}` : release["release-package"]);
     expect(network.private).toBe(true);
     for (const entry of Object.values(network.exports) as { types: string; import: string }[]) {
       expect(entry.types).toMatch(/^\.\/dist\/.*\.d\.ts$/);

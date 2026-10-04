@@ -95,5 +95,3 @@ CREATE TABLE IF NOT EXISTS creator_opt_outs ( takedown_id TEXT PRIMARY KEY, targ
 CREATE INDEX IF NOT EXISTS idx_opt_outs_target_url ON creator_opt_outs(target_url);
 CREATE INDEX IF NOT EXISTS idx_opt_outs_canonical_id ON creator_opt_outs(canonical_id);
 `;
-
-export const INIT_SQL = D1_SCHEMA_SQL;
