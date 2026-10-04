@@ -1,0 +1,237 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { requireCI, resolveTag, validateCIArtifact } from "./delivery.mjs";
+import { productDirectories, sdkPackageNames } from "./versioning.mjs";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+const hash = bytes => createHash("sha256").update(bytes).digest("hex");
+const workflowNames = { package: "vrc-packages-api", worker: "worker", network: "network",
+  crawler: "node-docker", "crawler-client": "node-client", web: "web" };
+
+function filesIn(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const path = join(directory, entry.name);
+    if (entry.isSymbolicLink()) throw new Error("Release inputs cannot contain symlinks");
+    if (entry.isDirectory()) return filesIn(path);
+    if (!entry.isFile()) throw new Error("Release inputs must be regular files");
+    return [path];
+  });
+}
+
+export function allowedBinary(name, product, version) {
+  if (product === "crawler") return /^vrcp-crawler-node(?:-linux|\.exe)$/.test(name);
+  if (product === "crawler-client") return /^[A-Za-z0-9_. -]+(?:\.msi|-setup\.exe)$/.test(name);
+  return product === "web" && name === `vrcp-web-${version}.tgz`;
+}
+
+/** Check every downloaded file. No unlisted file can become a release asset. */
+export function checkedAssets(paths, selected, commit, manifest, configBytes) {
+  const files = new Map();
+  for (const path of paths) {
+    const name = basename(path);
+    if (files.has(name)) throw new Error("Duplicate release asset name");
+    files.set(name, readFileSync(path));
+  }
+  const { product, version, channel } = selected;
+  const used = new Set();
+  const get = name => {
+    if (!files.has(name)) throw new Error(`Missing checked release asset: ${name}`);
+    used.add(name);
+    return files.get(name);
+  };
+  if (["package", "network", "worker"].includes(product)) {
+    const name = product === "package" ? sdkPackageNames[channel] : manifest.name;
+    const asset = product === "worker" ? "worker_entry.js" : `${name}-${version}.tgz`;
+    const receipt = JSON.parse(get(`${asset}.json`));
+    const expected = { name, version, commit };
+    if (product === "worker") Object.assign(expected, { product, channel, configSha256: hash(configBytes) });
+    validateCIArtifact(receipt, expected, get(asset));
+    if (product === "package" && files.has(`${asset}.stage.json`)) {
+      const stage = JSON.parse(get(`${asset}.stage.json`));
+      if (stage.name !== name || stage.version !== version || stage.commit !== commit || stage.channel !== channel ||
+          stage.sha256 !== hash(get(asset)) || stage.purpose !== "npm-stage" || stage.tag !== "latest" ||
+          stage.status !== "awaiting-npm-approval" || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(stage.stageId ?? "")) {
+        throw new Error("SDK stage receipt differs from the checked artifact");
+      }
+    }
+  } else {
+    const receiptNames = product === "crawler" ? ["crawler-linux.receipt.json", "crawler-windows.receipt.json"] : [`${product}.receipt.json`];
+    for (const receiptName of receiptNames) {
+      const receipt = JSON.parse(get(receiptName));
+      if (receipt.product !== product || receipt.version !== version || receipt.channel !== channel ||
+          receipt.commit !== commit || receipt.purpose !== "ci-release" || !Array.isArray(receipt.files) ||
+          receipt.files.length < 1 || receipt.files.length > 2) throw new Error("Invalid binary release receipt");
+      for (const file of receipt.files) {
+        if (!allowedBinary(file.name, product, version) || used.has(file.name)) throw new Error("Unexpected binary asset");
+        if (product === "crawler" && file.name !== (receiptName.includes("linux") ? "vrcp-crawler-node-linux" : "vrcp-crawler-node.exe")) {
+          throw new Error("Binary platform differs from its receipt");
+        }
+        const bytes = get(file.name);
+        if (file.size !== bytes.length || file.sha256 !== hash(bytes)) throw new Error("Binary bytes differ from receipt");
+      }
+    }
+  }
+  if (used.size !== files.size) throw new Error("Unexpected file in release artifacts");
+  return files;
+}
+
+export function milestoneNotes(markdown, product, selected, commit, runURL, status) {
+  const lines = markdown.replace(/\r/g, "").split("\n");
+  const start = lines.findIndex(line => line === `## ${product}`);
+  if (start < 0) throw new Error("Missing product milestone changelog");
+  let end = lines.findIndex((line, index) => index > start && line.startsWith("## "));
+  if (end < 0) end = lines.length;
+  const section = lines.slice(start + 1, end).join("\n").trim();
+  if (!section || section.length > 6000) throw new Error("Product milestone notes must be nonempty and bounded");
+  return `# VRC Packages — ${product} ${selected.version}\n\nChannel: ${selected.channel}. Delivery: ${status}.\nCommit: ${commit}.\n[Checked CI run](${runURL})\n\n${section}\n\nAssets include checked build outputs and SHA-256 checksums.\n`;
+}
+
+export function checkSourceRun(run, jobs, tag, repository, product) {
+  const required = product === "crawler" ? ["build-and-push", "standalone-windows"] : ["build"];
+  if (product === "worker" && tag.endsWith("-pre")) required.push("deploy");
+  if (run.event !== "push" || run.head_branch !== tag || !/^[a-f0-9]{40}$/.test(run.head_sha ?? "") ||
+      run.head_repository?.full_name !== repository || run.path !== `.github/workflows/${workflowNames[product]}.yml` ||
+      required.some(name => !jobs.some(job => job.name === name && job.status === "completed" && job.conclusion === "success"))) {
+    throw new Error("Release source is not the checked product-tag build");
+  }
+}
+
+/** Published assets are immutable here. Retry only missing uploads or an unfinished draft. */
+export async function attachRelease(api, repository, tag, commit, notes, files, draft, prerelease) {
+  const base = `/repos/${repository}/releases`;
+  let release = await api("GET", `${base}/tags/${encodeURIComponent(tag)}`, undefined, true);
+  // Some tag lookups omit drafts. Find an unfinished draft before creating another one.
+  if (!release) {
+    for (let page = 1; page <= 10; page++) {
+      const releases = await api("GET", `${base}?per_page=100&page=${page}`);
+      if (!Array.isArray(releases)) throw new Error("Invalid release listing");
+      release = releases.find(item => item.tag_name === tag);
+      if (release || releases.length < 100) break;
+      if (page === 10) throw new Error("Release lookup exceeded its bound");
+    }
+  }
+  // The caller already checked the existing tag. Do not create or retarget a tag through this endpoint.
+  if (!release) release = await api("POST", base, { tag_name: tag,
+    name: `VRC Packages — ${tag}`, body: notes, draft: true, prerelease, make_latest: "false" });
+  if (release.tag_name !== tag || (release.prerelease !== prerelease)) throw new Error("Existing release channel differs");
+  const existing = await api("GET", `${base}/${release.id}/assets?per_page=100`);
+  if (!Array.isArray(existing) || existing.length >= 100 || existing.some(asset => !files.has(asset.name))) {
+    throw new Error("Unexpected existing release assets");
+  }
+  for (const [name, bytes] of files) {
+    const asset = existing.find(item => item.name === name);
+    if (asset) {
+      if (asset.digest !== `sha256:${hash(bytes)}` || asset.size !== bytes.length || asset.state !== "uploaded") {
+        throw new Error("Existing release asset differs. It will not be overwritten");
+      }
+    } else {
+      if (!release.draft) throw new Error("Cannot add missing assets to a published release");
+      const uploaded = await api("UPLOAD", `${base}/${release.id}/assets?name=${encodeURIComponent(name)}`, bytes);
+      if (uploaded.digest !== `sha256:${hash(bytes)}` || uploaded.size !== bytes.length || uploaded.state !== "uploaded") {
+        throw new Error("Uploaded release asset differs from checked bytes");
+      }
+    }
+  }
+  if (!release.draft) {
+    if (draft) throw new Error("Publication state regressed. Existing release remains unchanged");
+    return release;
+  }
+  return api("PATCH", `${base}/${release.id}`, { body: notes, draft, prerelease, make_latest: "false" });
+}
+
+async function stamp(channel, product, directory, platform) {
+  const selected = await requireCI(product, channel);
+  if (!["crawler", "crawler-client", "web"].includes(product)) throw new Error("Only binary/static receipts need stamping");
+  if (product === "crawler" && !["linux", "windows"].includes(platform)) throw new Error("Crawler receipt needs its platform");
+  const paths = filesIn(resolve(directory)).filter(path => allowedBinary(basename(path), product, selected.version));
+  if (paths.length < 1 || paths.length > 2) throw new Error("Missing or excess product binary outputs");
+  const names = paths.map(path => basename(path));
+  if (new Set(names).size !== names.length) throw new Error("Duplicate output basenames");
+  const receipt = { ...selected, purpose: "ci-release", commit: process.env.GITHUB_SHA,
+    files: paths.map(path => { const bytes = readFileSync(path); return { name: basename(path), size: bytes.length, sha256: hash(bytes) }; }) };
+  writeFileSync(join(directory, product === "crawler" ? `crawler-${platform}.receipt.json` : `${product}.receipt.json`), JSON.stringify(receipt, null, 2) + "\n");
+}
+
+async function main(directory) {
+  const env = process.env;
+  if (env.GITHUB_ACTIONS !== "true" || !["push", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME) ||
+      !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.GITHUB_REPOSITORY ?? "") || !env.RELEASE_TOKEN ||
+      !/^\d+$/.test(env.RELEASE_SOURCE_RUN || env.GITHUB_RUN_ID || "") || !env.RUNNER_TEMP) {
+    throw new Error("Release attachments require the authorized GitHub workflow");
+  }
+  const artifactDirectory = realpathSync(resolve(directory));
+  if (!artifactDirectory.startsWith(realpathSync(env.RUNNER_TEMP) + sep)) throw new Error("Attachment inputs must stay in runner temporary storage");
+  const api = async (method, path, body, missing = false) => {
+    const upload = method === "UPLOAD";
+    const response = await fetch(`https://${upload ? "uploads" : "api"}.github.com${path}`, {
+      method: upload ? "POST" : method, signal: AbortSignal.timeout(60_000), redirect: "error",
+      headers: { authorization: `Bearer ${env.RELEASE_TOKEN}`, accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28", "content-type": upload ? "application/octet-stream" : "application/json" },
+      body: body === undefined ? undefined : upload ? body : JSON.stringify(body)
+    });
+    if (missing && response.status === 404) return null;
+    if (!response.ok) throw new Error(`GitHub release request failed (${response.status})`);
+    return response.json();
+  };
+  const runId = env.RELEASE_SOURCE_RUN || env.GITHUB_RUN_ID;
+  const run = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/actions/runs/${runId}`);
+  const tag = env.RELEASE_TAG || env.GITHUB_REF_NAME;
+  // Load the source commit's configs, not moving main-branch versions, for a historical attachment retry.
+  const gitFile = path => execFileSync("git", ["show", `${run.head_sha}:${path}`], { cwd: root, encoding: "utf8" });
+  if (!/^[a-f0-9]{40}$/.test(run.head_sha ?? "")) throw new Error("Invalid source commit");
+  const metadataDirectory = mkdtempSync(join(tmpdir(), "vrcp-release-metadata-"));
+  let selected;
+  try {
+    for (const file of ["config.versions.json", "config.preview.versions.json"]) writeFileSync(join(metadataDirectory, file), gitFile(file));
+    selected = await resolveTag(tag, metadataDirectory);
+  } finally { rmSync(metadataDirectory, { recursive: true }); }
+  const jobs = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/actions/runs/${runId}/jobs?per_page=100`);
+  if (jobs.total_count >= 100) throw new Error("Unexpected job count");
+  checkSourceRun(run, jobs.jobs, tag, env.GITHUB_REPOSITORY, selected.product);
+  const ref = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/git/ref/tags/${encodeURIComponent(tag)}`);
+  let object = ref.object;
+  for (let depth = 0; object.type === "tag" && depth < 4; depth++) object = (await api("GET", `/repos/${env.GITHUB_REPOSITORY}/git/tags/${object.sha}`)).object;
+  if (object.type !== "commit" || object.sha !== run.head_sha) throw new Error("Tag differs from artifact source commit");
+  const manifest = JSON.parse(gitFile(`${productDirectories[selected.product]}/package.json`));
+  // Package builds sync channel identities after checkout. Other manifest names stay fixed.
+  const assets = checkedAssets(filesIn(artifactDirectory), selected, run.head_sha, manifest,
+    selected.product === "worker" ? Buffer.from(gitFile("src-worker/wrangler.toml")) : undefined);
+  let status = selected.product === "worker" && selected.channel === "preview" ? "preview deployed" : "checked artifacts only";
+  let draft = false;
+  if (selected.product === "package") {
+    const name = sdkPackageNames[selected.channel];
+    const response = await fetch(`https://registry.npmjs.org/${name}/${selected.version}`, { signal: AbortSignal.timeout(30_000), redirect: "error" });
+    if (response.status === 404) { draft = true; status = "npm publication pending"; }
+    else {
+      if (!response.ok) throw new Error("Cannot check SDK publication");
+      const metadata = await response.json();
+      const url = new URL(metadata.dist?.tarball);
+      if (metadata.name !== name || metadata.version !== selected.version || url.origin !== "https://registry.npmjs.org") throw new Error("Unexpected registry SDK identity");
+      const publicArtifact = await fetch(url, { signal: AbortSignal.timeout(30_000), redirect: "error" });
+      if (!publicArtifact.ok || hash(Buffer.from(await publicArtifact.arrayBuffer())) !== hash(assets.get(`${name}-${selected.version}.tgz`))) {
+        throw new Error("Published SDK bytes differ from CI artifacts");
+      }
+      status = "npm publication checked";
+    }
+  }
+  const notes = milestoneNotes(readFileSync(join(root, "docs/source/CHANGELOG.md"), "utf8"), selected.product, selected,
+    run.head_sha, `https://github.com/${env.GITHUB_REPOSITORY}/actions/runs/${runId}`, "checked artifacts. See the release description for publication/deployment status");
+  assets.set("CHANGELOG.md", Buffer.from(notes));
+  assets.set("CHECKSUMS.sha256", Buffer.from([...assets].map(([name, bytes]) => `${hash(bytes)}  ${name}`).join("\n") + "\n"));
+  const release = await attachRelease(api, env.GITHUB_REPOSITORY, tag, run.head_sha,
+    `${notes}\nCurrent delivery status: ${status}.\n`, assets, draft, selected.channel === "preview");
+  console.log(JSON.stringify({ tag, sourceRun: runId, status, draft: release.draft, url: release.html_url, assets: [...assets.keys()] }));
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [action, ...args] = process.argv.slice(2);
+  try {
+    if (action === "stamp" && args.length >= 3 && args.length <= 4) await stamp(...args);
+    else if (action === "attach" && args.length === 1) await main(args[0]);
+    else throw new Error("Use release-assets.mjs stamp <channel> <product> <directory> [platform], or attach <runner-directory>");
+  } catch (error) { console.error(error instanceof Error ? error.message : "Release attachment failed"); process.exitCode = 1; }
+}

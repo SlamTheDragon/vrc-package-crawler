@@ -1,0 +1,45 @@
+name: Attach checked release assets
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing product tag. This does not build, publish npm or deploy a Worker.
+        required: true
+        type: string
+      source-run:
+        description: Successful original product-tag workflow run ID.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-assets-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - run: npm install --ignore-scripts --package-lock=false
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/vrcp-release-inputs
+          run-id: ${{ inputs.source-run || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check receipts and attach artifacts with milestone notes
+        run: node scripts/release-assets.mjs attach "$RUNNER_TEMP/vrcp-release-inputs"
+        env:
+          RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_SOURCE_RUN: ${{ inputs.source-run || github.run_id }}

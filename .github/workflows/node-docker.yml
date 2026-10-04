@@ -42,10 +42,13 @@ jobs:
           npm --prefix src-crawler test
           node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci
           src-crawler/dist/dev/vrcp-crawler-node-linux --help
+      - run: node scripts/release-assets.mjs stamp '${{ needs.route.outputs.channel }}' crawler src-crawler/dist/dev linux
       - uses: actions/upload-artifact@v4
         with:
           name: crawler-${{ needs.route.outputs.version }}-linux-x64
-          path: src-crawler/dist/dev/vrcp-crawler-node-linux
+          path: |
+            src-crawler/dist/dev/vrcp-crawler-node-linux
+            src-crawler/dist/dev/crawler-linux.receipt.json
           if-no-files-found: error
       - name: Supply only packed dependencies to Docker
         run: |
@@ -114,10 +117,13 @@ jobs:
       - run: npm --prefix src-crawler test
       - run: node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci
       - run: src-crawler/dist/dev/vrcp-crawler-node.exe --version
+      - run: node scripts/release-assets.mjs stamp '${{ needs.route.outputs.channel }}' crawler src-crawler/dist/dev windows
       - uses: actions/upload-artifact@v4
         with:
           name: crawler-${{ needs.route.outputs.version }}-windows-x64
-          path: src-crawler/dist/dev/vrcp-crawler-node.exe
+          path: |
+            src-crawler/dist/dev/vrcp-crawler-node.exe
+            src-crawler/dist/dev/crawler-windows.receipt.json
           if-no-files-found: error
   route:
     runs-on: ubuntu-latest
@@ -133,3 +139,9 @@ jobs:
       - run: npm install --ignore-scripts --package-lock=false
       - id: route
         run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
+  release-assets:
+    needs: [build-and-push, standalone-windows]
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-assets.yml

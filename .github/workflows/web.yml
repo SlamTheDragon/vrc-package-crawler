@@ -24,9 +24,24 @@ jobs:
       - run: bun test ./tests
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' web --ci
       - run: node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' web --ci
+      - name: Package only the static output
+        run: |
+          mkdir -p src-web/.artifacts/ci
+          tar -czf 'src-web/.artifacts/ci/vrcp-web-${{ steps.route.outputs.version }}.tgz' -C src-web/dist .
+          node scripts/release-assets.mjs stamp '${{ steps.route.outputs.channel }}' web src-web/.artifacts/ci
       - uses: actions/upload-artifact@v4
         with:
           name: web-${{ steps.route.outputs.version }}
-          path: src-web/dist/
+          path: |
+            src-web/.artifacts/ci/*.tgz
+            src-web/.artifacts/ci/web.receipt.json
+          include-hidden-files: true
           if-no-files-found: error
       # Hosting, API origin and Firebase setup remain separate owner decisions.
+  release-assets:
+    needs: build
+    if: ${{ needs.build.result == 'success' }}
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-assets.yml

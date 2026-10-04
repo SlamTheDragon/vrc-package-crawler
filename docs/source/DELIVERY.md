@@ -1,14 +1,18 @@
 # Development and tagged delivery
 
 Implementation status, 2026-10-05: the grouped local checks passed for packages, node, Worker, website and desktop development builds.
-Preview dependency selection and the replacement D1 binding passed local checks. Remote CI and registry SDK consumption remain unverified.
+Preview dependency selection, the replacement D1 binding and the persistent preview Worker deployment passed.
 Local commands create development outputs only. They do not upload releases, publish packages or deploy a Worker.
 
-Remote checkpoint: both SDK builds passed on commit 4d44ae2, including artifact upload/download and publication receipt checks.
-Release run 37230866545 and preview run 37230892161 failed at npm publication with EOTP, not compilation.
-Neither package is publicly available yet. The Worker preview tag remains unpushed until registry verification passes.
-Owner approves staged bootstrap and exact-target replacement of both unpublished SDK tags through the new environments.
-Local staging checks pass 36 cases/398 assertions. Real CI upload and npm promotion remain unverified.
+Remote checkpoint: SDK release run 37234232443 and preview run 37234232436 passed at commit 8907ef2.
+Both runs uploaded the checked tarball and a separate npm stage receipt. The owner promoted the stages on npm.
+Public latest resolves to vrc-packages-api@0.0.0 and vrc-packages-api-preview@2026.10.0-pre.
+The published tarballs match their CI stage receipts by SHA-256. The check used memory only, with no local release files.
+The authorized SDK tag replacements used exact-target leases. Published SDK tags must not move again.
+Worker run 37235649307 passed at 8907ef2 for worker/v2026.10.0-pre.
+It deployed version 4a93db4f-8d7f-493b-9d85-76ead98d4510 to the separate persistent preview Worker.
+The unauthenticated operator-init probe returned 401. No remote schema initialization or source grant ran.
+The release-asset checks remain local until the shared workflow passes remotely.
 
 ## Version authority
 
@@ -99,6 +103,11 @@ Only product-tag pushes trigger build workflows. Ordinary branch pushes do not t
 The tag must match exactly one authoritative config. CI syncs metadata from that config.
 Related SDK/network builds supply packaged dependencies. Consumer builds import no sibling source.
 
+The SDK runtime depends on Zod, not Wrangler, Miniflare or coordinator code.
+Wrangler and Miniflare are SDK development dependencies for the packed distribution test.
+That test builds a temporary consumer with Wrangler deploy --dry-run, then runs it locally with external fetches blocked.
+It does not deploy the SDK, use Cloudflare credentials or include Worker infrastructure in SDK exports.
+
 | Tag prefix | Workflow | External action |
 | --- | --- | --- |
 | `worker/v` | worker.yml | Automatic preview-only deployment through cloudflare-preview with the switch enabled. Release tags build without production deployment. |
@@ -123,6 +132,32 @@ These checks detect handoff errors, not a compromised runner that can replace bo
 Worker, SDK and network uploads explicitly include their hidden output directories, but select only runtime files and receipts.
 They do not upload entire projects, node_modules, local state or credential files.
 Neither path creates tags or pushes branches. GitHub artifacts are build outputs, not automatically created GitHub Releases.
+SDK run 37234232443 contains sdk-release and sdk-release-stage. Run 37234232436 contains sdk-preview and sdk-preview-stage.
+Download these outputs from each Actions run's Artifacts section. npm publication does not create a GitHub Release itself.
+
+## Release assets and milestone notes
+
+Each product workflow calls release-assets.yml after its required build and delivery jobs pass.
+Website CI remains disabled. This wiring does not activate website builds or container publication.
+The attachment job downloads the original CI outputs into runner temporary storage. It never rebuilds them.
+It checks the source repository, tag, commit, product workflow and required successful jobs.
+It checks every file against the original receipt. Extra files, changed bytes and duplicate names stop the job.
+Worker attachments include the checked bundle and receipt, not credentials or local D1 state.
+Crawler attachments include both platform binaries and receipts. Desktop attachments include unsigned installers and their receipt.
+Container registry references and publication proof need the separate Docker channel gate.
+
+[CHANGELOG.md](CHANGELOG.md) holds one current milestone summary per product. Do not append an entry for each commit.
+CI selects that product's notes. Version configs remain the only version authority.
+Each release attaches CHANGELOG.md and CHECKSUMS.sha256 beside the checked outputs. GitHub Release pages hold historical notes.
+Preview releases use GitHub's prerelease flag. No product release changes the repository-wide latest pointer.
+An SDK release stays a draft until its public npm tarball matches the checked CI bytes.
+Published assets are immutable in this workflow. Retries check existing bytes and upload only missing draft assets.
+After owner npm promotion, rerun the attachment workflow to publish the checked draft without a new package version.
+
+For earlier tags, run release-assets.yml manually on main. Supply the existing product tag and its original successful run ID.
+This path attaches original artifacts without moving tags, publishing npm packages or deploying a Worker.
+The source run's version configs govern the check, not main's current versions.
+Changelog edits after attachment do not replace published notes. Use the next authorized milestone for further changes.
 
 ## Owner setup before remote activation
 
@@ -188,6 +223,9 @@ The owner selects staged publication: CI uploads the checked tarball, then the o
 This keeps passwords and one-time codes outside CI. The workflow pins npm 11.19.0, above the 11.15.0 staging minimum.
 For a new package, npm creates a public 0.0.0-stage placeholder before approval. The owner accepts this bootstrap version.
 See [staged publication](https://docs.npmjs.com/staged-publishing/). Staging is implemented. OIDC is not configured.
+The owner reports trusted publishers for both npm identities. This does not change the current token-based CI workflow.
+CI still supplies NPM_TOKEN and lacks id-token: write. Trusted publishing remains untested in this repository.
+The preview publisher reportedly permits npm publish, npm stage publish and npm dist-tag. These permissions do not select a CI operation.
 Staging success means an upload awaits review, not that the configured SDK is available to Worker CI.
 Record the stage ID alongside the checked CI artifact. The owner must approve the stage before registry verification and Worker tags.
 A pending stage reserves its package version. Public registry metadata alone cannot prove that no pending stage exists.
@@ -254,6 +292,8 @@ Production keeps Worker name `vrc-package-crawler` and D1 ID `722bdd0d-92ca-445b
 Preview uses Worker name `vrc-package-crawler-preview` and `vrcp-preview-d1`, ID `fbef6ce1-4145-45ae-ae91-5d617a1f2672`.
 An authenticated D1 listing confirmed the separate database on 2026-10-04. No schema or data writes ran.
 Preview is a persistent Wrangler environment, not a branch Preview or a production Version URL.
+The owner retains this separate persistent Worker. Native Previews are deferred to a future metrics and resource-isolation review.
+Its active deployment can appear as Production in that Worker's dashboard. This label does not select the production D1 binding.
 Its separate D1 binding and secret configuration are explicit because bindings do not inherit across environments.
 `remote = false` controls local development, not remote deployment isolation.
 

@@ -33,3 +33,9 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
       # Public/private registry selection is not implied by artifact packaging.
+  release-assets:
+    needs: build
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-assets.yml

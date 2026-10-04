@@ -40,6 +40,13 @@ jobs:
             src-package/.artifacts/ci/*.tgz.json
           include-hidden-files: true
           if-no-files-found: error
+  release-assets:
+    needs: [build, publish]
+    if: ${{ always() && needs.build.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-assets.yml
   publish:
     needs: build
     # Separate package identities and environments. Release v0.1 remains held in delivery.mjs.

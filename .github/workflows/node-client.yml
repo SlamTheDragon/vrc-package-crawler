@@ -31,11 +31,19 @@ jobs:
       - run: npm --prefix src-package run test:distribution
       - run: npm --prefix src-crawler-client run check
       - run: node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' crawler-client --ci
+      - run: node scripts/release-assets.mjs stamp '${{ steps.route.outputs.channel }}' crawler-client src-crawler-client/src-tauri/target/release/bundle
       - uses: actions/upload-artifact@v4
         with:
           name: crawler-client-${{ steps.route.outputs.version }}-windows-unsigned
           path: |
             src-crawler-client/src-tauri/target/release/bundle/msi/*.msi
             src-crawler-client/src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-crawler-client/src-tauri/target/release/bundle/crawler-client.receipt.json
           if-no-files-found: error
+  release-assets:
+    needs: build
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-assets.yml
 # ensure output only expose msi installer or exe installer if ever defined, if not, set up build configs in related source code

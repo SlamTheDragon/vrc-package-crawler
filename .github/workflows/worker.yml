@@ -73,3 +73,10 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           OPERATOR_TOKEN: ${{ secrets.OPERATOR_TOKEN }}
+  release-assets:
+    needs: [build, deploy]
+    if: ${{ always() && needs.build.result == 'success' && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') }}
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-assets.yml
