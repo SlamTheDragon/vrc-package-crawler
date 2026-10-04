@@ -68,10 +68,13 @@ npm run build:dev -- preview worker
 
 Local `prepare` syncs the SDK to the selected channel, then builds and packs dependencies under each package's `.artifacts/dev/`.
 It installs tarballs into the selected consumer. It does not use source links or query unpublished internal registry coordinates.
-Worker preview CI resolves the preview SDK's latest tag and checks its version against the preview config.
-Release Worker CI resolves the release SDK's latest tag and rejects a version outside the authoritative release config.
-It then packs that exact version, not the moving tag. Both paths check identity, SHA-512 integrity and compiled files.
-It then builds the internal network tarball against that SDK. A missing registry version fails the build without a source fallback.
+Every CI consumer resolves the selected SDK's latest tag and checks its version against that channel's config.
+Release consumers reject an SDK version outside the authoritative release config.
+CI then packs that exact version, not the moving tag. Both paths check identity, SHA-512 integrity and compiled files.
+Consumers that need internal network contracts build that tarball against the checked SDK.
+A missing or mismatched registry version fails the build without a source fallback.
+Consumer workflows do not rebuild or test the SDK producer. Its publication workflow owns source and distribution checks.
+Node and network workflows retain their own type, unit and packed-consumer checks.
 This development path does not select a public or private registry for the network package.
 No install scripts run during preparation. Product build commands run their required build hooks explicitly.
 Dependency resolution is not frozen. Preserve the owner's no-lockfile choice and record this reproducibility limit.
@@ -329,7 +332,7 @@ The Compose file requires an explicit reviewed CI image. Watchtower and its Dock
 
 ## Release order and open preview policy
 
-Publish and check the selected SDK identity and configured version before pushing Worker tags that consume it.
+Publish and check the selected SDK identity and configured version before pushing consumer tags that need it.
 Do not push all product tags at once and assume npm publication wins the build race.
 Worker preview deployment remains authorized. Production deployment is not part of that authorization.
 The current workflows use product-tag pushes only. Branch-push previews and automatic version increments remain proposals.

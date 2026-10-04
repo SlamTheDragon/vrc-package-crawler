@@ -21,7 +21,6 @@ jobs:
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
       - run: bun test ./tests
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' network --ci
-      - run: npm --prefix src-package run test:distribution
       - run: node scripts/delivery.mjs verify '${{ steps.route.outputs.channel }}' network --ci
       - run: node scripts/delivery.mjs pack '${{ steps.route.outputs.channel }}' network --ci
       - uses: actions/upload-artifact@v4

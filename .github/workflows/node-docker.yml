@@ -34,8 +34,6 @@ jobs:
       - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
       - name: Verify package contracts and node
         run: |
-          npm --prefix src-package test
-          npm --prefix src-package run test:distribution
           npm --prefix src-worker/packages/network run typecheck
           npm --prefix src-worker/packages/network run test:distribution -- --sdk-tarball "$GITHUB_WORKSPACE/src-package/.artifacts/dev/$(node -p "const p=require('./src-package/package.json'); p.name+'-'+p.version").tgz"
           npm --prefix src-crawler run typecheck

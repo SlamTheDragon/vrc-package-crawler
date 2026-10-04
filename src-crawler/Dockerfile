@@ -10,7 +10,10 @@ COPY package.json ./
 COPY .ci-artifacts/*.tgz ./.ci-artifacts/
 RUN set -- ./.ci-artifacts/vrc-package*-api*.tgz; \
     [ "$#" -eq 1 ] && [ -f "$1" ] && \
-    bun install --no-save "vrc-packages-api@file:$1" ./.ci-artifacts/vrc-packages-network-*.tgz
+    sdk_artifact="$1" && \
+    set -- ./.ci-artifacts/vrc-packages-network-*.tgz && \
+    [ "$#" -eq 1 ] && [ -f "$1" ] && \
+    bun install --no-save "vrc-packages-api@file:$sdk_artifact" "$1"
 COPY . ./
 RUN bun run build:node:musl
 

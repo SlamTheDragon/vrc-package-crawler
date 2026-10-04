@@ -161,7 +161,7 @@ export async function deliver(action, channel, product, ci = false) {
       if (name === "package") await versionFiles("sync", dependencyChannel, name);
       await versionFiles("check", dependencyChannel, name);
       const dependencyProject = resolve(root, productDirectories[name]);
-      if (ci && product === "worker" && name === "package") {
+      if (ci && name === "package") {
         inputs.push(`vrc-packages-api@file:${packRegistrySDK(dependencyProject, channel)}`);
         continue;
       }

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
@@ -373,6 +374,99 @@ test("registry SDK inputs require exact identity, bytes and compiled distributio
   expect(() => validateRegistrySDK(preview, previewMetadata, preview.version, bytes, sdkPackageNames.preview)).not.toThrow();
   expect(() => validateRegistrySDK(preview, previewMetadata, preview.version, bytes)).toThrow();
   expect(() => validateRegistrySDK(result, metadata, "0.0.1", bytes)).toThrow();
+});
+
+test("every CI consumer installs the published SDK while local preparation and the SDK producer stay separate", async () => {
+  await fixture(async workspace => {
+    await mkdir(resolve(workspace, "scripts"));
+    await mkdir(resolve(workspace, "node_modules"));
+    await cp(new URL("../node_modules/semver", import.meta.url), resolve(workspace, "node_modules/semver"), { recursive: true });
+    for (const file of ["delivery.mjs", "versioning.mjs"]) {
+      await writeFile(resolve(workspace, "scripts", file), await readFile(new URL(`../scripts/${file}`, import.meta.url)));
+    }
+    await writeFile(resolve(workspace, "package.json"), JSON.stringify({ type: "module" }));
+    const networkPath = resolve(workspace, productDirectories.network, "package.json");
+    const network = JSON.parse(await readFile(networkPath, "utf8"));
+    await writeFile(networkPath, JSON.stringify({ ...network, name: "vrc-packages-network" }));
+    const log = resolve(workspace, "commands.jsonl");
+    const cli = resolve(workspace, "npm-cli.js");
+    // This fake npm produces only labeled synthetic bytes inside the temporary fixture. No registry or build runs.
+    await writeFile(cli, `
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+const args=process.argv.slice(2), cwd=process.cwd(), env=process.env;
+appendFileSync(env.FIXTURE_LOG, JSON.stringify({cwd,args})+'\\n');
+const bytes=Buffer.from('synthetic registry dependency, not an actual tarball');
+const integrity='sha512-'+createHash('sha512').update(bytes).digest('base64');
+if(args[0]==='view') {
+  console.log(JSON.stringify({name:env.FIXTURE_SDK_NAME,version:env.FIXTURE_LATEST||env.FIXTURE_VERSION,dist:{integrity}}));
+} else if(args[0]==='pack') {
+  const remote=args[1].startsWith('vrc-packages-api@')||args[1].startsWith('vrc-packages-api-preview@');
+  const manifest=JSON.parse(readFileSync(join(cwd,'package.json'),'utf8'));
+  const name=remote?args[1].slice(0,args[1].lastIndexOf('@')):manifest.name;
+  const version=remote?args[1].slice(args[1].lastIndexOf('@')+1):manifest.version;
+  const directory=args[args.indexOf('--pack-destination')+1];
+  const filename=name+'-'+version+'.tgz';
+  mkdirSync(directory,{recursive:true});writeFileSync(join(directory,filename),bytes);
+  console.log(JSON.stringify([{name,version,filename,integrity,files:[{path:'package.json'},{path:'dist/index.js'},{path:'dist/index.d.ts'}]}]));
+} else if(args[0]==='install') {
+  const manifest=JSON.parse(readFileSync(join(cwd,'package.json'),'utf8'));
+  for(const name of Object.keys(manifest.dependencies||{})) {
+    const directory=join(cwd,'node_modules',name);mkdirSync(directory,{recursive:true});
+    writeFileSync(join(directory,'package.json'),JSON.stringify({name:name==='vrc-packages-api'?env.FIXTURE_SDK_NAME:name,version:env.FIXTURE_VERSION}));
+  }
+} else if(args[0]!=='run'||args[1]!=='build') throw new Error('Unexpected fixture npm command');
+`);
+    const base = { ...process.env, npm_execpath: cli, FIXTURE_LOG: log, GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "push", GITHUB_SHA: "a".repeat(40) };
+    const run = (args: string[], env: Record<string, string | undefined>) =>
+      execFileSync(process.execPath, args, { cwd: workspace, env, stdio: "pipe", encoding: "utf8" });
+    const commands = async () => (await readFile(log, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    const prefixes = { worker: "cloudflare-worker", crawler: "vrcp-crawler", network: "vrcp-network",
+      "crawler-client": "vrcp-crawler-client", web: "web" };
+    for (const channel of ["release", "preview"]) {
+      const version = channel === "release" ? "0.0.1" : "2026.10.1-pre";
+      const env = { ...base, FIXTURE_SDK_NAME: sdkPackageNames[channel], FIXTURE_VERSION: version };
+      run(["scripts/versioning.mjs", "sync", channel], env);
+      for (const [product, prefix] of Object.entries(prefixes)) {
+        await writeFile(log, "");
+        run(["scripts/delivery.mjs", "prepare", channel, product, "--ci"], { ...env, GITHUB_REF: `refs/tags/${prefix}/v${version}` });
+        const trace = await commands();
+        expect(trace.filter(item => item.args[0] === "view").map(item => item.args[1])).toEqual([`${sdkPackageNames[channel]}@latest`]);
+        expect(trace.some(item => item.cwd === resolve(workspace, productDirectories.package) && item.args[0] === "run")).toBe(false);
+        expect(trace.some(item => item.args[0] === "pack" && item.args[1] === `${sdkPackageNames[channel]}@${version}`)).toBe(true);
+        const installed = JSON.parse(await readFile(resolve(workspace, productDirectories[product], "node_modules/vrc-packages-api/package.json"), "utf8"));
+        expect(installed).toEqual({ name: sdkPackageNames[channel], version });
+      }
+      await writeFile(log, "");
+      expect(() => run(["scripts/delivery.mjs", "prepare", channel, "crawler", "--ci"], {
+        ...env, FIXTURE_LATEST: "0.0.9", GITHUB_REF: `refs/tags/vrcp-crawler/v${version}`
+      })).toThrow("outside the authoritative version config");
+      expect((await commands()).map(item => item.args[0])).toEqual(["view"]);
+      await writeFile(log, "");
+      run(["scripts/delivery.mjs", "prepare", channel, "package", "--ci"], { ...env, GITHUB_REF: `refs/tags/vrcp-api/v${version}` });
+      expect((await commands()).some(item => item.args[0] === "view")).toBe(false);
+      await writeFile(log, "");
+      run(["scripts/delivery.mjs", "prepare", channel, "crawler"], env);
+      const local = await commands();
+      expect(local.some(item => item.args[0] === "view")).toBe(false);
+      expect(local.some(item => item.cwd === resolve(workspace, productDirectories.package) && item.args[0] === "run" && item.args[1] === "build")).toBe(true);
+    }
+  });
+}, 30_000);
+
+test("consumer workflows verify their own distributions without running the SDK producer", () => {
+  for (const name of ["cloudflare-worker", "node-docker", "node-client", "network", "web"]) {
+    const source = readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8");
+    expect(source).toContain("scripts/delivery.mjs prepare");
+    expect(source).not.toContain("npm --prefix src-package test");
+    expect(source).not.toContain("npm --prefix src-package run test:distribution");
+  }
+  const sdk = readFileSync(new URL("../.github/workflows/vrc-packages-api.yml", import.meta.url), "utf8");
+  expect(sdk).toContain("scripts/delivery.mjs verify");
+  const docker = readFileSync(new URL("../src-crawler/Dockerfile", import.meta.url), "utf8");
+  expect(docker.match(/\[ "\$#" -eq 1 \]/g)).toHaveLength(2);
 });
 
 test("external workflow guards separate the two npm approvals from preview-only Worker authority", () => {

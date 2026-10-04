@@ -28,7 +28,6 @@ jobs:
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
       - run: bun test ./tests
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' crawler-client --ci
-      - run: npm --prefix src-package run test:distribution
       - run: npm --prefix src-crawler-client run check
       - run: node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' crawler-client --ci
       - run: node scripts/release-assets.mjs stamp '${{ steps.route.outputs.channel }}' crawler-client src-crawler-client/src-tauri/target/release/bundle

@@ -1,80 +1,67 @@
-# G14 delivery checkpoint
+# G13 registry-consumer checkpoint
 
-## Authority and scope
+## Active gate and authority
 
-Read the attached objective at each continuation. G14 delivery and G13 dependencies remain the active group.
-The owner approves release SDK 0.0.0, preview SDK 2026.10.0-pre, automatic persistent Worker preview and checked release attachments.
-New tags use vrcp-api, vrcp-network, cloudflare-worker, vrcp-crawler and vrcp-crawler-client prefixes. Config keys stay unchanged.
-The owner retains npm stage approval and requests automatic GitHub Release publication after verified npm publication.
-Owner correction: Worker environments have no GitHub Release assets. Bundles/receipts stay in Actions artifacts.
-Retain the separate persistent preview Worker. Native Previews are a far-future metrics and resource-isolation review.
-Do not approve protected GitHub jobs through saved credentials.
-Keep production Worker and website deployment off. Release SDK v0.1, including prereleases, requires the full owner API review.
+The previous goal turn made progress: SDK release assets and immutable retries passed, and Worker bundles became CI-only.
+Read the attached objective on continuation. Current work addresses G13 runtime dependency ownership, supporting G14 Docker delivery.
+Each src-* project consumes distributed dependencies, not sibling source. SDK publication and consumer preparation are separate operations.
+Theory: every CI consumer must install the config-checked published SDK, rather than silently rebuilding same-version source.
+Local preparation can still build development tarballs. Local outputs remain development-only.
 
-Version configs govern builds. Explicit preview bumps use the current UTC year/month and increment patch only.
-Preview consumers keep vrc-packages-api through npm:vrc-packages-api-preview@latest.
-Worker CI checks latest against the config, then installs exact registry bytes. Internal network dependencies remain pinned.
-Each src-* project consumes distributed dependencies, not sibling source. Internal registry publication remains unauthorized.
-Keep main and product-tag triggers. No automatic branch publication, version bumps or local release outputs.
+No version bump, tag push, registry publication, Worker deployment, schema write or source grant is authorized by this audit.
 
-## Evidence — 2026-10-05
+## Dependency boundary and checkpoint
 
-Theory: checked CI assets can attach to existing immutable tags without another build, publication or deployment.
-Product workflow → shared attachment job → original source run/tag/config → receipt check → draft uploads → checked publication status.
-scripts/release-assets.mjs and tests/release-assets.test.ts exercise this path.
-The corrected gate passed 46 cases/513 assertions, script syntax, unchanged version metadata and diff checks.
-The SDK draft-check workflow passed in run 37238419166 at 24bfec4, with no pending drafts.
-Historical Worker retry 37238421582 failed its overwrite guard after the note renderer changed. No overwrite occurred.
-Worker attachments are now removed under owner direction. SDK retries retain original notes and checksums, with metadata and byte checks.
-SDK retries 37239255957 and 37239258107 passed at bf6badd, retaining existing notes, checksums and artifact bytes.
-Negative cases cover altered bytes, duplicate names, unexpected files, wrong source runs, missing jobs and interrupted upload acknowledgment.
-Draft recovery checks existing assets. Published assets cannot be overwritten.
-Attachment runs 37237551535/37237553499/37237555591 passed at commit 12b26f1.
-SDK release and preview each have five public GitHub Release assets. A later read lists those two releases only.
-Each CHANGELOG.md and CHECKSUMS.sha256 is public. All checksum entries match GitHub's uploaded asset digests.
+Before this change, only Worker CI checked registry SDK bytes.
+Crawler, network, desktop and website CI rebuilt SDK source. Their workflows also ran producer checks without producer setup.
+All CI consumers now use packRegistrySDK, preserving canonical imports and exact config checks.
+The SDK producer keeps its source build and owner-approved stage workflow.
+Consumer workflows retain their own checks, without redundant SDK producer tests.
+The Dockerfile rejects missing or multiple SDK/network tarballs before installation.
 
-| Channel | SDK source run | Checked public identity |
-| --- | --- | --- |
-| Release | 37234232443 | vrc-packages-api@0.0.0 |
-| Preview | 37234232436 | vrc-packages-api-preview@2026.10.0-pre |
+Grouped local checkpoint: root 48 tests/580 assertions and crawler 133 tests/803 assertions passed.
+Node types, delivery script syntax, release config and Windows development binary checks passed. The binary reports 0.0.0.
+Executable CLI fixtures check five consumers in both channels, wrong latest rejection, producer separation and local source builds.
+The network's packed distribution passed Node, Bun, declarations and native Worker checks against the published SDK. It made zero external fetches.
 
-Both SDK runs target 8907ef2cfbade56e4686713076d13dd49f39c709. Owner npm promotion completed.
-Public tarballs match their CI stage receipts. Checks used memory only, with no local release files.
-Release SHA-256: 8765381936f006fc65fd41de53d4f20389c80127f4245bbdbe929d6b2f821ce8.
-Preview SHA-256: 6727198ceb5ed87eeac6ec009ccf12eac56b23c216967abaa4546231e56ed404.
+Downloaded SDK 0.0.0 SHA-256: 8765381936f006fc65fd41de53d4f20389c80127f4245bbdbe929d6b2f821ce8.
+That dependency input stays under the network project's development artifacts. No release artifact was authored locally.
+Root fixtures used Bun 1.4.2. npm crawler checks resolved global Bun 1.4.1, unlike CI's pinned 1.4.2.
+Clean tagged consumer CI and Docker execution remain unverified. No consumer tag was pushed.
 
-Worker preview source run 37235649307 passed build and deployment at the same commit.
-Tag worker/v2026.10.0-pre has annotated object de30960e7fa864aa1002f2be0378a4048b4f0aa1.
+## Delivery evidence retained
+
+Public npm release: vrc-packages-api@0.0.0. Preview: vrc-packages-api-preview@2026.10.0-pre.
+SDK runs 37234232443/37234232436 used 8907ef2 and owner promotion. Public bytes match their CI stage receipts.
+SDK releases have five assets each, including checked notes and checksums.
+Attachment retries 37239255957/37239258107 passed at bf6badd without replacing original assets.
+
+Empty-draft workflow run 37238419166 passed.
+That empty-draft check does not prove a live post-approval draft promotion.
+
+Persistent Worker preview run 37235649307 passed.
 Worker: vrc-package-crawler-preview. Version: 4a93db4f-8d7f-493b-9d85-76ead98d4510.
-URL: https://vrc-package-crawler-preview.slamthedragon.workers.dev.
-Preview D1: fbef6ce1-4145-45ae-ae91-5d617a1f2672. Production D1: 722bdd0d-92ca-445b-9319-da0b27adf7b2.
-Unauthenticated operator init returned 401. An unknown path returned 404.
-Malformed node claim returned a structured 400 before authentication. This does not prove a valid node request returns 401.
-No remote schema initialization, source-access grant or real crawling ran. Initial setup must use autoSeed false.
+Preview D1: fbef6ce1-4145-45ae-ae91-5d617a1f2672. Production remains unchanged.
+Worker bundles stay Actions-only. Native Previews remain a far-future review.
 
-SDK tag-recovery record: previous release object b69e6776deceffe3b45a9aa5ab49053156ce801c and previous preview object
-8b6d64286e396588d3d696b30a8ccd1ea69dee95 pointed to 4d44ae2.
-Current release object 0632985b758105e0f503957ede5d7d078ffe2a67 and preview object
-4c279cd16b188576df2cee5d109e529ad78513cb point to 8907ef2.
-Earlier preview recovery object b6d28f468c26374777a68c57fb9da3d24341b2da pointed to 5817cfe.
-Published SDK versions and their tags must not move again.
+No remote schema initialization, source-access profile or real-source fleet ran.
 
-## Next action and limits
+## Docker findings and next actions
 
-The corrected group is pushed at bf6badd. Both SDK attachment retries passed; no new product tags or version bumps ran.
-The hourly draft check reads npm metadata, then dispatches original attachment verification. It never approves npm stages.
-Remote operation with no drafts is not proof of a later staged-draft promotion. Keep that live trial open.
-No Worker release, tag or asset deletion ran through this agent. Preview deployment and its CI artifacts remain unchanged.
-Owner setup: cloudflare-preview needs cloudflare-worker/v*. SDK environments need vrcp-api/v*.
-Keep the SDK workflow filename, existing secrets and reviewer policy. GitHub trusted-publisher mappings remain unchanged.
-SDK GitHub Releases remain drafts until public npm bytes match. Published releases do not change the repository-wide latest pointer.
-Website workflow stays disabled. Docker images and Windows installers remain unverified remotely.
-The empty docs/CHANGELOG.md stub moved into docs/source/CHANGELOG.md. Preserve the owner's unrelated .gitignore edits.
+Old Docker failure 37117779544 at 7d40039 could not resolve vrc-packages-api.
+Four later branch-based runs passed. None verifies the current product-tag workflow.
+VRCP_CONTAINER_PUBLISH_APPROVED is true. No dedicated crawler preview/release environments exist.
+The current Linux job requests packages: write even for builds, logs in before testing and rebuilds the image before publishing.
+Local Docker is unavailable. Do not treat the old successful runs as current delivery proof.
 
-Q-NPM-OIDC records the trusted-publisher migration. CI still uses NPM_TOKEN for staging and inspection.
-No authentication migration or version bump ran. After migration, propose release 0.0.1 and a current-calendar preview patch trial.
-Q-DOCKER-CHANNELS queues container preview/release parity after current npm/Worker verification.
-Q-ATTACKER-INTAKE remains unread until pipeline setup finishes. Do not publish private research.
-Public catalog routes lack rights/age controls. Use synthetic data until those boundaries are settled.
-Security, API ownership, source profiles, robots, fleet budgets, schema upgrades and durable recovery gates remain open.
-G14 and the full pre-production goal remain incomplete.
+Critical question: separate preview/release GHCR packages or one image with channel tags? Defer the choice until owner input.
+No crawler tags will be pushed while those publication controls remain unsettled.
+Docker's documented single-platform archive handoff can move the tested image between isolated jobs without a rebuild.
+
+Owner setup remains: cloudflare-preview needs cloudflare-worker/v*. SDK environments need vrcp-api/v*.
+Retain npm owner stage approval, release v0.1 API review, existing secrets, SDK trusted-publisher filename and immutable historical tags.
+Website delivery stays disabled. Internal network registry publication remains unauthorized.
+
+After this dependency gate, continue the Docker channel gate and a later approved SDK promotion trial.
+Q-ATTACKER-INTAKE remains unread until pipeline setup finishes.
+Security, rights/age controls, source access, fleet budgets and durable recovery remain open. The full goal is not complete.
