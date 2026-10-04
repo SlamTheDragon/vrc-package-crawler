@@ -5,7 +5,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
-import { distributedArtifact, productDirectories, readVersionConfig, sdkPackageNames, versionFiles } from "./versioning.mjs";
+import { distributedArtifact, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, versionFiles } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const artifacts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
@@ -79,11 +79,13 @@ export function stageSDKArtifact(artifact, expected, receipt, run) {
   return { ...expected, stageId, tag: "latest", sha256: receipt.sha256, status: "awaiting-npm-approval", purpose: "npm-stage" };
 }
 
-export async function resolveTag(tag, workspace = root) {
+export async function resolveTag(tag, workspace = root, historical = false) {
   if (typeof tag !== "string" || tag.trim() !== tag) throw new Error("Tag must be an exact canonical string");
-  const match = /^(crawler|crawler-client|package|network|web|worker)\/v(.+)$/.exec(tag ?? "");
-  if (!match || semver.valid(match[2]) !== match[2]) throw new Error("Expected <product>/v<canonical-semver> tag");
-  const [, product, version] = match;
+  const match = /^([a-z-]+)\/v(.+)$/.exec(tag);
+  const product = match && Object.keys(productTagPrefixes).find(key =>
+    productTagPrefixes[key] === match[1] || (historical && key === match[1]));
+  if (!product || semver.valid(match[2]) !== match[2]) throw new Error("Expected a product-specific prefix and canonical version tag");
+  const version = match[2];
   const matches = [];
   for (const channel of ["release", "preview"]) {
     const { config } = await readVersionConfig(channel, workspace);
@@ -100,7 +102,7 @@ export async function resolveTag(tag, workspace = root) {
 
 export async function requireCI(product, channel, env = process.env) {
   if (env.GITHUB_ACTIONS !== "true" || env.GITHUB_EVENT_NAME !== "push" ||
-      !env.GITHUB_REF?.startsWith(`refs/tags/${product}/v`) || !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? "")) {
+      !env.GITHUB_REF?.startsWith(`refs/tags/${productTagPrefixes[product]}/v`) || !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? "")) {
     throw new Error("Release artifacts and remote actions require a matching GitHub tag-push job. Local output is development-only.");
   }
   return resolveTag(env.GITHUB_REF.slice("refs/tags/".length)).then(tag => {

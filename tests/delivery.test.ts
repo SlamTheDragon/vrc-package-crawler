@@ -35,16 +35,16 @@ async function fixture(run: (workspace: string) => Promise<void>) {
 
 test("tag routing follows the config, not a hardcoded sample or a branch", async () => {
   await fixture(async workspace => {
-    expect(await resolveTag("worker/v2026.10.1-pre", workspace)).toEqual({
+    expect(await resolveTag("cloudflare-worker/v2026.10.1-pre", workspace)).toEqual({
       product: "worker", version: "2026.10.1-pre", channel: "preview", environment: "cloudflare-preview"
     });
     expect((await resolveTag("web/v0.0.1", workspace)).environment).toBe("production");
-    expect((await resolveTag("package/v2026.10.1-pre", workspace)).environment).toBe("vrcp-api-preview");
-    expect((await resolveTag("package/v0.0.1", workspace)).environment).toBe("vrcp-api-release");
-    expect((await resolveTag("worker/v0.0.1", workspace)).environment).toBe("production");
-    expect((await resolveTag("crawler/v2026.10.1-pre", workspace)).environment).toBe("preview");
-    expect((await resolveTag("crawler/v0.0.1", workspace)).environment).toBe("production");
-    for (const tag of ["v0.0.1", "main", "worker/v0.0.2", "worker/v01.0.1", "unknown/v0.0.1", "worker/v0.0.1\n"]) {
+    expect((await resolveTag("vrcp-api/v2026.10.1-pre", workspace)).environment).toBe("vrcp-api-preview");
+    expect((await resolveTag("vrcp-api/v0.0.1", workspace)).environment).toBe("vrcp-api-release");
+    expect((await resolveTag("cloudflare-worker/v0.0.1", workspace)).environment).toBe("production");
+    expect((await resolveTag("vrcp-crawler/v2026.10.1-pre", workspace)).environment).toBe("preview");
+    expect((await resolveTag("vrcp-crawler/v0.0.1", workspace)).environment).toBe("production");
+    for (const tag of ["v0.0.1", "main", "cloudflare-worker/v0.0.2", "cloudflare-worker/v01.0.1", "unknown/v0.0.1", "cloudflare-worker/v0.0.1\n"]) {
       await expect(resolveTag(tag, workspace)).rejects.toThrow();
     }
   });
@@ -62,6 +62,20 @@ test("stable UI preview versions are allowed but equal channel tags remain ambig
     await writeFile(path, JSON.stringify(config));
     await expect(readVersionConfig("preview", workspace)).rejects.toThrow("pre");
   });
+});
+
+test("product-specific tags are canonical while historical prefixes are attachment-only", async () => {
+  await fixture(async workspace => {
+    for (const [prefix, product] of [["vrcp-api", "package"], ["vrcp-network", "network"],
+      ["cloudflare-worker", "worker"], ["vrcp-crawler", "crawler"], ["vrcp-crawler-client", "crawler-client"]]) {
+      expect((await resolveTag(`${prefix}/v0.0.1`, workspace)).product).toBe(product);
+      await expect(resolveTag(`${product}/v0.0.1`, workspace)).rejects.toThrow("product-specific");
+      expect((await resolveTag(`${product}/v0.0.1`, workspace, true)).product).toBe(product);
+    }
+  });
+  const config = (await readVersionConfig("release")).config;
+  await expect(requireCI("worker", "release", { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push",
+    GITHUB_REF: `refs/tags/worker/v${config["release-worker"]}`, GITHUB_SHA: "a".repeat(40) })).rejects.toThrow("matching");
 });
 
 test("selected-product sync pins distributed dependencies without changing another product", async () => {
@@ -118,7 +132,7 @@ test("invalid configs and later native metadata fail before any sync writes", as
 });
 
 test("local sessions cannot authorize release artifacts or remote mutation", async () => {
-  for (const env of [{}, { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/tags/worker/v0.0.0" },
+  for (const env of [{}, { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/tags/cloudflare-worker/v0.0.0" },
     { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/main" }]) {
     await expect(requireCI("worker", "release", env)).rejects.toThrow("tag-push");
   }
@@ -233,7 +247,7 @@ test("CI artifact promotion rejects changed bytes, identity, config, channel, co
 
 test("CI artifact generation requires a commit as well as a matching tag push", async () => {
   const { config } = await readVersionConfig("release");
-  const env = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REF: `refs/tags/worker/v${config["release-worker"]}` };
+  const env = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REF: `refs/tags/cloudflare-worker/v${config["release-worker"]}` };
   for (const commit of [undefined, "", "short", "g".repeat(40)]) {
     await expect(requireCI("worker", "release", { ...env, GITHUB_SHA: commit })).rejects.toThrow("tag-push");
   }
@@ -373,8 +387,8 @@ test("external workflow guards separate the two npm approvals from preview-only 
   const auth = sdk?.steps?.find(step => step.env?.NODE_AUTH_TOKEN)?.env;
   expect(auth?.NODE_AUTH_TOKEN).toBe('${{ secrets.NPM_TOKEN }}');
   expect(auth?.NPM_TOKEN).toBe(auth?.NODE_AUTH_TOKEN);
-  expect(workflow("worker").jobs.deploy?.if).toContain("needs.build.outputs.channel == 'preview'");
-  expect(workflow("worker").jobs.deploy?.steps?.find(step => step.env?.OPERATOR_TOKEN)?.env?.OPERATOR_TOKEN)
+  expect(workflow("cloudflare-worker").jobs.deploy?.if).toContain("needs.build.outputs.channel == 'preview'");
+  expect(workflow("cloudflare-worker").jobs.deploy?.steps?.find(step => step.env?.OPERATOR_TOKEN)?.env?.OPERATOR_TOKEN)
     .toBe('${{ secrets.OPERATOR_TOKEN }}');
   expect(workflow("web").jobs.build?.if).toBe(false);
   const clientArtifact = workflow("node-client").jobs.build?.steps?.find(step => step.with?.path)?.with?.path;
@@ -387,7 +401,7 @@ test("external workflow guards separate the two npm approvals from preview-only 
 });
 
 test("Worker artifact paths follow runtime channel independently of GitHub approval-environment names", () => {
-  const workflow = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/worker.yml", import.meta.url), "utf8")) as {
+  const workflow = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/cloudflare-worker.yml", import.meta.url), "utf8")) as {
     jobs: Record<string, { environment?: string; steps: { uses?: string; with?: { path?: string } }[] }>;
   };
   const upload = workflow.jobs.build.steps.find(step => step.uses?.startsWith("actions/upload-artifact@"))?.with?.path;
@@ -409,7 +423,7 @@ test("preview deployment accepts only the operator binding and rejects missing o
 
 test("hidden-directory uploads include only runtime artifacts and their CI receipts", () => {
   for (const [name, suffixes] of [
-    ["worker", ["/worker_entry.js", "/worker_entry.js.json"]],
+    ["cloudflare-worker", ["/worker_entry.js", "/worker_entry.js.json"]],
     ["vrc-packages-api", ["/*.tgz", "/*.tgz.json"]],
     ["network", ["/*.tgz", "/*.tgz.json"]]
   ] as const) {

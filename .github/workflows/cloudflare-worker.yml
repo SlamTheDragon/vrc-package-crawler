@@ -1,7 +1,7 @@
-name: Worker tagged deployment
+name: Cloudflare Worker tagged deployment
 on:
   push:
-    tags: ['worker/v*']
+    tags: ['cloudflare-worker/v*']
 permissions:
   contents: read
 concurrency:

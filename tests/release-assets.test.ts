@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { allowedBinary, attachRelease, checkedAssets, checkSourceRun, milestoneNotes } from "../scripts/release-assets.mjs";
+import { allowedBinary, attachRelease, checkedAssets, checkSourceRun, milestoneNotes, reconcileSDKDrafts } from "../scripts/release-assets.mjs";
 
 const commit = "a".repeat(40);
 const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
@@ -80,10 +80,13 @@ test("Release notes select one bounded product milestone, not every commit or an
 });
 
 test("A release attachment source must be the same repository, tag, workflow and passed capability jobs", () => {
-  const run = { event: "push", head_branch: "worker/v2026.10.0-pre", head_sha: commit,
-    head_repository: { full_name: "owner/repo" }, path: ".github/workflows/worker.yml" };
+  const run = { event: "push", head_branch: "cloudflare-worker/v2026.10.0-pre", head_sha: commit,
+    head_repository: { full_name: "owner/repo" }, path: ".github/workflows/cloudflare-worker.yml" };
   const jobs = ["build", "deploy"].map(name => ({ name, status: "completed", conclusion: "success" }));
   expect(() => checkSourceRun(run, jobs, run.head_branch, "owner/repo", "worker")).not.toThrow();
+  const historical = { ...run, head_branch: "worker/v2026.10.0-pre", path: ".github/workflows/worker.yml" };
+  expect(() => checkSourceRun(historical, jobs, historical.head_branch, "owner/repo", "worker")).not.toThrow();
+  expect(() => checkSourceRun({ ...run, path: historical.path }, jobs, run.head_branch, "owner/repo", "worker")).toThrow("source");
   for (const altered of [{ ...run, event: "pull_request" }, { ...run, head_sha: "main" },
     { ...run, head_repository: { full_name: "attacker/fork" } }, { ...run, path: ".github/workflows/web.yml" }]) {
     expect(() => checkSourceRun(altered, jobs, run.head_branch, "owner/repo", "worker")).toThrow("source");
@@ -115,27 +118,30 @@ test("Release upload retries retain exact bytes, never clobber assets and publis
     Object.assign(release, body);
     return release;
   };
-  await expect(attachRelease(api, "owner/repo", "package/v0.0.0", commit, "pending", files, true, false)).rejects.toThrow("lost ACK");
+  await expect(attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "pending", files, true, false)).rejects.toThrow("lost ACK");
   expect(release.draft).toBe(true);
   expect(actions).not.toContain("PATCH");
-  await attachRelease(api, "owner/repo", "package/v0.0.0", commit, "pending", files, true, false);
+  await attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "pending", files, true, false);
   expect(release.draft).toBe(true);
   expect(assets).toHaveLength(2);
-  await attachRelease(api, "owner/repo", "package/v0.0.0", commit, "publication checked", files, false, false);
+  await attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "publication checked", files, false, false);
   expect(release.draft).toBe(false);
   const before = actions.length;
-  await attachRelease(api, "owner/repo", "package/v0.0.0", commit, "publication checked", files, false, false);
+  await attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "publication checked", files, false, false);
   expect(actions.slice(before)).toEqual(["GET", "GET"]);
-  await expect(attachRelease(api, "owner/repo", "package/v0.0.0", commit, "pending", files, true, false)).rejects.toThrow("regressed");
-  await expect(attachRelease(api, "owner/repo", "package/v0.0.0", commit, "notes", new Map([["CHANGELOG.md", Buffer.from("changed")],
+  await expect(attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "pending", files, true, false)).rejects.toThrow("regressed");
+  await expect(attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "notes", new Map([["CHANGELOG.md", Buffer.from("changed")],
     ["CHECKSUMS.sha256", files.get("CHECKSUMS.sha256")!]]), false, false)).rejects.toThrow("not be overwritten");
-  await expect(attachRelease(api, "owner/repo", "package/v0.0.0", commit, "notes", files, false, true)).rejects.toThrow("channel");
+  await expect(attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "notes", files, false, true)).rejects.toThrow("channel");
 });
 
 test("Every product wires checked release assets while website activation remains disabled", () => {
-  for (const name of ["worker", "vrc-packages-api", "network", "node-docker", "node-client", "web"]) {
+  const prefixes: Record<string, string> = { "cloudflare-worker": "cloudflare-worker", "vrc-packages-api": "vrcp-api",
+    network: "vrcp-network", "node-docker": "vrcp-crawler", "node-client": "vrcp-crawler-client", web: "web" };
+  for (const name of ["cloudflare-worker", "vrc-packages-api", "network", "node-docker", "node-client", "web"]) {
     const workflow: any = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
     const job = workflow.jobs["release-assets"];
+    expect(workflow.on.push.tags).toEqual([`${prefixes[name]}/v*`]);
     expect(job.uses).toBe("./.github/workflows/release-assets.yml");
     expect(job.permissions.contents).toBe("write");
     expect(job.permissions.actions).toBe("read");
@@ -145,4 +151,38 @@ test("Every product wires checked release assets while website activation remain
   const reusable: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/release-assets.yml", import.meta.url), "utf8"));
   expect(reusable.on.workflow_dispatch.inputs.tag.required).toBe(true);
   expect(reusable.jobs.attach.steps.find((step: any) => step.uses?.startsWith("actions/download-artifact@")).with.path).toContain("runner.temp");
+});
+
+test("SDK draft reconciliation dispatches only public versions with original checked run links", async () => {
+  const draft = { draft: true, tag_name: "vrcp-api/v0.0.0", body: "[Checked CI run](https://github.com/owner/repo/actions/runs/123)" };
+  const releases = [draft, { ...draft, tag_name: "package/v2026.10.0-pre" },
+    { ...draft, tag_name: "vrcp-api/v0.0.1" }, { ...draft, draft: false },
+    { ...draft, tag_name: "cloudflare-worker/v0.0.0" }, { ...draft, tag_name: "vrcp-network/v0.0.0" },
+    { ...draft, body: "[Checked CI run](https://github.com/attacker/fork/actions/runs/123)" },
+    { ...draft, body: "[Checked CI run](https://github.com/owner/repo/actions/runs/123?modified=true)" },
+    { ...draft, tag_name: "vrcp-api/v01.0.0" }, { ...draft, body: "No checked source run" }];
+  const dispatched: any[] = [];
+  const registry: string[] = [];
+  const api = async (method: string, path: string, body: any) => {
+    if (method === "GET") return releases;
+    expect(path).toBe("/repos/owner/repo/actions/workflows/release-assets.yml/dispatches");
+    dispatched.push(body);
+    return null;
+  };
+  expect(await reconcileSDKDrafts(api, "owner/repo", async (name: string, version: string) => {
+    registry.push(`${name}@${version}`);
+    return version !== "0.0.1";
+  })).toBe(2);
+  expect(registry).toEqual(["vrc-packages-api@0.0.0", "vrc-packages-api-preview@2026.10.0-pre", "vrc-packages-api@0.0.1"]);
+  expect(dispatched.map(item => item.inputs.tag)).toEqual(["vrcp-api/v0.0.0", "package/v2026.10.0-pre"]);
+  expect(dispatched.every(item => item.ref === "main" && item.inputs["source-run"] === "123")).toBe(true);
+  await expect(reconcileSDKDrafts(api, "owner/repo", async () => { throw new Error("registry unavailable"); })).rejects.toThrow("unavailable");
+  await expect(reconcileSDKDrafts(async () => Array(100).fill({ draft: false }), "owner/repo", async () => true)).rejects.toThrow("bound");
+  await expect(reconcileSDKDrafts(async (method: string) => method === "GET" ? Array(21).fill(draft) : null,
+    "owner/repo", async () => true)).rejects.toThrow("dispatch limit");
+  await expect(reconcileSDKDrafts(async () => ({}), "owner/repo", async () => true)).rejects.toThrow("listing");
+  const workflow: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/sdk-release-reconcile.yml", import.meta.url), "utf8"));
+  expect(workflow.on.schedule).toHaveLength(1);
+  expect(workflow.permissions).toEqual({ contents: "read", actions: "write" });
+  expect(workflow.jobs["check-drafts"].steps.at(-1).env).toEqual({ RELEASE_TOKEN: "${{ secrets.GITHUB_TOKEN }}" });
 });

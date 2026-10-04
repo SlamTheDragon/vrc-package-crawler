@@ -4,7 +4,7 @@ name: Build & Publish Crawler Client
 
 on:
   push:
-    tags: ['crawler-client/v*']
+    tags: ['vrcp-crawler-client/v*']
 permissions:
   contents: read
 jobs:

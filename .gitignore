@@ -5,6 +5,9 @@ node_modules/
 .artifacts/
 .ci-artifacts/
 
+# Special Files
+*.secretresearch
+
 # Build output (use dist/ for distribution binaries)
 dist/
 bin/

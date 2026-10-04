@@ -12,12 +12,15 @@ The authorized SDK tag replacements used exact-target leases. Published SDK tags
 Worker run 37235649307 passed at 8907ef2 for worker/v2026.10.0-pre.
 It deployed version 4a93db4f-8d7f-493b-9d85-76ead98d4510 to the separate persistent preview Worker.
 The unauthenticated operator-init probe returned 401. No remote schema initialization or source grant ran.
-The release-asset checks remain local until the shared workflow passes remotely.
+Release attachments passed remotely at 12b26f1. Runs 37237551535, 37237553499 and 37237555591 attached the original checked outputs.
+The two SDK releases contain five assets each. The Worker preview contains four. All checksum entries match uploaded digests.
 
 ## Version authority
 
 `config.versions.json` supplies release versions. `config.preview.versions.json` supplies preview versions.
-Tags use these exact values, with the form `<product>/v<configured-version>`.
+Tags use these exact values, with the form `<product-prefix>/v<configured-version>`.
+Config keys and local command product names stay unchanged. Product-specific tag prefixes select those keys.
+Already-published generic tags stay immutable. Only historical attachment checks accept their earlier prefixes.
 No command substitutes the example `0.0.1` for a config value.
 Version changes, metadata sync, builds and external publication are separate actions.
 
@@ -110,12 +113,16 @@ It does not deploy the SDK, use Cloudflare credentials or include Worker infrast
 
 | Tag prefix | Workflow | External action |
 | --- | --- | --- |
-| `worker/v` | worker.yml | Automatic preview-only deployment through cloudflare-preview with the switch enabled. Release tags build without production deployment. |
-| `crawler/v` | node-docker.yml | Upload Windows/Linux binaries. Publish a checked musl container only with the publication switch |
-| `crawler-client/v` | node-client.yml | Upload unsigned Windows installers. No updater or crawler installation contract |
-| `package/v` | vrc-packages-api.yml | Build the SDK, then stage it in vrcp-api-release or vrcp-api-preview. npm publication requires owner 2FA |
-| `network/v` | network.yml | Upload the internal tarball. No registry publication |
+| `cloudflare-worker/v` | cloudflare-worker.yml | Automatic preview-only deployment through cloudflare-preview with the switch enabled. Release tags build without production deployment. |
+| `vrcp-crawler/v` | node-docker.yml | Upload Windows/Linux binaries. Publish a checked musl container only with the publication switch |
+| `vrcp-crawler-client/v` | node-client.yml | Upload unsigned Windows installers. No updater or crawler installation contract |
+| `vrcp-api/v` | vrc-packages-api.yml | Build the SDK, then stage it in vrcp-api-release or vrcp-api-preview. npm publication requires owner 2FA |
+| `vrcp-network/v` | network.yml | Upload the internal tarball. No registry publication |
 | `web/v` | web.yml | Disabled pending hosting selection |
+
+Each successful product delivery calls the shared GitHub Release attachment workflow automatically.
+The API workflow keeps its filename because npm trusted publishers match that exact filename.
+The network release is a checked tarball distribution, not an npm publication.
 
 Worker deployment downloads the bundle from its build job. It installs only pinned Wrangler tooling and uses `--no-bundle`.
 It does not rebuild source in the deployment job.
@@ -153,6 +160,12 @@ Preview releases use GitHub's prerelease flag. No product release changes the re
 An SDK release stays a draft until its public npm tarball matches the checked CI bytes.
 Published assets are immutable in this workflow. Retries check existing bytes and upload only missing draft assets.
 After owner npm promotion, rerun the attachment workflow to publish the checked draft without a new package version.
+The sdk-release-reconcile.yml workflow also checks pending SDK drafts each hour, at minute 23.
+It reads public npm metadata and requests the original attachment check after publication. It cannot approve npm stages.
+The attachment check still compares public tarball bytes before publishing the GitHub Release.
+This workflow has no npm or Cloudflare credentials. It only reads releases and dispatches attachment verification.
+GitHub can delay scheduled runs. Use its manual trigger for an immediate draft check.
+Expired Actions artifacts require owner review. The workflow does not rebuild them or move their tag.
 
 For earlier tags, run release-assets.yml manually on main. Supply the existing product tag and its original successful run ID.
 This path attaches original artifacts without moving tags, publishing npm packages or deploying a Worker.
@@ -171,8 +184,8 @@ An ignored local `.env` file does not supply secrets to remote CI.
 3. Create `cloudflare-preview`, `vrcp-api-preview` and `vrcp-api-release` environments.
 4. Require owner review in `vrcp-api-release`. The owner selects automatic deployment/publication in the two preview environments.
 5. Keep self-review enabled if the owner is the only reviewer.
-6. Under selected deployment branches and tags, add a Tag rule `worker/v*` for `cloudflare-preview`.
-7. Add a Tag rule `package/v*` for each SDK environment.
+6. Under selected deployment branches and tags, add a Tag rule `cloudflare-worker/v*` for `cloudflare-preview`.
+7. Add a Tag rule `vrcp-api/v*` for each SDK environment.
 8. Add the environment secrets from the table below.
 9. Open Settings, then Secrets and variables, then Actions, then Variables.
 10. Add the repository variables from the table below with value `false`.
@@ -274,10 +287,12 @@ Save the value in a password manager. Paste it into cloudflare-preview's OPERATO
 Clear the clipboard after setup. Use a different key for local development and future production.
 CI deploys this binding with pinned Wrangler 4.147.0 and `--secrets-file`.
 It does not upload Cloudflare or npm credentials as Worker bindings.
-The temporary secret file is removed after the deployment attempt. Remote execution of this path remains unverified.
+The temporary secret file is removed after the deployment attempt. Worker preview CI passed this path in run 37235649307.
 
 The read-only GitHub inspection on 2026-10-05 confirmed all three current environments and the expected secret names.
-cloudflare-preview permits worker/v* tags. Each SDK environment permits package/v* tags.
+That inspection found the earlier worker/v* and package/v* restrictions. The new prefixes require owner updates before another product tag.
+Use cloudflare-worker/v* in cloudflare-preview. Use vrcp-api/v* in vrcp-api-preview and vrcp-api-release.
+Keep existing secrets and reviewers. Keep the npm trusted-publisher workflow filename unchanged.
 The two preview environments have no required reviewer. The owner explicitly accepts automatic preview deployment/publication.
 vrcp-api-release requires owner review and permits self-review. All three SDK/Worker enable switches are true.
 The owner authorizes the declared remote preview path for successive milestones, without changing version configs.
@@ -317,7 +332,8 @@ If adopted, define the branch, version owner, collision handling and loop preven
 npm distribution tags name channels within one package. They do not create separate deployments or make a published version replaceable.
 The owner selects `vrc-packages-api-preview` alongside release `vrc-packages-api`.
 On 2026-10-05 this name replaced the unpublished `vrc-package-api-preview` to follow the `vrc-packages*` naming rule.
-The failed first `package/v2026.10.0-pre` run published nothing. The owner directs reuse of patch 0, so that Git tag moves to the corrected commit.
+The failed first package/v2026.10.0-pre run published nothing. Its owner-approved replacement already completed before npm promotion.
+That published tag cannot move again. Future SDK milestones use the vrcp-api prefix.
 The dual-package path uses one SDK source with channel-specific manifests and artifact checks.
 Preview consumers declare npm:vrc-packages-api-preview@latest under the existing vrc-packages-api import name.
 Each SDK publication updates latest within its separate package identity, including preview versions with the pre suffix.

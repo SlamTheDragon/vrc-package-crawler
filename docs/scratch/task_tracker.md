@@ -4,6 +4,8 @@
 
 Read the attached objective at each continuation. G14 delivery and G13 dependencies remain the active group.
 The owner approves release SDK 0.0.0, preview SDK 2026.10.0-pre, automatic persistent Worker preview and checked release attachments.
+New tags use vrcp-api, vrcp-network, cloudflare-worker, vrcp-crawler and vrcp-crawler-client prefixes. Config keys stay unchanged.
+The owner retains npm stage approval and requests automatic GitHub Release publication after verified npm publication.
 Retain the separate persistent preview Worker. Native Previews are a far-future metrics and resource-isolation review.
 Do not approve protected GitHub jobs through saved credentials.
 Keep production Worker and website deployment off. Release SDK v0.1, including prereleases, requires the full owner API review.
@@ -19,9 +21,13 @@ Keep main and product-tag triggers. No automatic branch publication, version bum
 Theory: checked CI assets can attach to existing immutable tags without another build, publication or deployment.
 Product workflow → shared attachment job → original source run/tag/config → receipt check → draft uploads → checked publication status.
 scripts/release-assets.mjs and tests/release-assets.test.ts exercise this path.
-Grouped root checks passed 43 cases/466 assertions. Script syntax, unchanged release metadata and diff whitespace checks passed.
+The new tag and draft-check group passed 45 cases/503 assertions, script syntax, unchanged version metadata and diff checks.
+Remote checks for this group remain open. Earlier attachment verification passed 43 cases/466 assertions.
 Negative cases cover altered bytes, duplicate names, unexpected files, wrong source runs, missing jobs and interrupted upload acknowledgment.
-Draft recovery checks existing assets. Published assets cannot be overwritten. These local checks do not prove remote workflow permissions.
+Draft recovery checks existing assets. Published assets cannot be overwritten.
+Attachment runs 37237551535/37237553499/37237555591 passed at commit 12b26f1.
+SDK release and preview each have five public GitHub Release assets. Worker preview has four.
+Each CHANGELOG.md and CHECKSUMS.sha256 is public. All checksum entries match GitHub's uploaded asset digests.
 
 | Channel | SDK source run | Checked public identity |
 | --- | --- | --- |
@@ -51,8 +57,12 @@ Published SDK versions and their tags must not move again.
 
 ## Next action and limits
 
-Commit and push the attachment gate, then dispatch release-assets.yml on main for the three source runs above.
-Check the resulting assets, checksum digests and product notes remotely. Do not rebuild artifacts or issue new product tags.
+Finish the grouped new-prefix and draft-check gate. Push it without issuing new product tags or version bumps.
+Run sdk-release-reconcile.yml manually and retry the historical Worker attachment to check renamed-workflow compatibility.
+The hourly draft check reads npm metadata, then dispatches original attachment verification. It never approves npm stages.
+Remote operation with no drafts is not proof of a later staged-draft promotion. Keep that live trial open.
+Owner setup: cloudflare-preview needs cloudflare-worker/v*. SDK environments need vrcp-api/v*.
+Keep the SDK workflow filename, existing secrets and reviewer policy. GitHub trusted-publisher mappings remain unchanged.
 SDK GitHub Releases remain drafts until public npm bytes match. Published releases do not change the repository-wide latest pointer.
 Website workflow stays disabled. Docker images and Windows installers remain unverified remotely.
 The empty docs/CHANGELOG.md stub moved into docs/source/CHANGELOG.md. Preserve the owner's unrelated .gitignore edits.

@@ -8,6 +8,10 @@ export const productDirectories = {
   crawler: "src-crawler", "crawler-client": "src-crawler-client", package: "src-package",
   web: "src-web", worker: "src-worker", network: "src-worker/packages/network"
 };
+export const productTagPrefixes = {
+  package: "vrcp-api", network: "vrcp-network", worker: "cloudflare-worker",
+  crawler: "vrcp-crawler", "crawler-client": "vrcp-crawler-client", web: "web"
+};
 const products = Object.keys(productDirectories);
 const distributedProducts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
 export const sdkPackageNames = { release: "vrc-packages-api", preview: "vrc-packages-api-preview" };

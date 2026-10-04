@@ -4,12 +4,13 @@ import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import semver from "semver";
 import { requireCI, resolveTag, validateCIArtifact } from "./delivery.mjs";
 import { productDirectories, sdkPackageNames } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
-const workflowNames = { package: "vrc-packages-api", worker: "worker", network: "network",
+const workflowNames = { package: "vrc-packages-api", worker: "cloudflare-worker", network: "network",
   crawler: "node-docker", "crawler-client": "node-client", web: "web" };
 
 function filesIn(directory) {
@@ -87,14 +88,15 @@ export function milestoneNotes(markdown, product, selected, commit, runURL, stat
   if (end < 0) end = lines.length;
   const section = lines.slice(start + 1, end).join("\n").trim();
   if (!section || section.length > 6000) throw new Error("Product milestone notes must be nonempty and bounded");
-  return `# VRC Packages — ${product} ${selected.version}\n\nChannel: ${selected.channel}. Delivery: ${status}.\nCommit: ${commit}.\n[Checked CI run](${runURL})\n\n${section}\n\nAssets include checked build outputs and SHA-256 checksums.\n`;
+  return `# VRC Packages - ${product} ${selected.version}\n\nChannel: ${selected.channel}. Delivery: ${status}.\nCommit: ${commit}.\n[Checked CI run](${runURL})\n\n${section}\n\nAssets include checked build outputs and SHA-256 checksums.\n`;
 }
 
 export function checkSourceRun(run, jobs, tag, repository, product) {
+  const workflow = product === "worker" && tag.startsWith("worker/v") ? "worker" : workflowNames[product];
   const required = product === "crawler" ? ["build-and-push", "standalone-windows"] : ["build"];
   if (product === "worker" && tag.endsWith("-pre")) required.push("deploy");
   if (run.event !== "push" || run.head_branch !== tag || !/^[a-f0-9]{40}$/.test(run.head_sha ?? "") ||
-      run.head_repository?.full_name !== repository || run.path !== `.github/workflows/${workflowNames[product]}.yml` ||
+      run.head_repository?.full_name !== repository || run.path !== `.github/workflows/${workflow}.yml` ||
       required.some(name => !jobs.some(job => job.name === name && job.status === "completed" && job.conclusion === "success"))) {
     throw new Error("Release source is not the checked product-tag build");
   }
@@ -116,7 +118,7 @@ export async function attachRelease(api, repository, tag, commit, notes, files, 
   }
   // The caller already checked the existing tag. Do not create or retarget a tag through this endpoint.
   if (!release) release = await api("POST", base, { tag_name: tag,
-    name: `VRC Packages — ${tag}`, body: notes, draft: true, prerelease, make_latest: "false" });
+    name: `VRC Packages - ${tag}`, body: notes, draft: true, prerelease, make_latest: "false" });
   if (release.tag_name !== tag || (release.prerelease !== prerelease)) throw new Error("Existing release channel differs");
   const existing = await api("GET", `${base}/${release.id}/assets?per_page=100`);
   if (!Array.isArray(existing) || existing.length >= 100 || existing.some(asset => !files.has(asset.name))) {
@@ -156,16 +158,8 @@ async function stamp(channel, product, directory, platform) {
   writeFileSync(join(directory, product === "crawler" ? `crawler-${platform}.receipt.json` : `${product}.receipt.json`), JSON.stringify(receipt, null, 2) + "\n");
 }
 
-async function main(directory) {
-  const env = process.env;
-  if (env.GITHUB_ACTIONS !== "true" || !["push", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME) ||
-      !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.GITHUB_REPOSITORY ?? "") || !env.RELEASE_TOKEN ||
-      !/^\d+$/.test(env.RELEASE_SOURCE_RUN || env.GITHUB_RUN_ID || "") || !env.RUNNER_TEMP) {
-    throw new Error("Release attachments require the authorized GitHub workflow");
-  }
-  const artifactDirectory = realpathSync(resolve(directory));
-  if (!artifactDirectory.startsWith(realpathSync(env.RUNNER_TEMP) + sep)) throw new Error("Attachment inputs must stay in runner temporary storage");
-  const api = async (method, path, body, missing = false) => {
+function githubAPI(env) {
+  return async (method, path, body, missing = false) => {
     const upload = method === "UPLOAD";
     const response = await fetch(`https://${upload ? "uploads" : "api"}.github.com${path}`, {
       method: upload ? "POST" : method, signal: AbortSignal.timeout(60_000), redirect: "error",
@@ -175,8 +169,64 @@ async function main(directory) {
     });
     if (missing && response.status === 404) return null;
     if (!response.ok) throw new Error(`GitHub release request failed (${response.status})`);
+    if (response.status === 204) return null;
     return response.json();
   };
+}
+
+/** Poll only checked SDK drafts. Publication and asset verification stay in the attachment workflow. */
+export async function reconcileSDKDrafts(api, repository, isPublished) {
+  let dispatched = 0;
+  for (let page = 1; page <= 10; page++) {
+    const releases = await api("GET", `/repos/${repository}/releases?per_page=100&page=${page}`);
+    if (!Array.isArray(releases)) throw new Error("Invalid release listing");
+    for (const release of releases) {
+      const match = /^(?:vrcp-api|package)\/v(.+)$/.exec(release.tag_name ?? "");
+      if (!release.draft || !match || semver.valid(match[1]) !== match[1]) continue;
+      const link = /\[Checked CI run\]\((https:\/\/github\.com\/[^)]+)\)/.exec(release.body ?? "");
+      if (!link) continue;
+      const url = new URL(link[1]);
+      const prefix = `/${repository}/actions/runs/`;
+      const sourceRun = url.pathname.slice(prefix.length);
+      if (!url.pathname.startsWith(prefix) || !/^\d+$/.test(sourceRun) || url.search || url.hash) continue;
+      const channel = match[1].endsWith("-pre") ? "preview" : "release";
+      if (!(await isPublished(sdkPackageNames[channel], match[1]))) continue;
+      if (++dispatched > 20) throw new Error("SDK draft dispatch limit exceeded");
+      await api("POST", `/repos/${repository}/actions/workflows/release-assets.yml/dispatches`,
+        { ref: "main", inputs: { tag: release.tag_name, "source-run": sourceRun } });
+    }
+    if (releases.length < 100) return dispatched;
+  }
+  throw new Error("SDK draft lookup exceeded its bound");
+}
+
+async function reconcile() {
+  const env = process.env;
+  if (env.GITHUB_ACTIONS !== "true" || !["schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME) ||
+      !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.GITHUB_REPOSITORY ?? "") || !env.RELEASE_TOKEN) {
+    throw new Error("SDK draft checks require the authorized GitHub workflow");
+  }
+  const dispatched = await reconcileSDKDrafts(githubAPI(env), env.GITHUB_REPOSITORY, async (name, version) => {
+    const response = await fetch(`https://registry.npmjs.org/${name}/${version}`, { signal: AbortSignal.timeout(30_000), redirect: "error" });
+    if (response.status === 404) return false;
+    if (!response.ok) throw new Error("Cannot check SDK publication");
+    const metadata = await response.json();
+    if (metadata.name !== name || metadata.version !== version) throw new Error("Unexpected registry SDK identity");
+    return true;
+  });
+  console.log(JSON.stringify({ action: "sdk-draft-check", dispatched }));
+}
+
+async function main(directory) {
+  const env = process.env;
+  if (env.GITHUB_ACTIONS !== "true" || !["push", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME) ||
+      !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.GITHUB_REPOSITORY ?? "") || !env.RELEASE_TOKEN ||
+      !/^\d+$/.test(env.RELEASE_SOURCE_RUN || env.GITHUB_RUN_ID || "") || !env.RUNNER_TEMP) {
+    throw new Error("Release attachments require the authorized GitHub workflow");
+  }
+  const artifactDirectory = realpathSync(resolve(directory));
+  if (!artifactDirectory.startsWith(realpathSync(env.RUNNER_TEMP) + sep)) throw new Error("Attachment inputs must stay in runner temporary storage");
+  const api = githubAPI(env);
   const runId = env.RELEASE_SOURCE_RUN || env.GITHUB_RUN_ID;
   const run = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/actions/runs/${runId}`);
   const tag = env.RELEASE_TAG || env.GITHUB_REF_NAME;
@@ -187,7 +237,7 @@ async function main(directory) {
   let selected;
   try {
     for (const file of ["config.versions.json", "config.preview.versions.json"]) writeFileSync(join(metadataDirectory, file), gitFile(file));
-    selected = await resolveTag(tag, metadataDirectory);
+    selected = await resolveTag(tag, metadataDirectory, true);
   } finally { rmSync(metadataDirectory, { recursive: true }); }
   const jobs = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/actions/runs/${runId}/jobs?per_page=100`);
   if (jobs.total_count >= 100) throw new Error("Unexpected job count");
@@ -232,6 +282,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     if (action === "stamp" && args.length >= 3 && args.length <= 4) await stamp(...args);
     else if (action === "attach" && args.length === 1) await main(args[0]);
+    else if (action === "reconcile" && args.length === 0) await reconcile();
     else throw new Error("Use release-assets.mjs stamp <channel> <product> <directory> [platform], or attach <runner-directory>");
   } catch (error) { console.error(error instanceof Error ? error.message : "Release attachment failed"); process.exitCode = 1; }
 }

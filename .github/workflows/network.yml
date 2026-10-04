@@ -1,7 +1,7 @@
 name: Internal network tagged artifact
 on:
   push:
-    tags: ['network/v*']
+    tags: ['vrcp-network/v*']
 permissions:
   contents: read
 jobs:

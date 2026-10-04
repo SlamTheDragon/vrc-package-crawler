@@ -4,7 +4,7 @@ name: SDK tagged artifact and gated npm staging
 
 on:
   push:
-    tags: ['package/v*']
+    tags: ['vrcp-api/v*']
 permissions:
   contents: read
 concurrency:

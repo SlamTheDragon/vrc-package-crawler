@@ -103,7 +103,7 @@ docker compose -f src-crawler/docker-compose.yml config
 
 The compose file includes Watchtower with the host Docker socket. It is not a verified safe update workflow. Its image name differs from the workflow's publication name. Inspect and settle image trust, update timing, persistence and credential handling before fleet use.
 
-`.github/workflows/node-docker.yml` builds only on `crawler/v<configured-version>` tag pushes. The container publication switch defaults off. The image target is `ghcr.io/<repository-owner>/vrcp-crawler-node`. Successful CI publication, Linux startup and restart-safe submission remain unverified. Watchtower does not guarantee uninterrupted leases or result recovery.
+`.github/workflows/node-docker.yml` builds only on `vrcp-crawler/v<configured-version>` tag pushes. The container publication switch defaults off. The image target is `ghcr.io/<repository-owner>/vrcp-crawler-node`. Successful CI publication, Linux startup and restart-safe submission remain unverified. Watchtower does not guarantee uninterrupted leases or result recovery.
 
 ## 4. API and Deployment References
 
