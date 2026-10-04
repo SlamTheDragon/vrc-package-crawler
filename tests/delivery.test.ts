@@ -67,7 +67,7 @@ test("selected-product sync pins distributed dependencies without changing anoth
     await versionFiles("sync", "preview", "worker", workspace);
     const worker = JSON.parse(await readFile(resolve(workspace, "src-worker/package.json"), "utf8"));
     expect(worker.version).toBe("2026.10.1-pre");
-    expect(worker.dependencies).toEqual({ "vrc-packages-api": "npm:vrc-packages-api-preview@2026.10.1-pre", "vrc-packages-network": "2026.10.1-pre" });
+    expect(worker.dependencies).toEqual({ "vrc-packages-api": "npm:vrc-packages-api-preview@latest", "vrc-packages-network": "2026.10.1-pre" });
     expect(await readFile(resolve(workspace, "src-crawler/package.json"), "utf8")).toBe(before);
     await versionFiles("check", "preview", "worker", workspace);
     await expect(versionFiles("check", "release", "worker", workspace)).rejects.toThrow("differs");
@@ -81,6 +81,8 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
     const sdk = JSON.parse(await readFile(resolve(workspace, "src-package/package.json"), "utf8"));
     expect(sdk.name).toBe(sdkPackageNames.preview);
     expect(sdk.version).toBe("2026.10.1-pre");
+    expect(JSON.parse(await readFile(resolve(workspace, "src-worker/packages/network/package.json"), "utf8"))
+      .dependencies["vrc-packages-api"]).toBe("npm:vrc-packages-api-preview@2026.10.1-pre");
     expect(await readFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), "utf8"))
       .toContain('version = "2026.10.1-pre" # retain owner note');
     await versionFiles("sync", "release", "all", workspace);
@@ -138,12 +140,22 @@ test("release SDK retains its API hold while only the preview identity permits C
 test("distributed identity parsing accepts only exact SDK aliases and config-checked latest", () => {
   expect(distributedArtifact("vrc-packages-api", "latest", "0.0.0")).toEqual({ name: sdkPackageNames.release, version: "0.0.0" });
   expect(distributedArtifact("vrc-packages-api", "npm:vrc-packages-api-preview@2026.10.0-pre")).toEqual({ name: sdkPackageNames.preview, version: "2026.10.0-pre" });
+  expect(distributedArtifact("vrc-packages-api", "npm:vrc-packages-api-preview@latest", "2026.10.0-pre"))
+    .toEqual({ name: sdkPackageNames.preview, version: "2026.10.0-pre" });
   expect(distributedArtifact("vrc-packages-network", "0.0.0")).toEqual({ name: "vrc-packages-network", version: "0.0.0" });
   for (const [name, spec] of [["vrc-packages-api", "latest"], ["vrc-packages-network", "latest"],
     ["vrc-packages-api", "npm:unapproved@0.0.0"], ["vrc-packages-api", "npm:vrc-packages-api-preview@pre"],
+    ["vrc-packages-api", "npm:vrc-packages-api-preview@latest"],
     ["vrc-packages-api", "^0.0.0"], ["vrc-packages-api", "file:../src-package"], ["unknown", "0.0.0"]]) {
     expect(() => distributedArtifact(name, spec)).toThrow("Distributed dependency");
   }
+});
+
+test("each SDK identity publishes latest and Worker registry selection still checks its configured version", () => {
+  const source = readFileSync(new URL("../scripts/delivery.mjs", import.meta.url), "utf8");
+  expect(source).toContain('npm(["publish", artifact, "--access", "public", "--tag", "latest"], project)');
+  expect(source).toContain('const spec = `${name}@latest`');
+  expect(source).toContain('metadata.name !== sdkPackageNames[channel] || metadata.version !== version');
 });
 
 test("packed consumer declarations are checked in installed consumers, not through package self-reference", () => {

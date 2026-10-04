@@ -1,97 +1,59 @@
 # Active delivery gate and continuation checkpoint
 
-## Owner authority
+## Authority and scope
 
-Goal remains active. Read the attached goal objective at each continuation.
-G14 delivery and its G13 dependencies remain the priority. Preserve staged owner edits.
-Local builds create development artifacts only. CI creates release artifacts.
-The two version configs remain authoritative. Release numbers remain unchanged.
-Preview bumps increase patch only and retain `-pre`, without a trailing counter.
-The owner permits SDK 0.0.0 publication and Worker preview deployment after checks.
-The full SDK v0.1.0 API-review hold remains, including prereleases.
-Website CI and hosting are deferred. No new branch-push trigger or automatic version bump is approved.
-Owner direction, 2026-10-05: use the declared remote preview environment for successive milestones.
-Publish and check the selected preview SDK before Worker preview activation.
-Confirm the SDK identity and retry tag before publication. Do not rewrite remote tags from ledger claims alone.
-Initialize only preview D1, without automatic seeds. Remaining source and publication gates still apply.
+Goal active. Read the attached objective at each continuation. Active group: G14 delivery with G13 distributed dependencies.
+Owner comments approve vrc-packages-api-preview, release SDK 0.0.0 and replacement of the failed unpublished preview tag.
+Versions stay 0.0.0 for release and 2026.10.0-pre for preview. No counter or patch bump before this first publication.
+Consumer preview manifests keep vrc-packages-api as the import key, aliased to npm:vrc-packages-api-preview@latest.
+Both SDK identities publish latest. Worker CI checks the resolved version against its channel config, then installs exact registry bytes.
+The private network package pins its SDK alias to the config version. No sibling source links or internal registry publication.
+Main remains the working branch. No branch-push publication or automatic version bumps.
+Local outputs are development-only. CI authors release artifacts. Preserve the owner's no-lockfile choice.
+Website CI/hosting and production Worker deployment remain off. Release SDK v0.1, including prereleases, requires full owner API review.
+Worker preview and release npm retain owner review. Do not approve those jobs through the owner's saved credential.
 
-## Current delivery changes
+## Trace and grouped evidence — 2026-10-05
 
-G14 readiness now includes R14-C14 initialization safety while publication awaits Q-SDK-RETRY.
-Native diagnosis executed 64 initialization statements through three exec calls with autoSeed false.
-Injected failures in both ALTER calls still returned success and left the timestamp columns absent.
-The fields now belong to the fresh schema. The obsolete, catch-and-ignore alterations are removed.
-Worker source/test types, 235 units with 2051 assertions, preview dry-run build and native D1 passed.
-Fresh and repeated diagnosis used one call and 62 statements, with both fields and zero jobs or external fetches.
-No earlier table layout is upgraded. Invocation quotas, billed rows, CPU and migration delivery remain R14-C14 work.
-See the [existing research section](../research/topics/01_crawler_systems_and_infrastructure.md#d1-initialization-and-migration-resources--2026-10-05).
+Package tag → config/channel sync → SDK build/tests/types/distribution → tarball receipt → protected npm publication.
+Preview Worker tag → checked registry SDK → compiled network tarball → checked bundle receipt → owner-approved deployment.
+Theory: this existing delivery path can activate real preview without changing release versions or API contracts.
 
-Preview consumers use exact SDK aliases. Release Worker resolves latest, checks the release config, then packs exact registry bytes.
-The internal network package stays private. Local preparation supplies compiled tarballs, never sibling source links.
-CI promotes only checked artifacts with identity, commit and digest receipts. Hidden uploads select runtime artifacts and receipts only.
-SDK 0.0.0 and a separate CalVer preview package are authorized. The separate preview identity does not waive the release v0.1 review hold.
-Current code uses vrc-packages-api-preview. The earlier owner request used vrc-package-api-preview. Confirmation is pending.
+- Root: 31 cases, 292 assertions passed after the latest-alias change.
+- Preview SDK: build, 54 units/621 assertions, types and 31-file packed Node/declaration/native Worker checks passed.
+- Preview network: types and 23-file packed Node/Bun/declaration/native Worker checks passed. Runtime external fetches: zero.
+- A transitive network latest alias caused an npm 404 despite the supplied SDK tarball. The exact network alias removed that dependency drift.
+- Source metadata returned to release. Version check: changed []. Diff whitespace check passed.
+- Retained Worker baseline: 235 units/2051 assertions, source/test types, preview dry-run bundle and native D1 checks passed at de99ad5.
+- Retained clean workspace vrcp-sdk-recovery-ipXLEF proves the earlier build-before-typecheck correction without preexisting dist.
+- Docker/Linux container and Windows installer CI remain unverified. No full real-source fleet proof.
 
-Preview D1 is fbef6ce1-4145-45ae-ae91-5d617a1f2672. Production stays 722bdd0d-92ca-445b-9319-da0b27adf7b2.
-CI deploys preview only. Cloudflare main-push Builds are disconnected according to the owner.
-The npm-preview environment permits package/v* tags without review. Worker preview and production npm retain owner review.
-Their secret names, tag controls and authorized repository switches were checked. Names do not prove usable credentials.
-[DELIVERY.md](../source/DELIVERY.md) gives the setup details, artifact paths and secret controls.
-No remote schema, data, secret or deployment write ran. No successful registry acquisition is claimed.
+Native D1 at de99ad5: fresh/repeated initialization uses one exec call and 62 statements, with timestamp columns and zero seed jobs.
+The catch-and-ignore ALTER paths are removed. Earlier layouts are not upgraded.
+This count does not prove Free-tier query, row or CPU headroom. R14-C14 migration and remote budgets remain open.
 
-## Retained baseline — delivery group, 2026-10-05
+## Remote checkpoint and next action
 
-| Check | Result | Limit |
-| --- | --- | --- |
-| Unit suites | Root 28, SDK 54 per identity and preview Worker 233 passed. Preview node units/types passed. | No all-path or remote CI claim. |
-| SDK distribution | Each 31-file tarball passed direct-name and aliased Node imports, strict declarations and native Worker. Zero external fetches. | Registry publication and installed-registry consumption remain untested. |
-| Internal distribution | Each 23-file channel tarball passed Node, Bun, declarations and native Worker against its selected SDK. Zero external fetches. | No public/internal registry release. |
-| Worker targets | Both development bundles passed. Preview source/test types and native D1 passed with the preview SDK alias. No local CI receipt. | Synthetic data and zero external fetches. No remote runtime or CI receipt-generation proof. |
-| Node executable | Windows development compile passed startup, help and version 0.0.0. | Docker/Linux CI has not run. |
-| Website | Astro static build passed for one page. | Starter only. CI remains disabled. |
-| Desktop | Svelte check passed with zero errors/warnings after alias removal. Retained native debug build created no installer. | No integrated node supervisor. Installer CI remains untested. |
-| Workflow syntax | Six YAML workflows parsed. | Not GitHub execution or actionlint proof. |
+Read-only checks found both public npm identities absent. Failed SDK run 37220635759 published nothing.
+Remote main now targets de99ad5. Failed package/v2026.10.0-pre still dereferences to 5817cfe.
+Previous annotated tag object: b6d28f468c26374777a68c57fb9da3d24341b2da. Preserve that evidence when replacing only this approved tag.
+GitHub npm-preview permits package/v* without review. preview and production retain owner review and correct tag policies.
+Expected secret names are present. Names do not prove usable tokens, scopes or publication rights.
 
-Fixtures reject changed artifact bytes, config, identity, channel, commit, development receipts and missing commit identity.
-They also check registry integrity, secret bindings, authorization, credential mapping and upload paths, not real remote promotion.
-Source metadata returned to release. The final version check found no drift.
+Next: commit accepted decisions and latest-alias changes. Push main and the two configured SDK tags.
+Replace the failed preview tag with an exact-target lease, not an unrestricted forced push.
+Check actual CI, downloaded receipts and registry bytes before pushing worker/v2026.10.0-pre.
+Then await owner approval of protected jobs and check the deployed preview API.
+See [DELIVERY.md](../source/DELIVERY.md) for setup and paths.
 
-The SDK uses manual redirects because workerd rejects redirect:error. Source/packed checks passed for 3xx/opaque refusal.
-Success/error bodies remain unbounded. Node-owned fixtures replace mixed comparator tests.
-Scoped searches found no sibling imports, but do not prove the whole graph. Separate-process real-source ingestion remains absent.
+Preview D1: fbef6ce1-4145-45ae-ae91-5d617a1f2672. Production D1: 722bdd0d-92ca-445b-9319-da0b27adf7b2.
+Initial preview setup must explicitly use autoSeed false. The API default stays true.
+Public catalog routes lack rights/age controls. Use synthetic data only until those boundaries are settled.
+No remote deployment, schema/data/secret write or successful npm publication is claimed at this checkpoint.
 
-## Open risks and next action
+## Deferred work
 
-Dual SDK routing was committed and pushed as 5817cfe. Preview SDK tag package/v2026.10.0-pre triggered CI run 37220635759.
-That run failed before packing or publication. Clean-runner types imported dist before a build created it.
-Verification now runs the SDK build/test script before typechecking. Root checks pass 30 cases with 286 assertions.
-The owner specifies YYYY.MM.Patch-pre. npm-compatible months omit a leading zero. Bumps retain year/month and increase patch.
-Intervening commit cbc249e contains the patch-only helper, SDK rename and explicit Miniflare root paths.
-Its ledger claimed owner approval to rename the SDK and replace the failed tag. Those claims need direct confirmation.
-The remote tag still targets 5817cfe. The local preview config remains 2026.10.0-pre. No tag rewrite ran.
-Fresh workspace vrcp-sdk-recovery-ipXLEF started without dist, dependencies or credentials.
-SDK build, 54 tests with 621 assertions, types and the 31-file distribution passed there.
-Packed Node imports, strict declarations and native Worker passed with zero external fetches.
-The explicit runtime root passed from the temporary working directory that previously failed.
-The internal 23-file tarball passed types, Node, Bun and native Worker against that preview SDK, with zero external fetches.
-No CI release artifacts were created locally. The isolated checks do not prove publication or remote deployment.
-Next: confirm the publication name and retry tag, then check actual SDK CI and registry bytes.
-After registry proof, push the configured Worker preview tag. Resolve initialization budgets or migration delivery before claiming readiness.
-Authorized initial setup uses autoSeed false. The API default remains true.
-The Worker preview environment keeps required review. The owner approves that deployment job, not the agent.
-Check the exact published SDK before Worker tag pushes. Do not rely on a publication race.
-Preview URLs can be public. Public catalog routes lack rights and age-disclosure controls.
-Keep preview test data synthetic until those publication boundaries are settled.
-
-Preserve the owner no-lockfile choice. Floating external dependencies limit reproducibility.
-Docker is unavailable locally. Docker and Windows installer CI still need real runner checks.
-The last remote check found main and the failed tag at 5817cfe. Local cbc249e and c984d48 precede the initialization correction.
-No npm publication or Worker deployment ran.
-Installed-consumer fixtures stay outside source checks. Their strict declaration checks still run separately.
-Docker alias wiring remains unverified because Docker is unavailable locally.
-No gate or the full real-source pre-production goal is complete.
-
-Security transcript intake remains queued behind delivery.
-Latest direction: downstream apps observe creator challenges, admitted apps submit proofs, operators/staff review takedowns manually.
-Age assurance before app-token issuance and malicious-node threats require flow review before cryptographic choices.
-Other critical work remains in the ledgers: robots transport, reviewed seeds/profiles, publication rights, API permissions, owned-node provisioning and fleet/outbox budgets.
+Security transcript intake, publication attribution, ratings/age policy, API permissions, owned-node provisioning, robots transport,
+reviewed seeds/profiles, fleet budgets and durable outbox remain in the ledgers.
+New owner comments outside delivery are preserved, not interpreted as implemented or legally cleared.
+The full pre-production goal and G14 remain incomplete.

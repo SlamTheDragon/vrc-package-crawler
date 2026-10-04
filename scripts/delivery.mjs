@@ -175,7 +175,7 @@ export async function deliver(action, channel, product, ci = false) {
       const artifact = join(project, ".artifacts/ci", `${manifest.name}-${manifest.version}.tgz`);
       const receipt = JSON.parse(readFileSync(`${artifact}.json`, "utf8"));
       validateCIArtifact(receipt, { name: manifest.name, version: manifest.version, commit: process.env.GITHUB_SHA }, readFileSync(artifact));
-      npm(["publish", artifact, "--access", "public", "--tag", channel === "preview" ? "pre" : "latest"], project);
+      npm(["publish", artifact, "--access", "public", "--tag", "latest"], project);
     }
   }
   return { action, channel, product, purpose: ci ? "ci-release" : "development" };
@@ -196,7 +196,7 @@ export function validateRegistrySDK(result, metadata, expected, bytes, name = sd
 function packRegistrySDK(project, channel) {
   const { name, version } = JSON.parse(readFileSync(join(project, "package.json"), "utf8"));
   const registry = "https://registry.npmjs.org";
-  const spec = `${name}@${channel === "release" ? "latest" : version}`;
+  const spec = `${name}@latest`;
   const metadata = JSON.parse(npm(["view", spec, "--json", `--registry=${registry}`], root, true));
   if (metadata.name !== sdkPackageNames[channel] || metadata.version !== version) {
     throw new Error("Registry SDK channel resolves outside the authoritative version config");

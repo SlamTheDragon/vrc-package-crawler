@@ -30,7 +30,8 @@ That release-version hold does not block the separate preview identity.
 
 | Consumer channel | SDK identity | Dependency selection |
 | --- | --- | --- |
-| Preview Worker and other preview consumers | vrc-packages-api-preview | Exact npm alias under vrc-packages-api, from config.preview.versions.json |
+| Preview Worker and other preview apps | vrc-packages-api-preview | npm:vrc-packages-api-preview@latest under vrc-packages-api, checked against the preview config |
+| Preview internal network package | vrc-packages-api-preview | Exact config-selected SDK alias, preserving the tested compiled dependency pair |
 | Release Worker | vrc-packages-api | latest, with its resolved version checked against config.versions.json |
 | Other release consumers and release network | vrc-packages-api | Exact version from config.versions.json |
 
@@ -51,7 +52,7 @@ npm run build:dev -- preview worker
 
 Local `prepare` syncs the SDK to the selected channel, then builds and packs dependencies under each package's `.artifacts/dev/`.
 It installs tarballs into the selected consumer. It does not use source links or query unpublished internal registry coordinates.
-Worker preview CI downloads its configured preview SDK version from npm.
+Worker preview CI resolves the preview SDK's latest tag and checks its version against the preview config.
 Release Worker CI resolves the release SDK's latest tag and rejects a version outside the authoritative release config.
 It then packs that exact version, not the moving tag. Both paths check identity, SHA-512 integrity and compiled files.
 It then builds the internal network tarball against that SDK. A missing registry version fails the build without a source fallback.
@@ -212,8 +213,11 @@ The owner selects `vrc-packages-api-preview` alongside release `vrc-packages-api
 On 2026-10-05 this name replaced the unpublished `vrc-package-api-preview` to follow the `vrc-packages*` naming rule.
 The failed first `package/v2026.10.0-pre` run published nothing. The owner directs reuse of patch 0, so that Git tag moves to the corrected commit.
 The dual-package path uses one SDK source with channel-specific manifests and artifact checks.
-Preview consumers install the preview identity through an exact npm alias under the existing import name.
-Preview publication explicitly updates the preview package's pre tag. Release publication updates the release package's latest tag.
+Preview consumers declare npm:vrc-packages-api-preview@latest under the existing vrc-packages-api import name.
+Each SDK publication updates latest within its separate package identity, including preview versions with the pre suffix.
+CI checks the resolved latest version against its channel config, then downloads and installs that exact verified tarball.
+Advance the preview config for later milestones. A moving registry tag cannot silently change a checked build.
+The private network package pins the exact SDK alias. Its packed dependencies cannot silently select a later SDK through latest.
 Promotion to the release identity is a separately checked release build and publication, not a renamed preview tarball.
 
 Create a separate GitHub environment named `npm-preview` for automatic preview package publication.

@@ -15,9 +15,10 @@ export const sdkPackageNames = { release: "vrc-packages-api", preview: "vrc-pack
 export function distributedArtifact(name, spec, latestVersion) {
   const previewPrefix = `npm:${sdkPackageNames.preview}@`;
   const preview = name === sdkPackageNames.release && typeof spec === "string" && spec.startsWith(previewPrefix);
-  const version = spec === "latest" && name === sdkPackageNames.release ? latestVersion : preview ? spec.slice(previewPrefix.length) : spec;
+  const selected = preview ? spec.slice(previewPrefix.length) : spec;
+  const version = selected === "latest" && name === sdkPackageNames.release ? latestVersion : selected;
   if (!Object.hasOwn(distributedProducts, name) || typeof version !== "string" || semver.valid(version) !== version) {
-    throw new Error("Distributed dependency requires an exact configured version, approved preview alias or checked release latest");
+    throw new Error("Distributed dependency requires an exact configured version, approved preview alias or config-checked latest");
   }
   return { name: preview ? sdkPackageNames.preview : name, version };
 }
@@ -88,7 +89,7 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
     for (const [dependency, dependencyProduct] of Object.entries(distributedProducts)) {
       if (Object.hasOwn(manifest.dependencies ?? {}, dependency)) {
         const artifactVersion = dependencyProduct === "package" && channel === "preview"
-          ? `npm:${sdkPackageNames.preview}@${config["preview-package"]}`
+          ? `npm:${sdkPackageNames.preview}@${name === "network" ? config["preview-package"] : "latest"}`
           : dependencyProduct === "package" && name === "worker" ? "latest" : config[`${channel}-${dependencyProduct}`];
         if (manifest.dependencies[dependency] !== artifactVersion) {
           manifest.dependencies[dependency] = artifactVersion;
