@@ -16,7 +16,7 @@ remote = false
 
 # Preserve the owner-selected IDs. Remote resource isolation still needs review before deployment.
 [[previews.d1_databases]]
-binding = "VRCP_PREVIEW_D1"
+binding = "VRCP_D1"
 database_id = "9c3b2e28-861d-44fe-8df1-2c80f4e0c53c"
 remote = false
 

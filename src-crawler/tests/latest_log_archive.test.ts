@@ -4,15 +4,18 @@ import path from "path";
 import fs from "fs";
 import zlib from "zlib";
 
-import { getTestOutputDir } from "../../src-worker/test/helpers/test_directory.ts";
+const outputPath = path.resolve(import.meta.dir, "../dist/tests");
+fs.mkdirSync(outputPath, { recursive: true });
+const tempRoot = fs.realpathSync(outputPath);
 
 describe("Unified latest.log and Archiving Lifecycle", () => {
-  const testDir = path.join(getTestOutputDir(), `test_latest_log_${Date.now()}`);
+  const testDir = fs.mkdtempSync(path.join(tempRoot, "test_latest_log_"));
   let logger: Logger;
 
   afterAll(async () => {
     try { await logger?.close(); } catch (_) {}
     if (fs.existsSync(testDir)) {
+      if (!fs.realpathSync(testDir).startsWith(tempRoot + path.sep)) throw new Error("Unexpected log fixture path");
       try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (_) {}
     }
   });

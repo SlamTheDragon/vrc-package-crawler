@@ -15,11 +15,11 @@ import {
 	HeartbeatResponseSchema,
 	ResultResponseSchema
 } from '../../src-crawler/src/shared/protocol/node_protocol.ts';
-import { NodeCredentialResponseSchema } from '../src/api/protocol/operator_protocol.ts';
+import { NodeCredentialResponseSchema } from 'vrc-packages-api';
 import { SourceAccessProfileListResponseSchema } from '../src/domain/access/source_access_profile.ts';
 import { EnqueueJobResponseSchema, RevokeNodeResponseSchema, AutoQueueRuleResponseSchema,
   AutoQueueRuleListResponseSchema } from '../../src-package/src/protocol/operator.ts';
-import { VrcPackagesClient } from '../../src-package/src/client.ts';
+import { VRCPackageClient } from '../../src-package/src/client.ts';
 const operatorToken = randomBytes(32).toString('hex');
 // Bundle the real store into memory for native binding tests. No fixture is deployed.
 const storageModule = execFileSync('bun', [
@@ -32,6 +32,7 @@ export async function refreshFixture(env) {
   const origin = 'https://native-robots.example';
   let clock = Date.now();
   const store = new Coordinator(env.VRCP_D1, () => clock);
+  await operatorAtomicityFixture(env, store, clock);
   const owner = await store.issueUserToken('native-app-owner');
   const owned = await store.registerApp({ schemaVersion: 1, appName: 'Native owned app' }, owner.userId);
   const ownedRow = await env.VRCP_D1.prepare('SELECT user_id FROM user_app_ownership WHERE app_id=?').bind(owned.appId).first();
@@ -112,7 +113,71 @@ export async function refreshFixture(env) {
   await env.VRCP_D1.prepare("UPDATE crawl_jobs SET state='blocked' WHERE origin=?").bind(origin).run();
   return { status: 'passed', refreshRace: true, staleCompletion: true, profileRevocation: true,
     pacingRollback: true, completionRollback: true };
-}`;
+}
+async function operatorAtomicityFixture(env, store, clock) {
+  const db = env.VRCP_D1, existingNode = 'native-audit-rotation', freshNode = 'native-audit-new';
+  const oldToken = await store.createNodeCredential(existingNode, ['vpm']);
+  const beforeCredential = await db.prepare('SELECT * FROM node_credentials WHERE node_id=?').bind(existingNode).first();
+  await db.exec("CREATE TRIGGER reject_native_credential_audit BEFORE INSERT ON node_credential_actions WHEN NEW.node_id LIKE 'native-audit-%' BEGIN SELECT RAISE(ABORT,'Offline credential audit failure'); END;");
+  for (const nodeId of [freshNode, existingNode]) {
+    let failed = false;
+    try { await store.issueNodeCredential({ schemaVersion: 1, nodeId, capabilities: ['vpm'], reason: 'Offline audit rollback' }, 'offline-fixture'); }
+    catch { failed = true; }
+    check(failed, 'Credential audit failure was not propagated');
+  }
+  await db.exec('DROP TRIGGER reject_native_credential_audit;');
+  check(await db.prepare('SELECT 1 FROM node_credentials WHERE node_id=?').bind(freshNode).first() === null,
+    'Failed issuance left an undisclosed credential');
+  const afterCredential = await db.prepare('SELECT * FROM node_credentials WHERE node_id=?').bind(existingNode).first();
+  check(JSON.stringify(beforeCredential) === JSON.stringify(afterCredential), 'Failed rotation changed existing credentials');
+  check(await store.authenticate(existingNode, oldToken) !== null, 'Failed rotation invalidated the old token');
+  const retriedToken = await store.issueNodeCredential({ schemaVersion: 1, nodeId: freshNode, capabilities: ['vpm'], reason: 'Offline retry' }, 'offline-fixture');
+  check(await store.authenticate(freshNode, retriedToken) !== null, 'Credential retry failed');
+  const issuanceAudit = await db.prepare('SELECT COUNT(*) AS count FROM node_credential_actions WHERE node_id=?').bind(freshNode).first();
+  check(issuanceAudit.count === 1, 'Issuance retry did not commit exactly one audit');
+
+  const sourceUrl = 'https://native-approval-source.example/index.json';
+  const sourceJob = await store.seedJob(sourceUrl, 'vpm', 1000, undefined, 'discovery');
+  for (const existing of [false, true]) {
+    const origin = existing ? 'https://native-approval-existing.example' : 'https://native-approval-new.example';
+    const url = origin + '/index.json', leadKey = (existing ? 'b' : 'a').repeat(64);
+    if (existing) {
+      const existingJob = await store.seedJob(url, 'vpm', 1000, undefined, 'discovery');
+      await db.prepare("UPDATE crawl_jobs SET state='leased',claimed_by=?,lease_id=?,lease_expires_at=?,next_fetch_at=? WHERE job_id=?")
+        .bind(existingNode, 'native-existing-lease', new Date(clock + 60000).toISOString(), new Date(clock + 86400000).toISOString(), existingJob).run();
+      await db.prepare('UPDATE origin_leases SET active_job_id=?,lease_expires_at=? WHERE origin=?')
+        .bind(existingJob, new Date(clock + 60000).toISOString(), origin).run();
+    }
+    await db.prepare("INSERT INTO source_leads(lead_key,discovered_from_url,discovered_from_job_id,kind,target_url,status,first_seen_at,last_seen_at) VALUES (?,?,?,'vpm_listing',?,'pending_review',?,?)")
+      .bind(leadKey, sourceUrl, sourceJob, url, new Date(clock).toISOString(), new Date(clock).toISOString()).run();
+    const beforeJob = await db.prepare('SELECT * FROM crawl_jobs WHERE url=?').bind(url).first();
+    const beforeOrigin = await db.prepare('SELECT * FROM origin_leases WHERE origin=?').bind(origin).first();
+    await db.exec("CREATE TRIGGER reject_native_approval_audit BEFORE INSERT ON operator_actions WHEN NEW.action='approve_lead' BEGIN SELECT RAISE(ABORT,'Offline approval audit failure'); END;");
+    let failed = false;
+    try { await store.approveVpmListingLead(leadKey, 2000, 'offline-fixture', 'Offline approval rollback'); } catch { failed = true; }
+    await db.exec('DROP TRIGGER reject_native_approval_audit;');
+    check(failed, 'Approval audit failure was not propagated');
+    check(JSON.stringify(beforeJob) === JSON.stringify(await db.prepare('SELECT * FROM crawl_jobs WHERE url=?').bind(url).first()),
+      'Failed approval changed queue state or lease');
+    check(JSON.stringify(beforeOrigin) === JSON.stringify(await db.prepare('SELECT * FROM origin_leases WHERE origin=?').bind(origin).first()),
+      'Failed approval changed origin pacing or reservation');
+    const lead = await db.prepare('SELECT status FROM source_leads WHERE lead_key=?').bind(leadKey).first();
+    check(lead.status === 'pending_review', 'Failed approval changed lead status');
+    const jobId = await store.approveVpmListingLead(leadKey, 2000, 'offline-fixture', 'Offline approval retry');
+    check(await store.approveVpmListingLead(leadKey, 2000, 'offline-fixture', 'Offline approval replay') === jobId,
+      'Approval replay changed job identity');
+    const audit = await db.prepare("SELECT COUNT(*) AS count FROM operator_actions WHERE lead_key=? AND action='approve_lead'").bind(leadKey).first();
+    check(audit.count === 1, 'Approval replay duplicated its audit');
+    const approved = await db.prepare('SELECT status FROM source_leads WHERE lead_key=?').bind(leadKey).first();
+    check(approved.status === 'approved', 'Approval retry did not commit lead state');
+    if (existing) {
+      const retained = await db.prepare('SELECT state,lease_id,next_fetch_at FROM crawl_jobs WHERE url=?').bind(url).first();
+      check(retained.state === beforeJob.state && retained.lease_id === beforeJob.lease_id && retained.next_fetch_at === beforeJob.next_fetch_at,
+        'Successful approval reset an existing lease or schedule');
+    }
+  }
+}
+`;
 const discoveryFixtureModule = String.raw`
 import { Coordinator } from './storage.mjs';
 export async function discoveryFixture(env) {
@@ -230,7 +295,7 @@ try {
   assert.equal(anonymousRegistration.status, 401);
   const reportApp = await post('/v1/app/register', { schemaVersion: 1, appName: 'Operator native app' }, operatorToken);
   const reportStatuses = [];
-  const reportingClient = new VrcPackagesClient({ baseUrl: 'https://offline.test', appToken: reportApp.appToken,
+  const reportingClient = new VRCPackageClient({ baseUrl: 'https://offline.test', appToken: reportApp.appToken,
     fetch: async (input, init) => {
       const response = await runtime.dispatchFetch(String(input), init);
       reportStatuses.push(response.status);

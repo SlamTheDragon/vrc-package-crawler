@@ -7,12 +7,15 @@
  *   and edge execution contexts.
  */
 
+import { version } from "../package.json";
+
 export type WorkerLogLevel = "debug" | "info" | "warn" | "error";
 
 export interface WorkerLogPayload {
   timestamp: string;
   level: WorkerLogLevel;
   component: string;
+  version: string;
   message: string;
   meta?: Record<string, unknown>;
   error?: string;
@@ -32,6 +35,7 @@ export class WorkerLogger {
       timestamp: new Date().toISOString(),
       level,
       component: this.component,
+      version,
       message
     };
 

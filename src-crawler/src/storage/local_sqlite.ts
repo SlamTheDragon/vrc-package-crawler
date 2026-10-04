@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import crypto from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { CrawlJob, ResultResponse } from "../shared/protocol/node_protocol.ts";
+import { ResultResponseSchema, type CrawlJob, type ResultResponse } from "../shared/protocol/node_protocol.ts";
 
 export interface NodeRunRecord {
   runId: string;
@@ -106,7 +106,8 @@ export class LocalNodeStore {
   }
 
   public recordTaskProgress(taskId: string, status: "fetching" | "submitting"): void {
-    this.db.prepare("UPDATE node_tasks SET status = ? WHERE task_id = ?").run(status, taskId);
+    this.db.prepare("UPDATE node_tasks SET status = ? WHERE task_id = ? AND status IN ('claimed','fetching','submitting')")
+      .run(status, taskId);
   }
 
   public recordTaskSuccess(
@@ -115,27 +116,31 @@ export class LocalNodeStore {
     result: ResultResponse,
     metrics?: { durationMs?: number; httpStatus?: number; bytesFetched?: number }
   ): void {
-    const submittedAt = new Date(this.now()).toISOString();
-    const accepted = result.status === "accepted" ? 1 : 0;
-    this.db.prepare(`
-      UPDATE node_tasks
-      SET status = 'completed', outcome_kind = ?, submitted_at = ?, accepted = ?,
-          duration_ms = ?, http_status = ?, bytes_fetched = ?
-      WHERE task_id = ?
-    `).run(
-      outcomeKind,
-      submittedAt,
-      accepted,
-      metrics?.durationMs ?? null,
-      metrics?.httpStatus ?? null,
-      metrics?.bytesFetched ?? null,
-      taskId
-    );
+    const receipt = ResultResponseSchema.parse(result);
+    this.db.transaction(() => {
+      const task = this.db.prepare("SELECT run_id,job_id,status FROM node_tasks WHERE task_id = ?").get(taskId) as
+        { run_id: string; job_id: string; status: string } | null;
+      if (!task) return;
+      if (receipt.jobId !== task.job_id) throw new Error("Result receipt does not match task job");
+      if (task.status === "completed") return;
+      const submittedAt = new Date(this.now()).toISOString();
+      this.db.prepare(`
+        UPDATE node_tasks
+        SET status = 'completed', outcome_kind = ?, submitted_at = ?, accepted = ?,
+            duration_ms = ?, http_status = ?, bytes_fetched = ?, error_message = NULL
+        WHERE task_id = ?
+      `).run(
+        outcomeKind,
+        submittedAt,
+        1,
+        metrics?.durationMs ?? null,
+        metrics?.httpStatus ?? null,
+        metrics?.bytesFetched ?? null,
+        taskId
+      );
 
-    const task = this.db.prepare("SELECT run_id FROM node_tasks WHERE task_id = ?").get(taskId) as { run_id: string } | null;
-    if (task) {
       this.db.prepare("UPDATE node_runs SET tasks_completed = tasks_completed + 1 WHERE run_id = ?").run(task.run_id);
-    }
+    }).immediate();
   }
 
   public recordTaskFailure(
@@ -143,16 +148,18 @@ export class LocalNodeStore {
     errorMessage: string,
     metrics?: { durationMs?: number; httpStatus?: number }
   ): void {
-    this.db.prepare(`
-      UPDATE node_tasks
-      SET status = 'failed', error_message = ?, duration_ms = ?, http_status = ?
-      WHERE task_id = ?
-    `).run(errorMessage, metrics?.durationMs ?? null, metrics?.httpStatus ?? null, taskId);
+    this.db.transaction(() => {
+      const task = this.db.prepare("SELECT run_id,status FROM node_tasks WHERE task_id = ?").get(taskId) as
+        { run_id: string; status: string } | null;
+      if (!task || task.status === "completed" || task.status === "failed") return;
+      this.db.prepare(`
+        UPDATE node_tasks
+        SET status = 'failed', error_message = ?, duration_ms = ?, http_status = ?
+        WHERE task_id = ?
+      `).run(errorMessage, metrics?.durationMs ?? null, metrics?.httpStatus ?? null, taskId);
 
-    const task = this.db.prepare("SELECT run_id FROM node_tasks WHERE task_id = ?").get(taskId) as { run_id: string } | null;
-    if (task) {
       this.db.prepare("UPDATE node_runs SET tasks_failed = tasks_failed + 1 WHERE run_id = ?").run(task.run_id);
-    }
+    }).immediate();
   }
 
   public finishRun(runId: string, status: "completed" | "failed" = "completed"): void {

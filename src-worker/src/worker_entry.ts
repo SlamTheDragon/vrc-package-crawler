@@ -1,6 +1,6 @@
 import { Coordinator } from "./storage/d1/coordinator.ts";
 import { CoordinatorConflict, createCoordinatorHandler, readJson } from "./api/handler.ts";
-import { InitializeCoordinatorRequestSchema, InitializeCoordinatorResponseSchema } from "../../src-package/src/protocol/operator.js";
+import { InitializeCoordinatorRequestSchema, InitializeCoordinatorResponseSchema } from "vrc-packages-api";
 import { createOperatorHandler } from "./api/operator_handler.ts";
 import { createPublicCatalogHandler } from "./api/public_handler.ts";
 import { createDownstreamHandler } from "./api/downstream_handler.ts";

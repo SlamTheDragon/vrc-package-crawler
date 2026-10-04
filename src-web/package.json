@@ -1,7 +1,7 @@
 {
   "name": "src-web",
   "type": "module",
-  "version": "0.0.1",
+  "version": "2026.10.0",
   "engines": {
     "node": ">=22.12.0"
   },

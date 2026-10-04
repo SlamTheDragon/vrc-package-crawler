@@ -59,6 +59,12 @@ export class CoordinatorClient {
     if (!token) throw new Error("Node credential is required");
     this.maxRetries = options?.maxRetries ?? 2;
     this.retryBaseDelayMs = options?.retryBaseDelayMs ?? 250;
+    if (!Number.isSafeInteger(this.maxRetries) || this.maxRetries < 0) {
+      throw new Error("maxRetries must be a nonnegative safe integer");
+    }
+    if (!Number.isSafeInteger(this.retryBaseDelayMs) || this.retryBaseDelayMs < 0) {
+      throw new Error("retryBaseDelayMs must be a nonnegative safe integer");
+    }
     ClaimRequestSchema.parse({ schemaVersion: PROTOCOL_VERSION, nodeId, capabilities });
   }
 
@@ -72,14 +78,17 @@ export class CoordinatorClient {
         const response = await fetch(targetUrl, {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${this.token}` },
-          body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs)
+          body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs), redirect: "manual"
         });
 
         if (response.ok) {
           return await response.json();
         }
 
-        const json: unknown = await response.json().catch(() => ({}));
+        await response.body?.cancel().catch(() => {});
+        if (response.status >= 300 && response.status < 400) {
+          throw new Error("Coordinator redirects are not allowed");
+        }
 
         if (isTransientEdgeStatus(response.status) && attempt <= this.maxRetries) {
           const delayMs = Math.min(this.retryBaseDelayMs * Math.pow(2, attempt - 1), 2000);
@@ -88,8 +97,7 @@ export class CoordinatorClient {
           continue;
         }
 
-        logger.error(`Coordinator request to ${path} returned status ${response.status}`, json);
-        throw new Error(`Coordinator ${response.status}: ${JSON.stringify(json)}`);
+        throw new Error(`Coordinator ${response.status}`);
       } catch (err) {
         const isNetworkErr = err instanceof Error && (
           err.name === "TimeoutError" ||
@@ -130,9 +138,6 @@ export class CoordinatorClient {
     return response;
   }
 }
-
-/** NodeCoordinatorClient is an explicit alias clarifying this is the node's client for the coordinator API. */
-export { CoordinatorClient as NodeCoordinatorClient };
 
 /**
  * Shared by runtime config and the client so local and remote endpoint rules cannot drift.

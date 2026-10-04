@@ -2,7 +2,7 @@ import {
   DOWNSTREAM_PROTOCOL_VERSION,
   UserAppListQuerySchema, UserAppListResponseSchema, UserAppResponseSchema,
   type UserAppListResponse
-} from "../../../src-crawler/src/shared/protocol/downstream_protocol.js";
+} from "vrc-packages-api";
 import { workerLogger } from "../worker_logger.ts";
 
 export interface UserPrincipal {

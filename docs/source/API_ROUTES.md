@@ -1,9 +1,11 @@
 # API Route Reference (Candidate Source Document)
 
 > **Document Status:** Candidate Source — v0 Pre-Production Architecture  
-> **Last Updated:** 2026-10-03
+> **Last Updated:** 2026-10-04
 > **Target Subsystems:** `src-worker` (API Worker coordinator) · `src-crawler` (node) · `src-package` (`vrc-packages-api` SDK)
 > **Status Legend:** ✅ Implemented · 🔲 Planned · ⚠️ In Transition · ⏸️ On Hold / Redefining
+
+Implemented means a handler exists. It does not mean that the feature or release gate passed. The [complete route review](../research/audits/API_CONTRACT_REVIEW.md) lists storage, SDK and authorization gaps for owner review.
 
 ---
 
@@ -29,7 +31,7 @@ The system operates across four discrete principal boundaries. Tokens must never
 
 `POST /v1/operator/init` requires the configured operator bearer token and an `application/json` body. The strict request is `{ "schemaVersion": 1, "autoSeed": true }`. `autoSeed` is optional and defaults to true. Unknown fields, other versions and nonboolean values return 400. Malformed JSON returns 400, unsupported media returns 415, and bodies above 256 KiB return 413. These failures occur before database operations.
 
-Success returns `{ "schemaVersion": 1, "status": "ok", "message": "Schema initialized", "autoSeed": true }`, with the actual seed choice. Responses disable caching. The SDK exposes `client.operator.init({ autoSeed })` and checks the response schema. Seeding queues candidates only. It creates no source-access approval or robots evidence. Existing stored grants remain unchanged and require review before live use.
+Success returns `{ "schemaVersion": 1, "status": "ok", "message": "Schema initialized", "autoSeed": true }`, with the actual seed choice. Successful responses disable caching. The SDK exposes `client.operator.init({ autoSeed })` and checks the response schema. Seeding queues candidates only. It creates no source-access approval or robots evidence. Existing stored grants remain unchanged and require review before live use.
 
 ### Manual job enqueue (implemented locally, 2026-10-03)
 
@@ -61,6 +63,8 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 | `POST` | `/v1/node/heartbeat` | ✅ | Reports idle/fetching state and checks active job authority. | `{ schemaVersion: 1, nodeId, capabilities[], state: "idle" }` or `state: "fetching"` with `activeJobId`, `activeLeaseId` | `200` `{ schemaVersion: 1, status: "alive", serverTime }` |
 | `POST` | `/v1/node/jobs/result` | ✅ | Submits typed facts, leads or access outcomes. | `{ schemaVersion: 1, nodeId, jobId, leaseId, idempotencyKey, outcome }` | `200` `{ schemaVersion: 1, status: "accepted", jobId, duplicate, sourceVersionCreated }` |
 
+There is no GET `/v1/node/jobs` route. Claim lets the coordinator select authorized work. Nodes must not browse a queue and fetch jobs without a lease. The consumer SDK does not expose node routes.
+
 ---
 
 ### §2.2 Admin Operator Protocol (`/v1/operator/*`)
@@ -70,20 +74,22 @@ Success returns `{ "schemaVersion": 1, "jobId": "<UUID>" }` with status 200 and 
 
 | Method | Path | Status | Description | Request / Query | Response (2xx) |
 |---|---|:---:|---|---|---|
-| `GET` | `/v1/operator/leads` | ✅ | Lists pending, approved, or rejected discovery leads. | Query: `status`, `limit`, `cursor` | `200` `{ leads[], nextCursor }` |
-| `POST` | `/v1/operator/leads/{leadKey}/approve` | ✅ | Approves a pending discovery lead into the crawl queue. | `{ schemaVersion: 1, minDelayMs? }` | `200` `{ status: "approved" }` |
-| `POST` | `/v1/operator/leads/{leadKey}/reject` | ✅ | Permanently archives/rejects a pending lead. | `{ schemaVersion: 1, reason? }` | `200` `{ status: "rejected" }` |
-| `GET` | `/v1/operator/source-profiles` | ✅ | Lists active and disabled origin access profiles. | Query: `limit`, `cursor` | `200` `{ profiles[], nextCursor }` |
-| `POST` | `/v1/operator/source-profiles` | ✅ | Authorizes an origin + path scope for crawling. Required before any live fetch lease can be granted. | `{ schemaVersion: 1, platform, origin, pathScope, purpose, minDelayMs, retainClasses[], publishClasses[], reviewReference, reason, expiresAt }` | `201` `{ profile }` |
-| `POST` | `/v1/operator/source-profiles/{id}/disable` | ✅ | Disables a source-access profile and immediately blocks new leases. | `{ schemaVersion: 1, reason }` | `200` `{ status: "disabled" }` |
-| `GET` | `/v1/operator/autoqueue-rules` | ✅ | Lists automated lead ingestion rules. | Query: `limit`, `cursor` | `200` `{ rules[], nextCursor }` |
-| `POST` | `/v1/operator/autoqueue-rules` | ✅ | Creates an auto-queue rule that automatically enqueues matching discovery leads without manual operator triage. | `{ schemaVersion: 1, leadKind, origin, pathScope, minDelayMs, expiresAt, reviewReference, reason }` | `201` `{ rule }` |
-| `POST` | `/v1/operator/autoqueue-rules/{id}/disable` | ✅ | Disables an auto-queue rule. | `{ schemaVersion: 1, reason }` | `200` `{ status: "disabled" }` |
-| `POST` | `/v1/operator/nodes` | ✅ | Issues an audited, capability-encoded node credential. | `{ schemaVersion: 1, nodeId, capabilities[]?, reason }` | `201` `{ nodeId, capabilities[], token }` |
+| `GET` | `/v1/operator/leads` | ✅ | Lists pending, approved, or rejected discovery leads. | Query: `status`, `limit`, `cursor` | `200` `{ schemaVersion: 1, leads[], nextCursor }` |
+| `POST` | `/v1/operator/init` | ✅ | Initializes storage and optionally queues candidates. No source access is granted. | `{ schemaVersion: 1, autoSeed? }` | `200` `{ schemaVersion: 1, status: "ok", message: "Schema initialized", autoSeed }` |
+| `POST` | `/v1/operator/jobs` | ✅ | Records an audited crawl candidate without granting fetch authority. | `{ schemaVersion: 1, url, platform, purpose, minDelayMs, reason }` | `200` `{ schemaVersion: 1, jobId }` |
+| `POST` | `/v1/operator/leads/{leadKey}/approve` | ✅ | Approves a pending discovery lead into the crawl queue. | `{ schemaVersion: 1, reason, minDelayMs? }` | `200` `{ schemaVersion: 1, leadKey, status: "approved", jobId }` |
+| `POST` | `/v1/operator/leads/{leadKey}/reject` | ✅ | Rejects a lead with an audit reason. | `{ schemaVersion: 1, reason }` | `200` `{ schemaVersion: 1, leadKey, status: "rejected" }` |
+| `GET` | `/v1/operator/source-profiles` | ✅ | Lists active and disabled origin access profiles. | Query: `limit`, `cursor` | `200` `{ schemaVersion: 1, profiles[], nextCursor }` |
+| `POST` | `/v1/operator/source-profiles` | ✅ | Authorizes an origin + path scope for crawling. Required before any live fetch lease can be granted. | `{ schemaVersion: 1, platform, origin, pathScope, exactQuery?, method: "GET", purpose, minDelayMs, retainClasses[], publishClasses[], reviewReference, reason, expiresAt }` | `201` `{ schemaVersion: 1, profile }` |
+| `POST` | `/v1/operator/source-profiles/{id}/disable` | ✅ | Disables a source-access profile and immediately blocks new leases. | `{ schemaVersion: 1, reason }` | `200` `{ schemaVersion: 1, profile }` |
+| `GET` | `/v1/operator/autoqueue-rules` | ✅ | Lists automated lead ingestion rules. | Query: `limit`, `cursor` | `200` `{ schemaVersion: 1, rules[], nextCursor }` |
+| `POST` | `/v1/operator/autoqueue-rules` | ✅ | Creates an auto-queue rule that automatically enqueues matching discovery leads without manual operator triage. | `{ schemaVersion: 1, leadKind, origin, pathScope, minDelayMs, expiresAt, reviewReference, reason }` | `201` `{ schemaVersion: 1, rule }` |
+| `POST` | `/v1/operator/autoqueue-rules/{id}/disable` | ✅ | Disables an auto-queue rule. | `{ schemaVersion: 1, reason }` | `200` `{ schemaVersion: 1, rule }` |
+| `POST` | `/v1/operator/nodes` | ✅ | Issues a capability-encoded node credential. Credential and issuance audit share a D1 batch. Current rollback fixtures remain unrun. | `{ schemaVersion: 1, nodeId, capabilities[]?, reason }` | `201` `{ schemaVersion: 1, nodeId, capabilities[], token }` |
 | `POST` | `/v1/operator/nodes/{nodeId}/revoke` | ✅ | Atomically audits revocation and blocks claim, heartbeat and submission. Repeats retain the first revocation time. Existing origin reservations remain until expiry. fetched bytes cannot be recalled. | `{ schemaVersion: 1, reason }` | `200` `{ schemaVersion: 1, nodeId, status: "revoked" }`. unknown node `404` |
-| `GET` | `/v1/operator/catalog` | ✅ | Lists canonical packages with operator oversight and cursor pagination. | Query: `limit`, `cursor` | `200` `{ packages[], nextCursor }` |
-| `GET` | `/v1/operator/takedowns` | ✅ | Audits all recorded creator delistings and opt-outs. | Query: `requesterType`, `limit`, `cursor` | `200` `{ records[], nextCursor }` |
-| `POST` | `/v1/operator/takedowns/{id}/verify` | ✅ | Records an operator verdict on a stored request. Automated DNS/bio challenge verification is absent. | `{ schemaVersion: 1, verdict: "accepted" \| "rejected", notes? }` | `200` `{ status }` |
+| `GET` | `/v1/operator/catalog` | ✅ | Lists canonical packages with cursor pagination. Uses the public index projection. | Query: `limit`, `cursor` | `200` `{ schemaVersion: 1, packages[], nextCursor }` |
+| `GET` | `/v1/operator/takedowns` | ✅ | Lists creator opt-out records, not pending removal reports. | Query: `requesterType`, `limit`, `cursor` | `200` `{ schemaVersion: 1, records[], nextCursor }` |
+| `POST` | `/v1/operator/takedowns/{id}/verify` | ✅ | Records a verdict on a stored opt-out. Automated proof checks and persisted actor audit are absent. | `{ schemaVersion: 1, verdict: "accepted" \| "rejected", notes? }` | `200` `{ schemaVersion: 1, takedownId, status, updatedAt }` |
 
 ---
 
@@ -120,8 +126,8 @@ App registration requires a valid user token or the configured operator credenti
 | ------ | ---------------------- | :---------------------: | :----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `POST` | `/v1/app/register`     | `vrcp_usr_` or Operator |   ✅    | Registers a downstream application. Gated by user or operator auth.                                                                                                                                                 | `{ schemaVersion: 1, appName, contactEmail?, description? }`                                                                                            | `201` `{ appId, appName, appToken: "vrcp_app_<64>", permissions[] }` |
 | `GET` | `/v1/app/index` | Public | ✅ | Bounded keyset catalog pages. Other query keys are rejected. | Query: `limit?` (1–100), `cursor?` | `200` `{ schemaVersion: 1, packages[], nextCursor }` |
-| `GET`  | `/v1/app/index/delta`  |         Public          |   ✅    | Continuous incremental sync feed for package managers (VCC/ALCOM). Emits `upsert` and `delist` events.                                                                                                              | Query: `cursor?`, `limit?` (max 100)                                                                                                                    | `200` `{ epoch, deltas[], nextCursor }`                              |
-| `POST` | `/v1/app/index/search` |       `vrcp_app_`       |   ✅    | Bounded search with query attribution. Distinguishes direct human searches from automated background engine queries.                                                                                                | `{ schemaVersion: 1, query, queryOrigin: "user_authored" \| "app_automated", category?, umbrella?, platform?, tags[]?, limit? }`                        | `200` `{ items[], count, queryOrigin }`                              |
+| `GET` | `/v1/app/index/delta` | Public | ✅ | Pages current rows by update time. Emits `upsert` or `delist`. This is not a durable event stream. | Query: `cursor?`, `limit?` (1–100, default 50) | `200` `{ schemaVersion: 1, epoch, deltas[], nextCursor }` |
+| `POST` | `/v1/app/index/search` | `vrcp_app_` | ⚠️ | Bounded substring search. Attribution is accepted but unused. Tags use heuristics, not canonical tag data. | `{ schemaVersion: 1, query?, queryOrigin?, category?, umbrella?, platform?, tags[]?, limit?, cursor? }` | `200` `{ schemaVersion: 1, items[], nextCursor, totalEstimated }` |
 | `POST` | `/v1/app/report` | `vrcp_app_` | ✅ | Records demand, issue reports or pending removal requests. Removal does not alter the catalog. | `{ schemaVersion: 1, reportType: "demand_signal" \| "issue_report" \| "removal_request", signalKind?, reportKind?, targetUrl?, canonicalId?, query?, zeroHits?, reason?, metadata? }` | `{ schemaVersion: 1, status: "accepted", reportId, recordedAt }`. demand/issue `200`, removal `202`. |
 
 ---
@@ -134,6 +140,8 @@ App registration requires a valid user token or the configured operator credenti
 | `POST /v1/node/heartbeat` | — | — | — | ✅ | — |
 | `POST /v1/node/jobs/result` | — | — | — | ✅ | — |
 | `GET /v1/operator/leads` | ✅ | — | — | — | — |
+| `POST /v1/operator/init` | ✅ | — | — | — | — |
+| `POST /v1/operator/jobs` | ✅ | — | — | — | — |
 | `POST /v1/operator/leads/{key}/approve` | ✅ | — | — | — | — |
 | `POST /v1/operator/leads/{key}/reject` | ✅ | — | — | — | — |
 | `GET /v1/operator/source-profiles` | ✅ | — | — | — | — |
@@ -143,6 +151,7 @@ App registration requires a valid user token or the configured operator credenti
 | `POST /v1/operator/autoqueue-rules` | ✅ | — | — | — | — |
 | `POST /v1/operator/autoqueue-rules/{id}/disable` | ✅ | — | — | — | — |
 | `POST /v1/operator/nodes` | ✅ | — | — | — | — |
+| `POST /v1/operator/nodes/{nodeId}/revoke` | ✅ | — | — | — | — |
 | `GET /v1/operator/catalog` | ✅ | — | — | — | — |
 | `GET /v1/operator/takedowns` | ✅ | — | — | — | — |
 | `POST /v1/operator/takedowns/{id}/verify` | ✅ | — | — | — | — |
@@ -172,8 +181,6 @@ In traditional architectures, admin panels often allow viewing or re-copying API
 
 ### 4.2 Search Design: Bounded Results & Query Attribution
 
-Downstream apps (e.g. desktop managers, ALCOM, VCC, curation tools) frequently perform both human-initiated and background-automated searches:
-- **No Unbounded Pagination:** Search queries return bounded top-K result slices (`limit <= 50`). This prevents scrapers from using search endpoints to dump the entire catalog and focuses resources on relevant matching packages. Complete catalog replication is handled exclusively by `/v1/app/index/delta`.
-- **Query Attribution (`queryOrigin`):**
-  - `"user_authored"`: A human typed the query into a search bar. The coordinator treats search misses or popularity trends here as high-priority signals to lease crawler nodes toward missing content.
-  - `"app_automated"`: Triggered by background recommendation algorithms, cache pre-warming, or dependency resolution. Logged for analytics, but prevented from skewing organic human workforce distribution.
+Search returns at most 50 items per request. It supports a cursor in the wire schema, but the SDK search method does not expose that cursor. The Worker ignores malformed search cursors instead of rejecting them. `totalEstimated` counts rows after the cursor filter, not the entire matching catalog.
+
+`queryOrigin` accepts `user_authored` or `app_automated` and defaults to `user_authored`. Storage does not record or use this value. No search-triggered workforce priority exists. These remain design goals, not implemented guarantees. Public index pages also permit catalog traversal. A per-page search bound is not an anti-scraping control.

@@ -12,10 +12,11 @@
     "skipLibCheck": true,
     "jsx": "react-jsx",
     "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
     "allowJs": true,
     "types": ["bun-types", "node"]
   },
-  "include": ["**/*", "../src-worker/test/helpers/test_directory.ts", "../src-worker/test/helpers/test_setup.ts"],
+  "include": ["**/*"],
   "exclude": ["node_modules", "bin", "dist"]
 }

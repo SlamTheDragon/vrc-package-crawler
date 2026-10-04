@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { join, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { initializeNodeConfig, loadNodeRuntimeConfig } from "../src/config/runtime_config.ts";
 import { coordinatorEndpointAllowed, resolveCoordinatorUrl, isTransientEdgeStatus, CoordinatorClient } from "../src/client/node_client.ts";
 import { loadScopedGitHubTokenFromEnvFile } from "../src/adapters/observation_adapter.ts";
-import { getTestOutputDir } from "../../src-worker/test/helpers/test_directory.ts";
 
 const secret = "c".repeat(64);
-const tempRoot = getTestOutputDir();
+const outputPath = resolve(import.meta.dir, "../dist/tests");
+mkdirSync(outputPath, { recursive: true });
+const tempRoot = realpathSync(outputPath);
 function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrcp-crawler-node-config-")); }
 function removeFixtureDirectory(directory: string): void {
   if (!realpathSync(directory).startsWith(tempRoot + sep)) throw new Error("Unexpected config fixture path");

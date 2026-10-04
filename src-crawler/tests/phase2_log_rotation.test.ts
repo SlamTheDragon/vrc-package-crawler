@@ -3,15 +3,18 @@ import { Logger } from "../src/utils/logging/logger.ts";
 import path from "path";
 import fs from "fs";
 
-import { getTestOutputDir } from "../../src-worker/test/helpers/test_directory.ts";
+const outputPath = path.resolve(import.meta.dir, "../dist/tests");
+fs.mkdirSync(outputPath, { recursive: true });
+const tempRoot = fs.realpathSync(outputPath);
 
 describe("Phase 2 - Task 2.5: Implement Unified latest.log with Daily/Shutdown Archiving", () => {
-  const testDir = path.join(getTestOutputDir(), `test_log_rotation_${Date.now()}`);
+  const testDir = fs.mkdtempSync(path.join(tempRoot, "test_log_rotation_"));
   let logger: Logger;
 
   afterAll(async () => {
     try { await logger?.close(); } catch (_) {}
     if (fs.existsSync(testDir)) {
+      if (!fs.realpathSync(testDir).startsWith(tempRoot + path.sep)) throw new Error("Unexpected log fixture path");
       try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (_) {}
     }
   });

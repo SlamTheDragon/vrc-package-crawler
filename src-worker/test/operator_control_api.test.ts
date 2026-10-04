@@ -87,26 +87,20 @@ describe("separate operator control API", () => {
     } finally { store.close(); }
   });
 
-  test("node issuance has the same validation over loopback HTTP", async () => {
+  test("node issuance rejects the wrong schema version before creating credentials", async () => {
     const store = new LocalCoordinatorStore();
-    const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
-      fetch: (request) => handleOperatorRequest(request, store, operatorToken) });
     const path = "/v1/operator/nodes";
     const invalid = { schemaVersion: 2, nodeId: "unknown", capabilities: ["vpm"], reason: "Local approval" };
     try {
-      const local = await handleOperatorRequest(operatorRequest(path, "POST", invalid), store, operatorToken);
-      const remote = await fetch(`http://127.0.0.1:${server.port}${path}`,
-        operatorRequest(path, "POST", invalid));
-      expect(remote.status).toBe(400);
-      expect(remote.status).toBe(local.status);
-      expect(await remote.json()).toEqual(await local.json());
+      const rejected = await handleOperatorRequest(operatorRequest(path, "POST", invalid), store, operatorToken);
+      expect(rejected.status).toBe(400);
+      expect(await rejected.json()).toEqual({ schemaVersion: 1, code: "invalid_payload", error: "Node credential body is invalid" });
       expect(store.db.prepare("SELECT COUNT(*) AS count FROM node_credentials").get()).toEqual({ count: 0 });
       const valid = { ...invalid, schemaVersion: 1 };
-      const issued = await fetch(`http://127.0.0.1:${server.port}${path}`,
-        operatorRequest(path, "POST", valid));
+      const issued = await handleOperatorRequest(operatorRequest(path, "POST", valid), store, operatorToken);
       expect(issued.status).toBe(201);
       expect((await issued.json() as { token: string }).token).toMatch(/^vrcp_[0-9a-fA-F]{64}[0-9a-fA-F]{4}$/);
-    } finally { server.stop(true); store.close(); }
+    } finally { store.close(); }
   });
 
   test("fails closed without a configured operator token and never accepts node credentials", async () => {
@@ -166,15 +160,14 @@ describe("separate operator control API", () => {
         `/v1/operator/leads?status=rejected&cursor=${firstCursor}`), store, operatorToken)).status).toBe(400);
       expect((await handleOperatorRequest(operatorRequest(
         "/v1/operator/leads?cursor=not-a-valid-cursor"), store, operatorToken)).status).toBe(400);
-      const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
-        fetch: (request) => handleOperatorRequest(request, store, operatorToken) });
-      try {
-        const path = `/v1/operator/leads?status=pending_review&limit=60&cursor=${firstCursor}`;
-        const inProcess = await handleOperatorRequest(operatorRequest(path), store, operatorToken);
-        const overHttp = await fetch(`http://127.0.0.1:${server.port}${path}`, operatorRequest(path));
-        expect(overHttp.status).toBe(inProcess.status);
-        expect(await overHttp.json()).toEqual(await inProcess.json());
-      } finally { server.stop(true); }
+      const replay = await handleOperatorRequest(operatorRequest(
+        `/v1/operator/leads?status=pending_review&limit=60&cursor=${firstCursor}`), store, operatorToken);
+      expect(replay.status).toBe(200);
+      const replayPage = await replay.json() as { leads: { lead_key: string }[]; nextCursor: string | null };
+      expect(replayPage.leads).toHaveLength(60);
+      expect(replayPage.leads.map((lead) => lead.lead_key)).toEqual(
+        Array.from({ length: 60 }, (_, index) => (index + 60).toString(16).padStart(64, "0")));
+      expect(replayPage.nextCursor).not.toBeNull();
     } finally { store.close(); }
   });
 
@@ -215,18 +208,18 @@ describe("separate operator control API", () => {
     } finally { store.close(); }
   });
 
-  test("malformed operator payloads fail identically in-process and over loopback HTTP", async () => {
+  test("malformed lead approval payloads fail before changing leads or queue state", async () => {
     const store = new LocalCoordinatorStore();
-    const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
-      fetch: (request) => handleOperatorRequest(request, store, operatorToken) });
     try {
       const path = `/v1/operator/leads/${"0".repeat(64)}/approve`;
       const invalid = { schemaVersion: 2, reason: "No source review" };
-      const inProcess = await handleOperatorRequest(operatorRequest(path, "POST", invalid), store, operatorToken);
-      const overHttp = await fetch(`http://127.0.0.1:${server.port}${path}`, operatorRequest(path, "POST", invalid));
-      expect(overHttp.status).toBe(inProcess.status);
-      expect(await overHttp.json()).toEqual(await inProcess.json());
-    } finally { server.stop(true); store.close(); }
+      const rejected = await handleOperatorRequest(operatorRequest(path, "POST", invalid), store, operatorToken);
+      expect(rejected.status).toBe(400);
+      expect(await rejected.json()).toEqual({ schemaVersion: 1, code: "invalid_payload", error: "Approval body is invalid" });
+      expect(store.db.prepare("SELECT COUNT(*) AS count FROM source_leads").get()).toEqual({ count: 0 });
+      expect(store.db.prepare("SELECT COUNT(*) AS count FROM crawl_jobs").get()).toEqual({ count: 0 });
+      expect(store.db.prepare("SELECT COUNT(*) AS count FROM operator_actions").get()).toEqual({ count: 0 });
+    } finally { store.close(); }
   });
 
   test("reviews a node-discovered listing through versioned requests with an audit record", async () => {

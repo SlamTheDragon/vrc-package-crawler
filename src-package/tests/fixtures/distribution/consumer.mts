@@ -1,9 +1,14 @@
-import { VrcPackagesClient, type VrcPackagesClientOptions } from 'vrc-packages-api';
+import { VRCPackageClient, type VRCPackageClientOptions } from 'vrc-packages-api';
 import { RevokeNodeRequestSchema, type PublicCatalogListQuery,
   type PublicCatalogListResponse } from 'vrc-packages-api/protocol';
 import { type Platform } from 'vrc-packages-api/types';
 import { UmbrellaSchema } from 'vrc-packages-api/taxonomy';
 import { isAppToken } from 'vrc-packages-api/auth';
+
+// @ts-expect-error Version-zero SDK does not retain the old client spelling.
+import { VrcPackagesClient } from 'vrc-packages-api';
+// @ts-expect-error Version-zero SDK does not retain the old options spelling.
+import type { VrcPackagesClientOptions } from 'vrc-packages-api';
 
 // @ts-expect-error Coordinator classification types are not consumer API contracts.
 import type { DesktopToolSubtype } from 'vrc-packages-api/taxonomy';
@@ -12,8 +17,8 @@ import type { DesktopToolEvidence } from 'vrc-packages-api';
 // @ts-expect-error Coordinator compatibility storage is not a published API response.
 import type { AvatarCompatibility } from 'vrc-packages-api';
 
-const options: VrcPackagesClientOptions = { baseUrl: 'https://example.test' };
-const client = new VrcPackagesClient(options);
+const options: VRCPackageClientOptions = { baseUrl: 'https://example.test' };
+const client = new VRCPackageClient(options);
 const platform: Platform = 'vpm';
 RevokeNodeRequestSchema.parse({ schemaVersion: 1, reason: 'Type fixture' });
 void [client, platform, UmbrellaSchema, isAppToken];

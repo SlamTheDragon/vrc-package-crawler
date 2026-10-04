@@ -8,6 +8,7 @@ Reviewed 2026-10-03. Start with the question under review, not a full curriculum
 | --- | --- | --- |
 | Historical capability versus current runtime | [Prototype parity audit](../audits/PROTOTYPE_PARITY.md) | Source-backed comparison of 09e9dc8 and 3b9d203, reproduced defects, keep/research/change decisions. |
 | Worker/D1, pacing, recovery and npm | [Infrastructure](01_crawler_systems_and_infrastructure.md) | Primary references, architecture checks and falsifiable tests. |
+| Cryptographic delegation and creator removal | [Delegation patterns](05_cryptographic_delegation.md) | Authenticator codes, payment-webhook checks, app attestations, scoped grants and service/package boundaries. Research, not protocol approval. |
 | Canonical identity, VPM and classification | [Identity](02_entity_resolution_and_ecosystem.md) | Evidence layers, false-merge corpus and field semantics. |
 | Platform terms, statutes and legal drafting | [Legal procedure](03_legal_jurisprudence_and_governance.md) | Authorities, limitations, retrieval procedure and code-to-draft gaps. |
 | Candidate storefront access | [Platform matrix](../markets/PLATFORM-MATRIX.md) | Per-source questions; no blanket or bootstrap approval. |
@@ -45,7 +46,7 @@ The owner deferred author-review pauses for this iteration. Continue safe, indep
 
 ## Consolidation record
 
-The four topic essays now form a linked resource library instead of repeating legal assurances, algorithm tutorials and unmeasured performance claims. Specialized ecosystem notes keep their dated evidence, while their implementation claims require the current parity audit.
+The topic documents form a linked resource library instead of repeating legal assurances, algorithm tutorials and unmeasured performance claims. Specialized ecosystem notes keep their dated evidence, while their implementation claims require the current parity audit.
 
 Withdrawn claims include universal similarity thresholds, invented accuracy/load figures, blanket storefront bans or permissions, public-data privacy exemptions, automatic intermediary immunity and a worldwide embedding safe harbor. The previous scratch/current links were obsolete; the current three-file scratch ledger is the decision location.
 

@@ -1,6 +1,6 @@
 [package]
 name = "vrcp-crawler-client"
-version = "0.1.0"
+version = "0.0.0"
 description = "VRChat Package Crawler - Yet Another Discovery Tool that crawls the public VRChat Web Ecosystem for VCC, Tooling, Assets, World Creation, Avatars & many more. Not affiliated with VRChat Inc."
 authors = ["you"]
 edition = "2021"

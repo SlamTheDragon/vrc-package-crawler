@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { VrcPackagesClient, VrcApiError, PlatformSchema } from 'vrc-packages-api';
+import { VRCPackageClient, VRCPApiError, PlatformSchema } from 'vrc-packages-api';
 import { RevokeNodeRequestSchema, LeadCursorSchema, encodeLeadCursor, decodeLeadCursor,
   CreateSourceAccessProfileSchema, isCanonicalSourceAccessPath, CreateAutoQueueRuleSchema,
   NodeCredentialResponseSchema, encodeCatalogCursor, PublicCatalogListQuerySchema } from 'vrc-packages-api/protocol';
@@ -10,11 +10,16 @@ import * as sdkExports from 'vrc-packages-api';
 import { formatAppToken, isAppToken } from 'vrc-packages-api/auth';
 
 assert.equal(PlatformSchema.parse('vpm'), 'vpm');
-assert.equal(typeof VrcPackagesClient, 'function');
+assert.equal(typeof VRCPackageClient, 'function');
+assert.equal(typeof VRCPApiError, 'function');
+assert.equal(new VRCPApiError(403, 'Fixture rejection').name, 'VRCPApiError');
+for (const retiredName of ['VrcPackagesClient', 'VrcApiError', 'VRCPPackagesClient']) {
+  assert.equal(Object.hasOwn(sdkExports, retiredName), false);
+}
 const publicCursor = encodeCatalogCursor({ createdAt: '2026-10-01T12:00:00.000Z', canonicalId: 'packed-item' });
 assert.deepEqual(PublicCatalogListQuerySchema.parse({}), { limit: 50 });
 let publicRequests = 0;
-const publicIndex = new VrcPackagesClient({ baseUrl: 'https://packed-worker.test',
+const publicIndex = new VRCPackageClient({ baseUrl: 'https://packed-worker.test',
   fetch: async (input, init) => {
     publicRequests++;
     const request = new Request(input, init);
@@ -34,12 +39,12 @@ for (const query of [{ query: 'unsupported' }, { limit: 101 }, { cursor: btoa('{
   await assert.rejects(publicIndex.index.query(query), { name: 'ZodError' });
 }
 assert.equal(publicRequests, 2);
-assert.equal('delist' in new VrcPackagesClient({ baseUrl: 'https://packed-worker.test' }).user, false);
-assert.equal('registerApp' in new VrcPackagesClient({ baseUrl: 'https://packed-worker.test' }).user, false);
-assert.equal('registerNode' in new VrcPackagesClient({ baseUrl: 'https://packed-worker.test' }).user, false);
+assert.equal('delist' in new VRCPackageClient({ baseUrl: 'https://packed-worker.test' }).user, false);
+assert.equal('registerApp' in new VRCPackageClient({ baseUrl: 'https://packed-worker.test' }).user, false);
+assert.equal('registerNode' in new VRCPackageClient({ baseUrl: 'https://packed-worker.test' }).user, false);
 const ownedApp = { appId: '00000000-0000-4000-8000-000000000002', appName: 'Packed owned app',
   permissions: ['catalog:search'], createdAt: '2026-10-01T00:00:00.000Z', revokedAt: null };
-const userViews = new VrcPackagesClient({ baseUrl: 'https://packed-worker.test', userToken: 'packed-test-user',
+const userViews = new VRCPackageClient({ baseUrl: 'https://packed-worker.test', userToken: 'packed-test-user',
   fetch: async (input, init) => {
     const request = new Request(input, init);
     assert.equal(request.method, 'GET');
@@ -50,10 +55,10 @@ const userViews = new VrcPackagesClient({ baseUrl: 'https://packed-worker.test',
 assert.deepEqual((await userViews.user.apps.list()).apps, [ownedApp]);
 assert.deepEqual((await userViews.user.apps.get(ownedApp.appId)).app, ownedApp);
 let anonymousRegistrationCalls = 0;
-const anonymousRegistration = new VrcPackagesClient({ baseUrl: 'https://packed-worker.test',
+const anonymousRegistration = new VRCPackageClient({ baseUrl: 'https://packed-worker.test',
   fetch: async () => { anonymousRegistrationCalls++; return Response.json({}); } });
 await assert.rejects(anonymousRegistration.app.register({ schemaVersion: 1, appName: 'Anonymous packed app' }),
-  error => error instanceof VrcApiError && error.status === 401);
+  error => error instanceof VRCPApiError && error.status === 401);
 assert.equal(anonymousRegistrationCalls, 0);
 assert.equal(RevokeNodeRequestSchema.parse({ schemaVersion: 1, reason: 'Packed fixture' }).reason, 'Packed fixture');
 assert.equal(typeof CatalogPackageSchema.parse, 'function');
@@ -93,12 +98,13 @@ for (const schema of [NodeCredentialResponseSchema]) {
 }
 await assert.rejects(import('vrc-packages-api/src/client.ts'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
 let requests = 0;
-const transportClient = new VrcPackagesClient({ baseUrl: 'https://packed-worker.test/',
+const transportClient = new VRCPackageClient({ baseUrl: 'https://packed-worker.test/',
   operatorToken: 'packed-test-only', fetch: async (input, init) => {
     requests++;
     const request = new Request(input, init);
     assert.equal(request.url, 'https://packed-worker.test/v1/operator/init');
     assert.equal(request.method, 'POST');
+    assert.equal(request.redirect, 'error');
     assert.equal(request.headers.get('authorization'), 'Bearer packed-test-only');
     assert.equal(request.headers.get('content-type'), 'application/json');
     assert.deepEqual(await request.json(), { schemaVersion: 1, autoSeed: false });
@@ -111,12 +117,12 @@ assert.deepEqual(await transportClient.operator.init({ autoSeed: false }), {
   schemaVersion: 1, status: 'ok', message: 'Schema initialized', autoSeed: false });
 await assert.rejects(transportClient.operator.init({ autoSeed: false }), { name: 'ZodError' });
 await assert.rejects(transportClient.operator.init({ autoSeed: false }), error =>
-  error instanceof VrcApiError && error.status === 503 &&
+  error instanceof VRCPApiError && error.status === 503 &&
   error.details === '<html>Upstream unavailable</html>');
 assert.equal(requests, 3);
 assert.equal(ReportSubmissionRequestSchema.safeParse({ schemaVersion: 1, reportType: 'removal_request',
   canonicalId: 'packed-target', reason: 'Packed removal test' }).success, true);
-const reportClient = new VrcPackagesClient({ baseUrl: 'https://packed-worker.test', appToken: 'packed-test-only',
+const reportClient = new VRCPackageClient({ baseUrl: 'https://packed-worker.test', appToken: 'packed-test-only',
   fetch: async (input, init) => {
     const request = new Request(input, init);
     assert.equal(new URL(request.url).pathname, '/v1/app/report');

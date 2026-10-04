@@ -2,6 +2,6 @@
     "release-crawler": "0.0.0",
     "release-crawler-client": "0.0.0",
     "release-package": "0.0.0",
-    "release-web": "2026.10.0", // YYYY.MM.PATCH
+    "release-web": "2026.10.0",
     "release-worker": "0.0.0"
 }

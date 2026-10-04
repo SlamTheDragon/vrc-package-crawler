@@ -62,7 +62,7 @@ Public read for catalog index and delta streaming; `Authorization: Bearer <APP_T
 - `POST /v1/app/register`: Gated downstream app registration (requires registrant or operator auth).
 - `GET /v1/app/index`: Bounded catalog pages with `limit` and `cursor`.
 - `GET /v1/app/index/delta`: Keyset-paginated incremental sync feed for package managers (VCC/ALCOM). Emits `upsert` and `delist` envelopes.
-- `POST /v1/app/index/search`: Bounded search with `queryOrigin: "user_authored" | "app_automated"` attribution.
+- `POST /v1/app/index/search`: Bounded search. The request accepts `queryOrigin: "user_authored" | "app_automated"`, but current storage does not use or record it.
 - `POST /v1/app/report`: Records demand, issue reports and pending removal requests. A removal receipt is not verified ownership or approved delisting.
 
 ---
@@ -73,7 +73,8 @@ Public read for catalog index and delta streaming; `Authorization: Bearer <APP_T
    - Crawler nodes do not fetch without an active, unexpired lease from the coordinator.
    - The coordinator paces requests per origin. Extra nodes add breadth across domains, not higher frequency on one host.
 2. **Fail-Closed Availability**:
-   - If the coordinator becomes unreachable, crawler nodes stop outbound requests immediately. Nodes do not generate local seeds.
+   - A failed active authority check cancels source processing. Detection waits for periodic heartbeats and bounded retries, not an instantaneous network-loss signal.
+   - Nodes do not generate local seeds. Stop requests do not cancel coordinator calls already in progress.
 3. **Source-Access Profile Gate**:
    - Each candidate URL needs an explicit, active, scoped `SourceAccessProfile` before robots preflight and before lease claim.
    - Unknown domains, unvetted paths, and exploratory auto-queue leads stay in a `'pending'` state until operator approval.

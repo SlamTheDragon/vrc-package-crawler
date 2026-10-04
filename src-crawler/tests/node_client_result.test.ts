@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { CoordinatorClient } from "../src/client/node_client.ts";
-import { formatCapabilityToken } from "../../src-worker/src/domain/security/capability_token.ts";
+import { logger } from "../src/utils/logging/logger.ts";
 import { ResultRequestSchema, type ResultRequest, type ResultResponse } from "../src/shared/protocol/node_protocol.ts";
 
 function fixture() {
   const nodeId = "result-client-fixture";
-  const token = formatCapabilityToken(["vpm"]);
+  const token = "fixture-only-not-a-live-credential";
   const request: Omit<ResultRequest, "schemaVersion" | "nodeId"> = {
     jobId: "result-client-job", leaseId: crypto.randomUUID(),
     idempotencyKey: crypto.randomUUID(), outcome: { kind: "unchanged" }
@@ -27,12 +27,77 @@ async function withTransport(
 }
 
 describe("Node result receipt validation", () => {
+  test("rejects non-finite, fractional and negative retry settings", () => {
+    for (const key of ["maxRetries", "retryBaseDelayMs"] as const) {
+      for (const value of [Infinity, -Infinity, NaN, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(() => new CoordinatorClient("https://coordinator.invalid", "fixture-only-not-a-live-credential",
+          "result-client-fixture", ["vpm"], { [key]: value })).toThrow(`${key} must be a nonnegative safe integer`);
+      }
+    }
+  });
+
+  test("preserves default settings and permits zero retries and delay", () => {
+    expect(() => new CoordinatorClient("https://coordinator.invalid", "fixture-only-not-a-live-credential",
+      "result-client-fixture", ["vpm"])).not.toThrow();
+    expect(() => new CoordinatorClient("https://coordinator.invalid", "fixture-only-not-a-live-credential",
+      "result-client-fixture", ["vpm"], { maxRetries: 0, retryBaseDelayMs: 0 })).not.toThrow();
+  });
+
+  test("failed response bodies do not reach node errors or logs", async () => {
+    const { request, token, client } = fixture();
+    let bodyReads = 0;
+    let bodyCancels = 0;
+    let calls = 0;
+    const logs = spyOn(logger, "error").mockImplementation(() => {});
+    try {
+      await withTransport(async () => {
+        calls++;
+        const response = new Response(new ReadableStream({
+          start(controller) { controller.enqueue(new TextEncoder().encode(JSON.stringify({ token }))); },
+          cancel() { bodyCancels++; },
+        }), { status: 401 });
+        response.json = async () => { bodyReads++; return { token }; };
+        return response;
+      }, async () => {
+        await expect(client.submit(request)).rejects.toThrow("Coordinator 401");
+        expect(calls).toBe(1);
+        expect(bodyReads).toBe(0);
+        expect(bodyCancels).toBe(1);
+        expect(logs).toHaveBeenCalledTimes(1);
+        const error = logs.mock.calls[0]?.[1];
+        expect(error).toBeInstanceOf(Error);
+        if (!(error instanceof Error)) throw new Error("Expected a status-only coordinator error");
+        expect(error.message).toBe("Coordinator 401");
+        expect(JSON.stringify(logs.mock.calls)).not.toContain(token);
+      });
+    } finally { logs.mockRestore(); }
+  });
+
+  test("transient error bodies are canceled before the unchanged result retry", async () => {
+    const { request, receipt, client } = fixture();
+    let calls = 0;
+    let bodyReads = 0;
+    let bodyCancels = 0;
+    await withTransport(async () => {
+      if (++calls === 2) return Response.json(receipt);
+      const response = new Response(new ReadableStream({ cancel() { bodyCancels++; } }), { status: 503 });
+      response.json = async () => { bodyReads++; throw new Error("Error body must not be read"); };
+      return response;
+    }, async () => {
+      expect(await client.submit(request)).toEqual(receipt);
+      expect(calls).toBe(2);
+      expect(bodyReads).toBe(0);
+      expect(bodyCancels).toBe(1);
+    });
+  });
+
   test("serializes validated identity unchanged across retry and accepts the matching receipt", async () => {
     const { nodeId, token, request, receipt, client } = fixture();
     const bodies: string[] = [];
     await withTransport(async wire => {
       expect(wire.url).toBe("https://coordinator.invalid/v1/node/jobs/result");
       expect(wire.method).toBe("POST");
+      expect(wire.redirect).toBe("manual");
       expect(wire.headers.get("content-type")).toBe("application/json");
       expect(wire.headers.get("authorization")).toBe(`Bearer ${token}`);
       const body = await wire.text();
@@ -83,5 +148,29 @@ describe("Node result receipt validation", () => {
       await expect(client.submit({ ...request, leaseId: "not-a-uuid" })).rejects.toThrow();
       expect(calls).toBe(0);
     });
+  });
+
+  test("claim, heartbeat and result reject redirects without a retry or body read", async () => {
+    const { request, client } = fixture();
+    for (const status of [301, 302, 303, 307, 308]) {
+      for (const operation of [() => client.claim(), () => client.heartbeat("idle"), () => client.submit(request)]) {
+        let calls = 0;
+        let bodyReads = 0;
+        let bodyCancels = 0;
+        await withTransport(async wire => {
+          calls++;
+          expect(wire.redirect).toBe("manual");
+          const response = new Response(new ReadableStream({ cancel() { bodyCancels++; } }), { status,
+            headers: { location: "http://unreviewed.invalid/receive" } });
+          response.json = async () => { bodyReads++; throw new Error("Redirect body must not be read"); };
+          return response;
+        }, async () => {
+          await expect(operation()).rejects.toThrow("Coordinator redirects are not allowed");
+          expect(calls).toBe(1);
+          expect(bodyReads).toBe(0);
+          expect(bodyCancels).toBe(1);
+        });
+      }
+    }
   });
 });

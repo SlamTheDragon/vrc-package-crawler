@@ -1,8 +1,7 @@
 import { z } from "zod";
-import { CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, AutoQueueRuleSchema,
-  RuleCursorSchema, encodeRuleCursor, decodeRuleCursor, AutoQueueRuleListResponseSchema,
-  AutoQueueRuleResponseSchema, type CreateAutoQueueRule, type AutoQueueRule, type RuleCursor,
-  IssueNodeCredentialSchema, NodeCredentialResponseSchema, type IssueNodeCredential
+import { CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, AutoQueueRuleListResponseSchema,
+  AutoQueueRuleResponseSchema, IssueNodeCredentialSchema, NodeCredentialResponseSchema,
+  CatalogListResponseSchema
 } from "vrc-packages-api";
 
 export const OPERATOR_PROTOCOL_VERSION = 1 as const;
@@ -43,42 +42,6 @@ export const LeadActionResponseSchema = z.discriminatedUnion("status", [
   z.strictObject({ schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION), leadKey: z.string(),
     status: z.literal("rejected") })
 ]);
-
-import {
-  CatalogIdentityLinkSchema,
-  PackageFrontSchema,
-  CatalogPackageSchema,
-  CatalogCursorSchema,
-  encodeCatalogCursor,
-  decodeCatalogCursor,
-  type CatalogIdentityLink,
-  type PackageFront,
-  type CatalogPackage,
-  type CatalogCursor
-} from "vrc-packages-api";
-
-export {
-  CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, AutoQueueRuleSchema,
-  RuleCursorSchema, encodeRuleCursor, decodeRuleCursor, AutoQueueRuleListResponseSchema,
-  AutoQueueRuleResponseSchema, type CreateAutoQueueRule, type AutoQueueRule, type RuleCursor,
-  IssueNodeCredentialSchema, NodeCredentialResponseSchema, type IssueNodeCredential,
-  CatalogIdentityLinkSchema,
-  type CatalogIdentityLink,
-  PackageFrontSchema,
-  type PackageFront,
-  CatalogPackageSchema,
-  type CatalogPackage,
-  CatalogCursorSchema,
-  type CatalogCursor,
-  encodeCatalogCursor,
-  decodeCatalogCursor
-};
-
-export const CatalogListResponseSchema = z.strictObject({
-  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
-  packages: z.array(CatalogPackageSchema),
-  nextCursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).nullable()
-});
 
 export const TakedownRecordSchema = z.strictObject({
   takedownId: z.string().uuid(),

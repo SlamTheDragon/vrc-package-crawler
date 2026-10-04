@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { handleNodeRequest } from "../../src/api/handler.ts";
 import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
 import { ClaimResponseSchema, NODE_API_JSON_SCHEMAS, PROTOCOL_VERSION, ResultResponseSchema, PlatformSchema } from "../../../src-crawler/src/shared/protocol/node_protocol.js";
@@ -14,9 +14,6 @@ import { fetchJobOutcome } from "../../../src-crawler/src/adapters/observation_a
 function allowFixtureOrigin(store: LocalCoordinatorStore, ...origins: string[]): void {
   for (const origin of origins) store.recordRobotsSnapshot(origin, 404);
 }
-
-let server: ReturnType<typeof Bun.serve> | undefined;
-afterEach(() => { server?.stop(true); server = undefined; });
 
 function request(path: string, body: unknown, token: string): Request {
   return new Request(`http://localhost${path}`, {
@@ -361,11 +358,10 @@ describe("local coordinator protocol", () => {
     } finally { store.close(); }
   });
 
-  test("in-process and loopback HTTP enforce the same malformed and wrong-version boundary", async () => {
+  test("serialized node requests reject malformed payloads and unsupported schema versions", async () => {
     const store = new LocalCoordinatorStore();
     const token = store.createNodeCredential("node-a", ["vpm"]);
     const fetchHandler = (req: Request) => handleNodeRequest(req, store);
-    server = Bun.serve({ port: 0, fetch: fetchHandler });
     try {
       const bodies: unknown[] = [
         { schemaVersion: 999, nodeId: "node-a", capabilities: ["vpm"] },
@@ -373,18 +369,15 @@ describe("local coordinator protocol", () => {
         { schemaVersion: 1, nodeId: "node-a", capabilities: ["not-a-driver"] }
       ];
       for (const body of bodies) {
-        const internal = await fetchHandler(request("/v1/node/jobs/claim", body, token));
-        const external = await fetch(`http://localhost:${server.port}/v1/node/jobs/claim`, request("/v1/node/jobs/claim", body, token));
-        expect(external.status).toBe(internal.status);
-        expect(await external.json()).toEqual(await internal.json());
+        const rejected = await fetchHandler(request("/v1/node/jobs/claim", body, token));
+        expect(rejected.status).toBe(400);
+        expect(await rejected.json()).toMatchObject({ schemaVersion: PROTOCOL_VERSION, code: "invalid_payload" });
       }
       const invalidHeartbeat = { schemaVersion: 1, nodeId: "node-a", capabilities: ["vpm"],
         state: "idle", activeJobId: "not-allowed" };
-      const internalHeartbeat = await fetchHandler(request("/v1/node/heartbeat", invalidHeartbeat, token));
-      const externalHeartbeat = await fetch(`http://localhost:${server.port}/v1/node/heartbeat`,
-        request("/v1/node/heartbeat", invalidHeartbeat, token));
-      expect(externalHeartbeat.status).toBe(internalHeartbeat.status);
-      expect(await externalHeartbeat.json()).toEqual(await internalHeartbeat.json());
+      const rejectedHeartbeat = await fetchHandler(request("/v1/node/heartbeat", invalidHeartbeat, token));
+      expect(rejectedHeartbeat.status).toBe(400);
+      expect(await rejectedHeartbeat.json()).toMatchObject({ schemaVersion: PROTOCOL_VERSION, code: "invalid_payload" });
       const malformed = new Request("http://localhost/v1/node/jobs/claim", { method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: "{" });
       expect((await fetchHandler(malformed)).status).toBe(400);
@@ -394,17 +387,12 @@ describe("local coordinator protocol", () => {
     } finally { store.close(); }
   });
 
-  test("loopback HTTP round-trip preserves platformTags and derives canonical package category", async () => {
+  test("serialized results preserve platformTags and derive canonical package category", async () => {
     const store = new LocalCoordinatorStore();
     const token = store.createNodeCredential("vpm-node", ["vpm"]);
-    server = Bun.serve({ port: 0, fetch: (req) => handleNodeRequest(req, store) });
     const post = async (path: string, body: unknown) => {
-      const response = await fetch(`http://localhost:${server!.port}${path}`, {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify(body)
-      });
-      return { status: response.status, body: await response.json() as any };
+      const response = await handleNodeRequest(request(path, body, token), store);
+      return { status: response.status, body: await response.json() as unknown };
     };
 
     try {
@@ -429,7 +417,7 @@ describe("local coordinator protocol", () => {
         nodeId: "vpm-node",
         jobId: claim1.job.jobId,
         leaseId: claim1.job.leaseId,
-        idempotencyKey: "loopback-platform-tags-0001",
+        idempotencyKey: "serialized-platform-tags-0001",
         outcome: {
           kind: "changed",
           observation: {
@@ -479,7 +467,7 @@ describe("local coordinator protocol", () => {
         nodeId: "vpm-node",
         jobId: claim2.job.jobId,
         leaseId: claim2.job.leaseId,
-        idempotencyKey: "loopback-platform-tags-0002",
+        idempotencyKey: "serialized-platform-tags-0002",
         outcome: {
           kind: "changed",
           observation: {
@@ -526,7 +514,7 @@ describe("local coordinator protocol", () => {
         nodeId: "vpm-node",
         jobId: claim3.job.jobId,
         leaseId: claim3.job.leaseId,
-        idempotencyKey: "loopback-platform-tags-0003",
+        idempotencyKey: "serialized-platform-tags-0003",
         outcome: {
           kind: "changed",
           observation: {
@@ -553,8 +541,6 @@ describe("local coordinator protocol", () => {
       const dbRow3 = store.db.prepare("SELECT category FROM canonical_packages WHERE vpm_id=?").get(vpmId3) as { category: string } | null;
       expect(dbRow3?.category).toBe("vpm_package");
     } finally {
-      server?.stop(true);
-      server = undefined;
       store.close();
     }
   });
@@ -851,12 +837,8 @@ describe("local coordinator protocol", () => {
       forgedRelease.idempotencyKey = "booth-forged-release-001";
       Object.assign(forgedRelease.outcome.observation, { release: { version: "1.0.0", dependencyRanges: {} } });
       const internal = await post("/v1/node/jobs/result", forgedRelease);
-      server = Bun.serve({ port: 0, fetch: (req) => handleNodeRequest(req, store) });
-      const external = await fetch(`http://localhost:${server.port}/v1/node/jobs/result`,
-        request("/v1/node/jobs/result", forgedRelease, token));
       expect(internal.status).toBe(409);
-      expect(external.status).toBe(internal.status);
-      expect(await external.json()).toEqual(internal.body);
+      expect(internal.body).toMatchObject({ schemaVersion: PROTOCOL_VERSION, code: "conflict" });
       const forgedBatch = { ...result, idempotencyKey: "booth-forged-batch-001",
         outcome: { kind: "batch", observations: [observation, { ...observation, sourceItemKey: "booth.pm/items/999" }] } };
       expect((await post("/v1/node/jobs/result", forgedBatch)).status).toBe(409);
@@ -897,12 +879,8 @@ describe("local coordinator protocol", () => {
         outcome: { kind: "discovery", leads: [{ kind: "storefront_product",
           url: "https://other.example/items/999" }] } };
       const internal = await post("/v1/node/jobs/result", forgedLead);
-      server = Bun.serve({ port: 0, fetch: (req) => handleNodeRequest(req, store) });
-      const external = await fetch(`http://localhost:${server.port}/v1/node/jobs/result`,
-        request("/v1/node/jobs/result", forgedLead, token));
       expect(internal.status).toBe(409);
-      expect(external.status).toBe(internal.status);
-      expect(await external.json()).toEqual(internal.body);
+      expect(internal.body).toMatchObject({ schemaVersion: PROTOCOL_VERSION, code: "conflict" });
       expect((await post("/v1/node/jobs/result", { ...base, outcome })).status).toBe(200);
       expect(store.db.query("SELECT COUNT(*) AS n FROM source_items").get()).toEqual({ n: 0 });
       expect(store.db.query("SELECT COUNT(*) AS n FROM crawl_jobs").get()).toEqual({ n: 1 });

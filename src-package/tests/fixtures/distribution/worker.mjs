@@ -1,4 +1,4 @@
-import { VrcPackagesClient } from 'vrc-packages-api';
+import { VRCPackageClient } from 'vrc-packages-api';
 import { RevokeNodeRequestSchema, encodeCatalogCursor } from 'vrc-packages-api/protocol';
 import { PlatformSchema } from 'vrc-packages-api/types';
 import { UmbrellaSchema } from 'vrc-packages-api/taxonomy';
@@ -7,7 +7,7 @@ import { formatAppToken, isAppToken } from 'vrc-packages-api/auth';
 export default {
   async fetch() {
     const cursor = encodeCatalogCursor({ createdAt: '2026-10-01T12:00:00.000Z', canonicalId: 'packed-item' });
-    const client = new VrcPackagesClient({ baseUrl: 'https://example.test', fetch: async (input, init) => {
+    const client = new VRCPackageClient({ baseUrl: 'https://example.test', fetch: async (input, init) => {
       const request = new Request(input, init);
       const url = new URL(request.url);
       if (request.method !== 'GET' || url.pathname !== '/v1/app/index' ||

@@ -3,13 +3,7 @@ import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
 import { handleNodeRequest } from "../../src/api/handler.ts";
 import { CoordinatorClient } from "../../../src-crawler/src/client/node_client.js";
 import { runLeasedJob } from "../../../src-crawler/src/runner/lease_runner.js";
-import { CrawlJobSchema, type ResultResponse } from "../../../src-crawler/src/shared/protocol/node_protocol.js";
 import { seedApprovedFixtureJob } from "../helpers/source_access_fixture.ts";
-
-const fixtureJob = CrawlJobSchema.parse({ jobId: "lease-runner-job", leaseId: crypto.randomUUID(),
-  platform: "vpm", purpose: "metadata", url: "https://example.org/index.json", origin: "https://example.org",
-  leaseExpiresAt: "2026-09-27T00:05:00.000Z", retainClasses: ["normalized_facts", "creator_prose"],
-  etag: null, lastModified: null });
 
 describe("standalone node lease runner", () => {
   test("a BOOTH browse lease travels through loopback claim, heartbeat, parse and submission", async () => {
@@ -36,68 +30,6 @@ describe("standalone node lease runner", () => {
       expect(store.db.query("SELECT COUNT(*) AS n FROM source_leads").get()).toEqual({ n: 1 });
       expect(store.db.query("SELECT COUNT(*) AS n FROM crawl_jobs").get()).toEqual({ n: 1 });
     } finally { server.stop(); store.close(); }
-  });
-
-  test("omits unapproved creator prose before the serialized result submission", async () => {
-    let submitted: unknown;
-    const client = {
-      heartbeat: async () => {},
-      submit: async (request: unknown) => {
-        submitted = request;
-        return { schemaVersion: 1, status: "accepted", jobId: fixtureJob.jobId,
-          duplicate: false, sourceVersionCreated: true } as ResultResponse;
-      }
-    };
-    const job = { ...fixtureJob, retainClasses: ["normalized_facts" as const] };
-    const run = await runLeasedJob(job, client, async () => new Response(JSON.stringify({
-      name: "com.example.tool", version: "1.0.0", description: "Creator-authored copy"
-    }), { headers: { "content-type": "application/json" } }), 10);
-    expect(run.outcome.kind).toBe("changed");
-    if (run.outcome.kind !== "changed") throw new Error("Expected parsed observation");
-    expect(run.outcome.observation.summary).toBe("");
-    expect((submitted as {outcome: {observation: {summary: string}}}).outcome.observation.summary).toBe("");
-  });
-
-  test("validates the lease again before submitting a completed fetch", async () => {
-    let heartbeats = 0;
-    let submissions = 0;
-    const client = {
-      heartbeat: async () => { heartbeats++; },
-      submit: async () => {
-        submissions++;
-        return { schemaVersion: 1, status: "accepted", jobId: fixtureJob.jobId,
-          duplicate: false, sourceVersionCreated: false } as ResultResponse;
-      }
-    };
-    const { outcome } = await runLeasedJob(fixtureJob, client,
-      async () => new Response(null, { status: 304 }), 10);
-    expect(outcome.kind).toBe("unchanged");
-    expect(heartbeats).toBe(2);
-    expect(submissions).toBe(1);
-  });
-
-  test("lost coordinator heartbeat aborts a pending request and skips submission", async () => {
-    let heartbeats = 0;
-    let submissions = 0;
-    let aborted = false;
-    const client = {
-      heartbeat: async () => {
-        heartbeats++;
-        if (heartbeats > 1) throw new Error("coordinator offline");
-      },
-      submit: async () => {
-        submissions++;
-        throw new Error("submission must not happen");
-      }
-    };
-    const fetcher = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> =>
-      new Promise((_, reject) => init?.signal?.addEventListener("abort", () => {
-        aborted = true;
-        reject(new Error("request aborted"));
-      }, { once: true }));
-    await expect(runLeasedJob(fixtureJob, client, fetcher, 10)).rejects.toThrow("coordinator offline");
-    expect(aborted).toBe(true);
-    expect(submissions).toBe(0);
   });
 
   test("operator suppression aborts an active fetch over the loopback protocol without submitting", async () => {

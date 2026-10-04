@@ -1,10 +1,16 @@
 import { type CrawlerRules, compileRobotsText } from "@trybyte/robotstxt-parser";
-import { EnqueueJobRequestSchema, type EnqueueJobRequest } from "../../../../src-package/src/protocol/operator.js";
-import { RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeRequest } from "../../../../src-package/src/protocol/operator.js";
+import { EnqueueJobRequestSchema, type EnqueueJobRequest,
+  RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeRequest,
+  type AutoQueueRule, AutoQueueRuleSchema, type IssueNodeCredential, IssueNodeCredentialSchema,
+  type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema,
+  type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront,
+  encodeCatalogCursor, decodeCatalogCursor, type CatalogDelta, type CatalogDeltaCursor,
+  encodeCatalogDeltaCursor } from "vrc-packages-api";
 import { CRAWLER_ROBOTS_TOKEN } from "../../../../src-crawler/src/shared/robots/crawler_identity.js";
 import { isPrivateOrReservedIp } from "../../../../src-crawler/src/shared/policy/ip_policy.js";
 import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "../../../../src-crawler/src/shared/protocol/node_protocol.js";
-import { type AutoQueueRule, AutoQueueRuleSchema, type IssueNodeCredential, IssueNodeCredentialSchema, type LeadCursor, type LeadRow, encodeLeadCursor, type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema, type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront, encodeCatalogCursor, decodeCatalogCursor, encodeTakedownCursor, type TakedownCursor, type TakedownRecord } from "../../api/protocol/operator_protocol.js";
+import { type LeadCursor, type LeadRow, encodeLeadCursor,
+  encodeTakedownCursor, type TakedownCursor, type TakedownRecord } from "../../api/protocol/operator_protocol.js";
 import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "../../../../src-crawler/src/shared/robots/robots_snapshot.js";
 import { type SourceAccessProfile, SourceAccessProfileSchema, sourceAccessProfileMatches, type SourcePurpose, type ProfileCursor, encodeProfileCursor, type CreateSourceAccessProfile, CreateSourceAccessProfileSchema, sourcePathScopesOverlap } from "../../domain/access/source_access_profile.js";
 import { isItchSearchUrl } from "../../../../src-crawler/src/shared/policy/source_path_policy.js";
@@ -12,7 +18,6 @@ import { isBoothBrowseTarget, boothItemIdentity, isShopifyProductSitemapTarget, 
 import { type CoordinatorStore, type NodePrincipal, CoordinatorConflict } from "../../api/handler.ts";
 import type { OperatorStore } from "../../api/operator_handler.ts";
 import type { PublicCatalogStore } from "../../api/public_handler.ts";
-import { type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor } from "../../../../src-crawler/src/shared/protocol/catalog_protocol.js";
 import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../domain/security/capability_token.js";
 import {
   RegisterAppRequestSchema,
@@ -28,9 +33,8 @@ import {
   type DownstreamFeedbackRequest,
   type DownstreamFeedbackResponse,
   type CatalogSearchRequest,
-  type CatalogSearchResponse,
-  type DelistResponse
-} from "../../../../src-crawler/src/shared/protocol/downstream_protocol.js";
+  type CatalogSearchResponse
+} from "vrc-packages-api";
 import type { UserStore } from "../../api/user_handler.ts";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils.js";
 import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../domain/classification/taxonomy.ts";
@@ -994,16 +998,22 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     if ((result[0]?.meta as { changes?: number } | undefined)?.changes !== 1) throw new Error("Node not found");
   }
 
-  async createNodeCredential(nodeId: string, capabilities: Platform[]): Promise<string> {
+  async createNodeCredential(nodeId: string, capabilities: Platform[],
+    audit?: { actor: string; reason: string }): Promise<string> {
     ClaimRequestSchema.parse({ schemaVersion: PROTOCOL_VERSION, nodeId, capabilities });
+    if (audit && (!audit.actor.trim() || audit.actor.length > 100 ||
+        !audit.reason.trim() || audit.reason.length > 300)) throw new Error("Credential audit actor and reason required");
     const token = formatCapabilityToken(capabilities);
     const hash = await sha256Hex(token);
-    await this.db.prepare(`
+    const writes = [this.db.prepare(`
       INSERT INTO node_credentials(node_id,token_hash,capabilities_json,revoked_at)
       VALUES (?,?,?,NULL)
       ON CONFLICT(node_id) DO UPDATE SET token_hash=excluded.token_hash,
         capabilities_json=excluded.capabilities_json, revoked_at=NULL
-    `).bind(nodeId, hash, JSON.stringify([...new Set(capabilities)])).run();
+    `).bind(nodeId, hash, JSON.stringify([...new Set(capabilities)]))];
+    if (audit) writes.push(this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
+      VALUES (?,?,'issue',?,?)`).bind(nodeId, audit.actor, audit.reason.trim(), new Date(this.now()).toISOString()));
+    await this.db.batch(writes);
     return token;
   }
 
@@ -1075,14 +1085,11 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
   async issueNodeCredential(input: IssueNodeCredential, actor: string): Promise<string> {
     const parsed = IssueNodeCredentialSchema.parse(input);
-    if (!actor.trim()) throw new Error("Operator actor required");
+    if (!actor.trim() || actor.length > 100) throw new Error("Operator actor required");
     const capabilities = parsed.capabilities && parsed.capabilities.length > 0
       ? await this.evaluateWorkforceDistribution(parsed.capabilities)
       : await this.evaluateWorkforceDistribution();
-    const token = await this.createNodeCredential(parsed.nodeId, capabilities);
-    await this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
-      VALUES (?,?,'issue',?,?)`).bind(parsed.nodeId, actor, parsed.reason, new Date(this.now()).toISOString()).run();
-    return token;
+    return this.createNodeCredential(parsed.nodeId, capabilities, { actor, reason: parsed.reason });
   }
 
   async listLeadsPage(status: "pending_review" | "approved" | "rejected", limit: number,
@@ -1147,15 +1154,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       throw new Error("Only published VPM listing leads can become VPM crawl jobs");
     }
 
-    const jobId = await this.seedJob(jobUrl, platform, delay, sourceRuleId, purpose);
-    if (lead.status !== "approved") {
-      await this.db.batch([
-        this.db.prepare("UPDATE source_leads SET status='approved' WHERE lead_key=?").bind(leadKey),
-        this.db.prepare(`INSERT INTO operator_actions(actor,action,lead_key,reason,occurred_at)
-          VALUES (?,'approve_lead',?,?,?)`).bind(actor, leadKey, reason.trim(), new Date(this.now()).toISOString())
-      ]);
-    }
-    return jobId;
+    return this.seedJob(jobUrl, platform, delay, sourceRuleId, purpose, { actor, reason, leadKey });
   }
 
   async rejectLead(leadKey: string, actor: string, reason: string): Promise<void> {
@@ -1467,10 +1466,11 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   }
 
   async seedJob(url: string, platform: Platform, minDelayMs = 1000, sourceRuleId?: string,
-    purpose: SourcePurpose = "metadata", audit?: { actor: string; reason: string }): Promise<string> {
+    purpose: SourcePurpose = "metadata", audit?: { actor: string; reason: string; leadKey?: string }): Promise<string> {
     if (audit && (!audit.actor.trim() || audit.actor.length > 100 || !audit.reason.trim() || audit.reason.length > 300)) {
       throw new Error("Seed audit actor and reason required");
     }
+    if (audit?.leadKey !== undefined && !/^[a-f0-9]{64}$/.test(audit.leadKey)) throw new Error("Invalid approval lead key");
     PlatformSchema.parse(platform);
     if (purpose !== "metadata" && purpose !== "discovery") throw new Error("Invalid job purpose");
     const parsed = new URL(url);
@@ -1517,8 +1517,11 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
     const authoritySql = `NOT EXISTS (SELECT 1 FROM suppressed_urls WHERE url=?)
       AND (? IS NULL OR EXISTS (SELECT 1 FROM lead_autoqueue_rules
-        WHERE rule_id=? AND disabled_at IS NULL AND expires_at>?))`;
-    const authorityParams = [parsed.href, sourceRuleId || null, sourceRuleId || null, now];
+        WHERE rule_id=? AND disabled_at IS NULL AND expires_at>?))
+      AND (? IS NULL OR EXISTS (SELECT 1 FROM source_leads
+        WHERE lead_key=? AND status IN ('pending_review','approved')))`;
+    const authorityParams = [parsed.href, sourceRuleId || null, sourceRuleId || null, now,
+      audit?.leadKey ?? null, audit?.leadKey ?? null];
     const batchStmts = [
       this.db.prepare(`INSERT OR IGNORE INTO crawl_jobs
         (job_id,platform,url,origin,state,next_fetch_at,created_at,source_rule_id,job_purpose)
@@ -1539,7 +1542,18 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
           .bind(sourceRuleId, parsed.href, platform, purpose, ...authorityParams)
       );
     }
-    if (audit) {
+    if (audit?.leadKey !== undefined) {
+      const matchingJob = `EXISTS (SELECT 1 FROM crawl_jobs WHERE url=? AND platform=? AND job_purpose=?)`;
+      batchStmts.push(
+        this.db.prepare(`INSERT INTO operator_actions(actor,action,lead_key,reason,occurred_at)
+          SELECT ?,'approve_lead',lead_key,?,? FROM source_leads
+          WHERE lead_key=? AND status='pending_review' AND ${matchingJob} AND ${authoritySql}`)
+          .bind(audit.actor, audit.reason.trim(), now, audit.leadKey, parsed.href, platform, purpose, ...authorityParams),
+        this.db.prepare(`UPDATE source_leads SET status='approved'
+          WHERE lead_key=? AND status='pending_review' AND ${matchingJob} AND ${authoritySql}`)
+          .bind(audit.leadKey, parsed.href, platform, purpose, ...authorityParams)
+      );
+    } else if (audit) {
       batchStmts.push(this.db.prepare(`INSERT INTO job_seed_actions(action_id,job_id,actor,reason,occurred_at)
         SELECT ?,job_id,?,?,? FROM crawl_jobs WHERE url=? AND platform=? AND job_purpose=? AND ${authoritySql}`)
         .bind(crypto.randomUUID(), audit.actor, audit.reason.trim(), now, parsed.href, platform, purpose, ...authorityParams));
@@ -1549,12 +1563,15 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const stored = await this.db.prepare(`SELECT job_id,platform,job_purpose,
       EXISTS (SELECT 1 FROM suppressed_urls WHERE url=?) AS suppressed,
       (? IS NULL OR EXISTS (SELECT 1 FROM lead_autoqueue_rules
-        WHERE rule_id=? AND disabled_at IS NULL AND expires_at>?)) AS rule_active
+        WHERE rule_id=? AND disabled_at IS NULL AND expires_at>?)) AS rule_active,
+      (? IS NULL OR EXISTS (SELECT 1 FROM source_leads
+        WHERE lead_key=? AND status IN ('pending_review','approved'))) AS lead_active
       FROM (SELECT 1) LEFT JOIN crawl_jobs ON url=?`)
       .bind(...authorityParams, parsed.href).first<{ job_id: string | null; platform: Platform | null;
-        job_purpose: SourcePurpose | null; suppressed: number; rule_active: number; }>();
+        job_purpose: SourcePurpose | null; suppressed: number; rule_active: number; lead_active: number; }>();
     if (stored?.suppressed) throw new Error("URL is suppressed and cannot be reseeded");
     if (stored && !stored.rule_active) throw new Error("Auto-queue rule is no longer active");
+    if (stored && !stored.lead_active) throw new Error("Lead is no longer eligible for approval");
     if (!stored?.job_id) throw new Error("Job insertion failed");
     if (stored.platform !== platform) throw new Error("Existing job has a different reviewed platform");
     if (stored.job_purpose !== purpose) throw new Error("Existing job has a different reviewed purpose");
@@ -2249,7 +2266,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     proofKind?: "storefront_bio_token" | "dns_txt" | "manual_notice";
     proofValue?: string;
     contactEmail?: string;
-  }): Promise<DelistResponse> {
+  }) {
     if (!input.targetUrl && !input.canonicalId) {
       throw new Error("Either targetUrl or canonicalId must be provided");
     }

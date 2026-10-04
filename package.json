@@ -3,7 +3,24 @@
     "@types/node": "^26.6.4"
   },
   "scripts": {
-    "install": "bun i && bun run install:crawler && bun run install:crawler-client && bun run install:package && bun run install:web && bun run install:worker",
+    "setup": "bun install --ignore-scripts && bun run install:package && bun run install:crawler && bun run install:crawler-client && bun run install:web && bun run install:worker",
+    "versions:sync:release": "node scripts/versioning.mjs sync release",
+    "versions:sync:preview": "node scripts/versioning.mjs sync preview",
+    "versions:check:release": "node scripts/versioning.mjs check release",
+    "versions:check:preview": "node scripts/versioning.mjs check preview",
+    "build:release:crawler": "node scripts/versioning.mjs check release crawler && cd src-crawler && bun run build:node",
+    "build:preview:crawler": "node scripts/versioning.mjs check preview crawler && cd src-crawler && bun run build:node",
+    "build:release:crawler:linux": "node scripts/versioning.mjs check release crawler && cd src-crawler && bun run build:node:linux",
+    "build:preview:crawler:linux": "node scripts/versioning.mjs check preview crawler && cd src-crawler && bun run build:node:linux",
+    "build:release:crawler-client": "node scripts/versioning.mjs check release crawler-client && cd src-crawler-client && bun run build",
+    "build:preview:crawler-client": "node scripts/versioning.mjs check preview crawler-client && cd src-crawler-client && bun run build",
+    "build:release:package": "node scripts/versioning.mjs check release package && cd src-package && bun run build",
+    "build:preview:package": "node scripts/versioning.mjs check preview package && cd src-package && bun run build",
+    "build:release:web": "node scripts/versioning.mjs check release web && cd src-web && bun run build",
+    "build:preview:web": "node scripts/versioning.mjs check preview web && cd src-web && bun run build",
+    "build:release:worker": "node scripts/versioning.mjs check release worker && cd src-worker && bun run build",
+    "build:preview:worker": "node scripts/versioning.mjs check preview worker && cd src-worker && bun run build",
+    "deploy:release:worker": "node scripts/versioning.mjs check release worker && cd src-worker && bun run deploy",
     "install:crawler": "cd src-crawler && bun i",
     "install:crawler-client": "cd src-crawler-client && bun i",
     "install:package": "cd src-package && bun i",
@@ -48,7 +65,8 @@
   "type": "module",
   "private": true,
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "semver": "^7.8.5"
   },
   "peerDependencies": {
     "typescript": "^7"

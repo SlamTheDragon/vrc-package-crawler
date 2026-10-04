@@ -13,7 +13,7 @@ services:
       - COORDINATOR_URL=${COORDINATOR_URL:-https://vrcp-coordinator.workers.dev}
       - NODE_ID=${NODE_ID:-docker-node-1}
       - NODE_CAPABILITIES=${NODE_CAPABILITIES:-booth,github,vpm,gumroad,shopify}
-      # FIXME: node capabilities are documented and driven by tokens
+      # FIXME: node capabilities are documented and driven by tokens 
     stop_grace_period: 30s
     labels:
       - "com.centurylinklabs.watchtower.enable=true"

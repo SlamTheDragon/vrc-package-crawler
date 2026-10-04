@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { join, sep } from "node:path";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
+import { Database } from "bun:sqlite";
 import { LocalNodeStore } from "../src/storage/local_sqlite.ts";
 import type { CrawlJob, ResultResponse } from "../src/shared/protocol/node_protocol.ts";
-import { getTestOutputDir } from "../../src-worker/test/helpers/test_directory.ts";
-
-const tempRoot = getTestOutputDir();
+const outputPath = resolve(import.meta.dir, "../dist/tests");
+mkdirSync(outputPath, { recursive: true });
+const tempRoot = realpathSync(outputPath);
 function fixtureDirectory(): string { return mkdtempSync(join(tempRoot, "vrcp-crawler-node-store-")); }
 function removeFixtureDirectory(directory: string): void {
   if (!realpathSync(directory).startsWith(tempRoot + sep)) throw new Error("Unexpected fixture path");
@@ -13,6 +14,59 @@ function removeFixtureDirectory(directory: string): void {
 }
 
 describe("LocalNodeStore database behavior", () => {
+  test("terminal writes roll back with counters and accepted recovery counts once after restart", () => {
+    const directory = fixtureDirectory();
+    const dbPath = join(directory, "node.db");
+    let store = new LocalNodeStore(dbPath);
+    const control = new Database(dbPath);
+    try {
+      const runId = store.startRun("atomic-node");
+      const job: CrawlJob = { jobId: "atomic-job", leaseId: crypto.randomUUID(), platform: "vpm",
+        purpose: "metadata", url: "https://example.org/index.json", origin: "https://example.org",
+        leaseExpiresAt: "2099-01-01T00:00:00.000Z", retainClasses: ["normalized_facts"], etag: null, lastModified: null };
+      const taskId = store.recordClaimedJob(runId, job);
+      store.recordTaskProgress(taskId, "fetching");
+      const before = store.getTask(taskId);
+      control.run("CREATE TRIGGER reject_failure_counter BEFORE UPDATE OF tasks_failed ON node_runs BEGIN SELECT RAISE(ABORT,'Failure counter rejected'); END;");
+      expect(() => store.recordTaskFailure(taskId, "ACK lost")).toThrow("Failure counter rejected");
+      expect(store.getTask(taskId)).toEqual(before);
+      expect(store.getRun(runId)?.tasksFailed).toBe(0);
+      control.run("DROP TRIGGER reject_failure_counter;");
+      store.recordTaskFailure(taskId, "ACK lost");
+      const failed = store.getTask(taskId);
+      store.recordTaskFailure(taskId, "Repeat failure");
+      store.recordTaskProgress(taskId, "submitting");
+      expect(store.getTask(taskId)).toEqual(failed);
+      expect(store.getRun(runId)?.tasksFailed).toBe(1);
+      const receipt: ResultResponse = { schemaVersion: 1, status: "accepted", jobId: job.jobId,
+        duplicate: true, sourceVersionCreated: false };
+      expect(() => store.recordTaskSuccess(taskId, "changed", { ...receipt, jobId: "another-job" }))
+        .toThrow("Result receipt does not match task job");
+      expect(() => store.recordTaskSuccess(taskId, "changed", { ...receipt, schemaVersion: 999 } as never)).toThrow();
+      expect(store.getTask(taskId)).toEqual(failed);
+      control.run("CREATE TRIGGER reject_success_counter BEFORE UPDATE OF tasks_completed ON node_runs BEGIN SELECT RAISE(ABORT,'Success counter rejected'); END;");
+      expect(() => store.recordTaskSuccess(taskId, "changed", receipt)).toThrow("Success counter rejected");
+      expect(store.getTask(taskId)).toEqual(failed);
+      expect(store.getRun(runId)?.tasksCompleted).toBe(0);
+      control.run("DROP TRIGGER reject_success_counter;");
+      store.close();
+      store = new LocalNodeStore(dbPath);
+      store.recordTaskSuccess(taskId, "changed", receipt, { durationMs: 10 });
+      const completed = store.getTask(taskId);
+      expect(completed?.status).toBe("completed");
+      expect(completed?.errorMessage).toBeNull();
+      store.recordTaskSuccess(taskId, "changed", receipt, { durationMs: 999 });
+      store.recordTaskFailure(taskId, "Late failure");
+      store.recordTaskProgress(taskId, "fetching");
+      expect(store.getTask(taskId)).toEqual(completed);
+      expect(store.getRun(runId)).toMatchObject({ tasksCompleted: 1, tasksFailed: 1 });
+    } finally {
+      control.close();
+      store.close();
+      removeFixtureDirectory(directory);
+    }
+  });
+
   test("creates schema, records runs and tasks, and tracks metrics correctly", () => {
     const directory = fixtureDirectory();
     const dbPath = join(directory, "node.db");

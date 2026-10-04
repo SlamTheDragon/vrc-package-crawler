@@ -4,6 +4,8 @@
 > **Target Subsystem:** Headless Crawler Node Daemon (`src-crawler`) and Desktop GUI Crawler Client (`src-crawler-client`)  
 > **Source Directory:** `src-crawler/src/` (entry `main.ts`, functional subfolders) and `src-crawler-client/`
 
+This reference describes inspected code. Recent shutdown and transport changes have fixtures, but runtime verification remains deferred. They do not establish release readiness.
+
 ---
 
 ## 1. Overview and Terminology Disambiguation
@@ -39,24 +41,31 @@ sequenceDiagram
 
     Node->>Coord: POST /v1/node/jobs/claim (nodeId, capabilities)
     Coord-->>Node: CrawlJob (url, platform, jobId, leaseId, leaseExpiresAt)
-    loop Every 5 seconds
-        Node->>Coord: POST /v1/node/heartbeat (activeJobId, activeLeaseId, state: fetching)
-        Coord-->>Node: { status: "alive", serverTime }
+    Node->>Coord: Initial active-lease heartbeat
+    Coord-->>Node: { status: "alive", serverTime }
+    par Source fetch and parsing
+        Node->>Origin: Pinned DNS HTTPS Fetch (robots & profile gated)
+        Origin-->>Node: Response Payload (HTML / JSON / 304)
+        Node->>Node: fetchJobOutcome() -> Normalized Facts
+    and Active authority checks
+        loop Every 5 seconds, no overlapping check
+            Node->>Coord: POST /v1/node/heartbeat (activeJobId, activeLeaseId, state: fetching)
+            Coord-->>Node: { status: "alive", serverTime }
+        end
     end
-    Node->>Origin: Pinned DNS HTTPS Fetch (robots & profile gated)
-    Origin-->>Node: Response Payload (HTML / JSON / 304)
-    Node->>Node: fetchJobOutcome() -> Normalized Facts
+    Node->>Coord: Final active-lease heartbeat
+    Coord-->>Node: { status: "alive", serverTime }
     Node->>Coord: POST /v1/node/jobs/result (jobId, leaseId, idempotencyKey, outcome)
     Coord-->>Node: { status: "accepted", jobId, duplicate, sourceVersionCreated }
     Node->>Node: Record Task to node.db
 ```
 
 1. **Lease Claiming (`POST /v1/node/jobs/claim`)**:
-   - The node polls the coordinator for an available job that matches its declared capabilities (`vpm`, `github`, `booth`, `shopify`).
+   - The node polls for a job that matches its declared capabilities. `PlatformSchema` defines ten capabilities, including storefront and registry drivers.
    - If no jobs are due, the node sleeps for the `retryAfterMs` duration sent by the coordinator.
 2. **Periodic Heartbeat (`POST /v1/node/heartbeat`)**:
    - A timer checks active lease authority every 5 seconds. The heartbeat does not extend the lease deadline.
-   - If the coordinator becomes unreachable, the node aborts in-flight processing and fails closed.
+   - A failed authority check cancels source processing. Detection waits for the periodic check and its bounded retries. It is not instantaneous.
 3. **Observation Parsing**:
    - The node parses outbound responses in memory with `src-crawler/src/adapters/observation_adapter.ts`.
    - The node never downloads or stores binary archives (`.unitypackage`, `.zip`, `.fbx`).
@@ -71,7 +80,12 @@ sequenceDiagram
 ## 3. Outbound Transport and Network Safety Guardrails
 
 - **Pinned DNS Resolution**: `public_metadata_fetch.ts` resolves origin IP addresses before socket creation. It rejects loopback, link-local, private, and cloud metadata addresses (anti-SSRF).
-- **Hard Payload Ceiling**: The node aborts stream consumption if a response exceeds 2 MB.
+- **Origin Metadata Ceiling**: `public_metadata_fetch.ts` aborts a response above 2,000,000 bytes. This cap does not apply to coordinator JSON.
+- **Coordinator Endpoint**: The client requires HTTPS, except for HTTP on loopback. It rejects embedded URL credentials and fragments.
+- **Coordinator Redirects and Errors**: Calls use manual redirects and reject 3xx responses. Failed bodies are canceled without JSON parsing or body content in errors/logs.
+- **Coordinator Success Bodies**: The client parses successful JSON, then applies the response schema. No streaming byte ceiling exists for these bodies.
+- **Coordinator Retries**: Defaults are two retries and a 250 ms base delay, with a 2,000 ms delay cap. Options require nonnegative safe integers.
+- **Request Timeouts**: Each heartbeat attempt uses 5 seconds. Each claim/result attempt uses 30 seconds. Shutdown does not cancel these coordinator calls.
 - **Access Outcomes**: The adapter reports rate limits, challenges and other failures to the coordinator. Coordinator origin pacing controls subsequent leases. No separate node circuit-breaker guarantee is established here.
 - **RFC 9309 Boundary**: The coordinator checks robots snapshots at claim, heartbeat and result submission. The node sends the configured crawler User-Agent. Production robots refresh remains unfinished.
 
@@ -80,3 +94,11 @@ sequenceDiagram
 ## 4. Local Telemetry Schema (`node.db` by default)
 
 The node records local execution telemetry and task journals without modifying the coordinator catalog. For exact SQLite table schemas, column types, and structured logging formats, see [`DATABASE_SCHEMAS.md`](DATABASE_SCHEMAS.md).
+
+## 5. Shutdown and recovery boundary
+
+SIGINT, SIGTERM and the stdin commands stop/exit/shutdown request daemon cancellation. During start(), a 100 ms poll checks the configured node.stop file. The poll also runs during active fetches and reconnect waits. Final cleanup clears it.
+
+Stop cancels source fetches and prevents execution after a pending claim or idle heartbeat returns. An in-flight result submission can still commit. The CLI waits for the daemon loop before closing SQLite and logs. Fatal one-shot errors retain failed status and exit code 1.
+
+Task transitions and run counters share local SQLite transactions. Receipt validation checks the schema and job identity. This bookkeeping does not persist the result payload or idempotency key. Abrupt process death and lost acknowledgments still lack a durable outbox.

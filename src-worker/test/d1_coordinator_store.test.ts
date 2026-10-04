@@ -10,8 +10,8 @@ import {
 import workerEntry, { type Env } from "../src/worker_entry.ts";
 import { PlatformSchema } from "../../src-crawler/src/shared/protocol/node_protocol.js";
 import { DEFAULT_SEED_JOBS } from "../src/storage/default_seeds.ts";
-import { decodeCatalogCursor } from "../src/api/protocol/operator_protocol.js";
-import { VrcPackagesClient } from "../../src-package/src/client.js";
+import { decodeCatalogCursor } from "vrc-packages-api";
+import { VRCPackageClient } from "../../src-package/src/client.js";
 
 export function createMockD1Database(db = new Database(":memory:")): D1Database {
   db.run("PRAGMA foreign_keys = ON;");
@@ -149,7 +149,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       const claimed = await fixture.store.claim({ schemaVersion: 1, nodeId: principal.nodeId, capabilities: ["vpm"] }, principal);
       if (claimed.status !== "leased") throw new Error("Expected lease");
       const origin = fixture.sqlite.query("SELECT * FROM origin_leases").get();
-      const client = new VrcPackagesClient({ baseUrl: "https://worker.example", operatorToken: "a".repeat(64),
+      const client = new VRCPackageClient({ baseUrl: "https://worker.example", operatorToken: "a".repeat(64),
         fetch: async (input, init) => workerEntry.fetch(new Request(input, init), { VRCP_D1: fixture.db, OPERATOR_TOKEN: "a".repeat(64) }) });
       const revokePath = `https://worker.example/v1/operator/nodes/${principal.nodeId}/revoke`;
       for (const [payload, authorized, status] of [
@@ -228,7 +228,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       const store = new Coordinator(db);
       await store.initSchema();
       const env = { VRCP_D1: db, OPERATOR_TOKEN: "a".repeat(64) };
-      const client = new VrcPackagesClient({ baseUrl: "https://worker.example", operatorToken: env.OPERATOR_TOKEN,
+      const client = new VRCPackageClient({ baseUrl: "https://worker.example", operatorToken: env.OPERATOR_TOKEN,
         fetch: async (input, init) => workerEntry.fetch(new Request(input, init), env) });
       const input = { schemaVersion: 1 as const, url: "https://seed.example/index.json", platform: "vpm" as const,
         purpose: "metadata" as const, minDelayMs: 1000, reason: "Offline operator candidate" };
@@ -320,7 +320,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       const sqlite = new Database(":memory:");
       try {
         const env = { VRCP_D1: createMockD1Database(sqlite), OPERATOR_TOKEN: "a".repeat(64) };
-        const client = new VrcPackagesClient({ baseUrl: "https://worker.example", operatorToken: env.OPERATOR_TOKEN,
+        const client = new VRCPackageClient({ baseUrl: "https://worker.example", operatorToken: env.OPERATOR_TOKEN,
           fetch: async (input, init) => workerEntry.fetch(new Request(input, init), env) });
         const result = await client.operator.init({ autoSeed });
         expect(result.schemaVersion).toBe(1);

@@ -23,11 +23,5 @@ export {
   RegisterAppRequestSchema,
   type RegisterAppRequest,
   RegisterAppResponseSchema,
-  type RegisterAppResponse,
-  DelistProofKindSchema,
-  type DelistProofKind,
-  DelistRequestSchema,
-  type DelistRequest,
-  DelistResponseSchema,
-  type DelistResponse
+  type RegisterAppResponse
 } from "./downstream.ts";

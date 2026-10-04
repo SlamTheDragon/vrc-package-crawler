@@ -1,6 +1,10 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
-import { EnqueueJobRequestSchema, type EnqueueJobRequest } from "../../../src-package/src/protocol/operator.ts";
-import { RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeRequest } from "../../../src-package/src/protocol/operator.ts";
+import { EnqueueJobRequestSchema, type EnqueueJobRequest,
+  RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeRequest,
+  AutoQueueRuleSchema, CreateAutoQueueRuleSchema, IssueNodeCredentialSchema, type IssueNodeCredential,
+  encodeRuleCursor, encodeCatalogCursor, decodeCatalogCursor, type AutoQueueRule, type CreateAutoQueueRule,
+  type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, PackageFrontSchema, type PackageFront,
+  type RuleCursor, type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor } from "vrc-packages-api";
 import crypto from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { isIP } from "node:net";
@@ -12,7 +16,6 @@ import {
 } from "../../../src-crawler/src/shared/protocol/node_protocol.ts";
 import { CoordinatorConflict, type CoordinatorStore, type NodePrincipal } from "../../src/api/handler.ts";
 import { type PublicCatalogStore } from "../../src/api/public_handler.ts";
-import { type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor } from "../../../src-crawler/src/shared/protocol/catalog_protocol.ts";
 import { formatCapabilityToken, parseCapabilityToken, isCapabilityToken } from "../../src/domain/security/capability_token.ts";
 import {
   RegisterAppRequestSchema,
@@ -28,9 +31,8 @@ import {
   type DownstreamFeedbackRequest,
   type DownstreamFeedbackResponse,
   type CatalogSearchRequest,
-  type CatalogSearchResponse,
-  type DelistResponse
-} from "../../../src-crawler/src/shared/protocol/downstream_protocol.ts";
+  type CatalogSearchResponse
+} from "vrc-packages-api";
 import { type UserStore, type UserPrincipal } from "../../src/api/user_handler.ts";
 import { isPrivateOrReservedIp } from "../../../src-crawler/src/shared/policy/ip_policy.ts";
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
@@ -43,14 +45,8 @@ import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, in
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../src/domain/classification/avatar_compatibility.ts";
 import { cleanTitle, cleanTrackingParams } from "../../../src-crawler/src/shared/text/catalog_hygiene.ts";
 import { DEFAULT_SEED_JOBS } from "../../src/storage/default_seeds.ts";
-import { AutoQueueRuleSchema, CreateAutoQueueRuleSchema,
-  IssueNodeCredentialSchema, type IssueNodeCredential,
-  encodeLeadCursor, encodeRuleCursor, encodeCatalogCursor, decodeCatalogCursor,
-  encodeTakedownCursor, type TakedownCursor, type TakedownRecord,
-  type AutoQueueRule, type CreateAutoQueueRule,
-  type CatalogCursor, type CatalogPackage, type CatalogIdentityLink,
-  PackageFrontSchema, type PackageFront,
-  type LeadCursor, type LeadRow, type RuleCursor } from "../../src/api/protocol/operator_protocol.ts";
+import { encodeLeadCursor, encodeTakedownCursor, type TakedownCursor, type TakedownRecord,
+  type LeadCursor, type LeadRow } from "../../src/api/protocol/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, SourceAccessProfileSchema, encodeProfileCursor,
   type CreateSourceAccessProfile, type SourceAccessProfile, type ProfileCursor,
   type SourcePurpose, sourceAccessProfileMatches, sourcePathScopesOverlap } from "../../src/domain/access/source_access_profile.ts";
@@ -2486,7 +2482,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     proofKind?: "storefront_bio_token" | "dns_txt" | "manual_notice";
     proofValue?: string;
     contactEmail?: string;
-  }): DelistResponse {
+  }) {
     if (!input.targetUrl && !input.canonicalId) {
       throw new Error("Either targetUrl or canonicalId must be provided");
     }

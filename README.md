@@ -1,4 +1,4 @@
-# VRC Package Crawler
+# VRCP Package Crawler
 
 An open-source, polite discovery and indexing engine for public VRChat creator packages (Tools, Assets, Avatars).
 
@@ -45,7 +45,7 @@ flowchart LR
    - Includes a standalone binary build and Docker configuration. Fleet updates and restart-safe result submission still need checks.
    - Uses DNS-pinned HTTPS transport, a 2,000,000-byte metadata limit and default 5-second coordinator authority checks.
 3. **Consumer SDK (`src-package/`)**:
-   - Named `vrc-packages-api` for downstream application developers. Isolated tarball checks pass. Registry release and production consumption remain open.
+   - Named `vrc-packages-api` for downstream application developers. Historical isolated tarball checks passed before the recent changes. Current artifact verification, owner API review and registry release remain open.
    - Supplies typed clients for catalog search, delta synchronization, app registration, owned app views and operator controls. Removal reports remain pending review.
 4. **Web Surface (`src-web/`)**:
    - Separate Astro site with Svelte integration. The current page is starter content. SDK, authentication and operator panels are not wired.
@@ -100,6 +100,7 @@ vrc-package-crawler/
 ## Prerequisites & Development
 
 - **Bun** >= 1.4.0 (required for runtime, compilation, and testing)
+- **Node.js** (required for root version commands and the native Worker test harness)
 - **Docker** & **Docker Compose** (optional, for running crawler node fleets)
 
 ### Testing & Verification
@@ -158,11 +159,15 @@ bun run test:runtime
 Downstream applications can use the SDK's public contracts. No integration with VCC or `vrc-get` is claimed.
 
 ```typescript
-import { VrcPackagesClient } from "vrc-packages-api";
+import { VRCPackageClient } from "vrc-packages-api";
 
-const client = new VrcPackagesClient({
+// Backend example: supply the issued credential through protected runtime configuration.
+const applicationCredential = process.env.VRCP_APP_TOKEN;
+if (!applicationCredential) throw new Error("Missing application credential");
+
+const client = new VRCPackageClient({
   baseUrl: "https://coordinator.example.com",
-  appToken: "vrcp_app_0123456789abcdef...",
+  appToken: applicationCredential,
 });
 
 // Bounded authenticated search. Indexed dynamic tag filtering remains open.
@@ -178,6 +183,8 @@ const deltas = await client.index.syncDeltas({
 ```
 
 See [DELEGATES.md](DELEGATES.md) for full SDK documentation, registration procedures, and keyset pagination guides.
+
+The example environment variable is a backend convention, not an SDK requirement. The Worker accepts queryOrigin but does not record or apply search attribution. Do not treat that field as implemented attribution or auditing.
 
 ### 2. Running Crawler Nodes via Docker
 

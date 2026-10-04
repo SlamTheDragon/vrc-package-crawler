@@ -11,12 +11,15 @@ import {
 } from "./protocol/catalog.ts";
 import {
   type CatalogSearchRequest,
+  CatalogSearchRequestSchema,
   type CatalogSearchResponse,
   CatalogSearchResponseSchema,
   type RegisterAppRequest,
+  RegisterAppRequestSchema,
   type RegisterAppResponse,
   RegisterAppResponseSchema,
   type ReportSubmissionRequest,
+  ReportSubmissionRequestSchema,
   type ReportSubmissionResponse,
   ReportSubmissionResponseSchema,
   type QueryOrigin
@@ -25,6 +28,11 @@ import { UserAppListQuerySchema, UserAppListResponseSchema, UserAppResponseSchem
   type UserAppListQuery, type UserAppListResponse, type UserAppResponse } from "./protocol/user.ts";
 import {
   type LeadStatus,
+  LeadCursorSchema, ProfileCursorSchema, RuleCursorSchema, TakedownCursorSchema,
+  ApproveLeadSchema, RejectLeadSchema,
+  CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
+  CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema,
+  IssueNodeCredentialSchema, VerifyTakedownRequestSchema,
   RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeResponse,
   EnqueueJobRequestSchema, EnqueueJobResponseSchema,
   type EnqueueJobRequest, type EnqueueJobResponse,
@@ -56,21 +64,21 @@ import {
   VerifyTakedownResponseSchema
 } from "./protocol/operator.ts";
 
-export class VrcApiError extends Error {
+export class VRCPApiError extends Error {
   readonly status: number;
   readonly code?: string;
   readonly details?: unknown;
 
   constructor(status: number, message: string, code?: string, details?: unknown) {
     super(message);
-    this.name = "VrcApiError";
+    this.name = "VRCPApiError";
     this.status = status;
     this.code = code;
     this.details = details;
   }
 }
 
-export interface VrcPackagesClientOptions {
+export interface VRCPackageClientOptions {
   /** Coordinator baseUrl, e.g. "https://api.vrc-packages.example" or "http://127.0.0.1:8787" */
   baseUrl: string;
   /** Downstream application token starting with `vrcp_app_` */
@@ -98,14 +106,14 @@ export interface SyncDeltasParams {
   limit?: number;
 }
 
-export class VrcPackagesClient {
+export class VRCPackageClient {
   private readonly baseUrl: string;
   private readonly appToken?: string;
   private readonly userToken?: string;
   private readonly operatorToken?: string;
   private readonly fetchFn: typeof fetch;
 
-  constructor(options: VrcPackagesClientOptions) {
+  constructor(options: VRCPackageClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.appToken = options.appToken;
     this.userToken = options.userToken;
@@ -137,17 +145,17 @@ export class VrcPackagesClient {
 
     if (options.auth === "app") {
       if (!this.appToken) {
-        throw new VrcApiError(401, "Application token (vrcp_app_) required for this endpoint");
+        throw new VRCPApiError(401, "Application token (vrcp_app_) required for this endpoint");
       }
       headers["Authorization"] = `Bearer ${this.appToken}`;
     } else if (options.auth === "user") {
       if (!this.userToken) {
-        throw new VrcApiError(401, "User token (vrcp_usr_) required for this endpoint");
+        throw new VRCPApiError(401, "User token (vrcp_usr_) required for this endpoint");
       }
       headers["Authorization"] = `Bearer ${this.userToken}`;
     } else if (options.auth === "operator") {
       if (!this.operatorToken) {
-        throw new VrcApiError(401, "Operator token required for this endpoint");
+        throw new VRCPApiError(401, "Operator token required for this endpoint");
       }
       headers["Authorization"] = `Bearer ${this.operatorToken}`;
     }
@@ -161,7 +169,8 @@ export class VrcPackagesClient {
     const response = await this.fetchFn(url.toString(), {
       method,
       headers,
-      body: requestBody
+      body: requestBody,
+      redirect: "error"
     });
 
     if (!response.ok) {
@@ -174,7 +183,7 @@ export class VrcPackagesClient {
         ? (errorBody.message || errorBody.error)
         : `Request failed with status ${response.status}`;
       const code = typeof errorBody === "object" ? (errorBody?.code ?? errorBody?.error) : undefined;
-      throw new VrcApiError(response.status, message, code, errorBody);
+      throw new VRCPApiError(response.status, message, code, errorBody);
     }
 
     return (await response.json()) as T;
@@ -217,13 +226,13 @@ export class VrcPackagesClient {
       };
       const res = await this.request<unknown>("/v1/app/index/search", "POST", {
         auth: "app",
-        body: payload
+        body: CatalogSearchRequestSchema.parse(payload)
       });
       return CatalogSearchResponseSchema.parse(res);
     },
 
     /**
-     * Synchronizes incremental delta stream since given cursor (GET /v1/app/index/delta).
+     * Pages current catalog changes (GET /v1/app/index/delta), not an immutable event log.
      */
     syncDeltas: async (params: SyncDeltasParams = {}): Promise<CatalogDeltaResponse> => {
       const res = await this.request<unknown>("/v1/app/index/delta", "GET", {
@@ -247,7 +256,7 @@ export class VrcPackagesClient {
       const auth = this.userToken ? "user" : "operator";
       const res = await this.request<unknown>("/v1/app/register", "POST", {
         auth,
-        body: request
+        body: RegisterAppRequestSchema.parse(request)
       });
       return RegisterAppResponseSchema.parse(res);
     }
@@ -255,13 +264,13 @@ export class VrcPackagesClient {
 
   readonly reports = {
     /**
-     * Submits a demand signal or content issue report to the coordinator (POST /v1/app/report).
+     * Submits demand, issue or pending removal reports (POST /v1/app/report).
      * Requires downstream application token.
      */
     submit: async (report: ReportSubmissionRequest): Promise<ReportSubmissionResponse> => {
       const res = await this.request<unknown>("/v1/app/report", "POST", {
         auth: "app",
-        body: report
+        body: ReportSubmissionRequestSchema.parse(report)
       });
       return ReportSubmissionResponseSchema.parse(res);
     }
@@ -330,13 +339,14 @@ export class VrcPackagesClient {
         leadKey: string,
         params: { minDelayMs?: number; reason?: string } = {}
       ): Promise<LeadActionResponse> => {
-        const res = await this.request<unknown>(`/v1/operator/leads/${leadKey}/approve`, "POST", {
+        const id = LeadCursorSchema.shape.leadKey.parse(leadKey);
+        const res = await this.request<unknown>(`/v1/operator/leads/${id}/approve`, "POST", {
           auth: "operator",
-          body: {
+          body: ApproveLeadSchema.parse({
             schemaVersion: 1,
             minDelayMs: params.minDelayMs,
             reason: params.reason ?? "Operator approved"
-          }
+          })
         });
         return LeadActionResponseSchema.parse(res);
       },
@@ -348,12 +358,13 @@ export class VrcPackagesClient {
         leadKey: string,
         params: { reason?: string } = {}
       ): Promise<LeadActionResponse> => {
-        const res = await this.request<unknown>(`/v1/operator/leads/${leadKey}/reject`, "POST", {
+        const id = LeadCursorSchema.shape.leadKey.parse(leadKey);
+        const res = await this.request<unknown>(`/v1/operator/leads/${id}/reject`, "POST", {
           auth: "operator",
-          body: {
+          body: RejectLeadSchema.parse({
             schemaVersion: 1,
             reason: params.reason ?? "Operator rejected"
-          }
+          })
         });
         return LeadActionResponseSchema.parse(res);
       }
@@ -380,7 +391,7 @@ export class VrcPackagesClient {
       create: async (request: CreateSourceAccessProfile): Promise<SourceAccessProfileResponse> => {
         const res = await this.request<unknown>("/v1/operator/source-profiles", "POST", {
           auth: "operator",
-          body: request
+          body: CreateSourceAccessProfileSchema.parse(request)
         });
         return SourceAccessProfileResponseSchema.parse(res);
       },
@@ -389,9 +400,10 @@ export class VrcPackagesClient {
        * Disables a source-access profile (POST /v1/operator/source-profiles/{id}/disable).
        */
       disable: async (profileId: string, reason: string): Promise<SourceAccessProfileResponse> => {
-        const res = await this.request<unknown>(`/v1/operator/source-profiles/${profileId}/disable`, "POST", {
+        const id = ProfileCursorSchema.shape.profileId.parse(profileId);
+        const res = await this.request<unknown>(`/v1/operator/source-profiles/${id}/disable`, "POST", {
           auth: "operator",
-          body: { schemaVersion: 1, reason }
+          body: DisableSourceAccessProfileSchema.parse({ schemaVersion: 1, reason })
         });
         return SourceAccessProfileResponseSchema.parse(res);
       }
@@ -418,7 +430,7 @@ export class VrcPackagesClient {
       create: async (request: CreateAutoQueueRule): Promise<AutoQueueRuleResponse> => {
         const res = await this.request<unknown>("/v1/operator/autoqueue-rules", "POST", {
           auth: "operator",
-          body: request
+          body: CreateAutoQueueRuleSchema.parse(request)
         });
         return AutoQueueRuleResponseSchema.parse(res);
       },
@@ -427,9 +439,10 @@ export class VrcPackagesClient {
        * Disables an auto-queue rule (POST /v1/operator/autoqueue-rules/{id}/disable).
        */
       disable: async (ruleId: string, reason: string): Promise<AutoQueueRuleResponse> => {
-        const res = await this.request<unknown>(`/v1/operator/autoqueue-rules/${ruleId}/disable`, "POST", {
+        const id = RuleCursorSchema.shape.ruleId.parse(ruleId);
+        const res = await this.request<unknown>(`/v1/operator/autoqueue-rules/${id}/disable`, "POST", {
           auth: "operator",
-          body: { schemaVersion: 1, reason }
+          body: DisableAutoQueueRuleSchema.parse({ schemaVersion: 1, reason })
         });
         return AutoQueueRuleResponseSchema.parse(res);
       }
@@ -449,7 +462,7 @@ export class VrcPackagesClient {
       issue: async (request: IssueNodeCredential): Promise<NodeCredentialResponse> => {
         const res = await this.request<unknown>("/v1/operator/nodes", "POST", {
           auth: "operator",
-          body: request
+          body: IssueNodeCredentialSchema.parse(request)
         });
         return NodeCredentialResponseSchema.parse(res);
       }
@@ -492,19 +505,20 @@ export class VrcPackagesClient {
       },
 
       /**
-       * Adjudicates an unauthenticated creator's ownership proof (POST /v1/operator/takedowns/{id}/verify).
+       * Records an operator verdict on a stored creator opt-out (POST /v1/operator/takedowns/{id}/verify).
        */
       verify: async (
         takedownId: string,
         request: { verdict: "accepted" | "rejected"; notes?: string }
       ): Promise<VerifyTakedownResponse> => {
-        const res = await this.request<unknown>(`/v1/operator/takedowns/${takedownId}/verify`, "POST", {
+        const id = TakedownCursorSchema.shape.takedownId.parse(takedownId);
+        const res = await this.request<unknown>(`/v1/operator/takedowns/${id}/verify`, "POST", {
           auth: "operator",
-          body: {
+          body: VerifyTakedownRequestSchema.parse({
             schemaVersion: 1,
             verdict: request.verdict,
             notes: request.notes
-          }
+          })
         });
         return VerifyTakedownResponseSchema.parse(res);
       }

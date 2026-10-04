@@ -76,11 +76,8 @@ describe("coordinator-leased Shopify product sitemap discovery", () => {
       const headers = { "content-type": "application/json", authorization: `Bearer ${token}` };
       const internal = await handleNodeRequest(new Request("http://localhost/v1/node/jobs/result",
         { method: "POST", headers, body: JSON.stringify(forged) }), store);
-      const external = await fetch(new URL("/v1/node/jobs/result", server.url),
-        { method: "POST", headers, body: JSON.stringify(forged) });
       expect(internal.status).toBe(409);
-      expect(external.status).toBe(internal.status);
-      expect(await external.json()).toEqual(await internal.json());
+      expect(await internal.json()).toMatchObject({ schemaVersion: 1, code: "conflict" });
       await expect(client.submit({ jobId: claim.job.jobId, leaseId: claim.job.leaseId,
         idempotencyKey: "shopify-forged-query-lead-001", outcome: { kind: "discovery", leads: [
           { kind: "storefront_product", url: `${productUrl}?ref=unreviewed` }

@@ -6,7 +6,7 @@
 	"scripts": {
 		"build": "wrangler deploy --dry-run --outdir .wrangler/api-build --config wrangler.toml",
 		"check": "bun run cf-typegen && tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
-		"deploy": "wrangler deploy",
+		"deploy": "wrangler deploy --config wrangler.toml",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"test": "bun test ./test",

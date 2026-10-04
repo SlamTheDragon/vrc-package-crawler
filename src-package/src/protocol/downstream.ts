@@ -23,38 +23,6 @@ export type RegisterAppResponse = z.infer<typeof RegisterAppResponseSchema>;
 
 const HttpsUrlSchema = z.string().url().refine((value) => new URL(value).protocol === "https:", "HTTPS URL required");
 
-export const DelistProofKindSchema = z.enum([
-  "storefront_bio_token",
-  "dns_txt",
-  "manual_notice"
-]);
-export type DelistProofKind = z.infer<typeof DelistProofKindSchema>;
-
-export const DelistRequestSchema = z.strictObject({
-  schemaVersion: z.literal(DOWNSTREAM_PROTOCOL_VERSION),
-  targetUrl: HttpsUrlSchema.optional(),
-  canonicalId: z.string().trim().min(1).max(500).optional(),
-  reason: z.string().trim().min(1).max(1000),
-  contactEmail: z.string().email().max(200).optional(),
-  proofKind: DelistProofKindSchema.optional(),
-  proofValue: z.string().trim().max(500).optional()
-}).refine(
-  (data) => Boolean(data.targetUrl || data.canonicalId),
-  { message: "Either targetUrl or canonicalId must be provided for delisting" }
-);
-export type DelistRequest = z.infer<typeof DelistRequestSchema>;
-
-export const DelistResponseSchema = z.strictObject({
-  schemaVersion: z.literal(DOWNSTREAM_PROTOCOL_VERSION),
-  status: z.literal("accepted"),
-  takedownId: z.string().uuid(),
-  target: z.string(),
-  action: z.literal("delisted"),
-  requesterType: z.enum(["unauthenticated_creator", "user", "admin_operator"]),
-  recordedAt: z.string().datetime()
-});
-export type DelistResponse = z.infer<typeof DelistResponseSchema>;
-
 export const FeedbackSignalTypeSchema = z.enum([
   "search_miss",
   "refresh_demand",

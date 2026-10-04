@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "VRCP Crawler Client",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "com.vrcpackages.crawlerclient",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "bun run dev:web",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "bun run build:web",
     "frontendDist": "../build"
   },
   "app": {

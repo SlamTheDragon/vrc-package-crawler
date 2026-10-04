@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { LocalCoordinatorStore } from "./support/local_sqlite.js";
 import { handlePublicCatalogRequest } from "../src/api/public_handler.ts";
 import {
@@ -6,12 +6,11 @@ import {
   PublicCatalogListResponseSchema,
   CatalogDeltaResponseSchema,
   decodeCatalogDeltaCursor,
-  type CatalogDelta
-} from "../../src-crawler/src/shared/protocol/catalog_protocol.js";
-import { decodeCatalogCursor, encodeCatalogCursor } from "../src/api/protocol/operator_protocol.js";
+  type CatalogDelta,
+  decodeCatalogCursor, encodeCatalogCursor, VRCPackageClient
+} from "vrc-packages-api";
 import { PROTOCOL_VERSION } from "../../src-crawler/src/shared/protocol/node_protocol.js";
 import { seedApprovedFixtureJob } from "./helpers/source_access_fixture.js";
-import { VrcPackagesClient } from "../../src-package/src/client.ts";
 
 function publicGet(path: string): Request {
   return new Request(`http://localhost${path}`, {
@@ -54,12 +53,6 @@ function seedVpmAndCatalogItem(
   `).run(crypto.randomUUID(), canonicalId, sourceKey, `https://vpm.example.com/${pkgId}`, now);
 }
 
-let server: ReturnType<typeof Bun.serve> | undefined;
-afterEach(() => {
-  server?.stop(true);
-  server = undefined;
-});
-
 describe("Public Consumer Catalog Protocol (/v1/app/index & /v1/app/index/delta)", () => {
   test("SDK public index sends limit 100 and cursor unchanged through the real handler", async () => {
     const store = new LocalCoordinatorStore();
@@ -72,7 +65,7 @@ describe("Public Consumer Catalog Protocol (/v1/app/index & /v1/app/index/delta)
       expect(decoded).toEqual(decodeCatalogCursor(cursor));
       return listPage(limit, decoded);
     };
-    const client = new VrcPackagesClient({ baseUrl: "https://coordinator.invalid",
+    const client = new VRCPackageClient({ baseUrl: "https://coordinator.invalid",
       fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init);
         const url = new URL(request.url);
@@ -96,7 +89,7 @@ describe("Public Consumer Catalog Protocol (/v1/app/index & /v1/app/index/delta)
   test("SDK public index preserves the wire receipt and continues to the next catalog page", async () => {
     const store = new LocalCoordinatorStore();
     const requests: URL[] = [];
-    const client = new VrcPackagesClient({ baseUrl: "https://coordinator.invalid",
+    const client = new VRCPackageClient({ baseUrl: "https://coordinator.invalid",
       fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init);
         requests.push(new URL(request.url));
@@ -135,7 +128,7 @@ describe("Public Consumer Catalog Protocol (/v1/app/index & /v1/app/index/delta)
         { schemaVersion: 1, packages: [], nextCursor: null, count: 0 },
         { schemaVersion: 1, packages: [{ canonicalId: "incomplete-package" }], nextCursor: null }
       ]) {
-        const client = new VrcPackagesClient({ baseUrl: "https://coordinator.invalid",
+        const client = new VRCPackageClient({ baseUrl: "https://coordinator.invalid",
           fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
             calls++;
             const response = await handlePublicCatalogRequest(new Request(input, init), store);
@@ -291,39 +284,32 @@ describe("Public Consumer Catalog Protocol (/v1/app/index & /v1/app/index/delta)
     }
   });
 
-  test("Loopback HTTP: unauthenticated requests succeed on /v1/app/index and /v1/app/index/delta, while legacy routes 404", async () => {
+  test("public catalog requests serialize without authentication and retired aliases return 404", async () => {
     const store = new LocalCoordinatorStore();
     try {
       seedVpmAndCatalogItem(store, "pkg.http", "com.example.http", "HTTP Package");
 
-      server = Bun.serve({
-        hostname: "127.0.0.1",
-        port: 0,
-        fetch: (request) => handlePublicCatalogRequest(request, store)
-      });
-      const port = server.port;
-
       // Canonical API_ROUTES /v1/app/index route
-      const appIndexRes = await fetch(`http://127.0.0.1:${port}/v1/app/index`);
+      const appIndexRes = await handlePublicCatalogRequest(publicGet("/v1/app/index"), store);
       expect(appIndexRes.status).toBe(200);
       const appIndexBody = PublicCatalogListResponseSchema.parse(await appIndexRes.json());
       expect(appIndexBody.packages).toHaveLength(1);
       expect(appIndexBody.packages[0].canonicalId).toBe("com.example.http");
 
       // Canonical API_ROUTES /v1/app/index/delta route
-      const appDeltaRes = await fetch(`http://127.0.0.1:${port}/v1/app/index/delta`);
+      const appDeltaRes = await handlePublicCatalogRequest(publicGet("/v1/app/index/delta"), store);
       expect(appDeltaRes.status).toBe(200);
       const appDeltaBody = CatalogDeltaResponseSchema.parse(await appDeltaRes.json());
       expect(appDeltaBody.deltas).toHaveLength(1);
       expect(appDeltaBody.deltas[0].action).toBe("upsert");
       expect(appDeltaBody.deltas[0].canonicalId).toBe("com.example.http");
 
-      // Purged legacy aliases must return 404
-      const legacyCatRes = await fetch(`http://127.0.0.1:${port}/v1/catalog`);
-      expect(legacyCatRes.status).toBe(404);
+      // Retired aliases must return 404.
+      const retiredCatalog = await handlePublicCatalogRequest(publicGet("/v1/catalog"), store);
+      expect(retiredCatalog.status).toBe(404);
 
-      const legacyDeltaRes = await fetch(`http://127.0.0.1:${port}/v1/catalog/delta`);
-      expect(legacyDeltaRes.status).toBe(404);
+      const retiredDelta = await handlePublicCatalogRequest(publicGet("/v1/catalog/delta"), store);
+      expect(retiredDelta.status).toBe(404);
     } finally {
       store.close();
     }

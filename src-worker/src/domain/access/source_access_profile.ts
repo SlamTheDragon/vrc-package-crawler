@@ -3,8 +3,6 @@ import { PlatformSchema, JobPurposeSchema, type Platform, type JobPurpose } from
 import { isPrivateOrReservedIp } from "../../../../src-crawler/src/shared/policy/ip_policy.ts";
 import { CreateSourceAccessProfileSchema as ConsumerSourceAccessProfileSchema,
   isCanonicalSourceAccessPath } from "vrc-packages-api";
-export { EvidenceClassSchema } from "../../../../src-crawler/src/shared/policy/evidence_class.ts";
-export type { EvidenceClass } from "../../../../src-crawler/src/shared/policy/evidence_class.ts";
 
 export const SOURCE_ACCESS_SCHEMA_VERSION = 1 as const;
 export const SourcePurposeSchema = JobPurposeSchema;

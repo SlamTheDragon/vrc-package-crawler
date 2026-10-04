@@ -16,21 +16,21 @@ Worker tests live in `src-worker/test/`. Its support folder contains the test-on
 
 ## 2. SDK Integration
 
-Packed installation checks cover ordinary Node, TypeScript declarations and a separate Worker consumer. These checks do not prove npm registry availability.
+Historical packed installation checks covered ordinary Node, TypeScript declarations and a separate Worker consumer before the recent changes. They do not verify the current artifact or npm registry availability. G15 still requires package checks and the owner's complete API review.
 
 ```typescript
-import { VrcPackagesClient } from "vrc-packages-api";
+import { VRCPackageClient } from "vrc-packages-api";
 
-const publicClient = new VrcPackagesClient({
+const publicClient = new VRCPackageClient({
   baseUrl: "https://coordinator.example.com"
 });
 
-const appClient = new VrcPackagesClient({
+const appClient = new VRCPackageClient({
   baseUrl: "https://coordinator.example.com",
   appToken: applicationCredential
 });
 
-const userClient = new VrcPackagesClient({
+const userClient = new VRCPackageClient({
   baseUrl: "https://coordinator.example.com",
   userToken: userCredential
 });
@@ -74,7 +74,7 @@ const deltaPage = await publicClient.index.syncDeltas({ limit: 100 });
 
 The SDK exposes `index`, not `catalog` or `app.search`. Public index pages accept only `limit` and `cursor`. The default limit is 50, with integer values from 1 through 100. The SDK returns the validated `schemaVersion`, `packages` and `nextCursor` fields, without a total count. A null cursor ends pagination. Search filters belong to authenticated `index.search`. Save delta cursors and handle the returned catalog epoch.
 
-Search uses SQL text matching and classification heuristics. Dynamic indexed tag lists, full-text ranking and publisher-date semantics remain open. Random sampling is removed.
+Search uses SQL text matching and classification heuristics. The Worker accepts queryOrigin but does not record or apply attribution in storage. Dynamic indexed tag lists, full-text ranking and publisher-date semantics remain open. Random sampling is removed.
 
 ### Reports and Removal Requests
 
@@ -112,3 +112,51 @@ Use [API_ROUTES.md](docs/source/API_ROUTES.md) with the current handlers and SDK
 Use [the Cloudflare setup checklist](docs/research/CRAWLER_DEPENDENCY_RESEARCH.md#cloudflare-panel-setup-checklist) for the owner-completed folder split. The latest supplied build log confirms the API package `src-worker` ran remotely. `src-web` is the separate static site, not the API build root.
 
 LEGAL.md states draft covenants, not measured implementation. Terms headers are not uniformly emitted by every handler. No remote build, deployment, source permission or legal compliance is inferred from this runbook.
+
+## 5. Version Metadata and Explicit Setup
+
+The root version files supply product versions. Release versions use standard SemVer. Preview versions use the pre prerelease label, such as 2026.10.0-pre. API schemaVersion values do not change with a product version.
+
+Install root tool dependencies with bun install. There is no root install hook that installs the five projects. Run bun run setup explicitly for developer setup. This does not prove independent installation: current sibling imports and SDK file links remain G13 failures. Do not use this setup sequence as a remote CI workaround.
+
+The version commands do not install, build, tag, publish or deploy:
+
+```sh
+bun run versions:sync:release
+bun run versions:sync:preview
+bun run versions:check:release
+bun run versions:check:preview
+# Select one product instead of all five:
+node scripts/versioning.mjs sync release crawler
+```
+
+Sync changes selected package manifests and the desktop Cargo package version. It preserves SDK publication protection and dependency declarations. It checks all config values before writing. File-write failures can leave partial edits, so inspect the diff before a release. Check reports drift without changing files. These commands remain unverified until the G14 checkpoint.
+
+The node --version command and user-agent read its local manifest. Worker structured logs include the local Worker version. Frontend metadata reads each frontend's local manifest. Tauri reads its local package.json through [the supported version-path setting](https://v2.tauri.app/reference/config/#version). No product reads another src-* source file for version metadata. Existing unrelated cross-project imports remain unresolved.
+
+Product tag names and release-event routing remain deferred. Root publish/preview/bump placeholders are not release implementations. Cloudflare panel setup remains an owner task. SDK registry publication requires G15 verification and complete owner API review, regardless of the configured version.
+
+### Local Product Builds
+
+Root build commands check the selected product's manifest against the chosen version config before its local build. They do not sync versions, bump, tag, publish or deploy. Node.js and root tool dependencies are required. Install product dependencies separately. These commands remain unrun under G14.
+
+| Product | Release command | Preview command |
+| --- | --- | --- |
+| Crawler, host target | `bun run build:release:crawler` | `bun run build:preview:crawler` |
+| Crawler, Linux target | `bun run build:release:crawler:linux` | `bun run build:preview:crawler:linux` |
+| Desktop client | `bun run build:release:crawler-client` | `bun run build:preview:crawler-client` |
+| Consumer SDK | `bun run build:release:package` | `bun run build:preview:package` |
+| Static website | `bun run build:release:web` | `bun run build:preview:web` |
+| API Worker | `bun run build:release:worker` | `bun run build:preview:worker` |
+
+Preview selects metadata, not a Cloudflare Preview or deployed environment. Worker builds use the project's Wrangler dry-run command. Local build routing does not change CI triggers or establish independent artifact installation.
+
+### Explicit Worker Deployment — Not Yet Ready to Run
+
+The root command bun run deploy:release:worker checks release metadata, then calls the Worker's deploy script with wrangler.toml. Unlike build:release:worker, this command changes the remote deployment. It targets the top-level Worker, not a named production environment. No command ran during implementation.
+
+Before use, finish dependency isolation, gate checks, account/resource review, secret setup and deployment approval. Disconnect automatic main-push Builds in the Cloudflare panel. Local scripts cannot change that setting. Do not run the command as a readiness check.
+
+Default and Preview D1 configuration now use the same logical VRCP_D1 binding. Their database IDs remain distinct and unchanged. The entry point does not consume VRCP_PREVIEW_D1. [Cloudflare requires matching binding names with preview-safe resources](https://developers.cloudflare.com/workers/previews/configuration/#what-goes-in-the-previews-block).
+
+No Preview deployment command or activation occurred. Review Preview secrets, public URL access, database sharing/migrations and existing-project migration before enabling it. Multiple branches can share a configured Preview database. A metadata preview build does not test that resource boundary.

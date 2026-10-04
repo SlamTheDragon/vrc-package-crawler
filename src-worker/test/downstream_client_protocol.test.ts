@@ -4,15 +4,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { LocalCoordinatorStore } from "./support/local_sqlite.js";
 import { handleDownstreamRequest } from "../src/api/downstream_handler.ts";
-import { DOWNSTREAM_PROTOCOL_VERSION } from "../../src-crawler/src/shared/protocol/downstream_protocol.js";
-import { VrcPackagesClient } from "../../src-package/src/client.js";
+import { DOWNSTREAM_PROTOCOL_VERSION } from "vrc-packages-api";
+import { VRCPackageClient } from "../../src-package/src/client.js";
 import { type ReportSubmissionRequest } from "../../src-package/src/protocol/downstream.js";
 
 describe("Downstream Client Protocol & Demand Feedback Signals", () => {
   test("actual report HTTP receipts satisfy the SDK for demand, issue and removal", async () => {
     const app = store.registerApp({ schemaVersion: 1, appName: "Receipt fixture" });
     const statuses: number[] = [];
-    const client = new VrcPackagesClient({ baseUrl: "https://worker.example", appToken: app.appToken,
+    const client = new VRCPackageClient({ baseUrl: "https://worker.example", appToken: app.appToken,
       fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
         const response = await handleDownstreamRequest(new Request(input, init), store);
         statuses.push(response.status);

@@ -1,5 +1,5 @@
 /**
- * VRC Package Crawler — Core Library Exports
+ * VRCP Package Crawler — Core Library Exports
  *
  * Exposes crawler-node capabilities and its internal wire contracts.
  */

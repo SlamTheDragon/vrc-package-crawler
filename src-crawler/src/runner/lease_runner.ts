@@ -20,15 +20,19 @@ function minimizeOutcome(job: CrawlJob, outcome: Outcome): Outcome {
 
 /** An active lease must remain observable throughout egress, not just at submission. */
 export async function runLeasedJob(
-  job: CrawlJob, client: LeaseClient, fetcher: MetadataFetcher, heartbeatIntervalMs = 5_000
+  job: CrawlJob, client: LeaseClient, fetcher: MetadataFetcher, heartbeatIntervalMs = 5_000,
+  stopSignal?: AbortSignal
 ): Promise<{ outcome: Outcome; result: ResultResponse }> {
   if (!Number.isInteger(heartbeatIntervalMs) || heartbeatIntervalMs < 1) throw new Error("Invalid heartbeat interval");
+  stopSignal?.throwIfAborted();
   await client.heartbeat("fetching", job.jobId, job.leaseId);
+  stopSignal?.throwIfAborted();
   const authority = new AbortController();
+  const signal = stopSignal ? AbortSignal.any([authority.signal, stopSignal]) : authority.signal;
   let authorityError: unknown;
   let pulsePromise: Promise<void> | null = null;
   const pulse = () => {
-    if (pulsePromise || authorityError) return;
+    if (pulsePromise || authorityError || signal.aborted) return;
     pulsePromise = client.heartbeat("fetching", job.jobId, job.leaseId)
       .then(() => {})
       .catch((error: unknown) => {
@@ -40,17 +44,19 @@ export async function runLeasedJob(
   };
   const timer = setInterval(pulse, heartbeatIntervalMs);
   try {
-    const outcome = minimizeOutcome(job, await fetchJobOutcome(job, fetcher, authority.signal));
+    const outcome = minimizeOutcome(job, await fetchJobOutcome(job, fetcher, signal));
     clearInterval(timer);
     if (pulsePromise) await pulsePromise;
     if (authorityError) throw authorityError;
+    signal.throwIfAborted();
     // A final lease check closes the race between the last periodic pulse and submission.
     await client.heartbeat("fetching", job.jobId, job.leaseId);
+    signal.throwIfAborted();
     const result = await client.submit({ jobId: job.jobId, leaseId: job.leaseId,
       idempotencyKey: crypto.randomUUID(), outcome });
     return { outcome, result };
   } catch (error) {
-    throw authorityError || error;
+    throw authorityError || (stopSignal?.aborted ? stopSignal.reason : error);
   } finally {
     clearInterval(timer);
     authority.abort();

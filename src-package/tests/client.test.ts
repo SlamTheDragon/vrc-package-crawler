@@ -1,13 +1,13 @@
 import { describe, it, expect } from "bun:test";
-import { VrcPackagesClient, VrcApiError } from "../src/client.ts";
+import { VRCPackageClient, VRCPApiError } from "../src/client.ts";
 import { encodeLeadCursor, decodeLeadCursor } from "../src/protocol/operator.ts";
 import { encodeCatalogCursor } from "../src/types/package.ts";
 
-describe("VrcPackagesClient SDK", () => {
+describe("VRCPackageClient SDK", () => {
   it("reads owned app metadata through user-authenticated GET routes", async () => {
     const app = { appId: "00000000-0000-4000-8000-000000000002", appName: "Owned app",
       permissions: ["catalog:search"], createdAt: "2026-10-01T00:00:00.000Z", revokedAt: null };
-    const client = new VrcPackagesClient({ baseUrl: "https://worker.example", userToken: "fixture-user",
+    const client = new VRCPackageClient({ baseUrl: "https://worker.example", userToken: "fixture-user",
       fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init);
         expect(request.method).toBe("GET");
@@ -22,14 +22,14 @@ describe("VrcPackagesClient SDK", () => {
   });
   it("rejects anonymous app registration before transport", async () => {
     let calls = 0;
-    const client = new VrcPackagesClient({ baseUrl: "https://worker.example",
+    const client = new VRCPackageClient({ baseUrl: "https://worker.example",
       fetch: Object.assign(async () => { calls++; return Response.json({}); }, { preconnect() {} }) });
-    await expect(client.app.register({ schemaVersion: 1, appName: "Anonymous app" })).rejects.toThrow(VrcApiError);
+    await expect(client.app.register({ schemaVersion: 1, appName: "Anonymous app" })).rejects.toThrow(VRCPApiError);
     expect(calls).toBe(0);
   });
   it("preserves HTTP errors when the response body is not JSON", async () => {
     for (const body of ["Service unavailable", "<html>Upstream unavailable</html>", "", "{broken"]) {
-      const client = new VrcPackagesClient({
+      const client = new VRCPackageClient({
         baseUrl: "https://worker.example",
         operatorToken: "a".repeat(64),
         fetch: Object.assign(async () => new Response(body, { status: 503 }), { preconnect() {} })
@@ -38,10 +38,10 @@ describe("VrcPackagesClient SDK", () => {
         await client.operator.init();
         throw new Error("Expected HTTP failure");
       } catch (error) {
-        expect(error).toBeInstanceOf(VrcApiError);
-        expect((error as VrcApiError).status).toBe(503);
-        expect((error as VrcApiError).message).toBe("Request failed with status 503");
-        expect((error as VrcApiError).details).toBe(body);
+        expect(error).toBeInstanceOf(VRCPApiError);
+        expect((error as VRCPApiError).status).toBe(503);
+        expect((error as VRCPApiError).message).toBe("Request failed with status 503");
+        expect((error as VRCPApiError).details).toBe(body);
       }
     }
   });
@@ -51,10 +51,10 @@ describe("VrcPackagesClient SDK", () => {
       calls++;
       return Response.json({ status: "ok", message: "Schema initialized", autoSeed: true });
     }, { preconnect() {} });
-    const anonymous = new VrcPackagesClient({ baseUrl: "https://worker.example", fetch: fetchFn });
-    await expect(anonymous.operator.init()).rejects.toThrow(VrcApiError);
+    const anonymous = new VRCPackageClient({ baseUrl: "https://worker.example", fetch: fetchFn });
+    await expect(anonymous.operator.init()).rejects.toThrow(VRCPApiError);
     expect(calls).toBe(0);
-    const operator = new VrcPackagesClient({ baseUrl: "https://worker.example", operatorToken: "a".repeat(64), fetch: fetchFn });
+    const operator = new VRCPackageClient({ baseUrl: "https://worker.example", operatorToken: "a".repeat(64), fetch: fetchFn });
     await expect(operator.operator.init()).rejects.toThrow();
     expect(calls).toBe(1);
   });
@@ -87,7 +87,7 @@ describe("VrcPackagesClient SDK", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       fetch: mockFetch as typeof fetch
     });
@@ -119,7 +119,7 @@ describe("VrcPackagesClient SDK", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       appToken: dummyAppToken,
       fetch: mockFetch as typeof fetch
@@ -137,14 +137,14 @@ describe("VrcPackagesClient SDK", () => {
     expect(res.schemaVersion).toBe(1);
   });
 
-  it("throws VrcApiError if search is called without appToken", async () => {
-    const client = new VrcPackagesClient({
+  it("throws VRCPApiError if search is called without appToken", async () => {
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example"
     });
 
     await expect(
       client.index.search({ query: "foo", queryOrigin: "app_automated" })
-    ).rejects.toThrow(VrcApiError);
+    ).rejects.toThrow(VRCPApiError);
   });
 
   it("synchronizes delta updates", async () => {
@@ -165,7 +165,7 @@ describe("VrcPackagesClient SDK", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       fetch: mockFetch as typeof fetch
     });
@@ -190,7 +190,7 @@ describe("VrcPackagesClient SDK", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       appToken: dummyAppToken,
       fetch: mockFetch as typeof fetch
@@ -208,7 +208,7 @@ describe("VrcPackagesClient SDK", () => {
   });
 
   it("does not expose the retired user delisting method", () => {
-    const client = new VrcPackagesClient({ baseUrl: "https://worker.example" });
+    const client = new VRCPackageClient({ baseUrl: "https://worker.example" });
     expect("delist" in client.user).toBe(false);
   });
 
@@ -216,7 +216,7 @@ describe("VrcPackagesClient SDK", () => {
     const valid = { schemaVersion: 1, packages: [], nextCursor: null };
     for (const body of [{ packages: [] }, { items: [], count: 0 }, { ...valid, count: 0 },
       { ...valid, schemaVersion: 2 }, { ...valid, packages: [{}] }, { ...valid, nextCursor: "bad!cursor" }]) {
-      const client = new VrcPackagesClient({ baseUrl: "https://worker.example",
+      const client = new VRCPackageClient({ baseUrl: "https://worker.example",
         fetch: Object.assign(async () => Response.json(body), { preconnect() {} }) });
       await expect(client.index.query()).rejects.toThrow();
     }
@@ -224,7 +224,7 @@ describe("VrcPackagesClient SDK", () => {
 
   it("rejects unsupported public options and invalid paging before transport", async () => {
     let calls = 0;
-    const client = new VrcPackagesClient({ baseUrl: "https://worker.example",
+    const client = new VRCPackageClient({ baseUrl: "https://worker.example",
       fetch: Object.assign(async () => { calls++; return Response.json({ schemaVersion: 1,
         packages: [], nextCursor: null }); }, { preconnect() {} }) });
     for (const params of [{ query: "filter" }, { umbrella: "tools" }, { category: "tool" },
@@ -236,7 +236,7 @@ describe("VrcPackagesClient SDK", () => {
   });
 
   it("does not expose random sampling in the SDK", () => {
-    const client = new VrcPackagesClient({ baseUrl: "https://worker.example" });
+    const client = new VRCPackageClient({ baseUrl: "https://worker.example" });
     expect("random" in client.index).toBe(false);
   });
 
@@ -255,7 +255,7 @@ describe("VrcPackagesClient SDK", () => {
       }), { status: 201, headers: { "Content-Type": "application/json" } });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       userToken: dummyUserToken,
       fetch: mockFetch as unknown as typeof fetch
@@ -270,7 +270,7 @@ describe("VrcPackagesClient SDK", () => {
     expect(res.appToken).toBe(testAppToken);
   });
 
-  it("unwraps API error responses into VrcApiError", async () => {
+  it("unwraps API error responses into VRCPApiError", async () => {
     const mockFetch = async (): Promise<Response> => {
       return new Response(JSON.stringify({
         error: "FORBIDDEN",
@@ -278,7 +278,7 @@ describe("VrcPackagesClient SDK", () => {
       }), { status: 403, headers: { "Content-Type": "application/json" } });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       userToken: dummyUserToken,
       fetch: mockFetch as unknown as typeof fetch
@@ -288,8 +288,8 @@ describe("VrcPackagesClient SDK", () => {
       await client.user.apps.list();
       expect(true).toBe(false); // should not reach
     } catch (err) {
-      expect(err instanceof VrcApiError).toBe(true);
-      const apiErr = err as VrcApiError;
+      expect(err instanceof VRCPApiError).toBe(true);
+      const apiErr = err as VRCPApiError;
       expect(apiErr.status).toBe(403);
       expect(apiErr.message).toBe("Invalid capability");
       expect(apiErr.code).toBe("FORBIDDEN");
@@ -297,7 +297,7 @@ describe("VrcPackagesClient SDK", () => {
   });
 
   it("does not expose retired user node provisioning", () => {
-    const client = new VrcPackagesClient({ baseUrl: "https://worker.example", userToken: dummyUserToken });
+    const client = new VRCPackageClient({ baseUrl: "https://worker.example", userToken: dummyUserToken });
     expect("registerNode" in client.user).toBe(false);
   });
 
@@ -348,7 +348,7 @@ describe("VrcPackagesClient SDK", () => {
       return new Response("Not found", { status: 404 });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       operatorToken,
       fetch: mockFetch as unknown as typeof fetch
@@ -395,7 +395,7 @@ describe("VrcPackagesClient SDK", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       operatorToken,
       fetch: mockFetch as unknown as typeof fetch
@@ -455,7 +455,7 @@ describe("VrcPackagesClient SDK", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       operatorToken,
       fetch: mockFetch as unknown as typeof fetch
@@ -520,7 +520,7 @@ describe("VrcPackagesClient SDK", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       operatorToken,
       fetch: mockFetch as unknown as typeof fetch
@@ -580,7 +580,7 @@ describe("VrcPackagesClient SDK", () => {
       return new Response("Not found", { status: 404 });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       operatorToken,
       fetch: mockFetch as unknown as typeof fetch
@@ -634,7 +634,7 @@ describe("VrcPackagesClient SDK", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
-    const client = new VrcPackagesClient({
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",
       operatorToken,
       fetch: mockFetch as unknown as typeof fetch
@@ -652,16 +652,16 @@ describe("VrcPackagesClient SDK", () => {
     expect(verifyRes.takedownId).toBe(takedownId);
   });
 
-  it("throws VrcApiError if operator methods called without operatorToken", async () => {
-    const client = new VrcPackagesClient({
+  it("throws VRCPApiError if operator methods called without operatorToken", async () => {
+    const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example"
     });
 
-    await expect(client.operator.leads.list()).rejects.toThrow(VrcApiError);
-    await expect(client.operator.sourceProfiles.list()).rejects.toThrow(VrcApiError);
-    await expect(client.operator.autoQueueRules.list()).rejects.toThrow(VrcApiError);
-    await expect(client.operator.catalog.list()).rejects.toThrow(VrcApiError);
-    await expect(client.operator.takedowns.list()).rejects.toThrow(VrcApiError);
+    await expect(client.operator.leads.list()).rejects.toThrow(VRCPApiError);
+    await expect(client.operator.sourceProfiles.list()).rejects.toThrow(VRCPApiError);
+    await expect(client.operator.autoQueueRules.list()).rejects.toThrow(VRCPApiError);
+    await expect(client.operator.catalog.list()).rejects.toThrow(VRCPApiError);
+    await expect(client.operator.takedowns.list()).rejects.toThrow(VRCPApiError);
   });
 });
 

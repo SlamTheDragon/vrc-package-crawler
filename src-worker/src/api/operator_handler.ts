@@ -1,14 +1,16 @@
 import { CoordinatorConflict, readJson } from "./handler.js";
-import { RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeRequest } from "../../../src-package/src/protocol/operator.js";
-import { EnqueueJobRequestSchema, EnqueueJobResponseSchema, type EnqueueJobRequest } from "../../../src-package/src/protocol/operator.js";
-import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, LeadStatusSchema,
-  OPERATOR_PROTOCOL_VERSION, RejectLeadSchema, AutoQueueRuleListResponseSchema, AutoQueueRuleResponseSchema,
-  CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, decodeLeadCursor, decodeRuleCursor,
+import { RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeRequest,
+  EnqueueJobRequestSchema, EnqueueJobResponseSchema, type EnqueueJobRequest,
+  AutoQueueRuleListResponseSchema, AutoQueueRuleResponseSchema,
+  CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, decodeRuleCursor,
   IssueNodeCredentialSchema, NodeCredentialResponseSchema, CatalogListResponseSchema,
-  decodeCatalogCursor, decodeTakedownCursor, TakedownListResponseSchema,
+  decodeCatalogCursor, type IssueNodeCredential, type AutoQueueRule, type CreateAutoQueueRule,
+  type RuleCursor, type CatalogCursor, type CatalogPackage } from "vrc-packages-api";
+import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, LeadStatusSchema,
+  OPERATOR_PROTOCOL_VERSION, RejectLeadSchema, decodeLeadCursor,
+  decodeTakedownCursor, TakedownListResponseSchema,
   VerifyTakedownRequestSchema, VerifyTakedownResponseSchema,
-  type IssueNodeCredential, type AutoQueueRule, type CreateAutoQueueRule, type LeadCursor, type LeadRow,
-  type RuleCursor, type CatalogCursor, type CatalogPackage, type TakedownCursor, type TakedownRecord } from "./protocol/operator_protocol.js";
+  type LeadCursor, type LeadRow, type TakedownCursor, type TakedownRecord } from "./protocol/operator_protocol.js";
 import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   SourceAccessProfileListResponseSchema, SourceAccessProfileResponseSchema,
   decodeProfileCursor, type CreateSourceAccessProfile, type SourceAccessProfile,

@@ -19,8 +19,10 @@ This is the current entry point for agents working in this repository. `DELEGATE
 
 ## Delivery discipline
 
+- Treat each `src-*` folder as an independent project. Never import sibling source or tests through relative paths, aliases or symlinks. Consume reused code only as declared, distributed package dependencies. A `file:../src-*` link does not prove that boundary.
+- SDK npm publication is conditionally authorized. Do not publish v0.1.0 until thorough package verification and the owner's complete `docs/source/API_ROUTES.md` review pass. Reconcile each route, method, permission and SDK contract with implementation. This owner-review hold overrides the general deferred-review rule.
 - Pick one capability gate and one bounded vertical slice. The 2–3-file constraint applies only to `docs/scratch/`.
-- Owner correction, 2026-10-03: implement related slices before running tests. Batch verification at a capability-gate checkpoint, not after each small edit. This supersedes per-slice failing-test and full-suite requirements in older skills/rules.
-- Record changed paths, required fixtures and deferred checks in the tracker. Keep changes marked unverified until the checkpoint passes. At that checkpoint, run the relevant tests, typechecks and runtime/build checks together. Do not claim a verified gate from confidence alone.
+- Owner correction, 2026-10-04: implement a capability gate or related gate group before test verification and checkpoint write-ups. Slices are not gates. This supersedes per-slice failing-test and full-suite requirements in older skills/rules.
+- Keep changes marked unverified until the gate checkpoint passes. At that checkpoint, run the relevant tests, typechecks and runtime/build checks together. Do not invent smaller gates to justify repeated tests. Keep continuation records concise.
 - Keep scratch footprint minimal: maintain strictly 2–3 files in `docs/scratch/` (`IMPLEMENTATION_PLAN.md`, `UNMERGED_IMPLEMENTATION_PLAN.md`, `task_tracker.md`).
 - At a pause, record evidence, open risks, and next steps in `docs/scratch/task_tracker.md`.

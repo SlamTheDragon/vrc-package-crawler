@@ -16,7 +16,7 @@ import {
   type ReportSubmissionResponse,
   type CatalogSearchRequest,
   type CatalogSearchResponse
-} from "../../../src-crawler/src/shared/protocol/downstream_protocol.js";
+} from "vrc-packages-api";
 import { readJson, CoordinatorConflict } from "./handler.js";
 import { workerLogger } from "../worker_logger.ts";
 import { timingSafeEqual } from "../storage/d1/utils.ts";

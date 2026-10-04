@@ -14,7 +14,6 @@ import {
   PublicCatalogListResponseSchema
 } from "../src/protocol/catalog.ts";
 import {
-  DelistRequestSchema,
   CatalogSearchRequestSchema,
   ReportSubmissionRequestSchema
 } from "../src/protocol/downstream.ts";
@@ -109,28 +108,6 @@ describe("src-package wire protocols", () => {
       expect(PublicCatalogListQuerySchema.safeParse({ cursor: invalid }).success).toBe(false);
       expect(PublicCatalogListResponseSchema.safeParse({ ...page, nextCursor: invalid }).success).toBe(false);
     }
-  });
-
-  it("validates DelistRequest requires targetUrl or canonicalId", () => {
-    const validUrl = {
-      schemaVersion: 1,
-      targetUrl: "https://booth.pm/ja/items/123",
-      reason: "Takedown request"
-    };
-    expect(() => DelistRequestSchema.parse(validUrl)).not.toThrow();
-
-    const validId = {
-      schemaVersion: 1,
-      canonicalId: "item-456",
-      reason: "DMCA"
-    };
-    expect(() => DelistRequestSchema.parse(validId)).not.toThrow();
-
-    const invalid = {
-      schemaVersion: 1,
-      reason: "Neither provided"
-    };
-    expect(() => DelistRequestSchema.parse(invalid)).toThrow();
   });
 
   it("validates CatalogSearchRequest and enforces queryOrigin", () => {

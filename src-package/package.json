@@ -1,6 +1,7 @@
 {
   "name": "vrc-packages-api",
-  "version": "0.1.0",
+  "version": "0.0.0",
+  "private": true,
   "description": "TypeScript SDK, schemas, and taxonomy for the VRChat Package Crawler ecosystem",
   "module": "dist/index.js",
   "main": "dist/index.js",

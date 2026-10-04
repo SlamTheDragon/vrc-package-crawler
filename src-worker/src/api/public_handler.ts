@@ -4,13 +4,11 @@ import {
   CatalogDeltaResponseSchema,
   decodeCatalogDeltaCursor,
   type CatalogDeltaCursor,
-  type CatalogDelta
-} from "../../../src-crawler/src/shared/protocol/catalog_protocol.js";
-import {
+  type CatalogDelta,
   decodeCatalogCursor,
   type CatalogCursor,
   type CatalogPackage
-} from "./protocol/operator_protocol.js";
+} from "vrc-packages-api";
 import { workerLogger } from "../worker_logger.ts";
 
 export interface PublicCatalogStore {

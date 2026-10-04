@@ -22,6 +22,7 @@ export interface CrawlerNodeDaemonOptions {
  */
 export class CrawlerNodeDaemon {
   private stopping: boolean = false;
+  private readonly stopController = new AbortController();
   private lastHeartbeatAt: number = 0;
   private lastRetryAfterMs: number = 5_000;
   private runId: string;
@@ -50,6 +51,7 @@ export class CrawlerNodeDaemon {
   public stop(status: "completed" | "failed" = "completed"): void {
     if (this.stopping) return;
     this.stopping = true;
+    this.stopController.abort(new Error("Crawler node stopped"));
     logger.info(`Crawler node daemon stopping with status: ${status}`, { runId: this.runId });
     if (this.options.stopFilePath && existsSync(this.options.stopFilePath)) {
       try {
@@ -64,6 +66,7 @@ export class CrawlerNodeDaemon {
   }
 
   public async heartbeat(state: HeartbeatRequest["state"] = "idle"): Promise<void> {
+    if (this.stopping) return;
     try {
       await this.client.heartbeat(state);
       this.lastHeartbeatAt = Date.now();
@@ -86,7 +89,10 @@ export class CrawlerNodeDaemon {
       await this.heartbeat();
     }
 
+    if (this.stopping) return "stopped";
+
     const claim = await this.client.claim();
+    if (this.stopping) return "stopped";
     if (claim.status === "empty") {
       this.lastRetryAfterMs = claim.retryAfterMs;
       logger.debug("No jobs available to claim", { retryAfterMs: this.lastRetryAfterMs });
@@ -112,7 +118,7 @@ export class CrawlerNodeDaemon {
     const fetchFn = this.options.fetchFn ?? fetchPublicMetadata;
 
     try {
-      const { outcome, result } = await runLeasedJob(job, this.client, fetchFn);
+      const { outcome, result } = await runLeasedJob(job, this.client, fetchFn, 5_000, this.stopController.signal);
       const durationMs = Math.round(performance.now() - startTime);
       this.nodeStore.recordTaskSuccess(taskId, outcome.kind, result, { durationMs });
       logger.info("Task completed successfully", {
@@ -137,16 +143,14 @@ export class CrawlerNodeDaemon {
     const runOnce = this.options.runOnce ?? false;
     const sleepFn = this.options.sleepFn ?? Bun.sleep;
     logger.info("Crawler node daemon started", { runId: this.runId, runOnce });
-
-    await this.heartbeat();
+    const stopFilePath = this.options.stopFilePath;
+    const stopFilePoll = stopFilePath ? setInterval(() => {
+      if (existsSync(stopFilePath)) this.stop();
+    }, 100) : undefined;
 
     try {
+      await this.heartbeat();
       while (!this.stopping) {
-        if (this.options.stopFilePath && existsSync(this.options.stopFilePath)) {
-          this.stop();
-          break;
-        }
-
         try {
           const outcome = await this.step();
           if (outcome === "stopped") {
@@ -158,10 +162,6 @@ export class CrawlerNodeDaemon {
           if (outcome === "empty") {
             const sleepTarget = Date.now() + (this.lastRetryAfterMs || 5_000);
             while (!this.stopping && Date.now() < sleepTarget) {
-              if (this.options.stopFilePath && existsSync(this.options.stopFilePath)) {
-                this.stop();
-                break;
-              }
               await sleepFn(Math.min(100, Math.max(0, sleepTarget - Date.now())));
             }
           }
@@ -174,8 +174,10 @@ export class CrawlerNodeDaemon {
       }
     } catch (err) {
       logger.error("Unexpected error in daemon loop", err);
+      this.stop("failed");
       throw err;
     } finally {
+      if (stopFilePoll !== undefined) clearInterval(stopFilePoll);
       this.stop();
     }
   }

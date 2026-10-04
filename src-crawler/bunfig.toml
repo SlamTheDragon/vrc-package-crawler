@@ -1,2 +1,2 @@
 [test]
-preload = ["../src-worker/test/helpers/test_setup.ts"]
+preload = ["./tests/test_setup.ts"]

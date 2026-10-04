@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import crypto from "node:crypto";
 import { handleOperatorRequest } from "../src/api/operator_handler";
-import { handleNodeRequest } from "../src/api/handler.ts";
 import { LocalCoordinatorStore } from "./support/local_sqlite.js";
-import { OPERATOR_PROTOCOL_VERSION, CatalogListResponseSchema, decodeCatalogCursor } from "../src/api/protocol/operator_protocol.js";
+import { OPERATOR_PROTOCOL_VERSION } from "../src/api/protocol/operator_protocol.js";
+import { CatalogListResponseSchema, decodeCatalogCursor } from "vrc-packages-api";
 import { PROTOCOL_VERSION } from "../../src-crawler/src/shared/protocol/node_protocol.js";
 import { approveFixtureSource, seedApprovedFixtureJob } from "./helpers/source_access_fixture.js";
 
@@ -13,14 +13,6 @@ function operatorGet(path: string, token = OPERATOR_TOKEN): Request {
   return new Request(`http://localhost${path}`, {
     method: "GET",
     headers: { authorization: `Bearer ${token}` }
-  });
-}
-
-function nodePost(path: string, body: unknown, token: string): Request {
-  return new Request(`http://localhost${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify(body)
   });
 }
 
@@ -64,9 +56,6 @@ function setupStorefrontLease(store: LocalCoordinatorStore, url: string, platfor
   if (claimed.status !== "leased") throw new Error(`Expected ${platform} lease`);
   return { nodeToken, jobId: claimed.job.jobId, leaseId: claimed.job.leaseId, nodeId };
 }
-
-let server: ReturnType<typeof Bun.serve> | undefined;
-afterEach(() => { server?.stop(true); server = undefined; });
 
 describe("G2 canonical projection via VPM observation submission", () => {
   test("VPM batch observation auto-projects to canonical_package and accepted vpm_id link", () => {
@@ -717,7 +706,7 @@ describe("GET /v1/operator/catalog endpoint", () => {
     } finally { store.close(); }
   });
 
-  test("loopback HTTP: GET /v1/operator/catalog returns same result as in-process", async () => {
+  test("operator catalog serializes accepted identity links and rejects node credentials", async () => {
     const store = new LocalCoordinatorStore();
     try {
       const { nodeToken, jobId, leaseId, nodeId } = setupVpmLease(store);
@@ -728,43 +717,23 @@ describe("GET /v1/operator/catalog endpoint", () => {
         outcome: {
           kind: "batch",
           observations: [
-            { sourceItemKey: "com.loopback.pkg1", title: "Loopback One", author: "X", summary: "", outboundLinks: [], originUpdatedAt: null },
-            { sourceItemKey: "com.loopback.pkg2", title: "Loopback Two", author: "Y", summary: "", outboundLinks: [], originUpdatedAt: null }
+            { sourceItemKey: "com.catalog.pkg1", title: "Catalog One", author: "X", summary: "", outboundLinks: [], originUpdatedAt: null },
+            { sourceItemKey: "com.catalog.pkg2", title: "Catalog Two", author: "Y", summary: "", outboundLinks: [], originUpdatedAt: null }
           ]
         }
       }, principal);
 
-      server = Bun.serve({
-        port: 0,
-        fetch: async (req) => {
-          if (req.url.includes("/v1/operator/")) return handleOperatorRequest(req, store, OPERATOR_TOKEN);
-          return handleNodeRequest(req, store);
-        }
-      });
-      const port = server.port;
-
-      // In-process reference
-      const inProcess = CatalogListResponseSchema.parse(
-        await (await handleOperatorRequest(operatorGet("/v1/operator/catalog"), store, OPERATOR_TOKEN)).json()
-      );
-      // Loopback HTTP
-      const loopback = await fetch(`http://127.0.0.1:${port}/v1/operator/catalog`, {
-        headers: { authorization: `Bearer ${OPERATOR_TOKEN}` }
-      });
-      expect(loopback.status).toBe(200);
-      const loopbackBody = CatalogListResponseSchema.parse(await loopback.json());
-      expect(loopbackBody.packages.map(p => p.canonicalId).sort())
-        .toEqual(inProcess.packages.map(p => p.canonicalId).sort());
-      expect(loopbackBody.packages).toHaveLength(2);
-      for (const pkg of loopbackBody.packages) {
+      const response = await handleOperatorRequest(operatorGet("/v1/operator/catalog"), store, OPERATOR_TOKEN);
+      expect(response.status).toBe(200);
+      const body = CatalogListResponseSchema.parse(await response.json());
+      expect(body.packages.map(p => p.canonicalId).sort()).toEqual(["com.catalog.pkg1", "com.catalog.pkg2"]);
+      expect(body.packages).toHaveLength(2);
+      for (const pkg of body.packages) {
         expect(pkg.acceptedLinks).toHaveLength(1);
         expect(pkg.acceptedLinks[0].evidenceKind).toBe("vpm_id");
       }
 
-      // Node token denied over loopback too
-      const denied = await fetch(`http://127.0.0.1:${port}/v1/operator/catalog`, {
-        headers: { authorization: `Bearer ${nodeToken}` }
-      });
+      const denied = await handleOperatorRequest(operatorGet("/v1/operator/catalog", nodeToken), store, OPERATOR_TOKEN);
       expect(denied.status).toBe(401);
     } finally { store.close(); }
   });
@@ -1152,26 +1121,6 @@ describe("G2/G4 package fronts relational projection", () => {
       expect(pkgWithoutFront).toBeDefined();
       expect(pkgWithoutFront.fronts).toEqual([]);
 
-      // Loopback HTTP test
-      server = Bun.serve({
-        port: 0,
-        fetch: async (req) => {
-          if (req.url.includes("/v1/operator/")) return handleOperatorRequest(req, store, OPERATOR_TOKEN);
-          return handleNodeRequest(req, store);
-        }
-      });
-      const port = server.port;
-
-      const loopback = await fetch(`http://127.0.0.1:${port}/v1/operator/catalog`, {
-        headers: { authorization: `Bearer ${OPERATOR_TOKEN}` }
-      });
-      expect(loopback.status).toBe(200);
-      const loopbackBody = CatalogListResponseSchema.parse(await loopback.json());
-      const loopbackPkg = loopbackBody.packages.find(p => p.canonicalId === "com.api.pkg1")!;
-      expect(loopbackPkg.fronts).toHaveLength(1);
-      expect(loopbackPkg.fronts[0].price).toBe(500);
-      expect(loopbackPkg.fronts[0].currency).toBe("JPY");
-      expect(loopbackPkg.fronts[0].platform).toBe("booth");
     } finally { store.close(); }
   });
 

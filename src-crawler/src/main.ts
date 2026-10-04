@@ -7,6 +7,14 @@ import { LocalNodeStore } from "./storage/local_sqlite.ts";
 import { NodeIdSchema, PlatformSchema, type Platform } from "./shared/protocol/node_protocol.ts";
 import { loadScopedGitHubTokenFromEnvFile } from "./adapters/observation_adapter.ts";
 import { logger } from "./utils/logging/logger.ts";
+import { version } from "../package.json";
+
+const args = Bun.argv.slice(2);
+if (args[0] === "--version") {
+  if (args.length !== 1) process.exit(2);
+  console.log(version);
+  process.exit(0);
+}
 
 if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
   const fallbackToken = loadScopedGitHubTokenFromEnvFile(process.cwd());
@@ -16,7 +24,7 @@ if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
 }
 
 function printSetupGuide(): void {
-  console.log(`=== VRC Package Crawler Node Setup Guide ===
+  console.log(`=== VRCP Package Crawler Node Setup Guide ===
 
 To initialize a new crawler node configuration, specify a unique node identifier:
 
@@ -40,7 +48,7 @@ Parameters:
 
 Examples:
   vrcp-crawler-node init desktop-1
-  vrcp-crawler-node init worker-prod-1 https://vrc-coordinator.workers.dev
+  vrcp-crawler-node init worker-prod-1 https://<your-coordinator-worker>.workers.dev
   vrcp-crawler-node init gh-node http://127.0.0.1:8787 github,vpm
 
 Next Steps:
@@ -54,7 +62,6 @@ Next Steps:
 `);
 }
 
-const args = Bun.argv.slice(2);
 if (args[0] === "help" || args[0] === "--help" || args[0] === "-h") {
   printSetupGuide();
   process.exit(0);
@@ -126,44 +133,26 @@ const daemon = new CrawlerNodeDaemon(config, nodeStore, client, {
   stopFilePath: stopFile,
 });
 
-let isShuttingDown = false;
-const shutdown = async () => {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-  try {
-    logger.info("Crawler node daemon shutting down...");
-    daemon.stop();
-  } catch (err) {
-    logger.error("Error stopping daemon", err);
-  }
-  try {
-    nodeStore.close();
-  } catch (err) {
-    logger.error("Error closing node store", err);
-  }
-  try {
-    await logger.close();
-  } catch (_) {}
-  process.exit(0);
-};
+let exitCode = 0;
 
 process.on("unhandledRejection", (reason) => {
   logger.error("Unhandled promise rejection in crawler node", reason);
 });
 process.on("uncaughtException", (error) => {
   logger.error("Uncaught exception in crawler node", error);
-  shutdown().finally(() => process.exit(1));
+  exitCode = 1;
+  daemon.stop("failed");
 });
 
-process.once("SIGINT", () => { void shutdown(); });
-process.once("SIGTERM", () => { void shutdown(); });
+process.once("SIGINT", () => { daemon.stop(); });
+process.once("SIGTERM", () => { daemon.stop(); });
 if (process.stdin.isTTY === false) {
   process.stdin.resume();
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (data) => {
     const text = String(data).trim();
     if (text === "stop" || text === "exit" || text === "shutdown") {
-      void shutdown();
+      daemon.stop();
     }
   });
   process.stdin.unref();
@@ -173,6 +162,20 @@ try {
   await daemon.start();
 } catch (err) {
   logger.error("Error running crawler node daemon", err);
+  exitCode = 1;
 } finally {
-  await shutdown();
+  // Drain task writes and in-flight receipts before closing the local store.
+  daemon.stop(exitCode === 0 ? "completed" : "failed");
+  try {
+    nodeStore.close();
+  } catch (err) {
+    exitCode = 1;
+    logger.error("Error closing node store", err);
+  }
+  try {
+    await logger.close();
+  } catch {
+    exitCode = 1;
+  }
+  process.exit(exitCode);
 }

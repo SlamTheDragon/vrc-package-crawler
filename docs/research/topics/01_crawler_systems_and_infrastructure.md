@@ -69,3 +69,58 @@ KV Free includes 100,000 reads but only 1,000 writes daily. It is not a free sub
 Firebase verification keys are public, unlike private service credentials and user tokens. Cache keys according to their response Cache-Control max-age. Signature verification still requires token-claim checks. Session revocation is a separate requirement. [Firebase ID-token verification](https://firebase.google.com/docs/auth/admin/verify-id-tokens).
 
 Open decisions: registry/user ownership boundaries, cross-database atomicity, environment isolation, plan budget, cache freshness and revocation guarantees. Record them in the ledger before migrations or new bindings. Do not infer that 1,000 users require a paid plan without their request pattern.
+
+## Fleet batching and staggered sync — proposal, 2026-10-04
+
+The owner proposes assignment sequences, one-to-two-hour sync windows and 15-minute heartbeats. Compare these as separate clocks. This audit does not change runtime settings. [R54-C39A through D](../../scratch/UNMERGED_IMPLEMENTATION_PLAN.md) propose a full fleet-budget gate, G16, after ownership and recovery prerequisites.
+
+### Four clocks, not one sync interval
+
+| Clock | Inspected behavior | Proposal and constraint |
+| --- | --- | --- |
+| Source revisit | D1 submit schedules normal outcomes 24 hours later. Temporary failure uses 15 minutes. Rate-limited outcomes use the supplied delay. | Tune revisit frequency by source and change rate. A fleet sync window must not override Retry-After or origin pacing. |
+| Assignment and idle liveness | claim returns one job or retryAfterMs=1000. The idle heartbeat defaults to 30 seconds. The empty-delay schema caps at five minutes. | Compare bounded backoff and jitter first. Hourly sleeps need a reviewed contract and accepted discovery latency. |
+| Active fetch authority | Claims expire after five minutes. runLeasedJob checks authority before fetch, every five seconds, and before submit. Heartbeats do not renew leases. | Keep active checks separate from idle liveness. A 15-minute check exceeds the current lease lifetime. Longer intervals also delay outage and revocation detection. |
+| Result upload and catalog sync | Node submits each result immediately. A new result needs a live lease. Consumers independently page index/delta. | Persist a minimized outbox first. Delaying new results for one or six hours needs an explicit acceptance/recovery contract. Consumer sync can use another cadence. |
+
+Code anchors: [claim/heartbeat/submit](../../../src-worker/src/storage/d1/coordinator.ts), [wire limits](../../../src-crawler/src/shared/protocol/node_protocol.ts), [daemon](../../../src-crawler/src/runner/daemon.ts), [lease runner](../../../src-crawler/src/runner/lease_runner.ts). Existing duplicate receipts can replay after lease expiry if identity, key, digest and active credentials match. That does not authorize first-time late submissions.
+
+The prototype sync command at commit 09e9dc8 copied local rows to D1 with rowid checkpoints. That is not the current node-to-coordinator contract. The owner's six-hour schedule is historical intent, not a recovered setting in that command. Do not restore direct D1 writes or rowid replication. The [prototype audit](../audits/PROTOTYPE_PARITY.md) records missed in-place changes.
+
+### Budget arithmetic, not a benchmark
+
+Current Free allowances are 100,000 Worker requests daily, and D1's account-wide 5 million reads and 100,000 writes daily. D1 has no bandwidth charge. Node hosts and upstream services can impose separate byte quotas. Sources: [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/), [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/). These sources were checked on 2026-10-04.
+
+For ten nodes online all day, one periodic call every I seconds produces 10 × 86,400 / I daily calls. This excludes latency, retries, job traffic and consumer traffic.
+
+| Periodic operation | Interval | Calls/day across ten nodes |
+| --- | --- | ---: |
+| Current empty claims | 1 second | 864,000 |
+| Current idle heartbeat | 30 seconds | 28,800 |
+| Current active periodic heartbeat, if continuously fetching | 5 seconds | 172,800 |
+| Candidate idle operation | 15 minutes | 960 |
+| Candidate assignment window | 1 hour | 240 |
+| Candidate assignment window | 2 hours | 120 |
+| Historical sync cadence | 6 hours | 40 |
+
+Do not sum mutually exclusive full-day idle and active scenarios. Current idle polling alone exceeds the request allowance in this idealized model. Slow idle calls save requests but increase assignment latency. For each executed job, count claim, result, initial/final authority checks, periodic checks and the daemon's post-job idle heartbeat. For batches, count individual SQL operations and rows, not just HTTP envelopes.
+
+D1 bills rows scanned and changed, including index writes. HTTP batching does not itself reduce those rows. Free allows 50 D1 queries per invocation and 10 milliseconds of Worker CPU. Both constrain batch size. Measure SQL count, rows_read, rows_written, bytes and CPU before selecting limits. See [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) and [Workers limits](https://developers.cloudflare.com/workers/platform/limits/). Reserve explicit headroom for users, preview runs, robots, moderation and failures.
+
+### Decision matrix
+
+| Option | Saving | System cost or failure risk | Recommendation for review |
+| --- | --- | --- | --- |
+| Empty-queue backoff, bounded jitter and activity-aware liveness | Fewer empty scans and idle writes | New-job latency and slower idle-node detection | First candidate. Coordinator supplies the schedule. Combine liveness with useful calls only if semantics remain clear. |
+| Small batches of ready, short-lived leases | Fewer claim/result HTTP envelopes | Atomic per-job reservations, starvation, partial completion and payload/CPU limits | Second candidate. Persist receipts per job. Reserve origin budgets before fetching, including across nodes. |
+| Future assignment hints with short execution authorization | Fewer scheduling exchanges | Hints are not fetch grants. Activation/check calls still have a cost. | Compare against short batches. Do not reserve one origin for hours merely to reduce calls. |
+| One-to-two-hour unattended work grants | Fewer authority checks | Stale robots/profiles, delayed revocation, coordinator-loss detection and slow reassignment | Critical owner decision. Incompatible with current fail-closed behavior if treated as offline permission. |
+| Delayed result batches | Fewer upload envelopes | Current leases expire first. Restart, lost ACK, quota and partial-batch recovery remain open. | Depends on R15-C17 outbox and a reviewed late-result contract. No unbounded raw-data buffer. |
+| Conditional requests and adaptive revisits | Fewer downloaded bytes and less unchanged content | Validators need per-source support and correctness checks | Preserve existing If-None-Match/If-Modified-Since behavior. Measure response bytes. A 304 still uses a request. |
+| Cloudflare Queues | Durable dispatch and delivery retries | Adds message operations, retention limits and another recovery boundary | Optional comparison, not an automatic replacement for D1 scheduling. Queue visibility is not crawler authorization. |
+
+Queues Free includes 10,000 operations daily and 24-hour retention. A typical small message needs write, read and delete operations. Batch delivery does not discount those per-message operations. [Queues pricing](https://developers.cloudflare.com/queues/platform/pricing/). Pull consumers support delivery leases and redelivery, but these do not check source profiles, robots or origin reservations. Keep Cloudflare account tokens off crawler nodes. See [pull consumers](https://developers.cloudflare.com/queues/configuration/pull-consumers/).
+
+First measure the current workload. Then compare backoff, short batches and Queues with the same source rules and backlog. Bound batch items, encoded bytes, SQL count, execution time and node disk usage. Give every item an idempotency key and explicit receipt or retry status. Jitter node wake times and source revisits. Do not let a burst bypass network-wide origin pacing.
+
+Critical owner choices: maximum coordinator-loss/revocation delay, acceptable discovery and upload latency, outbox disk/retention budget, and account headroom. A six-hour outbox can save upload calls, but cannot satisfy current live-lease acceptance unchanged. Verification at G16 must include ten-node schedules, concurrent origin reservations, expiry, clock skew, offline/restart, lost ACK, partial batches and quota exhaustion. No remote quota measurement or fleet runtime test ran in this audit.
