@@ -1,4 +1,4 @@
-# VRC Packages (⚠️WIP!)
+# VRC Packages (WIP⚠️)
 
 VRC Packages (VRCP) is an open-source discovery and indexing network engine for public VRChat creator packages (Tools, Assets, & Avatars).
 
@@ -112,6 +112,12 @@ bun run test:runtime
 
 ---
 
+## Documentation
+
+To read further, see repository documentation at [docs/source](docs/source).
+
+---
+
 ## Legal & Compliance
 
 The Project operates under strict technical and legal covenants to safeguard creator rights and target infrastructure:
@@ -123,12 +129,6 @@ The Project operates under strict technical and legal covenants to safeguard cre
 - **Anti-AI Model Training Restrictions**: Catalog compilations are restricted from use in training generative AI models.
 
 Review [LEGAL.md](LEGAL.md) for full operational covenants, governing law, and public terms of service.
-
----
-
-## Documentation
-
-To read further, see repository documentation at [docs/source](docs/source).
 
 ---
 
