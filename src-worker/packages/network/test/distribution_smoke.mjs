@@ -20,11 +20,13 @@ assert.ok(['vrc-packages-api', 'vrc-packages-api-preview'].includes(sdkReceipt.n
 const networkTarball = args[2] === '--network-tarball' ? realpathSync(resolve(args[3])) : null;
 if (networkTarball) assert.ok(networkTarball.endsWith('.tgz') && lstatSync(networkTarball).isFile(), 'Network input must be a packed artifact');
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
-const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+const sourceManifest = readFileSync(join(packageRoot, 'package.json'), 'utf8');
+const manifest = JSON.parse(sourceManifest);
 const testOutput = resolve(packageRoot, '.artifacts/tests');
 mkdirSync(testOutput, { recursive: true });
 const consumer = mkdtempSync(join(realpathSync(testOutput), 'vrcp-network-packed-'));
 assert.equal(dirname(consumer), realpathSync(testOutput), 'Network fixture escaped its project test output');
+writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'vrcp-network-npm-consumer', private: true, type: 'module' }));
 const npmCli = [process.env.npm_execpath,
   join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
   resolve(dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js')
@@ -115,6 +117,7 @@ for (const executable of [process.execPath, process.env.BUN_BINARY || 'bun']) {
 run(join(packageRoot, 'node_modules/typescript/bin/tsc'), [
   '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2024', '--lib', 'ES2024,DOM', 'consumer.mts'
 ], bunConsumer);
+assert.equal(readFileSync(join(packageRoot, 'package.json'), 'utf8'), sourceManifest, 'Packed consumer changed the network producer manifest');
 console.log(JSON.stringify({ check: 'packed_network_distribution', node: true, bun: true, types: true,
   npmInstall: true, bunInstall: true, sdk: sdkReceipt.name, sdkVersion: sdkReceipt.version,
   workerBuild: true, nativeWorker: true, externalFetches, files: packed.entryCount,

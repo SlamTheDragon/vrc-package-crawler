@@ -1,16 +1,19 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
+const sourceManifest = readFileSync(join(packageRoot, 'package.json'), 'utf8');
 // Keep this outside dist: prepack removes dist before building the fixture tarball.
 const testOutput = resolve(packageRoot, '.artifacts/tests');
 mkdirSync(testOutput, { recursive: true });
 const consumer = mkdtempSync(join(realpathSync(testOutput), 'vrcp-sdk-packed-'));
 assert.equal(dirname(consumer), realpathSync(testOutput), 'SDK fixture escaped its project test output');
+// An explicit boundary prevents npm from finding the producer's parent manifest.
+writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'vrcp-sdk-packed-consumer', private: true, type: 'module' }));
 const npmCli = [process.env.npm_execpath,
   join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
   resolve(dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js')
@@ -21,7 +24,7 @@ const run = (cli, args, cwd = consumer) => execFileSync(process.execPath, [cli, 
 });
 console.log(JSON.stringify({ consumer, status: 'started' }));
 const [packed] = JSON.parse(run(npmCli, ['pack', '--json', '--pack-destination', consumer], packageRoot));
-const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+const manifest = JSON.parse(sourceManifest);
 assert.equal(packed.name, manifest.name);
 assert.equal(packed.version, manifest.version);
 assert.ok(packed.files.every(file => ['package.json', 'README.md', 'LICENSE'].includes(file.path) ||
@@ -65,5 +68,6 @@ try {
     clientReady: true, publicIndex: true, reason: 'Packed Worker fixture', redirectRejected: true });
   assert.equal(externalFetches, 0);
 } finally { await runtime.dispose(); }
+assert.equal(readFileSync(join(packageRoot, 'package.json'), 'utf8'), sourceManifest, 'Packed consumer changed the SDK producer manifest');
 console.log(JSON.stringify({ check: 'packed_sdk_distribution', node: true, types: true,
   workerBuild: true, nativeWorker: true, externalFetches, files: packed.entryCount, consumer }));
