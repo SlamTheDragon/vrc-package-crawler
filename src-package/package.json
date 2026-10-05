@@ -1,6 +1,6 @@
 {
-  "name": "vrc-packages-api",
-  "version": "0.0.4",
+  "name": "vrc-packages-api-preview",
+  "version": "2026.10.5-pre",
   "private": false,
   "license": "Apache-2.0",
   "repository": {
