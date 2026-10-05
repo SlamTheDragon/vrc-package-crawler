@@ -71,6 +71,9 @@ Credentials stay on GitHub API requests, not signed storage requests. No local r
 
 1. Publication repair 096512b is pushed. Root automation queued SDK preview 2026.10.5-pre and release 0.0.5.
    Keep failed SDK 4 tags fixed. Release staging still requires GitHub review and separate npm approval.
+   Preview run 37349103560 published version 5 but its bounded readback did not converge. Both public version and latest now resolve to 5.
+   Keep the published tag fixed. Check its CI/registry bytes before same-source readback recovery. Do not publish again or advance its patch.
+   Release run 37349119431 passed its build and awaits protected environment review.
 2. After both SDK publications pass, publish the next network archive with their checked peer bounds.
    Current source peer bounds changed, but published network 2 still targets SDK 3. Do not claim clean-install readiness yet.
 3. Finish all current producer/consumer dependency proofs. Both crawler GHCR manifest/config/latest checks passed.
