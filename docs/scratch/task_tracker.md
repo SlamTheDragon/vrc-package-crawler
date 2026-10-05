@@ -37,7 +37,7 @@ Network has a required SDK peer. Changed peer bounds require a checked new archi
 | Desktop release | 0.0.3, 37345381229 | Live pre-attachment review wait proved. Owner approval and publication passed. Root installer readback passed |
 | Worker preview | 2026.10.5-pre, 37346723325 | Deployment and root Actions bundle readback passed after the isolated tooling repair |
 | Worker release | 0.0.4, 37345503423 | Build and root Actions bundle readback passed. Production deployment skipped |
-| Internal network | 2026.10.2, 37321030222 | Earlier four-asset proof passed. New Bun producer and next SDK peer-bound trial remain |
+| Internal network | 2026.10.3, 37354313987 | Bun producer and both SDK-5 peer checks passed. All four hosted assets and exact deployment link passed |
 
 Crawler deployment links passed: preview 6865068223 and release 6865131797.
 Desktop deployment links passed: preview 6865219211 and release 6865227792.
@@ -54,7 +54,8 @@ Working theory: tag-scoped caches alone cannot supply successive tags. Trusted d
 Keys must exclude product version and source revision, but include dependency specifications, OS, architecture and Bun version.
 Cache only public dependency downloads. Always run installation and distributed SDK/network checks. Never cache credentials or release outputs.
 Replace automatic deletion with read-only usage monitoring. Custom quota changes and artifact/GHCR retention remain outside this decision.
-Cache implementation has local coverage. Pinned cold/warm hosted proof remains unverified.
+Pinned cold/warm hosted proof passed. Runs 37354148172 and 37354314159 each passed all eight Linux/Windows warming jobs.
+Bounded logs prove cold save and subsequent warm hits. Tagged network build 111912730622 also restored the trusted branch cache.
 
 Working theory confirmed: bun --cwd path run script can print help and exit zero.
 Commands use bun run --cwd path script. A regression proves actual forwarding, arguments and working directory.
@@ -82,8 +83,14 @@ Credentials stay on GitHub API requests, not signed storage requests. No local r
    Release tarball SHA-256: 2f033507c4e3e5f6b79f9b07b35fe4cb14762e8d201d72e38665c035eeb22632.
    Keep failed SDK 4 and published SDK 5 tags fixed.
    The readback repair requests registry revalidation and schedules 63 seconds of read-only retries within a 90-second deadline.
-2. Publish the next network archive with the two public SDK peer bounds.
-   Current source peers target SDK 5. Published network 2 still targets SDK 3. Clean-install readiness remains unproved.
+2. Network 2026.10.3 is public with SDK-5 peer bounds. All four assets passed root readback.
+   Tag source a0416fd4bef66c87eebc589d421a6f29e7674472 and tag object c7d23fc3a24a686939e46a7cd98390dbfba19371 remain fixed.
+   Tarball SHA-256: f52628d85b003b4014964e47af81fa2260ff342628fc8351d7940a4764427287.
+   Deployment 6866559308 points to its exact tagged Release.
+   Worker/crawler development preparation installed preview SDK 2026.10.5-pre and network 2026.10.3. Both typechecks passed.
+   Desktop and website development preparation installed release SDK 0.0.5. Website source retains its declared preview version.
+   Calling website release preparation failed closed on that expected metadata mismatch. Preview preparation passed without delivery or web artifacts.
+   These are existing-checkout installs, not the owner's future fresh-clone proof.
 3. Finish current consumer dependency proofs and the new cache path. Existing six consumer/Worker trials used SDK 3 and network 2.
    Root checks do not independently prove image layers or installer execution. Branch triggers and main protection remain unimplemented.
 4. Owner accepts compatible dependency-cache reuse, GitHub-managed eviction and read-only monitoring instead of automatic deletion.
@@ -91,7 +98,10 @@ Credentials stay on GitHub API requests, not signed storage requests. No local r
    Normal installation and SDK/network checks always run. No credentials, node_modules or release outputs enter the cache.
    Live usage API passed: 1,830,379,310 bytes across 77 caches. Capacity is explicitly not measured.
    The earlier cap-query 403 no longer blocks read-only monitoring. No deletion or quota change ran.
-   Verify hosted cold/warm caching before closing this boundary. Artifact, GHCR and account budget proof remains separate.
+   Hosted cold/warm and tagged cache reuse passed. Monitoring run 37354471371 passed with Actions read.
+   Later usage read: 1,844,706,464 bytes across 78 caches. Counts are a point-in-time observation, not a quota guarantee.
+   Bun executable caching remains action-managed and also showed cache hits. Compiled targets are not cached.
+   Artifact, GHCR and account budget proof remains separate.
 5. Complete C57A before the requested owner hook for C57B.
 6. After pipeline setup, read attacker.md.secretresearch and commit sanitized findings in the ledgers.
    The input exists and remains unread. Never publish raw private research.

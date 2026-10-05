@@ -550,7 +550,7 @@ The dependency-cache workflow warms public registry downloads from trusted main 
 Keys include the product dependency group, dependency specifications, Bun version, operating system and architecture.
 Product versions, source commits, scripts and verified SDK/network delivery inputs do not change these keys.
 Minimal private manifests in temporary storage exclude project scripts and distributed project contracts. Installation disables lifecycle scripts.
-Tagged builds restore caches without saving duplicate tag-scoped entries. Every build still installs and checks its configured distributed dependencies.
+Tagged builds restore dependency caches without saving new tag-scoped download entries. Every build still installs and checks its configured distributed dependencies.
 Missing caches require downloads, not a different build or permission path. Website delivery remains disabled.
 There is no cache of node_modules, credentials, compiled targets, D1 state or release outputs.
 
