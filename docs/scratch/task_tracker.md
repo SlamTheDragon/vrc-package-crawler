@@ -106,8 +106,10 @@ Desktop preview CI 37301287106 passed and all five assets/source/tag checks pass
 Preview MSI SHA-256: c13d477fe68aed792441d6ea225bd49ddd2bc5371d9b820126f0392245d43e08.
 Both crawler runs passed publication and attachments. Independent binary readback timed out at 60 seconds.
 The checker now permits 180 seconds per file without relaxing its 256 MiB total bound or digest/source checks. Grouped checks passed 30 tests and 324 assertions.
+Crawler public binary readback also timed out at 180 seconds. Publication passed, but independent hosted-byte proof remains open; do not claim G14 complete or split/protect branches yet.
 Storage snapshot: 0.97 GiB caches and 0.73 GiB CI artifacts. Largest caches are Bun archives; most CI artifacts retain 90 days.
 R57-RETENTION and R57-DEPLOYMENT-LINKS record the owner's new concerns. No cache deletion, budget change or retention-policy change ran.
+Worker deployment links are explicitly deferred. Future owner target: https://docs.vrcpackages.com. No DNS or deployment URL changes.
 
 ## Next actions and safety
 
