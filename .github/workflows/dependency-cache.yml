@@ -1,0 +1,46 @@
+name: Warm trusted dependency downloads
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/package.json'
+      - scripts/cache-maintenance.mjs
+      - .github/actions/dependency-cache/action.yml
+      - .github/workflows/dependency-cache.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vrcp-dependency-cache-warm
+  cancel-in-progress: false
+jobs:
+  warm:
+    if: github.repository == 'SlamTheDragon/vrc-packages' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { project: root, os: ubuntu-latest }
+          - { project: root, os: windows-latest }
+          - { project: package, os: ubuntu-latest }
+          - { project: network, os: ubuntu-latest }
+          - { project: worker, os: ubuntu-latest }
+          - { project: crawler, os: ubuntu-latest }
+          - { project: crawler, os: windows-latest }
+          - { project: crawler-client, os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: ./.github/actions/dependency-cache
+        with:
+          project: ${{ matrix.project }}
+          warm: 'true'

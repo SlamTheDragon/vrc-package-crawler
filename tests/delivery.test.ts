@@ -584,7 +584,7 @@ test("preview readback waits for propagation but never republishes or accepts mi
     const receipt = { ...expected, purpose: "ci-release", sha256: createHash("sha256").update(bytes).digest("hex") };
     const metadata = { name: expected.name, version: expected.version,
       dist: { integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}` } };
-    for (const outcome of ["converged", "missing", "wrong-bytes", "newer-alias", "unavailable"] as const) {
+    for (const outcome of ["converged", "late-converged", "missing", "wrong-bytes", "newer-alias", "unavailable"] as const) {
       let writes = 0, reads = 0;
       const delays: number[] = [];
       const run = (args: string[]) => { if (args[0] === "--version") return "11.19.0"; writes++; return "{}"; };
@@ -595,18 +595,18 @@ test("preview readback waits for propagation but never republishes or accepts mi
         if (version !== "latest") {
           reads++;
           if (outcome === "wrong-bytes") return { ...metadata, dist: { integrity: "wrong" } };
-          return outcome === "missing" || reads < 3 ? null : metadata;
+          return outcome === "missing" || reads < (outcome === "late-converged" ? 7 : 3) ? null : metadata;
         }
         if (outcome === "newer-alias") return { ...metadata, version: "2026.10.4-pre" };
-        return reads < 3 ? { ...metadata, version: "2026.10.2-pre" } : metadata;
+        return reads < (outcome === "late-converged" ? 7 : 3) ? { ...metadata, version: "2026.10.2-pre" } : metadata;
       };
       const result = publishPreviewSDKArtifact(artifact, expected, receipt, run, registry, async delay => { delays.push(delay); });
-      if (outcome === "converged") {
+      if (["converged", "late-converged"].includes(outcome)) {
         expect((await result).status).toBe("published-verified");
-        expect(delays).toEqual([1000, 2000]);
+        expect(delays).toEqual(outcome === "converged" ? [1000, 2000] : [1000, 2000, 4000, 8000, 16000, 32000]);
       } else {
         await expect(result).rejects.toThrow(outcome === "missing" ? "did not converge" : outcome === "unavailable" ? "registry unavailable" : "checked artifact");
-        if (outcome === "missing") expect(delays).toEqual([1000, 2000, 4000, 8000, 16000]);
+        if (outcome === "missing") expect(delays).toEqual([1000, 2000, 4000, 8000, 16000, 32000]);
         else expect(delays).toEqual([]);
       }
       expect(writes).toBe(1);
@@ -825,8 +825,9 @@ else if(a[0]==='stage'&&a[1]==='download'){writeFileSync(join(process.cwd(),e.FI
 else throw new Error('Unexpected registry fixture command');`);
     await writeFile(preload, `import {existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-globalThis.fetch=async input=>{const url=new URL(String(input)),e=process.env;
+globalThis.fetch=async (input,options)=>{const url=new URL(String(input)),e=process.env;
 if(url.origin!=='https://registry.npmjs.org')throw new Error('Unexpected network fixture request');
+if(options?.headers?.['cache-control']!=='no-cache'||options.redirect!=='error')throw new Error('Registry reads must request revalidation without redirects');
 if(!existsSync(e.FIXTURE_MARKER))return new Response(null,{status:404});
 return Response.json({name:e.FIXTURE_NAME,version:e.FIXTURE_VERSION,dist:{integrity:'sha512-'+createHash('sha512').update(Buffer.from(e.FIXTURE_BYTES,'base64')).digest('base64')}});};`);
     for (const channel of ["preview", "release"]) {

@@ -29,8 +29,8 @@ Network has a required SDK peer. Changed peer bounds require a checked new archi
 
 | Delivery path | Version and run | Evidence |
 | --- | --- | --- |
-| SDK preview | 2026.10.4-pre, 37347261867 | Build passed. Publication failed before registry writes: npm is not defined. Version absent |
-| SDK release | 0.0.4, 37347280896 | Build passed. Owner environment approval received. Staging failed at the same removed helper. Version absent |
+| SDK preview | 2026.10.5-pre, 37349103560 attempt 2 | Public npm bytes and five GitHub assets passed. Readback recovery made no second publication |
+| SDK release | 0.0.5, 37349119431 | Owner-approved npm publication and GitHub promotion passed. Root checked all five assets and npm integrity |
 | Crawler preview | 2026.10.4-pre, 37345238751 | CI passed. Root binary/receipt/checksum readback passed. GHCR manifest/config and latest matched the CI receipt |
 | Crawler release | 0.0.4, 37345255800 | Protected publication passed. Root binary/receipt/checksum readback and independent GHCR manifest/config/latest checks passed |
 | Desktop preview | 26.10.3-pre, 37345364715 | CI and root installer/receipt/checksum readback passed. Uses release SDK |
@@ -49,6 +49,13 @@ The six successful consumer/Worker trials used SDK 3 and network 2. They do not 
 
 ## Reliability findings and local checkpoint
 
+Accepted cache direction, 2026-10-06: reuse compatible dependency downloads and let GitHub evict caches.
+Working theory: tag-scoped caches alone cannot supply successive tags. Trusted default-branch warming supplies reusable entries.
+Keys must exclude product version and source revision, but include dependency specifications, OS, architecture and Bun version.
+Cache only public dependency downloads. Always run installation and distributed SDK/network checks. Never cache credentials or release outputs.
+Replace automatic deletion with read-only usage monitoring. Custom quota changes and artifact/GHCR retention remain outside this decision.
+Cache implementation has local coverage. Pinned cold/warm hosted proof remains unverified.
+
 Working theory confirmed: bun --cwd path run script can print help and exit zero.
 Commands use bun run --cwd path script. A regression proves actual forwarding, arguments and working directory.
 Working theory confirmed: an empty tooling directory permits Bun to select a parent manifest.
@@ -59,7 +66,8 @@ Failed Worker preview patch 4 remains fixed and did not replace the previous liv
 Working theory confirmed: helper tests did not exercise the publication entry point after the Bun rename.
 Both SDK publication callbacks referenced the removed npm function. Both now use packageCommand.
 A real CLI fixture exercises direct preview publication and release staging, including receipt files and no automatic approval.
-Latest root gate: 100 tests passed, zero failed, 1547 assertions. Syntax and whitespace checks passed.
+Latest root gate: 101 tests passed, zero failed, 1643 assertions. Syntax and whitespace checks passed.
+The cache warmer refuses a Bun version other than the CI pin. Local Bun 1.4.1 cannot establish pinned cache-warming proof.
 Earlier runtime checkpoint: crawler 137/839 and Worker 235/2051 passed. Worker typechecks/dry run and desktop check passed.
 No runtime source changed in the publication repair. Local outputs contain development artifacts only.
 
@@ -69,20 +77,21 @@ Credentials stay on GitHub API requests, not signed storage requests. No local r
 
 ## Next actions and open risks
 
-1. Publication repair 096512b is pushed. Root automation queued SDK preview 2026.10.5-pre and release 0.0.5.
-   Keep failed SDK 4 tags fixed. Release staging still requires GitHub review and separate npm approval.
-   Preview run 37349103560 published version 5 but its bounded readback did not converge. Both public version and latest now resolve to 5.
-   Keep the published tag fixed. Check its CI/registry bytes before same-source readback recovery. Do not publish again or advance its patch.
-   Release run 37349119431 passed its build and awaits protected environment review.
-2. After both SDK publications pass, publish the next network archive with their checked peer bounds.
-   Current source peer bounds changed, but published network 2 still targets SDK 3. Do not claim clean-install readiness yet.
-3. Finish all current producer/consumer dependency proofs. Both crawler GHCR manifest/config/latest checks passed.
-   Root binary checks do not independently prove image layers. Branch publication triggers and main protection remain unimplemented.
-4. Cache run 37345265811 confirmed HTTP 403 on operation=cap before selection or deletion.
-   Existing policy uses an 80% threshold, 60% target and at most 25 old tag-cache IDs, with a conservative 10 GB ceiling.
-   It protects branch, PR, recent and active caches and repeats identity checks before deletion.
-   Critical R57-RETENTION records the unresolved scoped capacity source. Do not add administrator credentials or guess a cap.
-   Prior read-only usage was 1,414,776,479 bytes. No cache deletion ran. Account/artifact/GHCR budgets remain unproved.
+1. SDK preview 2026.10.5-pre and release 0.0.5 are public and root-checked.
+   Release reconciliation 37352706548 passed. Public Release 403971149 retained the original five checked CI assets.
+   Release tarball SHA-256: 2f033507c4e3e5f6b79f9b07b35fe4cb14762e8d201d72e38665c035eeb22632.
+   Keep failed SDK 4 and published SDK 5 tags fixed.
+   The readback repair requests registry revalidation and schedules 63 seconds of read-only retries within a 90-second deadline.
+2. Publish the next network archive with the two public SDK peer bounds.
+   Current source peers target SDK 5. Published network 2 still targets SDK 3. Clean-install readiness remains unproved.
+3. Finish current consumer dependency proofs and the new cache path. Existing six consumer/Worker trials used SDK 3 and network 2.
+   Root checks do not independently prove image layers or installer execution. Branch triggers and main protection remain unimplemented.
+4. Owner accepts compatible dependency-cache reuse, GitHub-managed eviction and read-only monitoring instead of automatic deletion.
+   Cache keys exclude release/source metadata. Tagged jobs restore only. Trusted default-branch warming supplies reusable public downloads.
+   Normal installation and SDK/network checks always run. No credentials, node_modules or release outputs enter the cache.
+   Live usage API passed: 1,830,379,310 bytes across 77 caches. Capacity is explicitly not measured.
+   The earlier cap-query 403 no longer blocks read-only monitoring. No deletion or quota change ran.
+   Verify hosted cold/warm caching before closing this boundary. Artifact, GHCR and account budget proof remains separate.
 5. Complete C57A before the requested owner hook for C57B.
 6. After pipeline setup, read attacker.md.secretresearch and commit sanitized findings in the ledgers.
    The input exists and remains unread. Never publish raw private research.

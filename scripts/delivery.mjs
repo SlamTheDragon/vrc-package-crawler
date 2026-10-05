@@ -82,7 +82,7 @@ export function stageSDKArtifact(artifact, expected, receipt, run) {
 async function readPublicSDK(name, version, signal) {
   const response = await fetch(`https://registry.npmjs.org/${name}/${version}`, {
     redirect: "error", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
-    headers: { accept: "application/json" } });
+    headers: { accept: "application/json", "cache-control": "no-cache" } });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`npm registry check failed (${response.status}). No publication retry ran.`);
   return response.json();
@@ -117,7 +117,7 @@ export async function publishPreviewSDKArtifact(artifact, expected, receipt, run
   }
   // npm can acknowledge publication before its public version and alias reads converge.
   // Retry reads only. Different bytes or identity fail immediately, with no second publish.
-  const delays = [1_000, 2_000, 4_000, 8_000, 16_000], signal = AbortSignal.timeout(90_000);
+  const delays = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000], signal = AbortSignal.timeout(90_000);
   for (let attempt = 0;; attempt++) {
     signal.throwIfAborted();
     const published = await registry(expected.name, expected.version, signal);

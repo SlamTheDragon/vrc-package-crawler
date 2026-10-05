@@ -76,6 +76,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.2'
+      - uses: ./.github/actions/dependency-cache
+        with:
+          project: package
       - run: bun install --no-save --ignore-scripts
       - id: route
         run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
@@ -120,6 +123,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.2'
+      - uses: ./.github/actions/dependency-cache
+        with:
+          project: root
       - run: bun install --no-save --ignore-scripts
       - run: node scripts/versioning.mjs sync '${{ needs.build.outputs.channel }}'
       - uses: actions/download-artifact@v4

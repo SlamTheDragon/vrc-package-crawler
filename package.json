@@ -21,7 +21,6 @@
     "versions:check:preview": "node scripts/versioning.mjs check preview",
     "versions:bump": "node scripts/delivery-chain.mjs start",
     "cache:check": "node scripts/cache-maintenance.mjs",
-    "cache:prune": "node scripts/cache-maintenance.mjs --execute",
     "build:release:crawler": "node scripts/delivery.mjs build release crawler",
     "build:release:crawler-client": "node scripts/delivery.mjs build release crawler-client",
     "build:release:package": "node scripts/delivery.mjs build release package",

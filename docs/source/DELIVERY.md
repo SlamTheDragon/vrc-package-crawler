@@ -164,7 +164,8 @@ SDK latest aliases receive new publications without a JSON rewrite. Installed no
 An SDK bump synchronizes network peer bounds. If those bounds change, publish a checked network archive before dependent consumer delivery.
 Never silently bypass a stale peer bound or replace an already published archive.
 Project SDK dependencies use the appropriate latest alias. CI checks that alias against config before it builds.
-After preview publication, CI checks the version and latest alias for up to six read attempts within 90 seconds.
+After preview publication, CI checks the version and latest alias for up to seven read attempts within 90 seconds.
+Reads request registry revalidation. Scheduled retry delays total 63 seconds, with no second publication.
 Absent records and an older latest alias can wait for registry propagation. Different bytes, identity or a newer alias fail immediately.
 The check never republishes or changes a dist-tag. Release npm staging remains owner-approved.
 Third-party dependencies keep their declared version bounds. This rule does not select unreviewed third-party updates.
@@ -539,17 +540,23 @@ SDK concurrency is separate per channel. A protected release publication cannot 
 Keep release SDK publication in vrcp-api-release, with its owner review and v0.1 API-review hold.
 Subsequent npm publications require new configured preview versions. Never replace an existing package version or move its release tag.
 
-## Bounded Actions cache maintenance
+## Dependency cache reuse and monitoring
 
-Run `bun run cache:check` to measure repository caches and print a read-only plan.
-Run `bun run cache:prune` to execute the bounded policy with a scoped GitHub token supplied through the environment.
-The maintenance workflow runs after canonical product push workflows complete. It checks out trusted main, not the triggering tag or artifact.
-It uses Actions write permission only for exact cache-ID deletion. It does not change storage limits.
-At 80% of the measured cap, it selects old product-tag caches until estimated usage reaches 60%.
-The policy uses a conservative 10 GB ceiling and selects at most 25 IDs per invocation.
-Branch, PR, active-run and recently accessed caches remain protected. Each deletion repeats identity and active-run checks.
-Unknown metadata or incomplete listings stop further deletion. Concurrent runs can still cause a cache miss and rebuild.
-This policy does not delete CI artifacts, Release assets, npm versions or GHCR images. Their retention remains a separate decision.
+Run `bun run cache:check` to read cache bytes and count with a scoped GitHub token supplied through the environment.
+The monitoring workflow runs after canonical product push workflows complete. It uses Actions read permission, without deletion or quota changes.
+It does not infer the account quota from a default or a maintenance budget.
+
+The dependency-cache workflow warms public registry downloads from trusted main pushes or a manual default-branch dispatch.
+Keys include the product dependency group, dependency specifications, Bun version, operating system and architecture.
+Product versions, source commits, scripts and verified SDK/network delivery inputs do not change these keys.
+Minimal private manifests in temporary storage exclude project scripts and distributed project contracts. Installation disables lifecycle scripts.
+Tagged builds restore caches without saving duplicate tag-scoped entries. Every build still installs and checks its configured distributed dependencies.
+Missing caches require downloads, not a different build or permission path. Website delivery remains disabled.
+There is no cache of node_modules, credentials, compiled targets, D1 state or release outputs.
+
+GitHub controls expiry and storage-limit eviction. Inspect usage and cache-hit reports before enabling larger paid limits or a custom retention policy.
+Caches are optional build acceleration, not durable storage. CI artifacts, Release assets, npm versions and GHCR images have separate retention requirements.
+See [GitHub's cache scope and eviction rules](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching).
 
 Sources: [Wrangler environments](https://developers.cloudflare.com/workers/wrangler/environments/),
 [workflow comparison](https://developers.cloudflare.com/workers/previews/compare-workflows/),

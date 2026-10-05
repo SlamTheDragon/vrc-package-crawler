@@ -1,0 +1,32 @@
+name: Restore compatible Bun downloads
+description: Restore dependency downloads without caching credentials, installations or release outputs.
+inputs:
+  project:
+    description: The root delivery product, or root for tooling-only jobs.
+    required: true
+  warm:
+    description: Write a cache only from the trusted default-branch warming workflow.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - id: fingerprint
+      shell: bash
+      run: node scripts/cache-maintenance.mjs key "$VRCP_CACHE_PROJECT" >> "$GITHUB_OUTPUT"
+      env:
+        VRCP_CACHE_PROJECT: ${{ inputs.project }}
+    - id: restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.bun/install/cache
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.fingerprint.outputs.key }}
+    - if: inputs.warm == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: node scripts/cache-maintenance.mjs warm "$VRCP_CACHE_PROJECT"
+      env:
+        VRCP_CACHE_PROJECT: ${{ inputs.project }}
+    - if: inputs.warm == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.bun/install/cache
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.fingerprint.outputs.key }}
