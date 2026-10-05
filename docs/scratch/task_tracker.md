@@ -2,7 +2,8 @@
 
 ## Authority and next boundary
 
-The full goal remains active. Root-to-delivery acceptance uses increasing patches until every enabled channel passes.
+The full goal remains active. Configured versions are authoritative. Each delivery allocates exactly the next patch.
+Do not force products to patch 3, skip versions or allocate SDK4 merely to repeat a successful delivery.
 A preview delivery bump must queue its appropriate build and deployment/publication chain.
 Website delivery stays disabled. Worker release builds only, with no production deployment or GitHub Release assets.
 Worker links remain deferred, with https://docs.vrcpackages.com as the future target.
@@ -70,10 +71,15 @@ The owner superseded replacement: failures allocate the next patch. All failed p
 Repair e8d0d38 is committed and pushed. Root commands then queued preview patch 3 at a2765b5774eedb9eff6e4a91633acc7b0b940627 and release patch 3 at a46ef6419b4899e96eddca4eec2f43cff0ba5034.
 Preview run 37316086763 passed build and published npm, but its immediate readback failed. Memory-only comparison of original CI artifact 11346989831 proved matching receipt, source and npm SHA-512.
 The original run's failed jobs were requeued only to recover its publication receipt and Release attachments. No tag or published bytes changed.
-Release run 37316100746 passed build and waits for protected environment review. The owner question is open. Separate npm staging approval remains required.
+Release run 37316100746 succeeded. The owner approved npm stage bd7387cf-6031-4f54-9e17-26aba754af98.
+Registry readback confirms release latest 0.0.3 and preview latest 2026.10.3-pre.
+Public release 0.0.3 returned 404 before the existing reconciliation controller dispatch, accepted with HTTP 204. Check its promotion and assets.
 Bounded post-publication reads now tolerate absent records and an older latest alias. They reject changed bytes, identity or a newer alias without republishing.
-This repair passed 85 root tests, zero failures, 1005 assertions, plus syntax and diff checks. Its next full preview trial will use patch 4.
-Next: finish patch-3 attachment recovery, commit the readback repair, then queue preview patch 4. Publish the network archive only after both configured SDKs are available.
+This repair passed 85 root tests, zero failures, 1005 assertions, plus syntax and diff checks. Repair bc51775 is pushed.
+Preview run 37316086763 attempt 2 succeeded. Independent root readback proved all five assets, npm integrity, source and unchanged tag.
+Desktop preview 26.10.2-pre run 37318551722 completed successfully at ed8a2a69fbab5bc75236bed0f06fd54cd2587bd5. Hosted byte and link checks remain.
+Next: queue network 2026.10.2 and desktop release 0.0.2 through the root chain. Their CI can run concurrently.
+After hosted network proof, queue both crawler and Worker channels at their next configured patches. Preserve the owner's SDK workflow comment.
 
 R57-NETWORK-SINGLE: one internal YYYY.M.Patch archive, without -pre or a future release path.
 The owner confirms monorepo-only use. A required SDK peer lets the Worker and crawler select their own SDK channel.
@@ -87,4 +93,11 @@ The configured suffix-free network archive is not yet published. Do not claim fr
 R57-RETENTION remains open: latest readback measured 63 caches / 1,304,427,315 bytes and 55 CI artifacts / 787,333,938 bytes, with no expired artifacts listed.
 Repository readback confirmed a 10 GB cache cap. Bun executable caches account for 847,109,183 bytes across 23 entries.
 Account budgets remain unverified. The infrastructure shelf proposes future retention controls and a workload calculation. No deletion, paid limit increase or retention change ran.
-Complete the setup changes, then run patch-2 delivery proofs and private security intake before conditional main sign-off.
+The cache maintenance gate passed 89 root tests, zero failures and 1040 assertions, plus syntax and diff checks.
+Root cache:check plans only. cache:prune executes bounded cache-ID deletion after a canonical completed push workflow.
+The threshold is 80% of the measured cap, with a conservative 10 GB ceiling. The target is 60%, with at most 25 selected IDs.
+Only old product-tag caches qualify. Branch, PR, active-run and recently accessed caches remain protected.
+Each deletion repeats identity and active-run checks. Incomplete metadata or permissions stop further deletion.
+A concurrent new run can still cause a rebuildable cache miss. CI artifacts, Release assets, npm versions and GHCR images are not targets.
+Live read-only measurement: 1,414,776,479 bytes against 10 GB. No cache was selected or deleted. Remote execution remains unproved.
+Complete the setup changes, then run remaining configured delivery proofs and private security intake before conditional main sign-off.

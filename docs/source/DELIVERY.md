@@ -514,7 +514,8 @@ Preview consumers declare npm:vrc-packages-api-preview@latest under the existing
 Each SDK publication updates latest within its separate package identity, including preview versions with the pre suffix.
 CI checks the resolved latest version against its channel config, then downloads and installs that exact verified tarball.
 Advance the preview config for later milestones. A moving registry tag cannot silently change a checked build.
-The private network package pins the exact SDK alias. Its packed dependencies cannot silently select a later SDK through latest.
+The private network package requires a consumer-supplied SDK peer. Its peer bounds accept the two config-selected SDK versions.
+Preparation checks the selected SDK identity and peer compatibility before a consumer build.
 Promotion to the release identity is a separately checked release build and publication, not a renamed preview tarball.
 
 The workflow selects vrcp-api-preview for automatic preview SDK staging and cloudflare-preview for automatic preview Worker deployment.
@@ -524,6 +525,18 @@ These environments retain separate npm and Cloudflare credentials. The Worker re
 SDK concurrency is separate per channel. A protected release publication cannot hold later preview publications in the same queue.
 Keep release SDK publication in vrcp-api-release, with its owner review and v0.1 API-review hold.
 Subsequent npm publications require new configured preview versions. Never replace an existing package version or move its release tag.
+
+## Bounded Actions cache maintenance
+
+Run `npm run cache:check` to measure repository caches and print a read-only plan.
+Run `npm run cache:prune` to execute the bounded policy with a scoped GitHub token supplied through the environment.
+The maintenance workflow runs after canonical product push workflows complete. It checks out trusted main, not the triggering tag or artifact.
+It uses Actions write permission only for exact cache-ID deletion. It does not change storage limits.
+At 80% of the measured cap, it selects old product-tag caches until estimated usage reaches 60%.
+The policy uses a conservative 10 GB ceiling and selects at most 25 IDs per invocation.
+Branch, PR, active-run and recently accessed caches remain protected. Each deletion repeats identity and active-run checks.
+Unknown metadata or incomplete listings stop further deletion. Concurrent runs can still cause a cache miss and rebuild.
+This policy does not delete CI artifacts, Release assets, npm versions or GHCR images. Their retention remains a separate decision.
 
 Sources: [Wrangler environments](https://developers.cloudflare.com/workers/wrangler/environments/),
 [workflow comparison](https://developers.cloudflare.com/workers/previews/compare-workflows/),

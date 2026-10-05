@@ -18,6 +18,7 @@ concurrency:
   group: sdk-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}
   cancel-in-progress: false
 jobs:
+  # trust check is no longer being ran, should we clean this up?
   preview-trust-check:
     if: github.event_name == 'workflow_dispatch' && inputs.diagnose-preview-oidc
     runs-on: ubuntu-latest

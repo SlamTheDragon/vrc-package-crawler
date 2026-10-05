@@ -1,0 +1,35 @@
+name: Bounded Actions cache maintenance
+on:
+  workflow_run:
+    workflows:
+      - SDK tagged artifact and channel npm publication
+      - Internal network tagged artifact
+      - Build & Publish Crawler Node Container
+      - Build & Publish Crawler Client
+      - Cloudflare Worker tagged deployment
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: vrcp-cache-maintenance
+  cancel-in-progress: false
+jobs:
+  maintain:
+    if: github.repository == 'SlamTheDragon/vrc-packages' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Never checkout a triggering tag, PR, artifact, or fork in this privileged job.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - run: npm install --ignore-scripts --package-lock=false
+      - run: npm run cache:prune
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
