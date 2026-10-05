@@ -2,7 +2,7 @@
 
 ## Authority and next boundary
 
-The full goal remains active. Patch 2 is the final root-to-delivery acceptance trial, not another manual release exercise.
+The full goal remains active. Root-to-delivery acceptance uses increasing patches until every enabled channel passes.
 A preview delivery bump must queue its appropriate build and deployment/publication chain.
 Website delivery stays disabled. Worker release builds only, with no production deployment or GitHub Release assets.
 Worker links remain deferred, with https://docs.vrcpackages.com as the future target.
@@ -27,7 +27,7 @@ Do not delete this checkout or create branches on the owner's behalf.
 | Worker | 37301598940, deployment skipped | 37301422846, preview deployed | Both CI bundle hashes, receipts and source identities passed. Unauthenticated initialization returned 401 |
 | Website | Disabled | Disabled | Owner excludes delivery |
 
-Release versions are 0.0.1. Preview versions are 2026.10.1-pre, except desktop 26.10.1-pre.
+This table records historical patch-1 proof. Current configured SDK versions are release 0.0.3 and preview 2026.10.3-pre.
 Session 52813 completed successfully. The root release checker proved all six crawler assets, source receipts, notes, checksums and remote tag identity.
 Release Linux SHA-256: 8fdd8aa72ba1107f208a1a8e38d9af1f20ee9054856551e0de25ca0f8d5bdefe.
 Release Windows SHA-256: d354a817e25bcef3d3ed626df48caf5ab5ad49ccf9e8a8f8e1fd7d0ff8aaf174.
@@ -66,8 +66,14 @@ The exact permission assertions are corrected. Root checks also exposed stale ne
 The direct versioning CLI bump now routes through the same plan/execute commit-tag-push chain. The metadata-only function remains an internal primitive.
 Repair gate passed: 84 root tests, zero failures, 968 assertions; versioning syntax and diff checks passed.
 Registry and GitHub Release checks returned 404 for both patch-2 identities. No published tag, D1 write or source grant changed.
-Replacement approval for these two failed, unpublished tags is pending. Do not allocate patch 3 or move either tag without that decision.
-Next: commit the checked repair and resume the same-version SDK trials if replacement is authorized. Publish the network patch-2 archive only after both SDKs are available.
+The owner superseded replacement: failures allocate the next patch. All failed patch-2 tags remain unchanged.
+Repair e8d0d38 is committed and pushed. Root commands then queued preview patch 3 at a2765b5774eedb9eff6e4a91633acc7b0b940627 and release patch 3 at a46ef6419b4899e96eddca4eec2f43cff0ba5034.
+Preview run 37316086763 passed build and published npm, but its immediate readback failed. Memory-only comparison of original CI artifact 11346989831 proved matching receipt, source and npm SHA-512.
+The original run's failed jobs were requeued only to recover its publication receipt and Release attachments. No tag or published bytes changed.
+Release run 37316100746 passed build and waits for protected environment review. The owner question is open. Separate npm staging approval remains required.
+Bounded post-publication reads now tolerate absent records and an older latest alias. They reject changed bytes, identity or a newer alias without republishing.
+This repair passed 85 root tests, zero failures, 1005 assertions, plus syntax and diff checks. Its next full preview trial will use patch 4.
+Next: finish patch-3 attachment recovery, commit the readback repair, then queue preview patch 4. Publish the network archive only after both configured SDKs are available.
 
 R57-NETWORK-SINGLE: one internal YYYY.M.Patch archive, without -pre or a future release path.
 The owner confirms monorepo-only use. A required SDK peer lets the Worker and crawler select their own SDK channel.
@@ -79,5 +85,6 @@ A network bump updates both consumer archive URLs while preserving their runtime
 The configured suffix-free network archive is not yet published. Do not claim fresh-clone installation or main sign-off before patch-2 live proofs pass.
 
 R57-RETENTION remains open: latest readback measured 63 caches / 1,304,427,315 bytes and 55 CI artifacts / 787,333,938 bytes, with no expired artifacts listed.
-Confirm budgets and cache caps before unattended branch delivery. No deletion, paid limit increase or retention change ran.
+Repository readback confirmed a 10 GB cache cap. Bun executable caches account for 847,109,183 bytes across 23 entries.
+Account budgets remain unverified. The infrastructure shelf proposes future retention controls and a workload calculation. No deletion, paid limit increase or retention change ran.
 Complete the setup changes, then run patch-2 delivery proofs and private security intake before conditional main sign-off.

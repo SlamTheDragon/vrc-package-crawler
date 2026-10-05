@@ -17,6 +17,28 @@ Reviewed 2026-10-03 against HEAD `3b9d203`. External guidance is not proof that 
 
 ## Architecture checkpoints
 
+### Delivery storage and retention — 2026-10-05
+
+The live repository is public. Its cache storage limit is 10 GB, from the GitHub REST readback.
+The snapshot contains 63 caches, totaling 1,304,427,315 bytes. Bun executable caches account for 847,109,183 bytes across 23 entries.
+The other 40 caches total 457,318,132 bytes. All 55 listed Actions artifacts total 787,333,938 bytes.
+These counts exclude Release assets, npm archives, GHCR images and other repositories. They do not prove the owner's account budget.
+
+[GitHub cache limits](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)
+describe the default 10 GB cap and seven-day eviction for unused caches. A higher configured cap can incur charges.
+[Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+distinguishes public standard runners, billed larger runners and separate storage allowances. Do not treat public CI as unlimited storage.
+
+Conservative future controls: retain preview CI artifacts for seven days, preserve release staging inputs for 90 days, and keep container handoffs bounded.
+Published Release assets and immutable registry versions are separate from temporary CI artifacts. Do not delete them as cache cleanup.
+[setup-bun's no-cache input](https://github.com/oven-sh/setup-bun/blob/v2/action.yml)
+disables its executable cache. This trades repeated downloads for fewer tag-scoped cache copies, not a dependency verification bypass.
+These controls remain proposals. No retention change, cache deletion or paid limit increase ran in this audit.
+
+Estimate storage per stream from daily uploaded bytes multiplied by retention days. Add pending staging inputs and existing retained data.
+For example, one GiB uploaded daily with seven-day retention needs about seven GiB before those other records.
+Measure actual archive sizes and delivery frequency before unattended branch publication. Recheck account budgets and package visibility separately.
+
 The owner wants a Worker coordinator, separate headless crawler nodes, and downstream operator/user/app bindings. A message broker is optional infrastructure, not a replacement for leases, source profiles, origin budgets or idempotent submission. Do not add one until a measured failure requires it.
 
 Prefer existing platform primitives and maintained dependencies. Compare caller requirements, runtime support, bundle cost, license, failure behavior and deletion opportunities before adding an abstraction. The [dependency review](../CRAWLER_DEPENDENCY_RESEARCH.md) distinguishes parsers from competing schedulers.

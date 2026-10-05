@@ -79,16 +79,18 @@ export function stageSDKArtifact(artifact, expected, receipt, run) {
   return { ...expected, stageId, tag: "latest", sha256: receipt.sha256, status: "awaiting-npm-approval", purpose: "npm-stage" };
 }
 
-async function readPublicSDK(name, version) {
+async function readPublicSDK(name, version, signal) {
   const response = await fetch(`https://registry.npmjs.org/${name}/${version}`, {
-    redirect: "error", signal: AbortSignal.timeout(30_000), headers: { accept: "application/json" } });
+    redirect: "error", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+    headers: { accept: "application/json" } });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`npm registry check failed (${response.status}). No publication retry ran.`);
   return response.json();
 }
 
 /** Preview is directly published through OIDC. Releases still use owner-approved stages. */
-export async function publishPreviewSDKArtifact(artifact, expected, receipt, run, registry = readPublicSDK) {
+export async function publishPreviewSDKArtifact(artifact, expected, receipt, run, registry = readPublicSDK,
+  wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))) {
   // The SDK project .npmrc is for token-backed staging. Its empty token would
   // shadow the user-level credential installed by npm's OIDC exchange.
   const bytes = readFileSync(artifact), project = root;
@@ -113,8 +115,20 @@ export async function publishPreviewSDKArtifact(artifact, expected, receipt, run
     run(["publish", artifact, "--access", "public", "--tag", "latest", "--ignore-scripts",
       "--json", "--registry=https://registry.npmjs.org"], project, true);
   }
-  check(await registry(expected.name, expected.version));
-  check(await registry(expected.name, "latest"));
+  // npm can acknowledge publication before its public version and alias reads converge.
+  // Retry reads only. Different bytes or identity fail immediately, with no second publish.
+  const delays = [1_000, 2_000, 4_000, 8_000, 16_000], signal = AbortSignal.timeout(90_000);
+  for (let attempt = 0;; attempt++) {
+    signal.throwIfAborted();
+    const published = await registry(expected.name, expected.version, signal);
+    if (published !== null) check(published);
+    const alias = await registry(expected.name, "latest", signal);
+    const olderAlias = alias?.name === expected.name && semver.valid(alias.version) && semver.lt(alias.version, expected.version);
+    if (alias !== null && !olderAlias) check(alias);
+    if (published !== null && alias !== null && !olderAlias) break;
+    if (attempt === delays.length) throw new Error("Preview publication readback did not converge. No publication retry ran.");
+    await wait(delays[attempt]);
+  }
   return { ...expected, channel: "preview", tag: "latest", sha256: receipt.sha256, integrity,
     status: "published-verified", purpose: "npm-publication" };
 }

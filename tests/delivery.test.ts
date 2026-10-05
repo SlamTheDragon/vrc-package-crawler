@@ -501,6 +501,44 @@ test("direct preview publication checks bytes before writes and recovers a lost 
   });
 });
 
+test("preview readback waits for propagation but never republishes or accepts mismatched bytes", async () => {
+  await fixture(async workspace => {
+    const artifact = resolve(workspace, "propagation-fixture.tgz"), bytes = Buffer.from("Synthetic registry propagation fixture");
+    await writeFile(artifact, bytes);
+    const expected = { name: sdkPackageNames.preview, version: "2026.10.3-pre", commit: "a".repeat(40) };
+    const receipt = { ...expected, purpose: "ci-release", sha256: createHash("sha256").update(bytes).digest("hex") };
+    const metadata = { name: expected.name, version: expected.version,
+      dist: { integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}` } };
+    for (const outcome of ["converged", "missing", "wrong-bytes", "newer-alias", "unavailable"] as const) {
+      let writes = 0, reads = 0;
+      const delays: number[] = [];
+      const run = (args: string[]) => { if (args[0] === "--version") return "11.19.0"; writes++; return "{}"; };
+      const registry = async (_name: string, version: string, signal?: AbortSignal) => {
+        if (!writes) return null;
+        expect(signal).toBeInstanceOf(AbortSignal);
+        if (outcome === "unavailable") throw new Error("registry unavailable");
+        if (version !== "latest") {
+          reads++;
+          if (outcome === "wrong-bytes") return { ...metadata, dist: { integrity: "wrong" } };
+          return outcome === "missing" || reads < 3 ? null : metadata;
+        }
+        if (outcome === "newer-alias") return { ...metadata, version: "2026.10.4-pre" };
+        return reads < 3 ? { ...metadata, version: "2026.10.2-pre" } : metadata;
+      };
+      const result = publishPreviewSDKArtifact(artifact, expected, receipt, run, registry, async delay => { delays.push(delay); });
+      if (outcome === "converged") {
+        expect((await result).status).toBe("published-verified");
+        expect(delays).toEqual([1000, 2000]);
+      } else {
+        await expect(result).rejects.toThrow(outcome === "missing" ? "did not converge" : outcome === "unavailable" ? "registry unavailable" : "checked artifact");
+        if (outcome === "missing") expect(delays).toEqual([1000, 2000, 4000, 8000, 16000]);
+        else expect(delays).toEqual([]);
+      }
+      expect(writes).toBe(1);
+    }
+  });
+});
+
 test("staging uploads checked bytes once, recovers a lost ACK and rejects duplicate, malformed or changed stages", async () => {
   await fixture(async workspace => {
     const artifact = resolve(workspace, "sdk-fixture.tgz");

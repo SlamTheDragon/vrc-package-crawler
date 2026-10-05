@@ -158,6 +158,9 @@ Manifests declare an exact GitHub archive URL, so bare installs no longer reques
 Bare installs do not perform the full delivery receipt check. Use root preparation for that check.
 Network bumps also update each declared consumer archive URL, without changing its runtime version or SDK channel.
 Project SDK dependencies use the appropriate latest alias. CI checks that alias against config before it builds.
+After preview publication, CI checks the version and latest alias for up to six read attempts within 90 seconds.
+Absent records and an older latest alias can wait for registry propagation. Different bytes, identity or a newer alias fail immediately.
+The check never republishes or changes a dist-tag. Release npm staging remains owner-approved.
 Third-party dependencies keep their declared version bounds. This rule does not select unreviewed third-party updates.
 The new suffix-free archive still needs tagged publication and live install proof before fresh-clone sign-off.
 No install scripts run during preparation. Product build commands run their required build hooks explicitly.
