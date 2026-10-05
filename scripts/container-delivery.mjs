@@ -77,7 +77,17 @@ export function publishCheckedImage(expected, receipt, run = docker) {
   if (alias && alias.config.digest !== receipt.imageId) {
     const config = JSON.parse(run(["buildx", "imagetools", "inspect", "--format", "{{json .Image}}", aliasRef]));
     const labels = config.config?.Labels;
-    assert(labels?.["io.vrcp.channel"] === expected.channel && labels?.["org.opencontainers.image.source"] === `https://github.com/${expected.repository}`,
+    // Exact published patch-0 identities survive the owner's repository rename.
+    // This does not relax checkImage or receipt validation for new deliveries.
+    const historical = expected.channel === "preview"
+      ? { version: "2026.10.0-pre", digest: "sha256:29d1c6940253dee085fbc14bacef01ae23e991bb55a78fcdc084082a60993035" }
+      : { version: "0.0.0", digest: "sha256:8c7723e19689ec23eb6e95774ec22205e36d16375b12468313214fd97ec3c215" };
+    const renamedBaseline = expected.repository === "SlamTheDragon/vrc-packages" &&
+      labels?.["org.opencontainers.image.source"] === "https://github.com/SlamTheDragon/vrc-package-crawler" &&
+      labels?.["org.opencontainers.image.revision"] === "fb9edf66ce1b9954bd672826a3090c735b60632d" &&
+      labels?.["org.opencontainers.image.version"] === historical.version && alias.config.digest === historical.digest;
+    assert(labels?.["io.vrcp.channel"] === expected.channel &&
+      (labels?.["org.opencontainers.image.source"] === `https://github.com/${expected.repository}` || renamedBaseline),
       "Existing latest image has an unreviewed identity");
     const version = labels["org.opencontainers.image.version"];
     assert(semver.valid(version) === version && semver.lt(version, expected.version), "Container retry cannot roll latest back or replace the same version");

@@ -125,6 +125,43 @@ test("publication stops if readback differs, and cannot treat a manifest list as
   expect(() => publishCheckedImage(expected, receipt, () => JSON.stringify({ schemaVersion: 2, manifests: [] }))).toThrow("single-platform");
 });
 
+test("repository rename accepts only the exact two published patch-0 latest images", () => {
+  for (const channel of ["preview", "release"] as const) {
+    const oldVersion = channel === "preview" ? "2026.10.0-pre" : "0.0.0";
+    const oldDigest = channel === "preview"
+      ? "sha256:29d1c6940253dee085fbc14bacef01ae23e991bb55a78fcdc084082a60993035"
+      : "sha256:8c7723e19689ec23eb6e95774ec22205e36d16375b12468313214fd97ec3c215";
+    const selected = { ...expected, repository: "SlamTheDragon/vrc-packages", channel,
+      version: channel === "preview" ? "2026.10.1-pre" : "0.0.1" };
+    const baseline = { ...imageLabels(selected), "org.opencontainers.image.version": oldVersion,
+      "org.opencontainers.image.source": "https://github.com/SlamTheDragon/vrc-package-crawler",
+      "org.opencontainers.image.revision": "fb9edf66ce1b9954bd672826a3090c735b60632d" };
+    for (const alteration of [{}, { "org.opencontainers.image.source": "https://github.com/Other/vrc-package-crawler" },
+      { "org.opencontainers.image.version": selected.version }, { "org.opencontainers.image.revision": "e".repeat(40) },
+      { "io.vrcp.channel": channel === "preview" ? "release" : "preview" }, { digest: otherId }]) {
+      let writes = 0;
+      const labels = { ...baseline, ...alteration };
+      const run = (args: string[]) => {
+        if (args.includes("{{json .Image}}")) return JSON.stringify({ config: { Labels: labels } });
+        if (args.includes("{{.Manifest.Digest}}")) return otherId;
+        if (args.includes("--raw")) return args.at(-1)!.endsWith(":latest") && writes === 0
+          ? manifest("digest" in alteration ? alteration.digest! : oldDigest)
+          : writes ? manifest(id) : null;
+        if (args[0] === "push") writes++;
+        return "";
+      };
+      if (Object.keys(alteration).length === 0) {
+        expect(publishCheckedImage(selected, receipt, run).repository).toBe(selected.repository);
+        expect(writes).toBe(2);
+      } else {
+        expect(() => publishCheckedImage(selected, receipt, run)).toThrow();
+        expect(writes).toBe(0);
+      }
+    }
+    expect(() => checkImage({ ...image(), Config: { ...image().Config, Labels: baseline } }, selected)).toThrow("label");
+  }
+});
+
 test("Docker workflow has one read-only image build and a protected, channel-gated archive publication", () => {
   const workflow: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/node-docker.yml", import.meta.url), "utf8"));
   expect(workflow.permissions).toEqual({ contents: "read" });
