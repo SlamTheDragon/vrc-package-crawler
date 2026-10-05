@@ -32,7 +32,7 @@ Network has a required SDK peer. Changed peer bounds require a checked new archi
 | SDK preview | 2026.10.4-pre, 37347261867 | Build passed. Publication failed before registry writes: npm is not defined. Version absent |
 | SDK release | 0.0.4, 37347280896 | Build passed. Owner environment approval received. Staging failed at the same removed helper. Version absent |
 | Crawler preview | 2026.10.4-pre, 37345238751 | CI passed. Root binary/receipt/checksum readback passed. GHCR manifest/config and latest matched the CI receipt |
-| Crawler release | 0.0.4, 37345255800 | Protected publication passed. Root binary/receipt/checksum readback passed. Independent GHCR readback remains |
+| Crawler release | 0.0.4, 37345255800 | Protected publication passed. Root binary/receipt/checksum readback and independent GHCR manifest/config/latest checks passed |
 | Desktop preview | 26.10.3-pre, 37345364715 | CI and root installer/receipt/checksum readback passed. Uses release SDK |
 | Desktop release | 0.0.3, 37345381229 | Live pre-attachment review wait proved. Owner approval and publication passed. Root installer readback passed |
 | Worker preview | 2026.10.5-pre, 37346723325 | Deployment and root Actions bundle readback passed after the isolated tooling repair |
@@ -43,6 +43,7 @@ Crawler deployment links passed: preview 6865068223 and release 6865131797.
 Desktop deployment links passed: preview 6865219211 and release 6865227792.
 Each points to its exact tagged Release. These checks do not prove installer execution or image-layer downloads.
 Crawler preview image digest: sha256:bc9bd0ffb9021341f7e502cd252cba318f14a07bbfac33a5ed3a337adee8f4fe.
+Crawler release image digest: sha256:788d45530b6a1f7b2d3c75c8bb7bf9d070401102c3bb052107cc0ed8fe06e673.
 Its labels matched preview SDK 2026.10.3-pre, network 2026.10.2 and source a5d43284dadff1cc7ea6bd9070245416d8fdb9d0.
 The six successful consumer/Worker trials used SDK 3 and network 2. They do not prove compatibility with a later SDK.
 
@@ -68,11 +69,11 @@ Credentials stay on GitHub API requests, not signed storage requests. No local r
 
 ## Next actions and open risks
 
-1. Commit and push the tested publication repair. Next SDK trial patches are 5 in both channels.
+1. Publication repair 096512b is pushed. Root automation queued SDK preview 2026.10.5-pre and release 0.0.5.
    Keep failed SDK 4 tags fixed. Release staging still requires GitHub review and separate npm approval.
 2. After both SDK publications pass, publish the next network archive with their checked peer bounds.
    Current source peer bounds changed, but published network 2 still targets SDK 3. Do not claim clean-install readiness yet.
-3. Finish independent crawler release GHCR readback and all current producer/consumer dependency proofs.
+3. Finish all current producer/consumer dependency proofs. Both crawler GHCR manifest/config/latest checks passed.
    Root binary checks do not independently prove image layers. Branch publication triggers and main protection remain unimplemented.
 4. Cache run 37345265811 confirmed HTTP 403 on operation=cap before selection or deletion.
    Existing policy uses an 80% threshold, 60% target and at most 25 old tag-cache IDs, with a conservative 10 GB ceiling.
