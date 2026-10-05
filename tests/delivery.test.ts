@@ -867,6 +867,32 @@ test("Worker artifact paths follow runtime channel independently of GitHub appro
   expect(workflow.jobs.deploy.environment).toBe('${{ needs.build.outputs.environment }}');
 });
 
+test("Worker deploy tooling has its own manifest before Bun install and cannot resolve a parent project", async () => {
+  const workflow: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/cloudflare-worker.yml", import.meta.url), "utf8"));
+  const command = workflow.jobs.deploy.steps.find((step: any) => step.name === "Install pinned deployment tool only").run;
+  const source = /node --input-type=module <<'NODE'\n([\s\S]*?)\nNODE\n/.exec(command)?.[1];
+  expect(source).toBeDefined();
+  expect(command.indexOf("writeFileSync")).toBeLessThan(command.indexOf("bun install --cwd"));
+  expect(command).not.toContain("wrangler@4.");
+  expect(command).toContain("test -f src-worker/.wrangler/ci-tools/node_modules/wrangler/bin/wrangler.js");
+  for (const pin of ["4.147.0", "^4.147.0", "latest", undefined]) {
+    await fixture(async workspace => {
+      await mkdir(resolve(workspace, "src-worker/.wrangler/ci-tools"), { recursive: true });
+      await writeFile(resolve(workspace, "src-worker/package.json"), JSON.stringify({ private: true,
+        packageManager: "bun@1.4.2", devDependencies: { wrangler: pin }, dependencies: { "must-not-install": "1.0.0" } }));
+      const run = () => execFileSync(process.execPath, ["--input-type=module", "-e", source!], { cwd: workspace, stdio: "pipe" });
+      const path = resolve(workspace, "src-worker/.wrangler/ci-tools/package.json");
+      if (pin === "4.147.0") {
+        run();
+        expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ private: true, packageManager: "bun@1.4.2",
+          dependencies: { wrangler: pin } });
+        expect(run).toThrow();
+        expect(JSON.parse(await readFile(path, "utf8")).dependencies).toEqual({ wrangler: pin });
+      } else { expect(run).toThrow(); expect(existsSync(path)).toBe(false); }
+    });
+  }
+});
+
 test("preview deployment accepts only the operator binding and rejects missing or malformed secrets", () => {
   const token = randomBytes(32).toString("hex");
   expect(workerSecretBindings({ OPERATOR_TOKEN: token, NPM_TOKEN: "unrelated" })).toEqual({ OPERATOR_TOKEN: token });

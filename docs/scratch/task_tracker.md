@@ -58,6 +58,19 @@ Exact-version selectors reject changed registry identity or bytes. Existing inst
 
 ## Open delivery risks and next actions
 
+Root-chain trials are now pushed: crawler preview/release 4, desktop preview/release 3, and Worker preview/release 4.
+Crawler preview run 37345238751 passed publication and root hosted binary readback. Container readback and deployment links still need independent checks.
+Worker preview run 37345486644 built successfully but failed before deployment because the expected pinned Wrangler CLI was absent.
+Working theory: Bun searches parent manifests when the generated tools directory has no package.json, so the executable installs outside the expected directory.
+Repair the tool manifest before installation. Derive its exact Wrangler pin from the Worker manifest and check the executable before deployment.
+The repair passed 99 root tests, zero failures and 1537 assertions. Local Bun installed Wrangler 4.147.0 at the exact isolated path.
+Keep failed Worker patch 4 fixed. The next actual preview trial must allocate patch 5.
+Cache run 37345265811 confirmed HTTP 403 on operation=cap, before selection or deletion. Do not add administrator credentials or guess an unmeasured cap.
+Crawler preview deployment 6865068223 links to its exact patch-4 Release. Desktop preview run 37345364715 passed CI and attachment.
+Crawler release run 37345255800 and desktop release run 37345381229 passed builds and await owner environment review.
+The desktop guard now proves a live pre-attachment wait. The owner question hooks contain both exact run links.
+Worker release run 37345503423 passed build and skipped production deployment. Its archive still needs root byte readback.
+
 1. Finish the final diff, documentation and clean-checkout checkpoint. Preserve the owner's README changes.
 2. Run changed delivery paths through root commands. Do not force all products to the same patch.
 3. Desktop release protection now gates attachment itself, with the exact Release URL on that job.

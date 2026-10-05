@@ -70,7 +70,17 @@ jobs:
       - name: Install pinned deployment tool only
         run: |
           mkdir -p src-worker/.wrangler/ci-tools
-          bun install --cwd src-worker/.wrangler/ci-tools --no-save --ignore-scripts wrangler@4.147.0
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const { devDependencies, packageManager } = JSON.parse(readFileSync('src-worker/package.json', 'utf8'));
+          if (!/^\d+\.\d+\.\d+$/.test(devDependencies?.wrangler ?? '') || packageManager !== 'bun@1.4.2') {
+            throw new Error('Deployment tooling requires the exact Worker Wrangler pin and supported Bun version');
+          }
+          writeFileSync('src-worker/.wrangler/ci-tools/package.json', JSON.stringify({ private: true, packageManager,
+            dependencies: { wrangler: devDependencies.wrangler } }), { flag: 'wx' });
+          NODE
+          bun install --cwd src-worker/.wrangler/ci-tools --no-save --ignore-scripts
+          test -f src-worker/.wrangler/ci-tools/node_modules/wrangler/bin/wrangler.js
       - name: Deploy approved bundle without rebuilding
         run: node scripts/delivery.mjs deploy '${{ needs.build.outputs.channel }}' worker --ci
         env:

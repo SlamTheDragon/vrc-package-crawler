@@ -237,6 +237,9 @@ The API workflow keeps its filename because npm trusted publishers match that ex
 The network release is a checked tarball distribution, not an npm publication.
 
 Worker deployment downloads the bundle from its build job. It installs only pinned Wrangler tooling and uses `--no-bundle`.
+The tools directory has its own private package.json before Bun installation.
+CI derives its exact Wrangler pin from the Worker manifest and checks the executable path before deployment.
+Without that manifest, Bun can select a parent project and install outside the expected tools directory.
 It does not rebuild source in the deployment job.
 CI creates a receipt for the current single-file Worker bundle, with product, version, channel, commit and SHA-256 digests.
 Deployment checks the bundle bytes and Wrangler config against this receipt before creating a temporary secret file.
