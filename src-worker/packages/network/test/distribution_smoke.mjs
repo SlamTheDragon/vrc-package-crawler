@@ -75,7 +75,7 @@ execFileSync(process.env.BUN_BINARY || 'bun', [join(consumer, 'runtime.mjs')], {
   cwd: consumer, encoding: 'utf8', timeout: 30_000
 });
 run(join(packageRoot, 'node_modules/typescript/bin/tsc'), [
-  '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2024', '--lib', 'ES2024,DOM', 'consumer.mts'
+  '--ignoreConfig', '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2024', '--lib', 'ES2024,DOM', 'consumer.mts'
 ]);
 run(join(packageRoot, 'node_modules/wrangler/bin/wrangler.js'), [
   'deploy', '--dry-run', '--autoconfig=false', '--config', join(consumer, 'wrangler.jsonc'),
@@ -115,7 +115,7 @@ for (const executable of [process.execPath, process.env.BUN_BINARY || 'bun']) {
   execFileSync(executable, [join(bunConsumer, 'runtime.mjs')], { cwd: bunConsumer, encoding: 'utf8', timeout: 30_000 });
 }
 run(join(packageRoot, 'node_modules/typescript/bin/tsc'), [
-  '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2024', '--lib', 'ES2024,DOM', 'consumer.mts'
+  '--ignoreConfig', '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2024', '--lib', 'ES2024,DOM', 'consumer.mts'
 ], bunConsumer);
 assert.equal(readFileSync(join(packageRoot, 'package.json'), 'utf8'), sourceManifest, 'Packed consumer changed the network producer manifest');
 console.log(JSON.stringify({ check: 'packed_network_distribution', node: true, bun: true, types: true,

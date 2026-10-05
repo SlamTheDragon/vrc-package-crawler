@@ -587,6 +587,16 @@ Tagged builds restore dependency caches without saving new tag-scoped download e
 Missing caches require downloads, not a different build or permission path. Website delivery remains disabled.
 There is no cache of node_modules, credentials, compiled targets, D1 state or release outputs.
 
+GitHub controls expiry and storage-limit eviction. Inspect usage and cache-hit reports before enabling larger paid limits or a custom retention policy.
+Caches are optional build acceleration, not durable storage. CI artifacts, Release assets, npm versions and GHCR images have separate retention requirements.
+See [GitHub's cache scope and eviction rules](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching).
+
+- Most build and publication receipt uploads use the repository's artifact-retention setting, not an explicit workflow duration.
+- Container archives and announcement receipts explicitly use 14 days. Their expiry does not remove published Release assets.
+- Keep original SDK artifacts available while owner-approved staging is pending. An expired source artifact can block later reconciliation.
+- Do not delete GitHub Releases, npm versions or GHCR images as cache cleanup. They are published identities, not build caches.
+- Review storage limits and the permitted approval window before changing artifact retention. The scripts do not assume account capacity.
+
 ## Local cleanup and dependency reset
 
 - Stop build, test and runtime processes that use the selected outputs.
@@ -594,6 +604,7 @@ There is no cache of node_modules, credentials, compiled targets, D1 state or re
 - Read every absolute target before adding `--apply`. Applied deletion has no recovery copy.
 - Run `bun run clean <product> --apply` to remove only those generated outputs.
 - Clean covers current development binaries, test fixtures, checked development dependency copies and generated frontend/build directories.
+- SDK cleanup also removes its generated `tsconfig.tsbuildinfo` cache. It does not remove compiler configuration.
 - Worker cleanup does not remove `.wrangler/local-preview`, `.wrangler/state` or other D1 storage.
 - Keep credentials, databases, bin, logs and hand-written files outside generated output directories.
 - Run `bun run reset <product>` to inspect dependency targets. Reset does not remove build outputs or runtime state.
@@ -609,10 +620,6 @@ Root commands derive the nested project path from the same product mapping as de
 The complete plan is checked before deletion. Each target is checked again immediately before deletion.
 Filesystem changes during deletion can still cause a partial cleanup. Inspect the result instead of assuming rollback.
 No real repository cleanup is required to test safety. Disposable fixtures check deletion and preservation separately.
-
-GitHub controls expiry and storage-limit eviction. Inspect usage and cache-hit reports before enabling larger paid limits or a custom retention policy.
-Caches are optional build acceleration, not durable storage. CI artifacts, Release assets, npm versions and GHCR images have separate retention requirements.
-See [GitHub's cache scope and eviction rules](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching).
 
 Sources: [Wrangler environments](https://developers.cloudflare.com/workers/wrangler/environments/),
 [workflow comparison](https://developers.cloudflare.com/workers/previews/compare-workflows/),

@@ -66,7 +66,9 @@ test("cleanup covers generated package and network fixtures without removing sou
       }
       await writeFile(resolve(workspace, project, ".env"), "fixture-only-secret");
     }
+    await writeFile(resolve(workspace, "src-package/tsconfig.tsbuildinfo"), "generated-compiler-cache");
     await cleanup("clean", "all", true, workspace);
+    await expect(readFile(resolve(workspace, "src-package/tsconfig.tsbuildinfo"))).rejects.toThrow();
     for (const project of ["src-package", "src-worker/packages/network"]) {
       for (const path of ["dist", ".artifacts/dev", ".artifacts/tests"]) {
         await expect(readFile(resolve(workspace, project, path, "fixture"))).rejects.toThrow();

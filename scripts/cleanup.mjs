@@ -10,7 +10,7 @@ const outputs = {
     ["dist/tests", "directory"], [".artifacts/dev", "directory"], [".ci-artifacts", "directory"]],
   "crawler-client": [["build", "directory"], [".svelte-kit", "directory"], ["src-tauri/target", "directory"],
     [".artifacts/dev", "directory"]],
-  package: [["dist", "directory"], [".artifacts/dev", "directory"], [".artifacts/tests", "directory"]],
+  package: [["dist", "directory"], ["tsconfig.tsbuildinfo", "file"], [".artifacts/dev", "directory"], [".artifacts/tests", "directory"]],
   web: [["dist", "directory"], [".astro", "directory"], [".artifacts/dev", "directory"]],
   worker: [[".wrangler/dev-build", "directory"], [".wrangler/ci-tools", "directory"], ["dist/tests", "directory"],
     [".artifacts/dev", "directory"]],

@@ -48,7 +48,7 @@ execFileSync(process.execPath, ['--no-experimental-strip-types', join(consumer, 
   cwd: consumer, stdio: 'pipe', timeout: 30_000
 });
 run(join(packageRoot, 'node_modules/typescript/bin/tsc'), [
-  '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2022', '--lib', 'ES2022,DOM', 'consumer.mts'
+  '--ignoreConfig', '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2022', '--lib', 'ES2022,DOM', 'consumer.mts'
 ]);
 run(join(packageRoot, 'node_modules/wrangler/bin/wrangler.js'), [
   'deploy', '--dry-run', '--autoconfig=false', '--config', join(consumer, 'wrangler.jsonc'), '--outdir', join(consumer, 'bundle')
