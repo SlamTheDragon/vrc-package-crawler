@@ -2,7 +2,8 @@
 
 ## Authority and current boundary
 
-- Active related gate: Q-PRODUCT-TEST-OUTPUTS and R57-DEV-READINESS.
+- Checked related gate: Q-PRODUCT-TEST-OUTPUTS and R57-DEV-READINESS. Evidence commit: 0f2c384, pushed.
+- Active slice: Q-PUSH-PREVIEWS protected-main and environment-ref audit, under the open R57 sign-off gate.
 - The owner requires setup, cache and generated-output checks before feature work resumes.
 - The full goal remains active. This local readiness gate passed on 2026-10-06, not the conditional main sign-off.
 - Keep exactly three scratch files. Preserve owner comments, staged-release approvals and the SDK v0.1 review hold.
@@ -93,8 +94,22 @@ Desktop preview and network environments currently lack selected-ref restriction
 Resolve those policies without blocking approved manual attachment workflows.
 Preview branch-push automation remains unimplemented. Keep main preview auto-publication disabled.
 
+## Current handoff audit
+
+- Public GitHub metadata confirmed the branch and environment state again on 2026-10-06. No authenticated credential reuse was needed.
+- The installed shell has no gh executable. Auto-review rejected extraction of a stored Git credential. That route was not retried.
+- GitHub documents that default GITHUB_TOKEN pushes do not start push-triggered workflows. The current product builds require tag-push events.
+- Copying the chain into preview push CI would therefore create tags without starting the expected deliveries.
+- Main promotion needs reviewed metadata before the final tag. Squash or rebase merge can change the final source commit.
+- One authoritative patch allocator must reject races and retries without skipped versions or duplicate publications.
+- Environment rules match the workflow ref, not an input. A main-ref desktop recovery can be rejected by its current tag-only rule.
+- A tag-ref recovery uses that tag's older workflow revision. It can lack a later attachment repair.
+- Critical decisions now extend the existing canonical R57-ROOT-SCRIPTS and Q-PUSH-PREVIEWS rows. Owner comments remain unchanged.
+- The owner question offers a repository-scoped GitHub App or root CLI finalization. No new credential policy was selected.
+- DELIVERY.md describes the current limitations and links the primary GitHub documentation. No runtime or workflow changed.
+
 ## Next action
 
-Keep these checked commits with the recorded gate evidence.
-Finish the branch/promotion and environment-policy slice before conditional main sign-off.
+Keep the cleanup proof and this handoff audit separate from an implemented promotion path.
+Resolve the critical trigger/credential and recovery-ref decisions before changing branch protections or publication workflows.
 Do not resume unrelated feature work, create owner branches or declare the full goal complete.
