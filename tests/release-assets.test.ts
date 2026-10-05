@@ -311,6 +311,7 @@ test("SDK draft reconciliation dispatches only public versions with original che
     { ...draft, tag_name: "vrcp-api/v01.0.0" }, { ...draft, body: "No checked source run" }];
   const dispatched: any[] = [];
   const registry: string[] = [];
+  const reports: any[] = [];
   const api = async (method: string, path: string, body: any) => {
     if (method === "GET") return releases;
     expect(path).toBe("/repos/owner/repo/actions/workflows/release-assets.yml/dispatches");
@@ -320,7 +321,8 @@ test("SDK draft reconciliation dispatches only public versions with original che
   expect(await reconcileSDKDrafts(api, "owner/repo", async (name: string, version: string) => {
     registry.push(`${name}@${version}`);
     return version !== "0.0.1";
-  })).toBe(2);
+  }, (counts: any) => reports.push(counts))).toBe(2);
+  expect(reports).toEqual([{ releases: 10, drafts: 9, sdkDrafts: 6, checkedDrafts: 3, unpublished: 1, dispatched: 2 }]);
   expect(registry).toEqual(["vrc-packages-api@0.0.0", "vrc-packages-api-preview@2026.10.0-pre", "vrc-packages-api@0.0.1"]);
   expect(dispatched.map(item => item.inputs.tag)).toEqual(["vrcp-api/v0.0.0", "package/v2026.10.0-pre"]);
   expect(dispatched.every(item => item.ref === "main" && item.inputs["source-run"] === "123")).toBe(true);

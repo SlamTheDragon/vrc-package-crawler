@@ -280,26 +280,34 @@ function githubAPI(env) {
 }
 
 /** Poll only checked SDK drafts. Publication and asset verification stay in the attachment workflow. */
-export async function reconcileSDKDrafts(api, repository, isPublished) {
+export async function reconcileSDKDrafts(api, repository, isPublished, report) {
   let dispatched = 0;
+  const counts = { releases: 0, drafts: 0, sdkDrafts: 0, checkedDrafts: 0, unpublished: 0 };
   for (let page = 1; page <= 10; page++) {
     const releases = await api("GET", `/repos/${repository}/releases?per_page=100&page=${page}`);
     if (!Array.isArray(releases)) throw new Error("Invalid release listing");
     for (const release of releases) {
+      counts.releases++;
+      if (release.draft) counts.drafts++;
       const match = /^(?:vrcp-api|package)\/v(.+)$/.exec(release.tag_name ?? "");
       if (!release.draft || !match || semver.valid(match[1]) !== match[1]) continue;
+      counts.sdkDrafts++;
       const link = /\[Checked CI run\]\((https:\/\/github\.com\/[^)]+)\)/.exec(release.body ?? "");
       if (!link) continue;
       let sourceRun;
       try { sourceRun = sourceRunID(link[1], repository); }
       catch { continue; }
+      counts.checkedDrafts++;
       const channel = match[1].endsWith("-pre") ? "preview" : "release";
-      if (!(await isPublished(sdkPackageNames[channel], match[1]))) continue;
+      if (!(await isPublished(sdkPackageNames[channel], match[1]))) { counts.unpublished++; continue; }
       if (++dispatched > 20) throw new Error("SDK draft dispatch limit exceeded");
       await api("POST", `/repos/${repository}/actions/workflows/release-assets.yml/dispatches`,
         { ref: "main", inputs: { tag: release.tag_name, "source-run": sourceRun } });
     }
-    if (releases.length < 100) return dispatched;
+    if (releases.length < 100) {
+      report?.({ ...counts, dispatched });
+      return dispatched;
+    }
   }
   throw new Error("SDK draft lookup exceeded its bound");
 }
@@ -317,7 +325,7 @@ async function reconcile() {
     const metadata = await response.json();
     if (metadata.name !== name || metadata.version !== version) throw new Error("Unexpected registry SDK identity");
     return true;
-  });
+  }, counts => console.log(JSON.stringify({ action: "sdk-draft-filters", ...counts })));
   console.log(JSON.stringify({ action: "sdk-draft-check", dispatched }));
 }
 
