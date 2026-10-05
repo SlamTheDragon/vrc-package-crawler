@@ -115,4 +115,12 @@ A concurrent new run can still cause a rebuildable cache miss. CI artifacts, Rel
 Live read-only measurement: 1,414,776,479 bytes against 10 GB. No cache was selected or deleted. Remote execution remains unproved.
 Remote maintenance run 37321180703 failed in cache:prune after successful setup. Its current error summary hides the HTTP status.
 A numeric-only diagnostic now exposes an API status without credentials, URLs or response bodies. Remote diagnosis remains open.
+Diagnostic run 37323059939 returned HTTP 403 with the scoped workflow token. Do not add administrator credentials or bypass the failure.
+GitHub documents Actions read for the cap endpoint, but actual workflow-token access still contradicts that expectation. Isolate the exact rejected endpoint next.
+Repair 42894c6 is pushed. Root delivery allocated Worker preview3/release3 at f6643285b479ed10e1b1bcd89f60679b94d1953b / 18e697b92b70220f4b4ee4b83b81ee9af53dae64.
+Worker preview3 run 37322988392 passed build and deployed. Worker release3 run 37323008883 is building. Independent bundle proof remains pending.
+Root delivery allocated crawler preview3/release3 at 9b913b5f0acc11edcea6fb11eb0d859f8cf0a320 / ea09ade856463d443fcaa5860acc4c9c2add8677.
+Desktop release2 passed all five independently read assets. Deployment 6861168659 links to the exact Release.
+The desktop release environment is now protected. Do not claim its earlier trial proved a future owner-review wait.
+R57-C57A remains open for remaining consumer checks, protected-environment behavior, clean preview installs and cache execution. Do not advance C57B yet.
 Complete the setup changes, then run remaining configured delivery proofs and private security intake before conditional main sign-off.
