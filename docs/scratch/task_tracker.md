@@ -66,6 +66,9 @@ The OIDC request variables passed the local guard. CLI 11.19.0 was installed. Th
 Theory: check exact trusted-publisher claims and registry settings before choosing a repair. Do not assume owner error or add token fallback.
 The screenshot showed lowercase slamthedragon. GitHub reports SlamTheDragon. The owner recreated the entries, but authentication still fails.
 The owner confirms the preview entry belongs to vrc-packages-api-preview. Consumer trials wait for their channel SDK.
+Historical preview success used token-backed staging, not direct OIDC. It does not prove this new authentication path.
+A manual, publication-free job in the same SDK workflow checks whitelisted identity claims and the npm exchange HTTP status.
+JWTs, exchanged tokens, headers and response bodies never enter its output. It does not use npm or Cloudflare secrets.
 
 ## Next actions and safety
 

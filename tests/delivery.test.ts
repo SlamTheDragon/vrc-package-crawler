@@ -353,6 +353,16 @@ test("SDK staging retains checked tarballs, verifies pending bytes and never app
   expect(workflow).toContain("'published' || 'stage'");
   const definition = Bun.YAML.parse(workflow);
   expect(definition.jobs.publish.permissions['id-token']).toBe('write');
+  expect(definition.on.workflow_dispatch.inputs['diagnose-preview-oidc'].default).toBe(false);
+  expect(definition.jobs.build.if).toBe("github.event_name == 'push'");
+  const diagnostic = definition.jobs['preview-trust-check'];
+  expect(diagnostic.environment).toBe('vrcp-api-preview');
+  expect(diagnostic.permissions).toEqual({ 'id-token': 'write' });
+  expect(diagnostic.if).toContain("github.event_name == 'workflow_dispatch'");
+  expect(diagnostic.steps).toHaveLength(2);
+  expect(diagnostic.steps[1].run).not.toMatch(/npm (publish|stage|dist-tag)/);
+  expect(diagnostic.steps[1].run).not.toContain('exchange.json');
+  expect(diagnostic.steps[1].run).not.toContain('JSON.stringify(claims)');
   const preview = definition.jobs.publish.steps.find((step: any) => step.name?.includes('through its trusted publisher'));
   expect(preview.if).toBe("needs.build.outputs.channel == 'preview'");
   expect(preview.env).toEqual({ NODE_AUTH_TOKEN: '', NPM_TOKEN: '' });

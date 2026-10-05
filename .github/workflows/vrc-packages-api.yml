@@ -5,13 +5,64 @@ name: SDK tagged artifact and channel npm publication
 on:
   push:
     tags: ['vrcp-api/v*']
+  workflow_dispatch:
+    inputs:
+      diagnose-preview-oidc:
+        description: Check preview publisher identity and token exchange without publishing.
+        required: true
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
   group: sdk-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}
   cancel-in-progress: false
 jobs:
+  preview-trust-check:
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnose-preview-oidc
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+    environment: vrcp-api-preview
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: Check non-secret OIDC claims and npm exchange status
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          try {
+            const url = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+            url.searchParams.set('audience', 'npm:registry.npmjs.org');
+            const response = await fetch(url, {
+              headers: { authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
+              redirect: 'error', signal: AbortSignal.timeout(30_000)
+            });
+            if (!response.ok) throw new Error('OIDC request failed');
+            const { value } = await response.json();
+            if (typeof value !== 'string' || value.split('.').length !== 3) throw new Error('Invalid OIDC response');
+            const claims = JSON.parse(Buffer.from(value.split('.')[1], 'base64url').toString('utf8'));
+            const keys = ['aud', 'sub', 'repository', 'repository_owner', 'workflow_ref', 'job_workflow_ref', 'runner_environment'];
+            const identity = Object.fromEntries(keys.map(key => [key,
+              typeof claims[key] === 'string' && claims[key].length <= 500 ? claims[key] : null]));
+            console.log(JSON.stringify({ action: 'preview-oidc-identity', ...identity }));
+            const exchange = await fetch('https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/vrc-packages-api-preview', {
+              method: 'POST', headers: { authorization: `Bearer ${value}`, accept: 'application/json' },
+              redirect: 'error', signal: AbortSignal.timeout(30_000)
+            });
+            // Never print the JWT, exchange body, publish token or request headers.
+            console.log(JSON.stringify({ action: 'preview-oidc-exchange', status: exchange.status }));
+            await exchange.body?.cancel();
+            if (!exchange.ok) process.exitCode = 1;
+          } catch {
+            console.error('Preview trust diagnostic failed. No package publication ran.');
+            process.exitCode = 1;
+          }
+          NODE
   build:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       channel: ${{ steps.route.outputs.channel }}
