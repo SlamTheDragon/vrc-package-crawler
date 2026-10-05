@@ -71,3 +71,7 @@ Exact-version selectors reject changed registry identity or bytes. Existing inst
    The private file exists and remains unread. Never publish the raw input.
 
 The final sign-off and pause conditions are not met.
+
+Local checkpoint 419fec9 contains the Bun repair and preserved owner README edits.
+The approval system rejected its direct push to main. No new tags, publications or deployments ran in this checkpoint.
+Ask for explicit push authority before remote delivery trials. The goal remains active, not complete or paused.
