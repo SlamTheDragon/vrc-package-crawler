@@ -280,6 +280,37 @@ test("Distributed products wire checked release assets, Worker stays CI-only and
   expect(reusable.jobs.attach.steps.find((step: any) => step.uses?.startsWith("actions/download-artifact@")).with.path).toContain("runner.temp");
 });
 
+test("desktop review protects attachment itself, including manual retries, without an unguarded or duplicate path", () => {
+  const reusable: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/release-assets.yml", import.meta.url), "utf8"));
+  const unguarded = reusable.jobs.attach, guarded = reusable.jobs["attach-desktop"];
+  const evaluate = (expression: string, inputTag: string, ref: string) =>
+    new Function("inputs", "github", "startsWith", "contains", `return (${expression.slice(3, -3)});`)(
+      { tag: inputTag }, { ref_name: ref }, (value: string, prefix: string) => value.startsWith(prefix),
+      (value: string, part: string) => value.includes(part));
+  expect(unguarded.environment).toBeUndefined();
+  expect(guarded.steps).toEqual(unguarded.steps);
+  expect(guarded.steps.at(-1).run).toContain("release-assets.mjs attach");
+  expect(guarded.steps.at(-1).env.RELEASE_TOKEN).toBe("${{ secrets.GITHUB_TOKEN }}");
+  for (const prefix of ["vrcp-crawler-client", "crawler-client"]) {
+    for (const [version, environment] of [["0.0.3", "vrcp-crawler-client-release"], ["26.10.3-pre", "vrcp-crawler-client-preview"]]) {
+      const tag = `${prefix}/v${version}`;
+      for (const [input, ref] of [["", tag], [tag, "main"], [tag, "vrcp-api/v2026.10.3-pre"]]) {
+        expect(evaluate(unguarded.if, input, ref)).toBe(false);
+        expect(evaluate(guarded.if, input, ref)).toBe(true);
+        expect(evaluate(guarded.environment.name, input, ref)).toBe(environment);
+      }
+    }
+  }
+  for (const tag of ["vrcp-api/v0.0.3", "vrcp-network/v2026.10.2", "vrcp-crawler/v2026.10.3-pre"]) {
+    expect(evaluate(unguarded.if, "", tag)).toBe(true);
+    expect(evaluate(guarded.if, "", tag)).toBe(false);
+  }
+  const caller: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/node-client.yml", import.meta.url), "utf8"));
+  expect(caller.jobs["release-assets"].needs).toBe("build");
+  expect(caller.jobs["release-assets"].uses).toBe("./.github/workflows/release-assets.yml");
+  expect(caller.jobs["deployment-record"]).toBeUndefined();
+});
+
 test("release attachment rejects server-renamed assets before publishing the draft", async () => {
   let published = false;
   const files = new Map([["VRCP Client.msi", Buffer.from("synthetic MSI")]]);

@@ -47,8 +47,8 @@ These checks predate the new Bun command order and fixed project dependency mapp
 | --- | --- | --- |
 | SDK 3 | Preview run 37316086763 attempt 2 and release run 37316100746. Both npm identities and five assets passed independent checks | New Bun producer workflow trial |
 | Network 2026.10.2 | Run 37321030222. All four hosted assets passed. Deployment 6860981068 links to its exact Release | New producer workflow trial if changed peer bounds need publication |
-| Desktop 2 | Preview run 37318551722 and release run 37321046041. Five assets per channel passed. Deployment links passed | New preview trial with release SDK. Release protection placement needs repair |
-| Worker 3 | Preview run 37322988392 deployed. Release run 37323008883 passed build and skipped deployment | Independent bundle proof and new mapping/Bun workflow trial |
+| Desktop 2 | Preview run 37318551722 and release run 37321046041. Five assets per channel passed. Deployment links passed | New preview trial with release SDK. Protected attachment job needs hosted review proof |
+| Worker 3 | Preview run 37322988392 deployed. Release run 37323008883 passed build and skipped deployment. Both bundle archives passed independent memory-only proof | New mapping/Bun workflow trial. Root checker still reports CI status rather than bundle bytes |
 | Crawler 3 | Preview run 37323027639 and release run 37323046478 failed at container dependency checks, before publication | Repaired guard is committed in ff6720f. Next actual trials allocate patch 4 |
 
 Network tag object: 8bcb75d5587409966722580923dbb23f40fd9a62.
@@ -60,12 +60,19 @@ Exact-version selectors reject changed registry identity or bytes. Existing inst
 
 1. Finish the final diff, documentation and clean-checkout checkpoint. Preserve the owner's README changes.
 2. Run changed delivery paths through root commands. Do not force all products to the same patch.
-3. Repair desktop release protection before another release trial. Its protected environment currently gates only the post-publication deployment record, not asset attachment.
-4. Prove Worker CI bundle bytes separately. Root delivery:check currently reports Worker CI status, not bundle verification.
+3. Desktop release protection now gates attachment itself, with the exact Release URL on that job.
+   The shared steps use a YAML alias, without a second post-publication review job. Manual retries select the same environment.
+   Working theory: a later deployment-record guard cannot protect earlier published assets. Root 94/1453 passed, including tagged and manual routing.
+   Preview remains automatic. Release uses the existing protected environment. Hosted review behavior remains unverified.
+4. Worker bundle proof passed in memory without writing release files. Archive digests, file coverage, source receipts, configuration and unchanged tags matched.
+   Preview artifact 11350297918: bundle SHA-256 3317b7412ad2399556a9a4bae31275da2775e37aef92d3fc28a2f1bfe47af453, 1,060,537 bytes.
+   Release artifact 11350498030: bundle SHA-256 2bc610a6ce3bb9b85cb863489d2b0ba9115aa524f4360e67d47b5e140ec42e0c, 1,060,529 bytes.
+   This used Python's standard ZIP reader and the existing receipt contract. Root delivery:check still needs automated bundle readback.
 5. Diagnose cache maintenance with its fixed operation/status output. Run 37323059939 returned 403. Do not add administrator credentials.
    Read-only local usage was 1,414,776,479 bytes against 10 GB. No cache deletion ran.
    The policy selects at most 25 old tag-cache IDs at 80% usage toward 60%. It protects branch, PR, recent and active caches.
    Artifact, Release, npm and GHCR data are not deletion targets. Account storage budgets remain unverified.
+   Read-only inspection of latest cache run 37323388985 found no operation diagnostic. The new diagnostic still needs hosted execution.
 6. Complete C57A before the requested owner hook for C57B. Branch automation and main protection remain unimplemented.
 7. After pipeline setup, read attacker.md.secretresearch. Commit sanitized findings in the ledgers before sign-off.
    The private file exists and remains unread. Never publish the raw input.

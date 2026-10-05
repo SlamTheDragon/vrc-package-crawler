@@ -23,8 +23,9 @@ concurrency:
 
 jobs:
   attach:
+    if: ${{ !startsWith(inputs.tag || github.ref_name, 'vrcp-crawler-client/v') && !startsWith(inputs.tag || github.ref_name, 'crawler-client/v') }}
     runs-on: ubuntu-latest
-    steps:
+    steps: &attachment-steps
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -47,3 +48,10 @@ jobs:
           RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           RELEASE_SOURCE_RUN: ${{ inputs.source-run || github.run_id }}
+  attach-desktop:
+    if: ${{ startsWith(inputs.tag || github.ref_name, 'vrcp-crawler-client/v') || startsWith(inputs.tag || github.ref_name, 'crawler-client/v') }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ contains(inputs.tag || github.ref_name, '-pre') && 'vrcp-crawler-client-preview' || 'vrcp-crawler-client-release' }}
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag || github.ref_name }}
+    steps: *attachment-steps

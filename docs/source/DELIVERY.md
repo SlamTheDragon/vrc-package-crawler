@@ -97,7 +97,8 @@ For the Worker it reports preview deployment or the release build-only boundary,
 For crawler images, retain the separate CI publication receipt and GHCR digest check. Binary asset checks do not prove container bytes.
 Crawler deployment cards link to their exact GitHub Release. Attachment summaries also link to the checked Release or pending draft.
 SDK deployment cards retain their npm registry URL. Worker links remain deferred, with https://docs.vrcpackages.com as the owner's future target.
-Network and desktop publication create deployment records only after their checked Release attachment jobs pass.
+Network deployment records follow checked attachments. Desktop attachment jobs create their own deployment records and require the selected environment policy.
+Desktop deployment success requires the attachment checks to pass. Shared steps use YAML anchors instead of duplicate attachment commands.
 Their cards link to the exact tagged Release. The network uses vrcp-network, while desktop channels use separate environments.
 No installer check proves installation, signed updates, side-by-side channels or node supervision.
 
@@ -109,7 +110,7 @@ Use the existing CI rerun or attachment retry for a build failure. Do not alloca
 
 Git uses its existing credential helper for pushes. Read-only GitHub checks use GH_TOKEN, GITHUB_TOKEN or the existing Git credential helper.
 Public metadata can work without credentials, subject to GitHub rate limits. Commands never print credential values.
-The agent procedure is separate in [AGENT_DELIVERY.md](../decisions/AGENT_DELIVERY.md).
+The agent procedure is separate in [AGENT_DELIVERY_PROCEDURE.md](../decisions/AGENT_DELIVERY_PROCEDURE.md).
 
 Root-chain checkpoint: network preview 2026.10.1-pre passed CI 37251743937 at commit 0117444f525dd5e83648d212a43fa4b1397a32ad.
 The command committed one config patch and pushed its tag atomically. CI created the four Release assets.
@@ -296,8 +297,12 @@ Orphaned SDK drafts require matching original run links, commits, notes and asse
 GitHub can delay scheduled runs. Use its manual trigger for an immediate draft check.
 Expired Actions artifacts require owner review. The workflow does not rebuild them or move their tag.
 
-For earlier tags, run release-assets.yml manually on main. Supply the existing product tag and its original successful run ID.
+For earlier non-desktop tags, run release-assets.yml manually on main. Supply the existing tag and its original successful run ID.
 This path attaches original artifacts without moving tags, publishing npm packages or deploying a Worker.
+Desktop attachments use their preview or release environment before publication, including manual retries.
+The release environment requires review before the attachment job starts. Preview keeps its existing automatic policy.
+That attachment job also supplies the exact Release URL. Deployment success requires successful attachment checks, without a second review job.
+Manual retries do not bypass environment tag rules. If the selected ref is forbidden, stop instead of weakening the restriction.
 The source run's version configs govern the check, not main's current versions.
 Changelog edits after attachment do not replace attached notes. Retries retain their original bytes and complete checksum index.
 The retention check requires the original version, channel, commit and source-run link. Changed artifact bytes still stop the job.

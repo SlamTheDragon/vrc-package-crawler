@@ -817,10 +817,12 @@ test("publication links cover internal network and both desktop channels only af
   expect(network.jobs["deployment-record"].needs).toBe("release-assets");
   expect(network.jobs["deployment-record"].environment).toEqual({ name: "vrcp-network",
     url: "https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}" });
-  expect(client.jobs["deployment-record"].needs).toEqual(["build", "release-assets"]);
-  expect(client.jobs["deployment-record"].environment.name).toContain("vrcp-crawler-client-preview");
-  expect(client.jobs["deployment-record"].environment.name).toContain("vrcp-crawler-client-release");
-  expect(client.jobs["deployment-record"].environment.url).toBe(network.jobs["deployment-record"].environment.url);
+  expect(client.jobs["deployment-record"]).toBeUndefined();
+  const attachments = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/release-assets.yml", import.meta.url), "utf8"));
+  expect(attachments.jobs["attach-desktop"].environment.name).toContain("vrcp-crawler-client-preview");
+  expect(attachments.jobs["attach-desktop"].environment.name).toContain("vrcp-crawler-client-release");
+  expect(attachments.jobs["attach-desktop"].environment.url)
+    .toBe("https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag || github.ref_name }}");
   expect(client.jobs.build.outputs.channel).toBe("${{ steps.route.outputs.channel }}");
   const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   expect(manifest.scripts["versions:bump"]).toBe(manifest.scripts["delivery:preview"].replace(" start preview", " start"));
