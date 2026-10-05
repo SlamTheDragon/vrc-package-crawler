@@ -204,6 +204,11 @@ test("hosted network resolution checks the whole delivery and refuses source, ta
     const result = await readNetworkDistribution(version, undefined, api);
     expect(result.bytes).toEqual(files.get(archive)); expect(result.receipt).toEqual(receipt);
     expect(result.tagObject).toBe(object); expect(result.sourceRun).toBe("123");
+    release.target_commitish = "main";
+    expect((await readNetworkDistribution(version, undefined, api)).receipt.commit).toBe(commit);
+    release.target_commitish = "d".repeat(40);
+    await expect(readNetworkDistribution(version, undefined, api)).rejects.toThrow("target differs");
+    release.target_commitish = "main";
     await expect(readNetworkDistribution("2026.10.2-pre", undefined, api)).rejects.toThrow("suffix-free");
     release.draft = true;
     await expect(readNetworkDistribution(version, undefined, api)).rejects.toThrow("immutable");
@@ -219,7 +224,7 @@ test("hosted network resolution checks the whole delivery and refuses source, ta
     files.set("CHECKSUMS.sha256", checksums());
     files.set(`${archive}.json`, Buffer.from(JSON.stringify({ ...receipt, commit: "d".repeat(40) })));
     files.set("CHECKSUMS.sha256", checksums());
-    await expect(readNetworkDistribution(version, undefined, api)).rejects.toThrow("CI artifact differs");
+    await expect(readNetworkDistribution(version, undefined, api)).rejects.toThrow("Remote tag differs");
   } finally { globalThis.fetch = originalFetch; }
 });
 

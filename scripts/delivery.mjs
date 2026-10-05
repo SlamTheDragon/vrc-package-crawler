@@ -398,6 +398,8 @@ function pack(project, ci) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  // Finish module evaluation before preparation imports the chain, which imports this module.
+  void (async () => {
   const [action, channel, product, flag, ...extra] = process.argv.slice(2);
   try {
     if (action === "tag") {
@@ -416,4 +418,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     console.error(error instanceof Error ? error.message : "Delivery command failed");
     process.exitCode = 1;
   }
+  })();
 }

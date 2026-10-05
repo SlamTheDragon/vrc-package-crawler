@@ -171,7 +171,8 @@ export async function readNetworkDistribution(version, workspace = root, api = g
     throw new Error("Network delivery is not an immutable rapid-stream release");
   }
   const tagAPI = (_method, path) => api(path);
-  const { tagObject, commit } = await checkRemoteTag(tagAPI, repository, tag, release.target_commitish);
+  const initialTag = await api(`${base}/git/ref/tags/${encodeURIComponent(tag)}`);
+  if (!/^[a-f0-9]{40}$/.test(initialTag?.object?.sha ?? "")) throw new Error("Invalid network tag object");
   const listing = await api(`${base}/releases/${release.id}/assets?per_page=100`);
   const archive = `vrc-packages-network-${version}.tgz`;
   const expected = new Set([archive, `${archive}.json`, "CHANGELOG.md", "CHECKSUMS.sha256"]);
@@ -188,6 +189,11 @@ export async function readNetworkDistribution(version, workspace = root, api = g
     files.set(asset.name, downloaded.bytes);
   }
   const receipt = JSON.parse(files.get(`${archive}.json`));
+  // GitHub can report a branch name as target_commitish. Bind the tag to the checked receipt's SHA instead.
+  if (/^[a-f0-9]{40}$/.test(release.target_commitish ?? "") && release.target_commitish !== receipt.commit) {
+    throw new Error("Network release target differs from its receipt");
+  }
+  const { tagObject, commit } = await checkRemoteTag(tagAPI, repository, tag, receipt.commit, initialTag.object.sha);
   checkedAssetBytes(new Map([[archive, files.get(archive)], [`${archive}.json`, files.get(`${archive}.json`)]]),
     { product: "network", channel: "preview", version }, commit, { name: "vrc-packages-network" });
   const notes = files.get("CHANGELOG.md").toString("utf8");

@@ -80,6 +80,19 @@ Preview run 37316086763 attempt 2 succeeded. Independent root readback proved al
 Desktop preview 26.10.2-pre run 37318551722 completed successfully at ed8a2a69fbab5bc75236bed0f06fd54cd2587bd5. Hosted byte and link checks remain.
 Next: queue network 2026.10.2 and desktop release 0.0.2 through the root chain. Their CI can run concurrently.
 After hosted network proof, queue both crawler and Worker channels at their next configured patches. Preserve the owner's SDK workflow comment.
+Delivered network 2026.10.2 at a6e39b1c116bc1d83ec931136f9298bdfee0359b, run 37321030222. Independent hosted checks passed all four assets.
+SDK release 0.0.3 promotion and all five hosted assets passed independent checks. No new SDK bump is needed.
+Desktop preview2 passed all five hosted assets. Deployment 6860700578 links to its exact Release. Network deployment 6860981068 does too.
+Desktop release2 at 75f32c5cd6a7e7d1c40e3d452f8a020367ec489a runs as 37321046041. Its hosted proof remains pending.
+GitHub returned 404 for vrcp-crawler-client-release. Owner approved creation with protection.
+The environment now has required reviewers copied from crawler release and the tag-only vrcp-crawler-client/v* rule. Readback passed.
+Crawler preview2/release2 runs 37321496040/37321512567 failed before publication. Worker preview2/release2 runs 37321529490/37321546252 failed during preparation.
+The Worker logs prove an unsettled top-level await, exit 13. Direct CLI preparation imported the chain while the chain imported the waiting CLI module.
+The entry now completes module evaluation before asynchronous command execution. The hosted resolver also accepts branch-valued Release targets.
+Remote tag and receipt SHA binding remain mandatory. Regression coverage retains changed-tag rejection and adds branch-target and conflicting-SHA cases.
+Repair gate passed 89 root tests, zero failures and 1042 assertions, plus syntax and diff checks. Direct hosted release Worker preparation passed with development-only dependencies.
+Desktop release2 CI completed successfully, including attachments and deployment recording. Independent bytes and link checks remain pending.
+Keep failed patch-2 tags fixed. After the repair passes live preparation, allocate only the next configured patch for failed consumers.
 
 R57-NETWORK-SINGLE: one internal YYYY.M.Patch archive, without -pre or a future release path.
 The owner confirms monorepo-only use. A required SDK peer lets the Worker and crawler select their own SDK channel.
@@ -100,4 +113,6 @@ Only old product-tag caches qualify. Branch, PR, active-run and recently accesse
 Each deletion repeats identity and active-run checks. Incomplete metadata or permissions stop further deletion.
 A concurrent new run can still cause a rebuildable cache miss. CI artifacts, Release assets, npm versions and GHCR images are not targets.
 Live read-only measurement: 1,414,776,479 bytes against 10 GB. No cache was selected or deleted. Remote execution remains unproved.
+Remote maintenance run 37321180703 failed in cache:prune after successful setup. Its current error summary hides the HTTP status.
+A numeric-only diagnostic now exposes an API status without credentials, URLs or response bodies. Remote diagnosis remains open.
 Complete the setup changes, then run remaining configured delivery proofs and private security intake before conditional main sign-off.

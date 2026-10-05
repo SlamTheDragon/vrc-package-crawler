@@ -89,7 +89,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       return response.json();
     };
     console.log(JSON.stringify(await maintainCaches(api, { execute: args[0] === "--execute" }), null, 2));
-  } catch {
+  } catch (error) {
+    // Show only our numeric HTTP status, never a fetch URL, token, or response body.
+    const status = error instanceof Error && /^Cache API failed \((\d{3})\);/.exec(error.message);
+    if (status) console.error(`Cache API status: ${status[1]}`);
     console.error("Cache maintenance failed closed. Inspect API permissions and bounded listing checks. No artifacts or registry versions were targets.");
     process.exitCode = 1;
   }
