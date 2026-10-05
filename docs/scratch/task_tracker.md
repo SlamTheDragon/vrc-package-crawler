@@ -1,162 +1,100 @@
-# G14 — product-local test and development outputs
+# G14 — checked local setup and output cleanup
 
-## Authority and boundary
+## Authority and current boundary
 
-The full goal remains active. R57-C57A delivery checks passed on 2026-10-06.
-The owner answered the requested hook: Proceed with C57B and security intake.
-Milestone rules and sanitized research passed this documentation checkpoint.
-Keep exactly three scratch files and preserve owner comments.
-Root delivery allocates the next configured patch, synchronizes metadata, commits, tags and atomically pushes.
-Failed and published tags remain fixed. Do not align unrelated product patches or skip configured versions.
-Release SDK keeps owner-approved staging and the v0.1 API-review hold.
-Website CI stays disabled. Worker release builds only, without production deployment or GitHub Release assets.
-Worker links remain deferred to docs.vrcpackages.com. Preview D1 remains fbef6ce1-4145-45ae-ae91-5d617a1f2672.
-The owner creates responsibility branches and performs the future fresh clone. Do not delete this checkout.
+- Active related gate: Q-PRODUCT-TEST-OUTPUTS and R57-DEV-READINESS.
+- The owner requires setup, cache and generated-output checks before feature work resumes.
+- The full goal remains active. This local readiness gate passed on 2026-10-06, not the conditional main sign-off.
+- Keep exactly three scratch files. Preserve owner comments, staged-release approvals and the SDK v0.1 review hold.
+- Commit each implemented slice locally as unverified. Commit and push the passed gate evidence.
+- Website delivery stays disabled. Worker release builds only, without production deployment or GitHub Release assets.
+- The owner creates responsibility branches and performs the later fresh clone. Do not delete this checkout.
 
-## Current nine-path proof
+## Checked contract
 
-| Path | Configured version | Successful source run | Independent check |
-| --- | --- | --- | --- |
-| SDK preview | 2026.10.5-pre | 37349103560 attempt 2 | Public npm integrity and all five Release assets |
-| SDK release | 0.0.5 | 37349119431 | Public npm integrity and all five Release assets. Reconciliation 37352706548 passed |
-| Crawler preview | 2026.10.5-pre | 37356931567 | Six binary/receipt/note/checksum assets and GHCR manifest/config/latest |
-| Crawler release | 0.0.5 | 37356959435 | Same six-asset and GHCR checks after protected review |
-| Desktop preview | 26.10.4-pre | 37356987065 | Both installers and all five Release assets |
-| Desktop release | 0.0.4 | 37357012826 | Same five-asset check after protected pre-attachment review |
-| Worker preview | 2026.10.6-pre | 37357039766 | Preview deployed. Actions bundle, source/config receipt and tag passed |
-| Worker release | 0.0.5 | 37357069065 | Actions bundle and receipt passed. Deployment job skipped |
-| Internal network | 2026.10.3 | 37354313987 | Four assets, SDK-5 peers and exact deployment link |
+Root clean/reset commands call scripts/cleanup.mjs and use the same product mapping as delivery.
+Clean removes only named generated outputs. Reset removes only the selected node_modules.
+Both commands plan by default. Deletion requires --apply.
+The complete plan rejects linked paths and unexpected types before deletion. Each target receives another check before removal.
+Concurrent filesystem changes can still cause partial cleanup. There is no recovery copy.
 
-Six root commands each allocated one patch, committed, tagged and atomically pushed without manual metadata repairs.
-All six resulting CI runs passed. No new SDK or network publication was needed.
-An initial Worker status query failed without a mutation. Later exact-run and archive checks passed. No rerun or bump followed that observation.
+Crawler binary cleanup preserves nearby databases and logs. Worker cleanup preserves local D1 and other runtime state.
+Root reset and the nested network project now have explicit commands.
+Shared Bun downloads, credentials and published identities are not cleanup targets.
 
-## Dependency and runtime evidence
+Worker database fixtures use the existing product test-directory helper.
+SDK and network packed consumers use their own .artifacts/tests folders and private package manifests.
+Their explicit typechecks ignore parent compiler configuration, but retain strict checks.
+Producer manifests must remain unchanged. Published tarballs must exclude the test consumers.
 
-| Project, both artifact channels | SDK | Network |
-| --- | --- | --- |
-| src-crawler | Preview latest, checked as 2026.10.5-pre | 2026.10.3 |
-| src-worker | Same preview SDK | Same network archive |
-| src-crawler-client | Release latest, checked as 0.0.5 | None |
-| src-web | Same release SDK | None. Delivery disabled |
+## Gate evidence
 
-All four existing-checkout development installations passed their assigned distributed dependency checks.
-Worker/crawler typechecks passed. Source manifests keep latest SDK aliases and exact network archive URLs.
-Network peer bounds accept release SDK 0.0.5 and preview SDK 2026.10.5-pre.
-The six current hosted consumers use those dependencies, not the previous SDK-3/network-2 pair.
+| Check | Result |
+| --- | --- |
+| Root safety and delivery tests | 112 passed, 1802 assertions, zero failures |
+| Crawler tests | 137 passed, 839 assertions, zero failures |
+| Worker tests from product and root | Each passed 235 tests and 2062 assertions |
+| Worker typechecks and native runtime | Passed. Isolated D1 lease/race/replay/revocation cases passed. External fetches: zero |
+| SDK source and packed consumer | 54 tests, 621 assertions. Strict declarations, Node runtime, Worker build and native runtime passed |
+| Network packed consumer | Same 23-file archive checked with release SDK 0.0.5 and preview SDK 2026.10.5-pre |
+| Network resolvers and runtimes | npm and Bun installations, strict declarations, Node/Bun runtime and native Worker passed. External fetches: zero |
+| Root output observation | No repository-root entries added or removed during the grouped checks |
+| First root setup | Disposable fixture passed setup, reset root --apply, then setup again |
+| Cleanup safety | Disposable fixtures passed repeatability, linked/type rejection and runtime/source/secret preservation |
+| Real checkout cleanup | clean all and reset all plans passed. No --apply ran here |
+| Static review | Script syntax and whitespace checks passed. Source manifests and version configs stayed unchanged |
 
-Hosted Bun 1.4.2 logs confirm root 101/1643, crawler 137/839 and Worker 235/2051, with zero failures.
-CI also passed product typechecks, native Worker checks, container runtime checks and desktop builds.
-Local Bun remains 1.4.1. Do not call local checks a pinned-Bun proof.
-No local release outputs were created.
+Local Bun is 1.4.1. Hosted delivery uses pinned Bun 1.4.2.
+These local results do not replace the hosted runtime proof.
+The setup fixture checked root tools only. It does not prove a full fresh-clone installation of every product.
+Development test packs are not new publications or replacements for published network version 2026.10.3.
 
-Crawler preview digest: sha256:96ae31a95754d31e60b263313a6e615e1d64ab4d461e9d6a85b297e6c3b4846f.
-Crawler release digest: sha256:42667113605ab4ddfcdfbb3f3c46c206c7dc8d7381590572e536972502846263.
-Publication receipt artifacts: preview 11365640465 and release 11364802945.
-Independent checks matched image config hashes, source/dependency labels, non-root runtime settings and latest.
-No independent image-layer download or installer execution ran.
+## Failures found and repaired
 
-Worker preview artifact 11365565369: bundle SHA-256 a5eaa2de3e04dbcc79959cbb7026396e15a86354a74b07d7ceadd9eef2154bbf.
-Worker release artifact 11364987275: bundle SHA-256 fc9835e3feb0df2797a89dcb5f9f2b8cf8cfc917f1aa449f0776edf3e473759c.
-Checks bound the archive and receipt to the immutable tag, source and Wrangler configuration.
-Credentials stayed on GitHub API requests, not signed storage requests.
+- Nested npm consumers without private manifests found the producer manifest and changed it. Only those generated changes were restored.
+- Private consumer manifests now stop parent package discovery. Final checks asserted unchanged producer manifests.
+- TypeScript found the parent config during positional-file checks. Explicit --ignoreConfig now isolates the strict consumer check.
+- The local network SDK was stale. Checked preparation installed the configured preview SDK without changing manifests.
+- A setup diagnostic compared Windows short and long path spellings. The repeated real-path check passed.
+- Four implemented slice commits: 8e32469, 19f3299, df2cdc2 and e989219. Their verification status is now checked.
 
-## Deployment links and caches
+## Cache and artifact policy
 
-All seven distributed-product cards passed live success/link checks.
-SDK preview/release records 6865810902/6865701447 point to their npm package pages.
-Crawler preview/release records 6867000946/6867055010 point to their exact tagged Releases.
-Desktop preview/release records 6867156773/6867147869 do the same.
-Network record 6866559308 points to vrcp-network/v2026.10.3.
+- Latest read-only cache observation: 2,262,603,737 bytes across 86 entries. Account capacity is not measured.
+- Hosted caches contain compatible public Bun downloads only. Keys include dependency specifications, OS, architecture and pinned Bun.
+- Tagged jobs restore only. Trusted default-branch warming jobs save compatible downloads.
+- No credentials, node_modules, compiled targets, D1 state or release outputs enter these caches.
+- GitHub-managed eviction remains the accepted policy. No cache deletion or quota change ran.
+- Most CI artifacts inherit repository retention. Container archives and announcement receipts explicitly use 14 days.
+- Keep original SDK artifacts while owner staging is pending. Broader artifact/GHCR/account budgets remain open.
+- Do not treat published Releases, npm versions or GHCR images as disposable caches.
 
-Owner accepts compatible download reuse, GitHub-managed eviction and read-only monitoring, not automatic cache deletion.
-Cold 37354148172 and warm 37354314159 each passed eight Linux/Windows warming jobs.
-Current tagged crawler jobs 111921724857/111921724752 and Worker job 111921973709 show exact dependency-cache hits.
-Installations and distributed-contract checks still ran. Normal tagged jobs restore without saving dependency caches.
-Keys include dependency specifications, group, OS, architecture and Bun, but exclude product version and source revision.
-The warmer checks actual Bun 1.4.2. No credentials, node_modules, compiled targets, D1 state or release outputs enter these caches.
-Bun executable caching remains action-managed. Monitoring 37354471371 passed with Actions read.
-Latest recorded usage: 1,844,706,464 bytes across 78 caches. Capacity is not measured.
-Artifact, GHCR and account budgets remain separate. No deletion or quota change ran.
+## Delivered baseline and remaining exits
 
-## Current documentation gate
+Nine delivery paths retain their checked baseline. No versions, tags or publications changed in this gate.
 
-DELIVERY.md now describes current commands, dependency mapping, environment rules, staging, immutable retries and cache behavior.
-Obsolete OIDC/MSI pending claims and historical tag-replacement grants were removed.
-Human procedures remain separate from AGENT_DELIVERY_PROCEDURE.md.
-Documentation lint: DELIVERY 1.15 issues per 100 words. Whitespace checks passed.
+- SDK preview/release: 2026.10.5-pre / 0.0.5. Source runs 37349103560 / 37349119431.
+- Crawler preview/release: 2026.10.5-pre / 0.0.5. Source runs 37356931567 / 37356959435.
+- Desktop preview/release: 26.10.4-pre / 0.0.4. Source runs 37356987065 / 37357012826.
+- Worker preview/release: 2026.10.6-pre / 0.0.5. Source runs 37357039766 / 37357069065.
+- Network single stream: 2026.10.3. Source run 37354313987.
+- Crawler/Worker use preview SDK. Desktop/web use release SDK. Network accepts both SDK channels.
+- Seven distributed-product deployment links passed. Worker links remain deferred to docs.vrcpackages.com.
 
-Rules and the separate agent procedure select changed products after grouped capability checks.
-They preserve root delivery chains, immutable tags, dependency channels and release approvals.
-Removed orientation paths were replaced with the canonical ledgers. Source/test edits are not subject to the scratch-file limit.
+C57B rules and sanitized private-security intake are committed and pushed.
+The raw private input stays ignored. Security findings are queued, not remediated.
+The announcement gate is committed as 209d5be. No synthetic, historical or live Discord message ran.
+Its hosted acknowledgement remains pending until the next ordinary product delivery.
 
-The private research was read in full. Its raw file remains ignored and must not enter commits or artifacts.
-Sanitized findings and a trust-boundary diagram are in API_CONTRACT_REVIEW.md.
-The crypto shelf and C38 proposals now require manual operator/staff review, not automatic removal.
-Confirmed code gaps: unenforced app permissions, node body parsing before bearer checks, and unredacted exception/URL diagnostics.
-No limiter appears in inspected API code/bindings. Dashboard protections are unknown.
-Bound SQL parameters and lease/profile/robots/replay checks exist. No successful injection or poisoning exploit was demonstrated.
-Q-API-RESOURCE-BUDGET and Q-NODE-OBSERVATION-TRUST queue the remaining audits. Diagnostics extend existing R53-C37/Q-SDK-ERRORS.
-Bot impersonation stays with the identity/source-access gates. No identity evasion or outbound credential disclosure is approved.
+Main remains unprotected. Only main exists, with no rulesets.
+Root delivery still performs a direct atomic branch/tag push.
+Reviewed promotion needs a compatible delivery path before the owner splits responsibilities.
+Desktop preview and network environments currently lack selected-ref restrictions.
+Resolve those policies without blocking approved manual attachment workflows.
+Preview branch-push automation remains unimplemented. Keep main preview auto-publication disabled.
 
-No runtime code, source access, protocol, credential or infrastructure setting changed in this gate.
-No ceremonial version bump or publication is needed. Static research is not an exercised security guarantee.
-Checks passed: relative links, owner-comment preservation, private-input exclusion, three-file scratch footprint and whitespace.
-Documentation lint: agent procedure 1.10, API audit 1.89, crypto shelf 2.02 and tracker 1.72 issues per 100 words.
-The sanitized checkpoint is committed. Product-local output and branch/main checks follow below.
-The owner creates branches and performs the fresh clone after conditional sign-off. Website delivery stays disabled.
-Legal/age/creator-rights decisions and source-access profiles remain separate from delivery success.
+## Next action
 
-Push approval is explicit. The nine-path proof is committed as 92200c2 and the owner hook as 7d60cae.
-The full goal is not complete. A green run cannot guarantee future credential, dependency or platform behavior.
-
-## Checked release-announcement gate
-
-C57B and sanitized intake are committed and pushed as 8543802. The slice-commit/gate-push amendment is 1302681.
-Owner requests Discord embeds for API, crawler and client, after final green delivery, with separate release and preview destinations.
-Both webhook values are encrypted in repository Actions secrets DISCORD_RELEASE_WEBHOOK and DISCORD_PREVIEW_WEBHOOK.
-Neither value enters source or artifacts.
-The local gate passed: terminal workflow, bounded receipt, public release/source/tag checks, embed/button and persistent duplicate guard.
-Draft, Worker, network and website paths stay silent. No live Discord message or historical backfill ran.
-The final root suite passed 109 tests and 1772 assertions, with zero failures, on local Bun 1.4.1.
-Two earlier runs exposed a test that assumed the attachment command was the last workflow step.
-The test now finds the named attachment step and checks its protected token and the terminal receipt upload.
-Both scripts passed Node syntax checks. Both workflow files passed Bun YAML parsing. Whitespace checks passed.
-The root suite created no repository-root entries. Both webhook values remain absent from tracked source and artifacts.
-The global notification queue retains pending runs. A per-tag check records success or an unresolved send before any retry.
-Notification implementation commits: afe4a6f, 95c8e3b, 5c97c27 and b93ea48.
-Hosted workflow execution and a live Discord acknowledgement remain unverified until the next normal product delivery.
-No version bump is needed for this setup gate. The owner committed the separate rule 01 edit as a9da908.
-
-Post-C57B output inspection: root tests passed 101/1643 on local Bun 1.4.1, with no new or removed root entries.
-Crawler fixtures use product dist/tests. Worker helpers use product dist/tests; two older fixtures still use OS temporary storage.
-SDK distribution fixtures rebuild product dist. Root synthetic repositories and release/cache fixtures use scoped OS temporary folders.
-Hosted outputs stay under the relevant product or runner temporary storage.
-Remote main is unprotected; only main exists, and no rulesets are configured. Preview push automation is not active.
-Protected-main promotion must reconcile the current root chain's direct branch push before conditional sign-off.
-
-## Active product-output gate
-
-Q-PRODUCT-TEST-OUTPUTS covers all product fixtures and root build forwarding, not public release behavior.
-Theory: file-relative output paths keep fixtures inside their owning product when commands start at the repository root.
-Two Worker database suites still use OS temporary storage. Reuse the existing Worker test-directory helper.
-SDK and network smoke consumers also use OS temporary storage. Put them under their owning project's .artifacts/tests.
-Do not put packed consumers under dist: SDK prepack removes dist before building the test tarball.
-Keep random fixture names and current cleanup. Keep test consumers out of published tarballs.
-The gate remains unverified until grouped unit, type, distribution and native runtime checks pass.
-Capture repository-root entries before and after the checks. Do not delete owner files or publish a test artifact.
-
-## Expanded readiness gate: setup and cleanup
-
-The owner requires setup, cache, build and test cleanup checks before feature work resumes.
-Inspection found obsolete clean targets in scripts/cleanup.mjs: crawler dist/local-node binaries and Worker .wrangler/api-build.
-Current development builds use crawler dist/dev and Worker .wrangler/dev-build. The repaired allowlist now names those generated outputs.
-Cleanup currently plans first, requires --apply, rejects linked paths and checks all targets before deletion.
-The implemented reset contract now includes the nested network project and root tools through the shared product mapping.
-Root setup installs orchestration dependencies only. Product preparation and distributed dependency checks remain separate steps.
-Hosted cache monitoring is read-only. Preserve the owner's GitHub-managed eviction policy. Do not delete shared download caches without approval.
-The simple setup/cleanup checklist and narrow allowlist are implemented but unverified.
-Use disposable fixtures to check deletion safety, repeatability and preservation of credentials, databases, logs and local D1 state.
-Do not apply cleanup to this checkout during the audit. Fresh-clone proof remains the owner's later step.
-The approval reviewer recovered. No bypass was needed.
-Next: run the grouped root, Worker, SDK/network distribution and output checks. Product-output commit 8e32469 remains unverified.
+Keep these checked commits with the recorded gate evidence.
+Finish the branch/promotion and environment-policy slice before conditional main sign-off.
+Do not resume unrelated feature work, create owner branches or declare the full goal complete.
