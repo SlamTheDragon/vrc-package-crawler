@@ -6,8 +6,9 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: worker-release
+  group: worker-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}
   cancel-in-progress: false
+  queue: max
 jobs:
   build:
     runs-on: ubuntu-latest

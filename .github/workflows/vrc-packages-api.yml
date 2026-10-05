@@ -17,6 +17,7 @@ permissions:
 concurrency:
   group: sdk-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}
   cancel-in-progress: false
+  queue: max
 jobs:
   # trust check is no longer being ran, should we clean this up?
   preview-trust-check:

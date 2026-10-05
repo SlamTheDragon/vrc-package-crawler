@@ -22,6 +22,12 @@ jobs:
     if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
     steps:
+      - name: Reject repeated patch allocation
+        run: |
+          if [ "$GITHUB_RUN_ATTEMPT" != "1" ]; then
+            echo '::error::Allocator reruns cannot bump another patch. Inspect the original tag and retry its delivery, or start a new allocation only if no remote version was allocated.'
+            exit 1
+          fi
       - uses: actions/create-github-app-token@v3
         id: app
         with:

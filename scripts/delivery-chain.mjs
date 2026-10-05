@@ -37,6 +37,17 @@ function newerRemoteVersion(channel, product, version, refs) {
   });
 }
 
+function mainVersionBlocker(channel, product, version, refs, workspace, git) {
+  const main = refs.find(line => line.endsWith("\trefs/heads/main"))?.split("\t")[0];
+  if (!/^[a-f0-9]{40}$/.test(main ?? "")) return "Origin main is unavailable";
+  try {
+    const mainConfig = JSON.parse(git(workspace, "show", `${main}:${channel === "release" ? "config.versions.json" : "config.preview.versions.json"}`));
+    const mainVersion = mainConfig[`${channel}-${product}`];
+    if (semver.valid(mainVersion) !== mainVersion) throw new Error("Invalid main version");
+    if (semver.lt(version, mainVersion)) return "Version config is behind origin main; synchronize before bumping";
+  } catch { return "Cannot read current origin main version config; fetch origin main before delivery"; }
+}
+
 /** Read-only planning. Only --execute allocates a patch and triggers tagged CI. */
 export async function planDelivery(channel, product, workspace = root, now = new Date(), git = runGit) {
   if (!Object.hasOwn(workflows, product)) throw new Error("Product delivery is disabled or unknown. Website hosting remains deferred.");
@@ -58,16 +69,8 @@ export async function planDelivery(channel, product, workspace = root, now = new
   if (!refs.includes(`${head}\trefs/heads/${branch}`)) blockers.push("Origin branch differs from HEAD or does not exist");
   if (refs.some(line => line.endsWith(`\trefs/tags/${tag}`))) blockers.push("Remote tag already exists");
   if (newerRemoteVersion(channel, product, previous, refs)) blockers.push("Version config is behind a remote delivery tag; synchronize before bumping");
-  const main = refs.find(line => line.endsWith("\trefs/heads/main"))?.split("\t")[0];
-  if (!/^[a-f0-9]{40}$/.test(main ?? "")) blockers.push("Origin main is unavailable");
-  else {
-    try {
-      const mainConfig = JSON.parse(git(workspace, "show", `${main}:${channel === "release" ? "config.versions.json" : "config.preview.versions.json"}`));
-      const mainVersion = mainConfig[`${channel}-${product}`];
-      if (semver.valid(mainVersion) !== mainVersion) throw new Error("Invalid main version");
-      if (semver.lt(previous, mainVersion)) blockers.push("Version config is behind origin main; synchronize before bumping");
-    } catch { blockers.push("Cannot read current origin main version config; fetch origin main before delivery"); }
-  }
+  const mainBlocker = mainVersionBlocker(channel, product, previous, refs, workspace, git);
+  if (mainBlocker) blockers.push(mainBlocker);
   const other = (await readVersionConfig(channel === "preview" ? "release" : "preview", workspace)).config;
   if (other[`${channel === "preview" ? "release" : "preview"}-${product}`] === version) blockers.push("Channel tag would be ambiguous");
   return { channel, product, previous, version, tag, branch, repository, head, configPath, blockers,
@@ -118,10 +121,12 @@ export function retryDelivery(tag, workspace = root, git = runGit) {
     }
     const branch = git(workspace, "symbolic-ref", "--short", "HEAD");
     if (selected.channel === "release" && branch !== "main") throw new Error("Release retry requires main after reviewed promotion");
-    const versions = git(workspace, "ls-remote", "origin", `refs/tags/${productTagPrefixes[selected.product]}/v*`).split("\n");
+    const versions = git(workspace, "ls-remote", "origin", "refs/heads/main", `refs/tags/${productTagPrefixes[selected.product]}/v*`).split("\n");
     if (newerRemoteVersion(selected.channel, selected.product, selected.version, versions)) {
       throw new Error("Newer remote delivery exists. Inspect the retained local tag; do not replace it or skip a patch.");
     }
+    const mainBlocker = mainVersionBlocker(selected.channel, selected.product, selected.version, versions, workspace, git);
+    if (mainBlocker) throw new Error(`Retry blocked: ${mainBlocker}`);
     // Atomic normal pushes fail on divergence and existing tags. Never replace a tag.
     git(workspace, "push", "--atomic", "origin", `HEAD:refs/heads/${branch}`, `refs/tags/${tag}`);
   }

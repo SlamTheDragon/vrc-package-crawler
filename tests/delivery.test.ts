@@ -902,6 +902,11 @@ test("preview App dispatcher is branch-only, serializes allocation and calls the
   expect(workflow.concurrency.queue).toBe("max");
   const steps = workflow.jobs.allocate.steps;
   const app = steps.find((step: any) => step.id === "app");
+  const rerunGuard = steps.find((step: any) => step.name === "Reject repeated patch allocation");
+  expect(steps.indexOf(rerunGuard)).toBeLessThan(steps.indexOf(app));
+  expect(rerunGuard.run).toContain('if [ "$GITHUB_RUN_ATTEMPT" != "1" ]; then');
+  expect(rerunGuard.run).toContain("exit 1");
+  expect(rerunGuard.run).toContain("Inspect the original tag");
   expect(app.with["client-id"]).toBe("${{ vars.VRCP_PREVIEW_APP_CLIENT_ID }}");
   expect(app.with["private-key"]).toBe("${{ secrets.VRCP_PREVIEW_APP_PRIVATE_KEY }}");
   expect(app.with["permission-contents"]).toBe("write");
@@ -914,6 +919,26 @@ test("preview App dispatcher is branch-only, serializes allocation and calls the
   expect(command.env.VRCP_PREVIEW_PRODUCT).toBe("${{ inputs.product }}");
   expect(JSON.stringify(steps)).not.toContain("delivery:release");
   expect(JSON.stringify(steps)).not.toContain("pulls/");
+});
+
+test("tagged builds and asset retries retain pending work without blocking preview behind release review", () => {
+  for (const [file, group] of [
+    ["vrc-packages-api", "sdk"], ["node-docker", "crawler"], ["cloudflare-worker", "worker"]
+  ]) {
+    const workflow = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${file}.yml`, import.meta.url), "utf8"));
+    expect(workflow.concurrency.queue).toBe("max");
+    expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
+    expect(workflow.concurrency.group).toBe(`${group}-` + "${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}");
+  }
+  const assets = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/release-assets.yml", import.meta.url), "utf8"));
+  expect(assets.concurrency.queue).toBe("max");
+  expect(assets.concurrency["cancel-in-progress"]).toBe(false);
+  expect(assets.concurrency.group).toBe("release-assets-${{ inputs.tag || github.ref_name }}");
+  // These builds had no concurrency cancellation group. Do not introduce an unrelated queue.
+  for (const file of ["node-client", "network"]) {
+    const workflow = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${file}.yml`, import.meta.url), "utf8"));
+    expect(workflow.concurrency).toBeUndefined();
+  }
 });
 
 test("external workflow guards separate the two npm approvals from preview-only Worker authority", () => {

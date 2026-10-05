@@ -200,6 +200,42 @@ test("an unpublished release retry cannot use a feature branch to bypass main", 
   });
 }, 60_000);
 
+test("retained preview retry rejects missing or newer main config without mutating its tag", async () => {
+  await fixture(async (workspace, git) => {
+    git(workspace, "checkout", "-b", "feature-preview-retry");
+    git(workspace, "push", "-u", "origin", "feature-preview-retry");
+    const stopPush = (cwd: string, ...args: string[]) => {
+      if (args[0] === "push" && args.includes("--atomic")) throw new Error("Synthetic rejected push");
+      return git(cwd, ...args);
+    };
+    await expect(startDelivery("preview", "worker", true, workspace, now, stopPush)).rejects.toThrow("rejected push");
+    const tag = "cloudflare-worker/v2026.10.1-pre";
+    const tagObject = git(workspace, "rev-parse", `refs/tags/${tag}`);
+    const retainedCommit = git(workspace, "rev-parse", "HEAD");
+    const missingMain = (cwd: string, ...args: string[]) => {
+      if (args[0] === "show" && args[1].endsWith(":config.preview.versions.json") && !args[1].startsWith(`${retainedCommit}:`)) {
+        throw new Error("Synthetic missing main object");
+      }
+      return git(cwd, ...args);
+    };
+    expect(() => retryDelivery(tag, workspace, missingMain)).toThrow("fetch origin main");
+    git(workspace, "checkout", "main");
+    const path = resolve(workspace, "config.preview.versions.json");
+    const config = JSON.parse(await readFile(path, "utf8"));
+    config["preview-worker"] = "2026.10.2-pre";
+    await writeFile(path, JSON.stringify(config));
+    git(workspace, "add", "--", "config.preview.versions.json");
+    git(workspace, "commit", "-m", "Synthetic newer main configuration without a delivery tag");
+    git(workspace, "push", "origin", "main");
+    git(workspace, "checkout", "feature-preview-retry");
+    expect(() => retryDelivery(tag, workspace, git)).toThrow("behind origin main");
+    expect(git(workspace, "rev-parse", "HEAD")).toBe(retainedCommit);
+    expect(git(workspace, "rev-parse", `refs/tags/${tag}`)).toBe(tagObject);
+    expect(git(workspace, "ls-remote", "origin", `refs/tags/${tag}`)).toBe("");
+    expect(git(workspace, "status", "--porcelain")).toBe("");
+  });
+}, 60_000);
+
 test("lost push acknowledgments recover the same tag, but differing remote tags never move", async () => {
   await fixture(async (workspace, git) => {
     let lost = true;

@@ -10,8 +10,9 @@ permissions:
   actions: read
 # Standalone artifacts are not yet an installation/supervision contract for the Tauri shell.
 concurrency:
-  group: crawler-release
+  group: crawler-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}
   cancel-in-progress: false
+  queue: max
 jobs:
   build-linux:
     runs-on: ubuntu-latest
