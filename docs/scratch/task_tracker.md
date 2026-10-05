@@ -32,10 +32,10 @@ Branch automation waits for the patch-1 proof. Cross-branch dependency-version u
 | Product | Release target | Preview target | Current proof |
 | --- | --- | --- | --- |
 | SDK | 0.0.1 | 2026.10.1-pre | Both npm channels and five assets per GitHub Release independently verified |
-| Network | 0.0.1 | 2026.10.1-pre | Preview CI 37251743937 passed at 0117444f525dd5e83648d212a43fa4b1397a32ad |
-| Crawler | 0.0.1 | 2026.10.1-pre | Pending binaries, separate GHCR images and assets |
-| Desktop | 0.0.1 | 26.10.1-pre | Release CI 37248173416 passed at 120819946c199a2f3000ac89d0cf1ce6322f89b3 |
-| Worker | 0.0.1 build only | 2026.10.1-pre deploy | Pending CI bundle checks and preview readback |
+| Network | 0.0.1 | 2026.10.1-pre | Both channels and four assets per GitHub Release verified; release CI 37301273812 |
+| Crawler | 0.0.1 | 2026.10.1-pre | Preview build checks passed; CI 37301612185 waits for environment review. Release CI 37301626762 queued |
+| Desktop | 0.0.1 | 26.10.1-pre | Release verified. Preview CI 37301287106 still building |
+| Worker | 0.0.1 build only | 2026.10.1-pre deploy | Both CI bundle receipts independently verified; preview deployed, production skipped |
 | Website | Disabled | Disabled | Owner excludes delivery |
 
 Published patch-1 identities stay unchanged. Historical desktop release used SDK 0.0.0.
@@ -87,6 +87,21 @@ Grouped root checks: 72 pass, 2 fail, 838 assertions. All 11 container tests pas
 Both failures are unsynchronized local manifests: SDK and consumers remain 0.0.0 while release config is 0.0.1.
 CI syncs the selected channel before testing; the preview SDK build passed. Local full-root conformance is not yet passed.
 Container syntax and diff checks passed. No patch-1 crawler publication ran yet.
+
+## Remaining product trials
+
+The existing one-command delivery chain allocated and pushed all remaining patch-1 tags from the clean trial checkout.
+Network release source dfdc150437bc1dc6e57cd3e5001c5fa66610deab; tag object 95af5b72d4b82a71dae216844bd2aa039c6a95d5.
+Network release tarball SHA-256: 586372ad697ae730ec4cf4122c3a2e1b1b334d6feec137839335938dbd7bda56.
+Desktop preview source ee996aba25b0a40cfd3d40187abf0db01f623c97; tag object 426580841d81a0b6eb5ff5dd267a2c200db3f8b8.
+Crawler preview source 26aa7bdbfadee8e83ab44af1269696b6dccda3c8; tag object c90b7db28ac453e11ac1cac4fc1c697896a74fc7.
+Crawler release source deccb1f6fd96b5ccca5655e816ca58406188860a; tag object 3078228c77b68240716a21c9228fd34ba1b351e6.
+GitHub requires owner environment review for vrcp-crawler-preview despite standing publication authorization. The question hook links its run; protection is unchanged.
+Worker preview CI 37301422846 deployed version b709408c-17a8-4ab0-985f-05dd003a80d4 to the existing preview Worker and preview-only D1.
+Its bundle SHA-256: 725d1edfc05537a817d65d42df81a5fa3c38fbce86a96dd39cc6ae2a3715c131.
+Worker release CI 37301598940 passed build and skipped deployment; bundle SHA-256 f2819114064e354917f4ff52b1217c4a413b16cedf92afcd4c3a5168fa55caea.
+Both Worker CI archives passed memory-only receipt/channel/version/source checks. Neither has GitHub Release assets.
+Unauthenticated preview initialization returned 401 before storage access. No authorized initialization, schema write or source grant ran.
 
 ## Next actions and safety
 
