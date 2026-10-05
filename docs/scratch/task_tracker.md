@@ -46,39 +46,37 @@ Both patch-0 crawler image channels and SDK registry artifacts passed earlier ch
 
 ## Live SDK trial checkpoint
 
-Checked baseline f8f9c4ad4264e16acdeaf423c881da633065c5a0 is pushed. The root commands allocated one patch per channel and triggered CI.
-Release tag vrcp-api/v0.0.1 binds commit 7c7e252e5360dca453dfc0c3b52df9a9cc97dcb3 and tag object 48080f06312224993c45ee83c288edf437a3937d.
-Release CI 37255187559 passed build, staging and five draft attachments. The configured GitHub review was submitted under owner trial authority.
-The owner approved stage 42ec4154-e9d6-42ec-a6b6-bb9dc90634df. Public npm exact and latest metadata return 0.0.1 with matching integrity.
-Draft-controller run 37256527596 returned dispatched 0. GitHub requires push access to list drafts, but its token has contents: read.
-Theory: contents: write lets the controller find this draft and dispatch the byte-checked attachment workflow.
-The owner explicitly approved contents: write. The repair also disables saved checkout credentials. No stage approval ran in CI.
-Historical commit 24bfec4 introduced the read-only checker. Successful release attachments use contents: write in 7c7e252.
-Repair 60cdcd0 passed 14 tests and 155 assertions. Live controller 37257129900 still returned dispatched 0.
-The permission correction alone did not prove promotion. Theory: bounded filter counters identify the remaining draft exclusion.
-Run 37257451130 found one draft but no SDK-tagged draft. Draft 403316984 has synthetic tag untagged-0a9df2fcbfa12c2ac86e.
-Its title, source run, source commit and five asset digests identify the original 0.0.1 delivery.
-GitHub loses draft tag associations when PATCH omits tag_name. The repair retains tag_name and checks orphan notes before in-place recovery.
-Preview tag vrcp-api/v2026.10.1-pre binds commit 83a05071baaa5c645484cda6dd67977c3261a173 and tag object 037249c1b94cb7cf395cf08b7433d80ad8f1fa62.
-Preview CI 37255217168 passed build but direct publication failed with ENEEDAUTH. Attempt 3 failed after the owner recreated trusted publishers.
-Preview exact metadata still returns 404. No trial tag was replaced. Release byte readback remains pending.
-The OIDC request variables passed the local guard. CLI 11.19.0 was installed. The logs do not expose the failed token-exchange cause.
-Theory: check exact trusted-publisher claims and registry settings before choosing a repair. Do not assume owner error or add token fallback.
-The screenshot showed lowercase slamthedragon. GitHub reports SlamTheDragon. The owner recreated the entries, but authentication still fails.
-The owner confirms the preview entry belongs to vrc-packages-api-preview. Consumer trials wait for their channel SDK.
-Historical preview success used token-backed staging, not direct OIDC. It does not prove this new authentication path.
-A manual, publication-free job in the same SDK workflow checks whitelisted identity claims and the npm exchange HTTP status.
-JWTs, exchanged tokens, headers and response bodies never enter its output. It does not use npm or Cloudflare secrets.
+SDK release 0.0.1 is public on npm and GitHub after owner npm approval.
+Source commit: 7c7e252e5360dca453dfc0c3b52df9a9cc97dcb3. Unchanged tag object: 48080f06312224993c45ee83c288edf437a3937d.
+Original CI: 37255187559. Controller: 37257969331. Automatic promotion: 37257987859.
+The owner approved draft access through contents: write. Checkout does not save that credential.
+PATCH without tag_name also detached draft 403316984. The repair recovered its source-bound identity and retained all original assets.
+Independent memory-only readback passed five assets, npm integrity and remote tag binding.
+Tarball SHA-256: 2ac9b69e77d412743c954c47cf29791f97975885bcc2703e9733391c8ea33843.
+The same draft ID became public. No npm stage approval ran in CI.
+
+Preview 2026.10.1-pre remains unpublished. Run 37255217168 failed three attempts with ENEEDAUTH.
+Former source: 83a05071baaa5c645484cda6dd67977c3261a173. Former tag object: 037249c1b94cb7cf395cf08b7433d80ad8f1fa62.
+The owner recreated publishers and confirms the preview-package context. The authentication cause remains unknown.
+Historical preview success used token-backed staging, not OIDC. Do not treat it as direct-publication proof.
+A manual diagnostic prints whitelisted identity claims and exchange status, never tokens, headers or response bodies.
+Diagnostic 37258369653 ran no steps. Tag-only environment protection rejected main.
+The owner approved exact-target replacement. Its leased push and remote readback passed at unchanged version.
+New source: 95601f6ea4455c9495e5aa7d5c7282883596b70d. New tag object: 81ca4c7b2028948760d8d2f7be2ecdcc0e5e5418.
+SDK source is unchanged. Replacement CI 37258873559 passed build and failed npm publication.
+Tag-ref diagnostic 37258947351 passed. npm accepted the OIDC exchange with HTTP 201.
+Its owner, repository, workflow and environment claims match the expected publisher. The publisher mapping works in this diagnostic.
+Theory: npm CLI's exchange or credential installation differs from the direct diagnostic. Capture only statuses and fixed flags on failure.
+Grouped SDK/controller checks passed 46 tests and 562 assertions, including credential-safe failure summaries. Syntax and diff checks passed.
+An owner question requests bounded authority for further exact-lease replacements of this unpublished tag during diagnostics.
 
 ## Next actions and safety
 
-Finish direct preview SDK publication, remote tag checks and Worker build-only root routing.
-Run related tests together. Commit only owned changes.
-Use the root commands from a clean temporary checkout for the remaining trials.
-Resolve the preview authentication evidence and check owner release promotion. Publish SDK channel versions before consumer trials.
-Record exact runs, checked bytes and required manual release promotion.
-Do not replace published tags or increment existing patch-1 deliveries.
-Then implement the branch split and main protection. The current release command pushes to its branch, so protected-main release routing needs a PR path.
+If publication still fails, run the diagnostic on that permitted tag ref. Keep environment protection and reject token fallback.
+Finish preview npm publication and public byte checks before preview consumer trials.
+Release consumers can use the checked release SDK. Preserve existing network-preview and desktop-release patch-1 deliveries.
+Other patch-1 paths, branch split and main protection remain open. Website delivery stays disabled.
+The current release command pushes its branch. Protected-main delivery needs a reviewed PR path.
 R57-C57B remains behind its requested owner question hook.
 No local release builds, D1 writes, source grants or production Worker deployment.
 Private attacker research remains unread until pipeline setup finishes.

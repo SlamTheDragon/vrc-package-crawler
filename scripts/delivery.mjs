@@ -154,12 +154,34 @@ export async function requireCI(product, channel, env = process.env) {
   });
 }
 
+/** Keep npm's auth diagnostics useful without forwarding raw logs or credentials. */
+export function previewOIDCFailure(stderr) {
+  const log = String(stderr ?? "");
+  const exchange = log.split("\n").filter(line => line.includes("http fetch POST") &&
+    line.includes("https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/"));
+  const statuses = exchange.map(line => /\bPOST(?:\s+https:\/\/\S+)?\s+([1-5][0-9]{2})\b/.exec(line)?.[1])
+    .filter(Boolean).slice(-8).map(Number);
+  return { action: "preview-npm-auth-failure", exchangeStatuses: statuses,
+    tokenInstalled: log.includes("oidc Successfully retrieved and set token"),
+    exchangeRejected: log.includes("oidc Failed token exchange request"),
+    oidcException: log.includes("oidc Failure with message"),
+    noCredentials: /\bENEEDAUTH\b/.test(log) };
+}
+
 function npm(args, cwd, capture = false) {
   const cli = [process.env.npm_execpath, join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
     resolve(dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js")]
     .find(path => path?.endsWith("npm-cli.js") && existsSync(path));
   if (!cli) throw new Error("Run through npm, or use a Node installation that includes npm");
-  return execFileSync(process.execPath, [cli, ...args], { cwd, stdio: capture ? "pipe" : "inherit", encoding: "utf8" });
+  const diagnose = capture && args[0] === "publish";
+  try {
+    return execFileSync(process.execPath, [cli, ...args, ...(diagnose ? ["--loglevel=verbose"] : [])],
+      { cwd, stdio: capture ? "pipe" : "inherit", encoding: "utf8" });
+  } catch (error) {
+    if (!diagnose) throw error;
+    console.error(JSON.stringify(previewOIDCFailure(error.stderr)));
+    throw new Error("Preview npm publication failed. Read its sanitized authentication summary.");
+  }
 }
 
 function inspectDependencies(project, latestVersion) {

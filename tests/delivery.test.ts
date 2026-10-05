@@ -6,7 +6,20 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { bumpVersion, distributedArtifact, productDirectories, readVersionConfig, sdkPackageNames, versionFiles } from "../scripts/versioning.mjs";
-import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, stageSDKArtifact, publishPreviewSDKArtifact, validateCIArtifact, validateRegistrySDK, validateSDKStage, workerSecretBindings } from "../scripts/delivery.mjs";
+import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, stageSDKArtifact, publishPreviewSDKArtifact, previewOIDCFailure, validateCIArtifact, validateRegistrySDK, validateSDKStage, workerSecretBindings } from "../scripts/delivery.mjs";
+
+test("preview npm failure summaries expose only statuses and fixed flags, never raw authentication logs", () => {
+  const summary = previewOIDCFailure("npm http fetch POST 403 https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/vrc-packages-api-preview 12ms\n" +
+    "npm verbose oidc Failed token exchange request with body message: SYNTHETIC_PRIVATE_VALUE\n" +
+    "npm error code ENEEDAUTH\nAuthorization: Bearer SYNTHETIC_PRIVATE_VALUE");
+  expect(summary).toEqual({ action: "preview-npm-auth-failure", exchangeStatuses: [403], tokenInstalled: false,
+    exchangeRejected: true, oidcException: false, noCredentials: true });
+  expect(JSON.stringify(summary)).not.toContain("SYNTHETIC_PRIVATE_VALUE");
+  expect(previewOIDCFailure("npm http fetch POST https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/example 201 2ms\n" +
+    "npm verbose oidc Successfully retrieved and set token").exchangeStatuses).toEqual([201]);
+  expect(previewOIDCFailure("npm verbose oidc Successfully retrieved and set token").tokenInstalled).toBe(true);
+  expect(previewOIDCFailure(undefined).exchangeStatuses).toEqual([]);
+});
 
 async function fixture(run: (workspace: string) => Promise<void>) {
   const parent = await realpath(tmpdir());
