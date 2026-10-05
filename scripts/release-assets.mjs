@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
 import { requireCI, resolveTag, validateCIArtifact } from "./delivery.mjs";
@@ -165,7 +165,7 @@ export async function attachRelease(api, repository, tag, commit, notes, files, 
     } else {
       if (!release.draft) throw new Error("Cannot add missing assets to a published release");
       const uploaded = await api("UPLOAD", `${base}/${release.id}/assets?name=${encodeURIComponent(name)}`, bytes);
-      if (uploaded.digest !== `sha256:${hash(bytes)}` || uploaded.size !== bytes.length || uploaded.state !== "uploaded") {
+      if (uploaded.name !== name || uploaded.digest !== `sha256:${hash(bytes)}` || uploaded.size !== bytes.length || uploaded.state !== "uploaded") {
         throw new Error("Uploaded release asset differs from checked bytes");
       }
     }
@@ -181,10 +181,17 @@ async function stamp(channel, product, directory, platform) {
   const selected = await requireCI(product, channel);
   if (!["crawler", "crawler-client", "web"].includes(product)) throw new Error("Only binary/static receipts need stamping");
   if (product === "crawler" && !["linux", "windows"].includes(platform)) throw new Error("Crawler receipt needs its platform");
-  const paths = filesIn(resolve(directory)).filter(path => allowedBinary(basename(path), product, selected.version));
+  let paths = filesIn(resolve(directory)).filter(path => allowedBinary(basename(path), product, selected.version));
   if (paths.length < 1 || paths.length > 2) throw new Error("Missing or excess product binary outputs");
-  const names = paths.map(path => basename(path));
+  // GitHub replaces spaces in uploaded asset names. Normalize before receipts bind those names.
+  const names = paths.map(path => product === "crawler-client" ? basename(path).replaceAll(" ", ".") : basename(path));
   if (new Set(names).size !== names.length) throw new Error("Duplicate output basenames");
+  const targets = paths.map((path, index) => join(dirname(path), names[index]));
+  if (targets.some((path, index) => path !== paths[index] && existsSync(path))) throw new Error("Installer asset name collision");
+  paths = paths.map((path, index) => {
+    if (targets[index] !== path) renameSync(path, targets[index]);
+    return targets[index];
+  });
   const receipt = { ...selected, purpose: "ci-release", commit: process.env.GITHUB_SHA,
     files: paths.map(path => { const bytes = readFileSync(path); return { name: basename(path), size: bytes.length, sha256: hash(bytes) }; }) };
   writeFileSync(join(directory, product === "crawler" ? `crawler-${platform}.receipt.json` : `${product}.receipt.json`), JSON.stringify(receipt, null, 2) + "\n");

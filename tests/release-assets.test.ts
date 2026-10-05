@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { allowedBinary, attachRelease, checkedAssets, checkSourceRun, milestoneNotes, reconcileSDKDrafts } from "../scripts/release-assets.mjs";
+import { readVersionConfig } from "../scripts/versioning.mjs";
 
 const commit = "a".repeat(40);
 const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
@@ -62,6 +64,29 @@ test("Binary receipts bind both platforms and reject altered, misplaced and unli
   expect(allowedBinary("client_0.0.0-setup.exe", "crawler-client", "0.0.0")).toBe(true);
   expect(allowedBinary("vrcp-web-0.0.0.tgz", "web", "0.0.0")).toBe(true);
   expect(allowedBinary("vrcp-web-0.0.1.tgz", "web", "0.0.0")).toBe(false);
+});
+
+test("installer stamping normalizes names before receipts and rejects collisions without overwriting", async () => {
+  const { config } = await readVersionConfig("release");
+  const version = config["release-crawler-client"];
+  const env = { ...process.env, GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_SHA: commit,
+    GITHUB_REF: `refs/tags/vrcp-crawler-client/v${version}` };
+  const stamp = (directory: string) => execFileSync(process.execPath,
+    ["scripts/release-assets.mjs", "stamp", "release", "crawler-client", directory], { env, stdio: "pipe", timeout: 15_000 });
+  fixture({ "VRCP Crawler Client.msi": "synthetic MSI", "VRCP Crawler Client-setup.exe": "synthetic NSIS" }, paths => {
+    const directory = dirname(paths[0]);
+    stamp(directory);
+    const receiptPath = join(directory, "crawler-client.receipt.json");
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    expect(receipt.files.map((file: { name: string }) => file.name).sort())
+      .toEqual(["VRCP.Crawler.Client-setup.exe", "VRCP.Crawler.Client.msi"]);
+    expect(checkedAssets([receiptPath, ...receipt.files.map((file: { name: string }) => join(directory, file.name))],
+      { product: "crawler-client", channel: "release", version }, commit, {}).size).toBe(3);
+  });
+  fixture({ "VRCP Client.msi": "first", "VRCP.Client.msi": "second" }, paths => {
+    expect(() => stamp(dirname(paths[0]))).toThrow("Duplicate output basenames");
+    expect(paths.map(path => readFileSync(path, "utf8"))).toEqual(["first", "second"]);
+  });
 });
 
 test("Release notes select one bounded product milestone, not every commit or another product", () => {
@@ -161,6 +186,21 @@ test("Distributed products wire checked release assets, Worker stays CI-only and
   const reusable: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/release-assets.yml", import.meta.url), "utf8"));
   expect(reusable.on.workflow_dispatch.inputs.tag.required).toBe(true);
   expect(reusable.jobs.attach.steps.find((step: any) => step.uses?.startsWith("actions/download-artifact@")).with.path).toContain("runner.temp");
+});
+
+test("release attachment rejects server-renamed assets before publishing the draft", async () => {
+  let published = false;
+  const files = new Map([["VRCP Client.msi", Buffer.from("synthetic MSI")]]);
+  const release = { id: 1, tag_name: "vrcp-crawler-client/v0.0.0", draft: true, prerelease: false };
+  const api = async (method: string, path: string, body: any) => {
+    if (method === "GET") return path.includes("/tags/") ? release : [];
+    if (method === "UPLOAD") return { name: "VRCP.Client.msi", size: body.length, digest: `sha256:${digest(body)}`, state: "uploaded" };
+    if (method === "PATCH") published = true;
+    throw new Error("Unexpected write");
+  };
+  await expect(attachRelease(api, "owner/repo", release.tag_name, commit, "notes", files, false, false))
+    .rejects.toThrow("Uploaded");
+  expect(published).toBe(false);
 });
 
 test("SDK promotion retains original notes and checksums when main or the note renderer changes", async () => {

@@ -33,7 +33,7 @@ Version changes, metadata sync, builds and external publication are separate act
 | network | npm SemVer for internal contracts, with `pre` for preview distribution | CI tarball only. Registry selection remains open. |
 | worker | Runtime version, with `pre` for preview | Persistent preview Worker or existing production Worker |
 | crawler | Headless executable version | Standalone CI binary and optional container publication |
-| crawler-client | Desktop application version, not a staging environment | Unsigned Windows shell installers in CI |
+| crawler-client | Release SemVer or preview YY.M.Patch-pre, not a staging environment | Unsigned Windows shell installers in CI |
 | web | Site artifact version. Current calendar-shaped value remains authoritative. | CI is disabled pending hosting selection. Local static builds remain available. |
 
 Numeric values must fit SemVer syntax. Calendar-shaped values do not become API compatibility guarantees.
@@ -93,9 +93,13 @@ npm run versions:bump -- preview worker patch
 ```
 
 Release patch, minor and major increments are arithmetic SemVer operations, not automatic calendar updates.
-Preview bumps derive year and month from the current UTC calendar, increase patch and retain the pre suffix.
+Preview bumps derive year and month from the current UTC calendar, increase patch and retain an existing pre suffix.
 In the same month, `2026.10.0-pre` becomes `2026.10.1-pre`. In November, that next bump becomes `2026.11.2-pre`.
 The preview SDK uses YYYY.M.Patch-pre. npm requires months without a leading zero. No trailing prerelease counter is allowed.
+Desktop previews use YY.M.Patch-pre: `26.10.0-pre`, then `26.10.1-pre`, or `26.11.2-pre` after a November bump.
+Only desktop preview bumps shorten the UTC year. Other products keep their configured formats.
+Desktop preview patches stop at 65535, the MSI limit. Preview and release currently share the installed application identity.
+Separate installation and data identities remain a future decision. Do not infer side-by-side installation support.
 Only the explicit bump command reads the calendar. Builds and publication read the saved config, preserving older tagged builds.
 Sync metadata separately after a config change. Product-only sync does not sync its dependency projects.
 Use an all-product sync when preparing a consistent dependency graph for the selected config.
@@ -123,7 +127,7 @@ It does not deploy the SDK, use Cloudflare credentials or include Worker infrast
 | `vrcp-crawler/v` | node-docker.yml | Upload Windows/Linux binaries. Publish the checked musl image through its channel environment and approval switches |
 | `vrcp-crawler-client/v` | node-client.yml | Upload unsigned Windows installers. No updater or crawler installation contract |
 | `vrcp-api/v` | vrc-packages-api.yml | Build the SDK, then stage it in vrcp-api-release or vrcp-api-preview. npm publication requires owner 2FA |
-| `vrcp-network/v` | network.yml | Upload the internal tarball. No registry publication |
+| `vrcp-network/v` | network.yml | Upload the checked tarball and publish GitHub Release attachments. No registry publication |
 | `web/v` | web.yml | Disabled pending hosting selection |
 
 Each successful distributed-product delivery calls the shared GitHub Release attachment workflow automatically. Worker deployments do not.
@@ -157,6 +161,17 @@ It checks the source repository, tag, commit, product workflow and required succ
 It checks every file against the original receipt. Extra files, changed bytes and duplicate names stop the job.
 Worker bundles and receipts remain CI-only. Manual Worker release-asset requests fail before release creation or asset writes.
 Crawler attachments include both platform binaries and receipts. Desktop attachments include unsigned installers and their receipt.
+Network release 0.0.0 and preview 2026.10.0-pre passed CI packaging and automatic four-asset release publication at d0a9119.
+Memory-only downloads matched the tarballs, receipts, milestone notes and checksum lists against GitHub asset digests.
+The network manifest's private flag blocks npm publication. It does not restrict downloads from this public repository.
+Crawler preview run 37244482335 and release run 37244482532 passed at fb9edf6 after the owner's authorized environment approvals.
+Both GHCR version and latest tags match CI publication receipts, manifest digests and channel-specific SDK/network labels.
+Standing owner approval covers subsequent crawler trials. It does not remove environment protections or npm staging review.
+Desktop release 0.0.0 passed native CI, but its receipt/checksum filenames contain spaces that GitHub replaced with dots.
+Its bytes match after that explicit historical mapping. Do not call its filename contract conformant or replace published assets.
+New installer builds normalize names before stamping. Attachment checks reject server-renamed assets before publishing the draft.
+[GitHub documents asset filename changes](https://docs.github.com/en/rest/releases/assets#upload-a-release-asset).
+Desktop preview 26.10.0-pre and release 0.0.1 exercise that fix. Installation, supervision and updater behavior remain untested.
 Container archives and publication receipts remain CI-only. Attachment downloads exclude artifacts named `ci-only-*`.
 Binary attachments wait for successful platform builds and successful or disabled container publication.
 

@@ -14,7 +14,7 @@ async function fixture(run: (workspace: string) => Promise<void>) {
   try {
     for (const channel of ["release", "preview"]) {
       const config = Object.fromEntries(Object.keys(productDirectories).map(name =>
-        [`${channel}-${name}`, channel === "release" ? "0.0.1" : "2026.10.1-pre"]));
+        [`${channel}-${name}`, channel === "release" ? "0.0.1" : name === "crawler-client" ? "26.10.1-pre" : "2026.10.1-pre"]));
       await writeFile(resolve(workspace, channel === "release" ? "config.versions.json" : "config.preview.versions.json"), JSON.stringify(config));
     }
     for (const [name, path] of Object.entries(productDirectories)) {
@@ -102,7 +102,7 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
     expect(JSON.parse(await readFile(resolve(workspace, "src-worker/packages/network/package.json"), "utf8"))
       .dependencies["vrc-packages-api"]).toBe("npm:vrc-packages-api-preview@2026.10.1-pre");
     expect(await readFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), "utf8"))
-      .toContain('version = "2026.10.1-pre" # retain owner note');
+      .toContain('version = "26.10.1-pre" # retain owner note');
     await versionFiles("sync", "release", "all", workspace);
     await versionFiles("check", "release", "all", workspace);
     expect(JSON.parse(await readFile(resolve(workspace, "src-package/package.json"), "utf8")).name).toBe(sdkPackageNames.release);
@@ -223,6 +223,42 @@ test("preview bumps derive UTC year and month while only incrementing patch, wit
     await expect(bumpVersion("preview", "package", "patch", workspace, new Date("invalid"))).rejects.toThrow("calendar date");
     expect(await readFile(resolve(workspace, "config.preview.versions.json"), "utf8")).toBe(snapshot);
     expect(await readFile(resolve(workspace, "src-worker/package.json"), "utf8")).toBe(before);
+  });
+});
+
+test("desktop preview uses short UTC years, retains pre and syncs Cargo from the saved config", async () => {
+  await fixture(async workspace => {
+    const before = await readFile(resolve(workspace, "src-crawler-client/package.json"), "utf8");
+    expect((await resolveTag("vrcp-crawler-client/v26.10.1-pre", workspace)).channel).toBe("preview");
+    expect((await bumpVersion("preview", "crawler-client", "patch", workspace, new Date("2026-11-01T00:00:00Z"))).version)
+      .toBe("26.11.2-pre");
+    expect((await bumpVersion("preview", "crawler-client", "patch", workspace, new Date("2027-01-01T00:00:00Z"))).version)
+      .toBe("27.1.3-pre");
+    expect(await readFile(resolve(workspace, "src-crawler-client/package.json"), "utf8")).toBe(before);
+    expect((await readVersionConfig("preview", workspace)).config["preview-package"]).toBe("2026.10.1-pre");
+    await versionFiles("sync", "preview", "crawler-client", workspace);
+    await versionFiles("check", "preview", "crawler-client", workspace);
+    expect(await readFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), "utf8"))
+      .toContain('version = "27.1.3-pre" # retain owner note');
+    expect(JSON.parse(await readFile(resolve(workspace, "src-crawler-client/package.json"), "utf8")).version).toBe("27.1.3-pre");
+  });
+});
+
+test("desktop preview rejects invalid calendar fields and MSI patch overflow before writes", async () => {
+  await fixture(async workspace => {
+    const path = resolve(workspace, "config.preview.versions.json");
+    const { config } = await readVersionConfig("preview", workspace);
+    for (const invalid of ["2026.10.1-pre", "26.0.1-pre", "26.13.1-pre", "26.01.1-pre", "26.10.1", "26.10.65536-pre"]) {
+      config["preview-crawler-client"] = invalid;
+      await writeFile(path, JSON.stringify(config));
+      await expect(readVersionConfig("preview", workspace)).rejects.toThrow();
+    }
+    config["preview-crawler-client"] = "26.10.65535-pre";
+    await writeFile(path, JSON.stringify(config));
+    const before = await readFile(path, "utf8");
+    await expect(bumpVersion("preview", "crawler-client", "patch", workspace, new Date("2026-11-01T00:00:00Z")))
+      .rejects.toThrow("MSI limit");
+    expect(await readFile(path, "utf8")).toBe(before);
   });
 });
 
@@ -431,7 +467,8 @@ if(args[0]==='view') {
       run(["scripts/versioning.mjs", "sync", channel], env);
       for (const [product, prefix] of Object.entries(prefixes)) {
         await writeFile(log, "");
-        run(["scripts/delivery.mjs", "prepare", channel, product, "--ci"], { ...env, GITHUB_REF: `refs/tags/${prefix}/v${version}` });
+        const productVersion = (await readVersionConfig(channel, workspace)).config[`${channel}-${product}`];
+        run(["scripts/delivery.mjs", "prepare", channel, product, "--ci"], { ...env, GITHUB_REF: `refs/tags/${prefix}/v${productVersion}` });
         const trace = await commands();
         expect(trace.filter(item => item.args[0] === "view").map(item => item.args[1])).toEqual([`${sdkPackageNames[channel]}@latest`]);
         expect(trace.some(item => item.cwd === resolve(workspace, productDirectories.package) && item.args[0] === "run")).toBe(false);

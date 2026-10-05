@@ -14,20 +14,22 @@ Do not treat a checked build as proof of npm publication, container publication 
 ## network
 
 - Internal node/coordinator contracts are a distributed package, not sibling source imports.
-- The tarball is an artifact only. No public or private registry channel is selected.
+- Release and preview GitHub Releases contain checked tarballs, receipts, milestone notes and checksums. npm registry selection remains open.
 
 ## crawler
 
 - Separate Linux and Windows headless binaries use coordinator-issued leases and scoped source policies.
 - Release and preview containers use separate GHCR packages and matching dependencies.
 - CI checks one image without networking, then hands its checked archive to protected publication without rebuilding.
-- The tagged preview trial passed Docker execution and config persistence. Registry delivery and binary attachments await owner publication approval.
+- The tagged preview trial passed Docker execution, config persistence, GHCR publication and automatic binary attachments.
 - The desktop shell does not yet install or supervise these binaries. Real-source fleet and durable recovery checks remain open.
 
 ## crawler-client
 
 - The Windows desktop shell has an independent build and version.
+- Desktop previews use YY.M.Patch-pre from config, with short UTC years and MSI-bounded patches. Other product formats stay unchanged.
 - Installer outputs are unsigned. Node installation, supervision and update contracts remain unimplemented.
+- CI normalizes installer filenames before receipts and stops if GitHub changes an uploaded name. Existing 0.0.0 assets remain immutable.
 
 ## web
 

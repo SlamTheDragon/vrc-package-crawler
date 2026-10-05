@@ -45,6 +45,10 @@ export async function readVersionConfig(channel, workspace = root) {
     if (key === "preview-package" && !/^\d{4}\.(?:[1-9]|1[0-2])\.\d+-pre$/.test(value)) {
       throw new Error("preview-package must use YYYY.M.Patch-pre with an npm-compatible month and no trailing prerelease counter");
     }
+    if (key === "preview-crawler-client" &&
+        (!/^\d{1,2}\.(?:[1-9]|1[0-2])\.\d+-pre$/.test(value) || semver.patch(value) > 65535)) {
+      throw new Error("preview-crawler-client must use YY.M.Patch-pre, with patch at most 65535 for MSI");
+    }
     if (channel === "release" && prerelease !== null) throw new Error(`${key} must not contain a prerelease label`);
     // UI/headless artifacts can retain stable versions in the preview config. They are not Worker environments.
     const requiresPrerelease = ["package", "network", "worker"].some(product => key === `preview-${product}`);
@@ -67,7 +71,9 @@ export async function bumpVersion(channel, product, increment, workspace = root,
     if (!(now instanceof Date) || !Number.isFinite(now.getTime())) throw new Error("Preview bump requires a valid calendar date");
     const bumped = semver.parse(semver.inc(previous.split("-")[0], "patch"));
     if (!bumped) throw new Error("Preview patch exceeds the supported version range");
-    config[key] = `${now.getUTCFullYear()}.${now.getUTCMonth() + 1}.${bumped.patch}${semver.prerelease(previous) ? "-pre" : ""}`;
+    if (product === "crawler-client" && bumped.patch > 65535) throw new Error("Desktop preview patch exceeds the MSI limit of 65535");
+    const year = product === "crawler-client" ? now.getUTCFullYear() % 100 : now.getUTCFullYear();
+    config[key] = `${year}.${now.getUTCMonth() + 1}.${bumped.patch}${semver.prerelease(previous) ? "-pre" : ""}`;
   } else {
     config[key] = semver.inc(previous, increment);
   }
