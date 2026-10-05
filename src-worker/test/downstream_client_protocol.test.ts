@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { getTestOutputDir } from "./helpers/test_directory.ts";
 import { LocalCoordinatorStore } from "./support/local_sqlite.js";
 import { handleDownstreamRequest } from "../src/api/downstream_handler.ts";
 import { DOWNSTREAM_PROTOCOL_VERSION } from "vrc-packages-api";
@@ -88,7 +88,8 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
   let store: LocalCoordinatorStore;
 
   beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), "vrc-downstream-test-"));
+    tempDir = mkdtempSync(join(getTestOutputDir(), "vrcp-downstream-test-"));
+    expect(dirname(tempDir)).toBe(getTestOutputDir());
     dbPath = join(tempDir, "coordinator.db");
     store = new LocalCoordinatorStore(dbPath);
   });

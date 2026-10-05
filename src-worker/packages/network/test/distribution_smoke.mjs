@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
@@ -22,7 +21,10 @@ const networkTarball = args[2] === '--network-tarball' ? realpathSync(resolve(ar
 if (networkTarball) assert.ok(networkTarball.endsWith('.tgz') && lstatSync(networkTarball).isFile(), 'Network input must be a packed artifact');
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
-const consumer = mkdtempSync(join(tmpdir(), 'vrcp-network-packed-'));
+const testOutput = resolve(packageRoot, '.artifacts/tests');
+mkdirSync(testOutput, { recursive: true });
+const consumer = mkdtempSync(join(realpathSync(testOutput), 'vrcp-network-packed-'));
+assert.equal(dirname(consumer), realpathSync(testOutput), 'Network fixture escaped its project test output');
 const npmCli = [process.env.npm_execpath,
   join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
   resolve(dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js')
@@ -94,7 +96,8 @@ try {
   assert.equal(externalFetches, 0);
 } finally { await runtime.dispose(); }
 // A Bun runtime over npm's installation does not test Bun's dependency resolver.
-const bunConsumer = mkdtempSync(join(tmpdir(), 'vrcp-network-bun-packed-'));
+const bunConsumer = mkdtempSync(join(realpathSync(testOutput), 'vrcp-network-bun-packed-'));
+assert.equal(dirname(bunConsumer), realpathSync(testOutput), 'Bun fixture escaped network project test output');
 writeFileSync(join(bunConsumer, 'package.json'), JSON.stringify({ name: 'vrcp-network-bun-consumer',
   private: true, type: 'module', dependencies: {
     'vrc-packages-api': `file:${sdkTarball.replaceAll('\\', '/')}`,

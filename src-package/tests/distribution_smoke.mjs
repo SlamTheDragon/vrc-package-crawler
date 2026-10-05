@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
-const consumer = mkdtempSync(join(tmpdir(), 'vrc-sdk-packed-'));
+// Keep this outside dist: prepack removes dist before building the fixture tarball.
+const testOutput = resolve(packageRoot, '.artifacts/tests');
+mkdirSync(testOutput, { recursive: true });
+const consumer = mkdtempSync(join(realpathSync(testOutput), 'vrcp-sdk-packed-'));
+assert.equal(dirname(consumer), realpathSync(testOutput), 'SDK fixture escaped its project test output');
 const npmCli = [process.env.npm_execpath,
   join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
   resolve(dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js')

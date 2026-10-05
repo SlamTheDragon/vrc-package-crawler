@@ -1,4 +1,4 @@
-# G14 — checked release and preview announcements
+# G14 — product-local test and development outputs
 
 ## Authority and boundary
 
@@ -110,7 +110,7 @@ Legal/age/creator-rights decisions and source-access profiles remain separate fr
 Push approval is explicit. The nine-path proof is committed as 92200c2 and the owner hook as 7d60cae.
 The full goal is not complete. A green run cannot guarantee future credential, dependency or platform behavior.
 
-## Active release-announcement slice
+## Checked release-announcement gate
 
 C57B and sanitized intake are committed and pushed as 8543802. The slice-commit/gate-push amendment is 1302681.
 Owner requests Discord embeds for API, crawler and client, after final green delivery, with separate release and preview destinations.
@@ -134,3 +134,14 @@ SDK distribution fixtures rebuild product dist. Root synthetic repositories and 
 Hosted outputs stay under the relevant product or runner temporary storage.
 Remote main is unprotected; only main exists, and no rulesets are configured. Preview push automation is not active.
 Protected-main promotion must reconcile the current root chain's direct branch push before conditional sign-off.
+
+## Active product-output gate
+
+Q-PRODUCT-TEST-OUTPUTS covers all product fixtures and root build forwarding, not public release behavior.
+Theory: file-relative output paths keep fixtures inside their owning product when commands start at the repository root.
+Two Worker database suites still use OS temporary storage. Reuse the existing Worker test-directory helper.
+SDK and network smoke consumers also use OS temporary storage. Put them under their owning project's .artifacts/tests.
+Do not put packed consumers under dist: SDK prepack removes dist before building the test tarball.
+Keep random fixture names and current cleanup. Keep test consumers out of published tarballs.
+The gate remains unverified until grouped unit, type, distribution and native runtime checks pass.
+Capture repository-root entries before and after the checks. Do not delete owner files or publish a test artifact.
