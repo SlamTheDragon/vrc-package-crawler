@@ -16,6 +16,8 @@ Human commands and logistics are in [DELIVERY.md](../source/DELIVERY.md).
 9. Execute the root chain only within owner publication authority. Product forwarding scripts use that same chain.
 10. Keep failed delivery tags fixed. Inspect the terminal run before allocating its next configured patch.
 11. Check source CI, bytes, receipts, registries and deployment links separately. Green CI alone does not prove those boundaries.
+    For Worker tags, run delivery:check to check the Actions archive, tagged configuration and source receipt.
+    Keep Worker bundles CI-only. Do not create Release assets or interpret build-only success as production deployment.
 12. Preserve release environment reviewers and owner npm staging. Do not approve a protected deployment on the owner's behalf.
 13. Record evidence and open risks in the three scratch ledgers. Keep private research input out of public artifacts.
 

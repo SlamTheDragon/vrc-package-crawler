@@ -48,7 +48,7 @@ These checks predate the new Bun command order and fixed project dependency mapp
 | SDK 3 | Preview run 37316086763 attempt 2 and release run 37316100746. Both npm identities and five assets passed independent checks | New Bun producer workflow trial |
 | Network 2026.10.2 | Run 37321030222. All four hosted assets passed. Deployment 6860981068 links to its exact Release | New producer workflow trial if changed peer bounds need publication |
 | Desktop 2 | Preview run 37318551722 and release run 37321046041. Five assets per channel passed. Deployment links passed | New preview trial with release SDK. Protected attachment job needs hosted review proof |
-| Worker 3 | Preview run 37322988392 deployed. Release run 37323008883 passed build and skipped deployment. Both bundle archives passed independent memory-only proof | New mapping/Bun workflow trial. Root checker still reports CI status rather than bundle bytes |
+| Worker 3 | Preview run 37322988392 deployed. Release run 37323008883 passed build and skipped deployment. Root checker passed both bundle archives | New mapping/Bun workflow trial |
 | Crawler 3 | Preview run 37323027639 and release run 37323046478 failed at container dependency checks, before publication | Repaired guard is committed in ff6720f. Next actual trials allocate patch 4 |
 
 Network tag object: 8bcb75d5587409966722580923dbb23f40fd9a62.
@@ -67,7 +67,11 @@ Exact-version selectors reject changed registry identity or bytes. Existing inst
 4. Worker bundle proof passed in memory without writing release files. Archive digests, file coverage, source receipts, configuration and unchanged tags matched.
    Preview artifact 11350297918: bundle SHA-256 3317b7412ad2399556a9a4bae31275da2775e37aef92d3fc28a2f1bfe47af453, 1,060,537 bytes.
    Release artifact 11350498030: bundle SHA-256 2bc610a6ce3bb9b85cb863489d2b0ba9115aa524f4360e67d47b5e140ec42e0c, 1,060,529 bytes.
-   This used Python's standard ZIP reader and the existing receipt contract. Root delivery:check still needs automated bundle readback.
+   This used Python's standard ZIP reader and the existing receipt contract.
+   Root delivery:check now passed both exact archives with declared fflate decoding and the existing receipt contract.
+   Root gate: 98 tests passed, zero failed, 1524 assertions. Negative cases include expired/ambiguous artifacts, changed receipts, moved tags, unsafe redirects, ZIP sizes and duplicate names.
+   The archive and bundle budgets are 16 MiB each. Receipts are limited to 2 MiB. Credentials stay off signed storage requests.
+   Source-access profiles, leases and catalog behavior did not change. Their runtime tests are outside this root-verifier change.
 5. Diagnose cache maintenance with its fixed operation/status output. Run 37323059939 returned 403. Do not add administrator credentials.
    Read-only local usage was 1,414,776,479 bytes against 10 GB. No cache deletion ran.
    The policy selects at most 25 old tag-cache IDs at 80% usage toward 60%. It protects branch, PR, recent and active caches.
@@ -79,6 +83,7 @@ Exact-version selectors reject changed registry identity or bytes. Existing inst
 
 The final sign-off and pause conditions are not met.
 
-Local checkpoint 419fec9 contains the Bun repair and preserved owner README edits.
-The approval system rejected its direct push to main. No new tags, publications or deployments ran in this checkpoint.
-Ask for explicit push authority before remote delivery trials. The goal remains active, not complete or paused.
+The owner approved the push. Checkpoints through a43614a are now on origin/main.
+The new verifier passed local tests and live readback without deployment or release-file writes.
+Commit and push this checkpoint before the next configured delivery trials. Preserve the owner's README edit unchanged.
+The goal remains active, not complete or paused.

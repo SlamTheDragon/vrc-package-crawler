@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { bumpVersion, networkArchiveURL, nextVersion, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, versionFiles } from "./versioning.mjs";
 import { checkSDKPublicationVersion, selectTag } from "./delivery.mjs";
 import { allowedBinary, checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink, sourceRunID } from "./release-assets.mjs";
+import { checkWorkerArtifacts, downloadActionsArchive } from "./worker-artifacts.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const workflows = { package: "vrc-packages-api", network: "network", crawler: "node-docker",
@@ -121,7 +122,12 @@ function githubReader(workspace) {
       token = credential.split(/\r?\n/).find(line => line.startsWith("password="))?.slice(9);
     } catch { /* Public metadata checks can continue without credentials. */ }
   }
-  return async (path, missing = false) => {
+  return async (path, missing = false, format = "json") => {
+    if (format === "archive") {
+      const match = /^\/repos\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/actions\/artifacts\/([1-9][0-9]*)\/zip$/.exec(path);
+      if (!match) throw new Error("Invalid Actions archive API path");
+      return downloadActionsArchive(match[1], Number(match[2]), token);
+    }
     const response = await fetch(`https://api.github.com${path}`, { redirect: "error", signal: AbortSignal.timeout(30_000),
       headers: { accept: "application/vnd.github+json", "user-agent": "VRCPDelivery", ...(token ? { authorization: `Bearer ${token}` } : {}) } });
     if (missing && response.status === 404) return null;
@@ -245,6 +251,20 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
   const status = summarizeRun(run, jobs.jobs, release, selected.product, selected.channel);
   const result = { ...selected, run: run.id, url: run.html_url, status, artifactsVerified: false,
     jobs: jobs.jobs.map(job => ({ name: job.name, status: job.status, conclusion: job.conclusion })) };
+  if (check && selected.product === "worker" &&
+      ["preview-deployed-no-release-assets", "release-build-only-no-production-deployment"].includes(status)) {
+    if (!jobs.jobs.some(job => job.name === "build" && job.conclusion === "success")) {
+      throw new Error("Worker build success is not proved");
+    }
+    const manifest = JSON.parse(git(workspace, "show", `${selected.commit}:src-worker/package.json`));
+    const configBytes = execFileSync("git", ["show", `${selected.commit}:src-worker/wrangler.toml`],
+      { cwd: workspace, timeout: 60_000, stdio: "pipe" });
+    const configSha256 = createHash("sha256").update(configBytes).digest("hex");
+    const proof = await checkWorkerArtifacts(api, base, run, { product: "worker", name: manifest.name,
+      version: selected.version, channel: selected.channel, commit: selected.commit, configSha256 });
+    await checkRemoteTag(tagAPI, repository, tag, selected.commit, selected.tagObject);
+    return { ...result, artifactsVerified: true, ciBundleVerified: true, ...proof };
+  }
   if (!check || status !== "released-artifacts-unverified") return result;
   checkSourceRun(run, jobs.jobs, tag, repository, selected.product);
   if (release.prerelease !== (selected.channel === "preview")) throw new Error("Release channel differs from the source config");

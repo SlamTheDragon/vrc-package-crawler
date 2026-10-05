@@ -6,8 +6,61 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, retryDelivery, startDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
 import { networkArchiveURL, productDirectories } from "../scripts/versioning.mjs";
 import { createHash } from "node:crypto";
+import { zipSync } from "fflate";
 
 const now = new Date("2026-10-05T00:00:00Z");
+
+test("Worker root checks archive bytes and exact config without querying or creating a Release", async () => {
+  await fixture(async (workspace, git) => {
+    for (const channel of ["preview", "release"]) {
+      const result = await startDelivery(channel, "worker", true, workspace, now, git);
+      const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+      const config = execFileSync("git", ["show", `${result.commit}:src-worker/wrangler.toml`], { cwd: workspace });
+      const bundle = Buffer.from("Synthetic Worker bundle");
+      const receipt = { product: "worker", name: "vrcp-worker", version: result.version, channel,
+        commit: result.commit, configSha256: hash(config), purpose: "ci-release", sha256: hash(bundle) };
+      let bytes = zipSync({ "worker_entry.js": bundle, "worker_entry.js.json": Buffer.from(JSON.stringify(receipt)) });
+      const run = { id: 123, head_sha: result.commit, head_branch: result.tag, event: "push", status: "completed",
+        conclusion: "success", path: ".github/workflows/cloudflare-worker.yml" };
+      let remoteObject = result.tagObject, moveDuringRead = false, downloads = 0, buildConclusion = "success";
+      const api = async (path: string, _missing = false, format = "json") => {
+        if (path.includes("/releases/")) throw new Error("Worker must not query Release assets");
+        if (format === "archive") { downloads++; if (moveDuringRead) remoteObject = "c".repeat(40); return bytes; }
+        if (path.includes("/git/ref/tags/")) return { ref: `refs/tags/${result.tag}`, object: { type: "tag", sha: remoteObject } };
+        if (path.includes("/git/tags/")) return { sha: remoteObject, object: { type: "commit", sha: result.commit } };
+        if (path.includes("/runs?")) return { workflow_runs: [run] };
+        if (path.includes("/jobs?")) return { total_count: 2, jobs: [{ name: "build", conclusion: buildConclusion },
+          { name: "deploy", conclusion: channel === "preview" ? "success" : "skipped" }] };
+        if (path.includes("/artifacts?")) return { total_count: 1, artifacts: [{ id: 7, name: `worker-${channel}-bundle`,
+          size_in_bytes: bytes.length, digest: `sha256:${hash(bytes)}`, expired: false, workflow_run: { head_sha: result.commit } }] };
+        throw new Error("Unexpected metadata request");
+      };
+      git(workspace, "remote", "set-url", "origin", "https://github.com/example/fixture.git");
+      expect((await inspectDelivery(result.tag, false, workspace, api)).artifactsVerified).toBe(false);
+      expect(downloads).toBe(0);
+      const proof = await inspectDelivery(result.tag, true, workspace, api);
+      expect(proof.ciBundleVerified).toBe(true);
+      expect(proof.artifactsVerified).toBe(true);
+      expect(proof.bundleSha256).toBe(hash(bundle));
+      expect(proof.status).toBe(channel === "preview" ? "preview-deployed-no-release-assets" : "release-build-only-no-production-deployment");
+      run.status = "in_progress";
+      expect((await inspectDelivery(result.tag, true, workspace, api)).artifactsVerified).toBe(false);
+      run.status = "completed"; run.conclusion = "failure";
+      expect((await inspectDelivery(result.tag, true, workspace, api)).artifactsVerified).toBe(false);
+      run.conclusion = "success"; moveDuringRead = true;
+      await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("tag object differs");
+      moveDuringRead = false; remoteObject = result.tagObject;
+      bytes = zipSync({ "worker_entry.js": bundle, "worker_entry.js.json": Buffer.from(JSON.stringify({ ...receipt, configSha256: "d".repeat(64) })) });
+      await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("CI artifact differs");
+      buildConclusion = "failure";
+      if (channel === "preview") await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("build success");
+      else expect((await inspectDelivery(result.tag, true, workspace, api)).artifactsVerified).toBe(false);
+      git(workspace, "remote", "set-url", "origin", resolve(workspace, "../origin.git"));
+      expect(git(workspace, "status", "--porcelain")).toBe("");
+    }
+  });
+}, 60_000);
+
 async function fixture(run: (workspace: string, git: (workspace: string, ...args: string[]) => string) => Promise<void>) {
   const parent = await realpath(tmpdir()), directory = await mkdtemp(resolve(parent, "vrcp-chain-test-"));
   const workspace = resolve(directory, "source"), remote = resolve(directory, "origin.git");
@@ -32,6 +85,7 @@ async function fixture(run: (workspace: string, git: (workspace: string, ...args
     await mkdir(resolve(workspace, productDirectories.worker), { recursive: true });
     await writeFile(resolve(workspace, productDirectories.worker, "package.json"), JSON.stringify({ name: "vrcp-worker", version: "2026.10.0-pre",
       dependencies: { "vrc-packages-api": "npm:vrc-packages-api-preview@latest", "vrc-packages-network": networkArchiveURL("2026.10.0") } }));
+    await writeFile(resolve(workspace, productDirectories.worker, "wrangler.toml"), 'name = "synthetic-worker"\n\n');
     actual(workspace, "add", "."); actual(workspace, "commit", "-m", "Synthetic delivery fixture");
     actual(workspace, "remote", "add", "origin", remote); actual(workspace, "push", "-u", "origin", "main");
     // Only identity lookup is substituted. Commits, tags, atomic pushes and divergence use real Git in a temporary bare remote.

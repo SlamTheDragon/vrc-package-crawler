@@ -93,7 +93,12 @@ Each binary must be smaller than 2 GiB. The total transfer limit is 4 GiB, with 
 Metadata files have a 2 MiB limit. Buffered archives have a combined 256 MiB limit and a three-minute deadline per file.
 It checks names, hosted digests, source receipts, notes and checksum coverage. No local release files are created.
 For SDK assets it also checks the published registry version and integrity. It does not promote an npm stage.
-For the Worker it reports preview deployment or the release build-only boundary, not Release assets or real-source readiness.
+For the Worker, it checks the Actions bundle archive and its source receipt in memory.
+It checks the exact file names, archive digest, bundle digest and Wrangler configuration from the tagged commit.
+Compressed archives and bundles have a 16 MiB limit. Receipts have a 2 MiB limit.
+It rejects expired artifacts, incomplete listings, duplicate names and oversized directory entries before decompression.
+GitHub credentials stay on the API request. Signed storage requests contain no authorization header.
+The result retains preview deployment or release build-only status. This does not prove real-source readiness or create Release assets.
 For crawler images, retain the separate CI publication receipt and GHCR digest check. Binary asset checks do not prove container bytes.
 Crawler deployment cards link to their exact GitHub Release. Attachment summaries also link to the checked Release or pending draft.
 SDK deployment cards retain their npm registry URL. Worker links remain deferred, with https://docs.vrcpackages.com as the owner's future target.
