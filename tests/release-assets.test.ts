@@ -338,6 +338,8 @@ test("SDK draft reconciliation dispatches only public versions with original che
   await expect(reconcileSDKDrafts(async () => ({}), "owner/repo", async () => true)).rejects.toThrow("listing");
   const workflow: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/sdk-release-reconcile.yml", import.meta.url), "utf8"));
   expect(workflow.on.schedule).toHaveLength(1);
-  expect(workflow.permissions).toEqual({ contents: "read", actions: "write" });
+  // Read-only tokens can list public releases but cannot discover pending drafts.
+  expect(workflow.permissions).toEqual({ contents: "write", actions: "write" });
+  expect(workflow.jobs["check-drafts"].steps[0].with["persist-credentials"]).toBe(false);
   expect(workflow.jobs["check-drafts"].steps.at(-1).env).toEqual({ RELEASE_TOKEN: "${{ secrets.GITHUB_TOKEN }}" });
 });

@@ -265,6 +265,8 @@ The sdk-release-reconcile.yml workflow also checks pending SDK drafts each hour,
 It reads public npm metadata and requests the original attachment check after publication. It cannot approve npm stages.
 The attachment check still compares public tarball bytes before publishing the GitHub Release.
 This workflow has no npm or Cloudflare credentials. It only reads releases and dispatches attachment verification.
+Its GitHub token needs contents: write because GitHub hides drafts from callers without push access.
+Checkout does not save that token in Git configuration. The controller does not publish drafts directly.
 GitHub can delay scheduled runs. Use its manual trigger for an immediate draft check.
 Expired Actions artifacts require owner review. The workflow does not rebuild them or move their tag.
 

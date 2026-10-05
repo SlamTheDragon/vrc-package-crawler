@@ -4,7 +4,8 @@ on:
     - cron: '23 * * * *'
   workflow_dispatch:
 permissions:
-  contents: read
+  # GitHub lists draft releases only for callers with push access.
+  contents: write
   actions: write
 concurrency:
   group: sdk-release-draft-check
@@ -15,6 +16,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
