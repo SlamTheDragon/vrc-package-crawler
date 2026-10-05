@@ -195,7 +195,7 @@ function packageCommand(args, cwd, capture = false) {
   const cli = [process.env.npm_execpath, join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
     resolve(dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js")]
     .find(path => path?.endsWith("npm-cli.js") && existsSync(path));
-  if (!cli) throw new Error("Run through npm, or use a Node installation that includes npm");
+  if (!cli) throw new Error("Registry checks require a Node installation that includes npm. Use Bun for project scripts.");
   const diagnose = capture && args[0] === "publish";
   try {
     return execFileSync(process.execPath, [cli, ...args, ...(diagnose ? ["--loglevel=verbose"] : [])],

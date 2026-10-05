@@ -6,9 +6,9 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "delivery:preview": "bun --cwd .. run delivery:preview web",
-    "delivery:release": "bun --cwd .. run delivery:release web",
-    "prepare:dev": "bun --cwd .. run prepare:dev preview web",
+    "delivery:preview": "bun run --cwd .. delivery:preview web",
+    "delivery:release": "bun run --cwd .. delivery:release web",
+    "prepare:dev": "bun run --cwd .. prepare:dev preview web",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",

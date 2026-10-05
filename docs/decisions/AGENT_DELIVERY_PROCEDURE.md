@@ -5,6 +5,8 @@ Human commands and logistics are in [DELIVERY.md](../source/DELIVERY.md).
 
 1. Read the active tracker, canonical decisions and owner changes before selecting a product.
 2. Identify its artifact channel separately from its SDK dependency channel.
+   Use Bun for installs, package scripts, checks and builds. CI pins Bun 1.4.2.
+   Keep npm for registry checks, packing, staging and trusted publication. Keep Node and native runtime compatibility checks.
 3. Use preview SDK for crawler and Worker. Use release SDK for desktop and website, even for preview artifacts.
 4. Use the single configured network archive for crawler and Worker. Never import sibling producer source.
 5. Confirm the required SDK publication exists at its configured version. Do not treat a stage as public npm availability.

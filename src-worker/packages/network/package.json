@@ -54,7 +54,7 @@
 		}
 	},
 	"scripts": {
-		"delivery:preview": "bun --cwd ../../.. run delivery:preview network",
+		"delivery:preview": "bun run --cwd ../../.. delivery:preview network",
 		"typecheck": "tsc --noEmit",
 		"test:distribution": "node test/distribution_smoke.mjs",
 		"build": "tsc --project tsconfig.json",

@@ -76,7 +76,7 @@ test("cache CI uses scoped actions write, trusted main and only canonical comple
   expect(job.if).toContain("workflow_run.event == 'push'");
   expect(job.steps[0].with).toEqual({ ref: "main", "persist-credentials": false });
   expect(job.steps.some((step: any) => step.uses?.includes("download-artifact"))).toBe(false);
-  expect(job.steps.at(-1).run).toBe("npm run cache:prune");
+  expect(job.steps.at(-1).run).toBe("bun run cache:prune");
   expect(job.steps.at(-1).env.GH_TOKEN).toBe("${{ secrets.GITHUB_TOKEN }}");
 });
 

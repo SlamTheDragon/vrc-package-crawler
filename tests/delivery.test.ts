@@ -156,10 +156,65 @@ test("owner SDK mapping does not change with artifact channels and product deliv
   for (const product of ["crawler", "worker", "crawler-client", "web", "package", "network"]) {
     const manifest = JSON.parse(readFileSync(new URL(`../${productDirectories[product]}/package.json`, import.meta.url), "utf8"));
     const prefix = product === "network" ? "../../.." : "..";
-    expect(manifest.scripts["delivery:preview"]).toBe(`npm --prefix ${prefix} run delivery:preview -- ${product}`);
-    if (product !== "network") expect(manifest.scripts["delivery:release"]).toBe(`npm --prefix .. run delivery:release -- ${product}`);
+    expect(manifest.scripts["delivery:preview"]).toBe(`bun run --cwd ${prefix} delivery:preview ${product}`);
+    if (product !== "network") expect(manifest.scripts["delivery:release"]).toBe(`bun run --cwd .. delivery:release ${product}`);
     else expect(manifest.scripts["delivery:release"]).toBeUndefined();
   }
+});
+
+test("Bun is pinned before every workflow install and owns all package-script forwarding", () => {
+  for (const directory of [".", ...Object.values(productDirectories)]) {
+    const manifest = JSON.parse(readFileSync(new URL(`../${directory}/package.json`, import.meta.url), "utf8"));
+    expect(manifest.packageManager).toBe("bun@1.4.2");
+    for (const command of Object.values(manifest.scripts) as string[]) {
+      expect(command).not.toMatch(/\bnpm\s+(?:run|install|ci|--prefix)\b/);
+    }
+  }
+  for (const name of ["cache-maintenance", "cloudflare-worker", "network", "node-client", "node-docker",
+    "release-assets", "sdk-release-reconcile", "vrc-packages-api", "web"]) {
+    const workflow: any = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
+    for (const job of Object.values(workflow.jobs) as any[]) {
+      let bunReady = false;
+      for (const step of job.steps ?? []) {
+        if (step.uses?.startsWith("oven-sh/setup-bun@")) {
+          expect(step.with["bun-version"]).toBe("1.4.2");
+          bunReady = true;
+        }
+        if (/\bbun\s/.test(step.run ?? "")) expect(bunReady).toBe(true);
+        expect(step.run ?? "").not.toMatch(/\bnpm\s+(?:run|ci|--prefix)\b/);
+        if (/\bnpm\s+install\b/.test(step.run ?? "")) {
+          expect(name).toBe("vrc-packages-api");
+          expect(step.run).toBe("npm install --global npm@11.19.0");
+        }
+      }
+    }
+  }
+  const worker: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/cloudflare-worker.yml", import.meta.url), "utf8"));
+  const tool = worker.jobs.deploy.steps.find((step: any) => step.name === "Install pinned deployment tool only").run;
+  expect(tool.indexOf("mkdir -p src-worker/.wrangler/ci-tools")).toBeLessThan(tool.indexOf("bun install --cwd"));
+  const tauri = JSON.parse(readFileSync(new URL("../src-crawler-client/src-tauri/tauri.conf.json", import.meta.url), "utf8"));
+  expect(tauri.build.beforeDevCommand).toBe("bun run dev:web");
+  expect(tauri.build.beforeBuildCommand).toBe("bun run build:web");
+});
+
+test("Bun product forwarding executes the root command instead of exiting successfully with help", async () => {
+  await fixture(async workspace => {
+    await writeFile(resolve(workspace, "package.json"), JSON.stringify({ type: "module", scripts: {
+      "delivery:preview": "node forwarding_probe.mjs preview", "delivery:release": "node forwarding_probe.mjs release"
+    } }));
+    await writeFile(resolve(workspace, "forwarding_probe.mjs"),
+      'console.log(JSON.stringify({args:process.argv.slice(2),cwd:process.cwd()}));');
+    for (const [product, directory] of Object.entries(productDirectories)) {
+      const actual = JSON.parse(readFileSync(new URL(`../${directory}/package.json`, import.meta.url), "utf8"));
+      await writeFile(resolve(workspace, directory, "package.json"), JSON.stringify({ scripts: actual.scripts }));
+      for (const channel of product === "network" ? ["preview"] : ["preview", "release"]) {
+        const result = JSON.parse(execFileSync("bun", ["run", "--cwd", directory, `delivery:${channel}`, "--probe"],
+          { cwd: workspace, encoding: "utf8", stdio: "pipe", timeout: 15_000 }));
+        expect(result.args).toEqual([channel, product, "--probe"]);
+        expect(resolve(result.cwd)).toBe(resolve(workspace));
+      }
+    }
+  });
 });
 
 test("SDK synchronization updates network peer bounds without bumping its stream or switching consumers", async () => {
@@ -303,8 +358,8 @@ test("packed consumer declarations are checked in installed consumers, not throu
 test("SDK verification builds through its test script before typechecking tests that import dist", () => {
   const source = readFileSync(new URL("../scripts/delivery.mjs", import.meta.url), "utf8");
   const verify = source.slice(source.indexOf('} else if (action === "verify")'), source.indexOf('} else if (action === "deploy")'));
-  const sdkTest = verify.indexOf('if (product === "package") npm(["test"], project)');
-  const types = verify.indexOf('npm(["run", "typecheck"], project)');
+  const sdkTest = verify.indexOf('if (product === "package") packageCommand(["run", "test"], project)');
+  const types = verify.indexOf('packageCommand(["run", "typecheck"], project)');
   expect(sdkTest).toBeGreaterThan(-1);
   expect(types).toBeGreaterThan(sdkTest);
   const manifest = JSON.parse(readFileSync(new URL("../src-package/package.json", import.meta.url), "utf8"));
@@ -792,7 +847,7 @@ test("external workflow guards separate the two npm approvals from preview-only 
   expect(clientArtifact).toContain("/bundle/msi/*.msi");
   expect(clientArtifact).toContain("/bundle/nsis/*-setup.exe");
   const root = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  expect(root.scripts.setup).toContain("--package-lock=false");
+  expect(root.scripts.setup).toBe("bun install --no-save --ignore-scripts");
   expect(readFileSync(new URL("../.github/workflows/vrc-packages-api.yml", import.meta.url), "utf8"))
     .toContain("group: sdk-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}");
 });

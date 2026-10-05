@@ -1,8 +1,8 @@
 # VRC Packages (⚠️WIP!)
 
-VRC Packages (VRCP) is an open-source discovery and indexing engine for public VRChat creator packages (Tools, Assets, Avatars).
+VRC Packages (VRCP) is an open-source discovery and indexing network engine for public VRChat creator packages (Tools, Assets, & Avatars).
 
-The project derives metadata discovery from VPM repositories, such as GitHub, and creator storefronts like Gumroad, Booth.pm, Jinxxy, Shopify, Payhip, & others. The catalog records public links to original publisher fronts. The policy excludes archives, assets, and executable downloads.
+The project derives metadata discovery from VPM repositories, such as GitHub, and creator storefronts like Gumroad, Booth, Jinxxy, Shopify, Payhip, & others. The catalog records public links to original publisher fronts. The policy excludes archives, assets, and executable downloads.
 
 ---
 
@@ -38,7 +38,7 @@ const deltas = await client.index.syncDeltas({
 
 The example environment variable is a backend convention, not an SDK requirement. The Worker accepts queryOrigin but does not record or apply search attribution. Do not treat that field as implemented attribution or auditing.
 
-### 2. Contribute to our Discovery Crawler Nodes Network via Docker or Crawler Client
+### 2. Contribute to our Discovery Crawler Network via Docker or Crawler Client
 
 #### Crawler Client
 
@@ -53,12 +53,6 @@ docker compose -f src-crawler/docker-compose.yml config
 ```
 
 Review the [Docker runbook](DELEGATES.md#3-crawler-node-operation--fleet-management) before starting containers. The compose file grants Watchtower access to the host Docker socket.
-
----
-
-## Documentation
-
-Read repository documentation at [docs/source](docs/source).
 
 ---
 
@@ -118,17 +112,23 @@ bun run test:runtime
 
 ---
 
-## Legal & Compliance Covenants
+## Legal & Compliance
 
 The Project operates under strict technical and legal covenants to safeguard creator rights and target infrastructure:
 
-- **Zero-Binary Invariant**: The crawler never fetches, stores, or mirrors binary archives (`.unitypackage`, `.vpmz`, `.zip`, `.rar`, executables, or 3D model files).
+- **Zero-Binaries**: The crawler never fetches, stores, or mirrors binary archives (e.g. `.unitypackage`, `.zip`, `.rar`, executables, or 3D model files).
 - **Mandatory Outbound Routing**: Downstream APIs and applications must provide direct outbound links to the original creator storefront or repository.
 - **RFC 9309 Robots Compliance**: Honors `robots.txt` directives with conservative origin-wide AIMD rate pacing.
 - **Removal Review**: App-authenticated removal reports are recorded without automatic delisting. DNS/bio ownership verification remains unimplemented.
 - **Anti-AI Model Training Restrictions**: Catalog compilations are restricted from use in training generative AI models.
 
 Review [LEGAL.md](LEGAL.md) for full operational covenants, governing law, and public terms of service.
+
+---
+
+## Documentation
+
+To read further, see repository documentation at [docs/source](docs/source).
 
 ---
 

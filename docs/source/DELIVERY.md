@@ -20,7 +20,8 @@ The root delivery chain joins config allocation and tagged CI. CI still owns rel
 | web | Site artifact version. Current calendar-shaped value remains authoritative. | CI is disabled pending hosting selection. Local static builds remain available. |
 
 Numeric values must fit SemVer syntax. Calendar-shaped values do not become API compatibility guarantees.
-UI and headless preview values can omit a prerelease label. Distributed npm packages and Worker preview values require `pre`.
+Desktop previews use YY.M.Patch-pre. Crawler, Worker and SDK previews retain the configured pre suffix.
+The internal network stream has no pre suffix.
 If both configs select the same product version, tag routing fails instead of choosing a channel silently.
 Resolve that ambiguity before a tagged build. A branch name does not select a release channel.
 The owner authorizes release `0.0.0` and configured CalVer preview publication after artifact checks.
@@ -57,14 +58,14 @@ Only an explicit execution allocates a patch. Builds read the saved config witho
 
 - Review the product's bounded section in [CHANGELOG.md](CHANGELOG.md).
 - Commit and push the reviewed implementation before starting delivery.
-- Run `npm run delivery:preview -- <product>` for a read-only plan.
-- For release patches, use `npm run delivery:release -- <product>` instead.
+- Run `bun run delivery:preview <product>` for a read-only plan.
+- For release patches, use `bun run delivery:release <product>` instead.
 - Read the planned config version, tag, branch and blockers.
 - Add `--execute` to the same command only when delivery has owner authorization.
 - Review required GitHub environments without changing their protection settings.
 - For the release SDK, approve its checked npm stage separately on npm. Preview publication has no npm approval step.
-- Run `npm run delivery:status -- <tag>` to read the exact tagged CI run.
-- Run `npm run delivery:check -- <tag>` after publication to check hosted assets in memory.
+- Run `bun run delivery:status <tag>` to read the exact tagged CI run.
+- Run `bun run delivery:check <tag>` after publication to check hosted assets in memory.
 
 Execution changes the selected config value and synchronizes the product manifest and declared dependencies.
 For the desktop, it also synchronizes Cargo and the numeric MSI version.
@@ -72,8 +73,8 @@ It commits those files and creates an annotated product tag.
 An atomic, non-forced push sends the branch commit and tag together. Existing tags and divergent branches stop the command.
 CI syncs manifests and channel dependencies, builds checked outputs, and uses the existing publication and attachment jobs.
 Each product's delivery:preview and delivery:release scripts forward to this root chain. The network has only delivery:preview.
-For example, run `npm --prefix src-crawler run delivery:preview -- --execute` from the root.
-From inside src-crawler, use `npm run delivery:preview -- --execute` instead.
+For example, run `bun run --cwd src-crawler delivery:preview --execute` from the root.
+From inside src-crawler, use `bun run delivery:preview --execute` instead.
 These forwarding commands keep the same clean-checkout, patch-allocation, tag and publication guards.
 Website forwarding stops at the disabled-delivery guard. It does not enable a workflow or emit remote artifacts.
 Native build scripts remain separate because the root build command calls them. Forwarding them back would create a build-hook loop.
@@ -101,7 +102,7 @@ Their cards link to the exact tagged Release. The network uses vrcp-network, whi
 No installer check proves installation, signed updates, side-by-side channels or node supervision.
 
 If a push fails, retain the local config commit and tag. Inspect the remote before allocating another patch.
-Run `npm run delivery:retry -- <tag>` to retry that exact tag without another bump.
+Run `bun run delivery:retry <tag>` to retry that exact tag without another bump.
 An identical remote tag needs no push. A different remote tag stops the retry and needs separate owner authorization.
 No retry deletes, replaces or force-pushes a published tag. If commit or tag creation failed earlier, resolve that state manually.
 Use the existing CI rerun or attachment retry for a build failure. Do not allocate another version just to retry CI.
@@ -128,14 +129,16 @@ and [environment URL support](https://docs.github.com/en/actions/how-tos/write-w
 
 ## Local development
 
-Run from the repository root. Install Node with npm and the project's Bun version.
+Run from the repository root. Install Bun 1.4.2 and Node with npm.
+Bun owns dependency installation, package scripts, checks and builds.
+Node runs delivery orchestration and compatibility checks. npm handles registry queries, packing, staging and trusted publication.
 Root setup installs orchestration dependencies only.
 
 ```sh
-npm run setup
-npm run versions:sync:preview
-npm run prepare:dev -- preview worker
-npm run build:dev -- preview worker
+bun run setup
+bun run versions:sync:preview
+bun run prepare:dev preview worker
+bun run build:dev preview worker
 ```
 
 Local and CI `prepare` resolve the selected SDK's latest tag and check its version against that channel's config.
@@ -159,7 +162,7 @@ After preview publication, CI checks the version and latest alias for up to six 
 Absent records and an older latest alias can wait for registry propagation. Different bytes, identity or a newer alias fail immediately.
 The check never republishes or changes a dist-tag. Release npm staging remains owner-approved.
 Third-party dependencies keep their declared version bounds. This rule does not select unreviewed third-party updates.
-The new suffix-free archive still needs tagged publication and live install proof before fresh-clone sign-off.
+Network 2026.10.2 passed tagged publication and hosted asset checks. Fresh-clone sign-off still requires the remaining consumer proofs.
 No install scripts run during preparation. Product build commands run their required build hooks explicitly.
 Dependency resolution is not frozen. Preserve the owner's no-lockfile choice and record this reproducibility limit.
 
@@ -172,8 +175,8 @@ SDK/network compiled modules stay under their own `dist/`. Root outputs are not 
 Plan a delivery bump without changes:
 
 ```sh
-npm run versions:bump -- preview worker
-npm run versions:bump -- release package
+bun run versions:bump preview worker
+bun run versions:bump release package
 ```
 
 Add --execute to allocate the patch, synchronize metadata, commit, tag and atomically push the delivery.
@@ -197,7 +200,7 @@ Only the explicit bump command reads the calendar. Builds and publication read t
 For a manual config edit, sync metadata separately. Product-only sync does not sync its dependency projects.
 Use an all-product sync when preparing a consistent dependency graph for the selected config.
 
-Start a local Worker from `src-worker` with `npm run dev`.
+Start a local Worker from `src-worker` with `bun run dev`.
 The preview configuration uses local D1, with state under `.wrangler/local-preview`.
 Supply a local `OPERATOR_TOKEN` in an ignored `.dev.vars.preview` file.
 Never put it in shell history, tracked files or browser assets.
@@ -525,8 +528,8 @@ Subsequent npm publications require new configured preview versions. Never repla
 
 ## Bounded Actions cache maintenance
 
-Run `npm run cache:check` to measure repository caches and print a read-only plan.
-Run `npm run cache:prune` to execute the bounded policy with a scoped GitHub token supplied through the environment.
+Run `bun run cache:check` to measure repository caches and print a read-only plan.
+Run `bun run cache:prune` to execute the bounded policy with a scoped GitHub token supplied through the environment.
 The maintenance workflow runs after canonical product push workflows complete. It checks out trusted main, not the triggering tag or artifact.
 It uses Actions write permission only for exact cache-ID deletion. It does not change storage limits.
 At 80% of the measured cap, it selects old product-tag caches until estimated usage reaches 60%.

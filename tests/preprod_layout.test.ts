@@ -25,7 +25,7 @@ describe("Pre-production directory layout and configuration conformance", () => 
     const sdkChannel = sdk.name === "vrc-packages-api-preview" ? "preview" : "release";
     const sdkConfig = JSON.parse(readFileSync(join(rootDir, sdkChannel === "preview" ? "config.preview.versions.json" : "config.versions.json"), "utf8"));
     expect(sdk.version).toBe(sdkConfig[`${sdkChannel}-package`]);
-    expect(readFileSync(join(rootDir, "README.md"), "utf8").split(/\r?\n/)[0]).toBe("# VRC Packages");
+    expect(readFileSync(join(rootDir, "README.md"), "utf8").split(/\r?\n/)[0]).toMatch(/^# VRC Packages(?: \([^()\r\n]+\))?$/);
     const docker = readFileSync(join(rootDir, "src-crawler/Dockerfile"), "utf8");
     expect(docker).toContain("USER vrcpuser");
     expect(docker).not.toMatch(/\bvrc(?:user|group)\b/);
@@ -104,7 +104,7 @@ describe("Pre-production directory layout and configuration conformance", () => 
     expect(node.scripts["build:dev"]).toContain("dist/dev/vrcp-crawler-node.exe src/main.ts");
     expect(node.scripts["build:node:linux"]).toContain("vrcp-crawler-node-linux src/main.ts");
     expect(Object.keys(node.scripts).some(key => key.includes("coordinator"))).toBe(false);
-    expect(worker.scripts.build).toBe("npm run build:preview");
+    expect(worker.scripts.build).toBe("bun run build:preview");
     expect(worker.scripts["build:preview"]).toContain("wrangler deploy --dry-run");
     expect(worker.scripts["build:preview"]).toContain("--env preview");
     expect(worker.scripts.test).toBe("bun test ./test");

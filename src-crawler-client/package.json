@@ -1,12 +1,12 @@
 {
   "name": "vrcp-crawler-client",
-  "version": "0.0.2",
+  "version": "26.10.2-pre",
   "description": "Desktop crawler-client shell for VRC Packages (VRCP).",
   "type": "module",
   "scripts": {
-    "delivery:preview": "bun --cwd .. run delivery:preview crawler-client",
-    "delivery:release": "bun --cwd .. run delivery:release crawler-client",
-    "prepare:dev": "bun --cwd .. run prepare:dev preview crawler-client",
+    "delivery:preview": "bun run --cwd .. delivery:preview crawler-client",
+    "delivery:release": "bun run --cwd .. delivery:release crawler-client",
+    "prepare:dev": "bun run --cwd .. prepare:dev preview crawler-client",
     "dev": "tauri dev",
     "dev:web": "vite dev",
     "build": "tauri build",

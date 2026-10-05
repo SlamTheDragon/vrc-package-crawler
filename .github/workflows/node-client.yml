@@ -30,7 +30,7 @@ jobs:
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
       - run: bun test ./tests
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' crawler-client --ci
-      - run: bun --cwd src-crawler-client run check
+      - run: bun run --cwd src-crawler-client check
       - run: node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' crawler-client --ci
       - run: node scripts/release-assets.mjs stamp '${{ steps.route.outputs.channel }}' crawler-client src-crawler-client/src-tauri/target/release/bundle
       - uses: actions/upload-artifact@v4

@@ -36,8 +36,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify package contracts and node
         run: |
-          bun --cwd src-crawler run typecheck
-          bun --cwd src-crawler run test
+          bun run --cwd src-crawler typecheck
+          bun run --cwd src-crawler test
           node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci
           src-crawler/dist/dev/vrcp-crawler-node-linux --help
       - run: node scripts/release-assets.mjs stamp '${{ needs.route.outputs.channel }}' crawler src-crawler/dist/dev linux
@@ -136,8 +136,8 @@ jobs:
       - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: bun --cwd src-crawler run typecheck
-      - run: bun --cwd src-crawler run test
+      - run: bun run --cwd src-crawler typecheck
+      - run: bun run --cwd src-crawler test
       - run: node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci
       - run: src-crawler/dist/dev/vrcp-crawler-node.exe --version
       - run: node scripts/release-assets.mjs stamp '${{ needs.route.outputs.channel }}' crawler src-crawler/dist/dev windows
