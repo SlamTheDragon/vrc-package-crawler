@@ -1,8 +1,8 @@
 # VRC Packages
 
-VRC Packages (VRCP) is an open-source, polite discovery and indexing engine for public VRChat creator packages (Tools, Assets, Avatars).
+VRC Packages (VRCP) is an open-source discovery and indexing engine for public VRChat creator packages (Tools, Assets, Avatars).
 
-The project develops metadata discovery from VPM repositories, GitHub and creator storefronts. Catalog records link to original publisher fronts. Real-source fleet ingestion remains a pre-production gate. The policy excludes archive and executable downloads (`.zip`, `.unitypackage`, `.vpmz`, `.fbx`).
+The project derives metadata discovery from VPM repositories such as GitHub and creator storefronts like Gumroad, Booth.pm, Jinxxy, Shopify, Payhip, & others. The catalog records public links to original publisher fronts. The policy excludes archives, assets, and executable downloads.
 
 ---
 
@@ -113,12 +113,6 @@ docker compose -f src-crawler/docker-compose.yml config
 ```
 
 Review the [Docker runbook](DELEGATES.md#3-crawler-node-operation--fleet-management) before starting containers. The compose file grants Watchtower access to the host Docker socket.
-
-### 3. Cloudflare Build Setup
-
-The owner moved the API build root from `src-web` to `src-worker`. The latest supplied build log confirms the `src-worker` package ran remotely. `src-web` now builds the separate static site.
-
-Use the [panel setup checklist](docs/research/CRAWLER_DEPENDENCY_RESEARCH.md#cloudflare-panel-setup-checklist). Dependency distribution, repeatable installation and environment isolation remain release gates. No panel configuration is inferred from local files.
 
 ---
 
