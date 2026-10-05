@@ -14,7 +14,7 @@ The root delivery chain joins config allocation and tagged CI. CI still owns rel
 | --- | --- | --- |
 | package | Release SemVer or preview CalVer with pre, from the selected config | Two npm identities from one SDK source. Separate publication environments and switches. |
 | network | One YYYY.M.Patch stream from preview-network, without pre | Checked GitHub Release tarballs for repository consumers. No npm publication or separate release stream. |
-| worker | Runtime version, with `pre` for preview | Persistent preview Worker or existing production Worker |
+| worker | Runtime version, with `pre` for preview | Persistent preview Worker. Release builds only, without production deployment |
 | crawler | Headless executable version | Linux/Windows Release binaries and separate GHCR channels |
 | crawler-client | Release SemVer or preview YY.M.Patch-pre, not a staging environment | Unsigned MSI/NSIS assets in GitHub Releases |
 | web | Site artifact version. Current calendar-shaped value remains authoritative. | CI is disabled pending hosting selection. Local static builds remain available. |
@@ -24,7 +24,7 @@ Desktop previews use YY.M.Patch-pre. Crawler, Worker and SDK previews retain the
 The internal network stream has no pre suffix.
 If both configs select the same product version, tag routing fails instead of choosing a channel silently.
 Resolve that ambiguity before a tagged build. A branch name does not select a release channel.
-The owner authorizes release `0.0.0` and configured CalVer preview publication after artifact checks.
+The owner authorizes pre-0.1 releases and configured CalVer preview publication after artifact checks.
 Release `v0.1.0` remains the stable `/v1/` milestone and requires the full owner API review.
 That release-version hold does not block the separate preview identity.
 
@@ -44,7 +44,7 @@ API schema versions remain independent of package versions.
 
 ## Delivery procedure
 
-The root chain selects one product: package, network, crawler, crawler-client or preview worker.
+The root chain selects one product: package, network, crawler, crawler-client or worker.
 Website delivery and production Worker deployment remain disabled.
 Only an explicit execution allocates a patch. Builds read the saved config without changing the calendar.
 
@@ -81,7 +81,8 @@ Native build scripts remain separate because the root build command calls them. 
 CI-only SDK publish and Worker deploy helpers also forward through root package.json. They do not replace the full delivery chain.
 Agent instructions are separate in [the agent delivery procedure](../decisions/AGENT_DELIVERY_PROCEDURE.md).
 No local release build, npm promotion or environment approval runs through this chain.
-The owner requires patch-2 proof for every enabled channel before main sign-off. Website CI remains disabled without artifacts.
+Main sign-off requires checked delivery for every enabled channel. Failed trials retain their tags and use the next configured patch after repairs.
+Product patch numbers need not match. Website CI remains disabled without artifacts.
 After proof, the approved branches are website-preview, crawler-client-preview, api-package-preview and worker-preview.
 API preview pushes will publish directly, with patches allocated before commit. Main will own releases through reviewed promotion PRs.
 The owner will create the branches after sign-off. Do not create them or delete the checkout on the owner's behalf.
@@ -117,10 +118,8 @@ Git uses its existing credential helper for pushes. Read-only GitHub checks use 
 Public metadata can work without credentials, subject to GitHub rate limits. Commands never print credential values.
 The agent procedure is separate in [AGENT_DELIVERY_PROCEDURE.md](../decisions/AGENT_DELIVERY_PROCEDURE.md).
 
-Root-chain checkpoint: network preview 2026.10.1-pre passed CI 37251743937 at commit 0117444f525dd5e83648d212a43fa4b1397a32ad.
-The command committed one config patch and pushed its tag atomically. CI created the four Release assets.
-Memory-only root checks matched their digests, source receipt, notes and checksum coverage. Release network readback passed too.
-Other product paths retain their separate publication evidence. This trial did not republish npm or deploy another Worker.
+Current delivery evidence and open checks belong in [the active tracker](../scratch/task_tracker.md), not this procedure.
+GitHub Releases and Actions runs retain the historical artifacts and receipts.
 
 ### npm registry links in GitHub
 
@@ -169,7 +168,7 @@ Reads request registry revalidation. Scheduled retry delays total 63 seconds, wi
 Absent records and an older latest alias can wait for registry propagation. Different bytes, identity or a newer alias fail immediately.
 The check never republishes or changes a dist-tag. Release npm staging remains owner-approved.
 Third-party dependencies keep their declared version bounds. This rule does not select unreviewed third-party updates.
-Network 2026.10.2 passed tagged publication and hosted asset checks. Fresh-clone sign-off still requires the remaining consumer proofs.
+Existing-checkout installation does not prove a fresh clone. The owner performs that check after conditional sign-off.
 No install scripts run during preparation. Product build commands run their required build hooks explicitly.
 Dependency resolution is not frozen. Preserve the owner's no-lockfile choice and record this reproducibility limit.
 
@@ -258,8 +257,8 @@ These checks detect handoff errors, not a compromised runner that can replace bo
 Worker, SDK and network uploads explicitly include their hidden output directories, but select only runtime files and receipts.
 They do not upload entire projects, node_modules, local state or credential files.
 Neither path creates tags or pushes branches. GitHub artifacts are build outputs, not automatically created GitHub Releases.
-SDK run 37234232443 contains sdk-release and sdk-release-stage. Run 37234232436 contains sdk-preview and sdk-preview-stage.
-Download these outputs from each Actions run's Artifacts section. npm publication does not create a GitHub Release itself.
+SDK runs upload sdk-release with sdk-release-stage, or sdk-preview with sdk-preview-publication.
+Download these outputs from each Actions run's Artifacts section. npm publication alone does not create a GitHub Release.
 
 ## Release assets and milestone notes
 
@@ -270,20 +269,13 @@ It checks the source repository, tag, commit, product workflow and required succ
 It checks every file against the original receipt. Extra files, changed bytes and duplicate names stop the job.
 Worker bundles and receipts remain CI-only. Manual Worker release-asset requests fail before release creation or asset writes.
 Crawler attachments include both platform binaries and receipts. Desktop attachments include unsigned installers and their receipt.
-Network release 0.0.0 and preview 2026.10.0-pre passed CI packaging and automatic four-asset release publication at d0a9119.
-Memory-only downloads matched the tarballs, receipts, milestone notes and checksum lists against GitHub asset digests.
 The network manifest's private flag blocks npm publication. It does not restrict downloads from this public repository.
-Crawler preview run 37244482335 and release run 37244482532 passed at fb9edf6 after the owner's authorized environment approvals.
-Both GHCR version and latest tags match CI publication receipts, manifest digests and channel-specific SDK/network labels.
 Standing owner approval covers subsequent crawler trials. It does not remove environment protections or npm staging review.
 Desktop release 0.0.0 passed native CI, but its receipt/checksum filenames contain spaces that GitHub replaced with dots.
 Its bytes match after that explicit historical mapping. Do not call its filename contract conformant or replace published assets.
 New installer builds normalize names before stamping. Attachment checks reject server-renamed assets before publishing the draft.
 [GitHub documents asset filename changes](https://docs.github.com/en/rest/releases/assets#upload-a-release-asset).
-Desktop release 0.0.1 passed CI 37248173416 and strict memory-only checks of all five attached assets.
-Hosted names, bytes, receipts, notes and checksums agree. Its published tag and assets remain immutable.
-Preview CI 37248173184 failed MSI bundling before uploads because Tauri requires a numeric prerelease identifier for MSI.
-Version sync now supplies the numeric MSI override while retaining app version 26.10.0-pre. Remote repair proof remains open.
+Version sync supplies the numeric MSI override while retaining the configured pre suffix in the app, Cargo and tag.
 Installation, supervision and updater behavior remain untested.
 Container archives and publication receipts remain CI-only. Attachment downloads exclude artifacts named `ci-only-*`.
 Binary attachments wait for successful platform builds and successful or disabled container publication.
@@ -317,33 +309,46 @@ Changelog edits after attachment do not replace attached notes. Retries retain t
 The retention check requires the original version, channel, commit and source-run link. Changed artifact bytes still stop the job.
 Use the next authorized milestone for further note changes.
 
-## Owner setup before remote activation
+## Owner environment setup
 
 GitHub environments protect CI jobs. Wrangler environments select Worker settings, resources and runtime secrets.
 They are separate systems. A GitHub environment does not create a Worker or a D1 database.
 An npm or Cloudflare account token does not automatically become a GitHub Actions secret.
 An ignored local `.env` file does not supply secrets to remote CI.
 
-1. Keep automatic main-branch Cloudflare Builds disconnected. The owner reports this setup is done.
+1. Keep automatic main-branch Cloudflare Builds disconnected.
 2. Open this repository's GitHub Settings, then Environments.
-3. Create `cloudflare-preview`, `vrcp-api-preview` and `vrcp-api-release` environments.
-4. Require owner review in `vrcp-api-release`. The owner selects automatic deployment/publication in the two preview environments.
+3. Create the environments in the table below.
+4. Require owner review in each release environment. Preview environments permit automatic delivery after checks.
 5. Keep self-review enabled if the owner is the only reviewer.
-6. Under selected deployment branches and tags, add a Tag rule `cloudflare-worker/v*` for `cloudflare-preview`.
-7. Add a Tag rule `vrcp-api/v*` for each SDK environment.
+6. Under selected deployment branches and tags, add the listed Tag rules.
+7. Check npm trusted-publisher fields for both SDK identities.
 8. Add the environment secrets from the table below.
 9. Open Settings, then Secrets and variables, then Actions, then Variables.
-10. Add the repository variables from the table below with value `false`.
+10. Add the repository variables below. Keep them false until the owner authorizes the corresponding external action.
 11. Check the environment protection, secret names and token scopes before tag promotion.
 12. Protect preview access before sending restricted or personal metadata.
+
+| GitHub environment | Allowed Tag pattern | Review policy |
+| --- | --- | --- |
+| cloudflare-preview | cloudflare-worker/v* | Automatic preview deployment |
+| vrcp-api-preview | vrcp-api/v* | Automatic preview npm publication |
+| vrcp-api-release | vrcp-api/v* | Owner GitHub review, then separate npm stage approval |
+| vrcp-network | vrcp-network/v* | Automatic deployment record after checked archive delivery |
+| vrcp-crawler-preview | vrcp-crawler/v* | Automatic preview image publication |
+| vrcp-crawler-release | vrcp-crawler/v* | Owner review before image publication |
+| vrcp-crawler-client-preview | vrcp-crawler-client/v* | Automatic preview asset publication |
+| vrcp-crawler-client-release | vrcp-crawler-client/v* | Owner review before asset publication |
+
+There is no production Worker deployment environment in the current workflow. Website delivery remains disabled.
+The network environment records completed attachments. It does not protect an earlier publication job.
 
 | GitHub location | Name | Purpose |
 | --- | --- | --- |
 | cloudflare-preview environment secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account that owns the Worker and D1. This is not a database ID. |
 | cloudflare-preview environment secret | `CLOUDFLARE_API_TOKEN` | Account-scoped Worker deployment credential. Limit its permissions to the deployment's requirements. |
 | cloudflare-preview environment secret | `OPERATOR_TOKEN` | Project administrator API key. CI installs this binding into the preview Worker. |
-| vrcp-api-release environment secret | `NPM_TOKEN` | SDK publishing credential. CI supplies it as both NPM_TOKEN and NODE_AUTH_TOKEN. |
-| vrcp-api-preview environment secret | `NPM_TOKEN` | Credential permitted to publish vrc-packages-api-preview. No Cloudflare secrets belong here. |
+| vrcp-api-release environment secret | `NPM_TOKEN` | Token for release staging and staged-byte inspection. CI supplies both NPM_TOKEN and NODE_AUTH_TOKEN. |
 | repository Actions variable | `VRCP_WORKER_DEPLOY_APPROVED` | Enables preview deployment when equal to true. |
 | repository Actions variable | `VRCP_SDK_PUBLISH_APPROVED` | Enables release SDK publication when equal to true. |
 | repository Actions variable | `VRCP_SDK_PREVIEW_PUBLISH_APPROVED` | Enables preview SDK publication when equal to true. Independent of Worker deployment approval. |
@@ -354,6 +359,8 @@ An ignored local `.env` file does not supply secrets to remote CI.
 Approval variables belong at repository scope because the job condition runs before the job enters its environment.
 An absent switch disables the external action. These switches do not replace environment approval or artifact checks.
 Environment secrets become available only to jobs that select that environment and pass its protection rules.
+SDK preview uses OpenID Connect (OIDC) without an npm write token. GHCR publication uses the job's GITHUB_TOKEN.
+Do not add npm or Cloudflare credentials to the network or desktop environments.
 Secrets belong to the selected environment. Another environment's secrets do not substitute for a missing name.
 The current production Worker deployment remains disabled. Its credentials are not necessary for initial SDK publication.
 Future products require their own allowed-tag rules before their protected jobs can run.
@@ -366,25 +373,21 @@ Update GitHub approval routing in scripts/delivery.mjs, its tests and the setup 
 Worker artifact paths derive from channel, not the approval-environment name. Wrangler preview and production settings remain separate.
 Existing tagged runs retain the workflow and routing from their original commit. Updating main does not retarget those reruns.
 Keep their original environments until those publications finish, or agree a separate retry strategy before deleting them.
-The owner replaced all three original environments and approved the new routing on 2026-10-05.
-The original SDK runs still select deleted names. The owner approves replacing both unpublished tags through exact-target leases.
-Registry checks and captured tag object IDs precede replacement. Do not rerun the original jobs through deleted environments.
-Other products retain their previous routing. Their environment setup remains separate from this SDK/Worker migration.
+Existing publications do not grant permission to move their tags. Any failed, unpublished tag replacement needs separate owner authority.
 An unknown environment reference can create an empty, unprotected environment. Verify configuration before starting a migrated workflow.
 See [GitHub environment management](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
 
-### npm EOTP recovery
+### npm staging and trusted publishing
 
 Do not supply an account password or a one-time code to an unattended runner.
-Both first publication attempts reached npm publish, then npm required interactive authorization.
-The current token's exact settings remain unknown. Secret presence alone does not establish non-interactive publishing permission.
+Secret presence alone does not establish valid publishing permission. Check the selected package, workflow and environment.
 
 The owner selects staged release publication: CI uploads the checked tarball, then the owner approves it with 2FA on npm's website.
 This keeps passwords and one-time codes outside CI. The workflow pins npm 11.19.0, above the 11.15.0 staging minimum.
 For a new package, npm creates a public 0.0.0-stage placeholder before approval. The owner accepts this bootstrap version.
 See [staged publication](https://docs.npmjs.com/staged-publishing/). Release staging retains its inspection token.
 The owner authorizes direct preview publication through the configured trusted publisher.
-The publication job has id-token: write. Its preview step supplies no npm write tokens. The live OIDC trial remains pending.
+The publication job has id-token: write. Its preview step supplies no npm write tokens.
 The preview publisher must permit npm publish. No standalone dist-tag mutation is required by this path.
 Staging success means an upload awaits review, not that the configured SDK is available to Worker CI.
 Record release stage IDs alongside checked CI artifacts. Publish the matching channel SDK before its dependent Worker tags.
@@ -397,10 +400,10 @@ After bootstrap, configure trusted publishing against the finalized GitHub envir
 1. Open npm account settings, then Access Tokens, then Generate New Token.
 2. Create a granular token with Read and write (stage only) package permission. Existing publish-and-stage tokens also support staging.
 3. Leave Bypass two-factor authentication disabled. Keep account 2FA enabled.
-4. Limit access to the two SDK packages where possible. First unscoped publication can require broader bootstrap access.
+4. Limit token access to the release SDK. Preview publication uses its trusted publisher, not this token.
 5. If broader access is necessary, use a short expiry and replace it with narrower credentials after bootstrap.
 6. Set NPM_TOKEN in `vrcp-api-release` for stage inspection. Preview uses OIDC without a write token.
-7. Tell the delivery agent that setup is ready. The authorized replacement tags select the new environment names.
+7. Check the environment and publisher mapping before the next authorized delivery.
 8. Approve `vrcp-api-release` when GitHub requests it. Preview has no GitHub review requirement.
 9. After release staging passes, review its configured version in npm's Staged Packages tab.
 10. Approve the release stage with your npm account's 2FA. Never delegate this step to an unattended runner.
@@ -412,7 +415,7 @@ See [token setup](https://docs.npmjs.com/creating-and-viewing-access-tokens/) an
 Prefer [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) after bootstrap to remove long-lived publishing tokens.
 Each package must trust owner SlamTheDragon, repository vrc-packages and workflow vrc-packages-api.yml.
 Use vrcp-api-release for the release identity and vrcp-api-preview for the preview identity.
-Preview CI has job-scoped id-token: write and a supported npm CLI. Its live publication trial remains pending.
+Preview CI has job-scoped id-token: write and a supported npm CLI. Its helper publishes outside the SDK's staging configuration.
 Release keeps token-backed stage inspection. OIDC trust tokens cannot list, view or download stages.
 After a repository rename, recreate npm trusted publishers and update package repository.url before publication.
 The current repository is SlamTheDragon/vrc-packages. The same repository previously used vrc-package-crawler.
@@ -438,26 +441,15 @@ Save the value in a password manager. Paste it into cloudflare-preview's OPERATO
 Clear the clipboard after setup. Use a different key for local development and future production.
 CI deploys this binding with pinned Wrangler 4.147.0 and `--secrets-file`.
 It does not upload Cloudflare or npm credentials as Worker bindings.
-The temporary secret file is removed after the deployment attempt. Worker preview CI passed this path in run 37235649307.
+The deployment helper removes the temporary secret file after the attempt.
 
-GitHub inspections on 2026-10-05 confirmed all three current environments and the expected secret names.
-The Worker and SDK release environments already use the approved product prefixes. SDK preview retained the earlier package/v* rule.
-Its rule now uses vrcp-api/v*, with checked readback. This change retained its secrets and reviewer settings.
-All three tag rules match the workflows: cloudflare-worker/v* in cloudflare-preview, and vrcp-api/v* in both SDK environments.
-Keep existing secrets and reviewers. Keep the npm trusted-publisher workflow filename unchanged.
-The two preview environments have no required reviewer. The owner explicitly accepts automatic preview deployment/publication.
-vrcp-api-release requires owner review and permits self-review. All three SDK/Worker enable switches are true.
-The owner authorizes the declared remote preview path for successive milestones, without changing version configs.
-Secret names do not prove token validity or permissions. A real CI run must check those boundaries.
-Check npm publish permission, expiration and non-interactive 2FA requirements before enabling its switch.
-SDK version `0.0.0` publication is authorized after package verification. Its manifest declares the existing Apache-2.0 license asset.
-The SDK private flag is removed. CI publication still requires the checked artifact, release tag and approval switch.
-The complete owner API review hold still blocks release-package `v0.1.0` and later publication, including `v0.1` prereleases.
-It does not block authorized release `v0.0.0` or the separately authorized CalVer preview identity.
+Keep the npm trusted-publisher workflow filename unchanged. Check secret names, switch values and reviewers before each setup change.
+A live delivery must check credential validity and the selected permissions. A secret-name listing does not prove either.
+The complete owner API review hold blocks release-package v0.1.0 and later, including v0.1 prereleases.
+It does not block authorized pre-0.1 releases or the separate CalVer preview identity.
 
 Production keeps Worker name `vrc-package-crawler` and D1 ID `722bdd0d-92ca-445b-9319-da0b27adf7b2`.
 Preview uses Worker name `vrc-package-crawler-preview` and `vrcp-preview-d1`, ID `fbef6ce1-4145-45ae-ae91-5d617a1f2672`.
-An authenticated D1 listing confirmed the separate database on 2026-10-04. No schema or data writes ran.
 Preview is a persistent Wrangler environment, not a branch Preview or a production Version URL.
 The owner retains this separate persistent Worker. Native Previews are deferred to a future metrics and resource-isolation review.
 Its active deployment can appear as Production in that Worker's dashboard. This label does not select the production D1 binding.
@@ -502,27 +494,23 @@ Authentication or transport failures stop publication. Only explicit missing-man
 Other authorized registry writers remain outside these CI safeguards. GHCR itself does not enforce this workflow's version policy.
 
 Before crawler tags, create the two crawler environments and allow Tag refs matching `vrcp-crawler/v*`.
-For the initial trial, owner review in each environment is recommended. Omitting reviewers permits automatic publication after the switches enable it.
+Preview publication is automatic after checks. Release publication requires owner review before its protected job starts.
 Enable only the selected channel switch after setup review. The master switch alone does not enable publication.
 Publication uses GITHUB_TOKEN with packages: write. It needs no NPM_TOKEN or Cloudflare credentials.
 Review GHCR package access and visibility before distributing images. Keep consumers on a checked digest rather than latest.
 
 Local Docker is unavailable. Local unit/type checks do not prove image builds, Linux execution or registry publication.
-Corrected preview CI 37244482335 passed image construction and the network-disabled runtime checks at fb9edf6.
-Publication waits for owner approval in vrcp-crawler-preview. Registry digest checks and automatic binary attachments remain open.
+Use the hosted runtime checks, publication receipt and independent GHCR readback to check those boundaries.
 
 ## Release order and open preview policy
 
 Publish and check the selected SDK identity and configured version before pushing consumer tags that need it.
 Do not push all product tags at once and assume npm publication wins the build race.
 Worker preview deployment remains authorized. Production deployment is not part of that authorization.
-The current workflows use product-tag pushes only. Branch-push previews and automatic version increments remain proposals.
-If adopted, define the branch, version owner, collision handling and loop prevention before changing triggers.
+The current workflows use product-tag pushes only. The owner approves future responsibility branches with automatic API preview publication.
+Their triggers remain unimplemented until branch setup. Define version ownership, collision handling and loop prevention before changing triggers.
 npm distribution tags name channels within one package. They do not create separate deployments or make a published version replaceable.
 The owner selects `vrc-packages-api-preview` alongside release `vrc-packages-api`.
-On 2026-10-05 this name replaced the unpublished `vrc-package-api-preview` to follow the `vrc-packages*` naming rule.
-The failed first package/v2026.10.0-pre run published nothing. Its owner-approved replacement already completed before npm promotion.
-That published tag cannot move again. Future SDK milestones use the vrcp-api prefix.
 The dual-package path uses one SDK source with channel-specific manifests and artifact checks.
 Preview consumers declare npm:vrc-packages-api-preview@latest under the existing vrc-packages-api import name.
 Each SDK publication updates latest within its separate package identity, including preview versions with the pre suffix.
@@ -532,8 +520,8 @@ The private network package requires a consumer-supplied SDK peer. Its peer boun
 Preparation checks the selected SDK identity and peer compatibility before a consumer build.
 Promotion to the release identity is a separately checked release build and publication, not a renamed preview tarball.
 
-The workflow selects vrcp-api-preview for automatic preview SDK staging and cloudflare-preview for automatic preview Worker deployment.
-Each release npm stage requires owner approval with 2FA before the SDK becomes available to release Worker CI.
+The workflow selects vrcp-api-preview for direct preview SDK publication and cloudflare-preview for automatic preview Worker deployment.
+Each release npm stage requires owner approval with 2FA before the SDK becomes available to desktop and website consumers.
 Preview SDK publication is direct. Its registry version must pass the same dependency check before preview Worker CI.
 These environments retain separate npm and Cloudflare credentials. The Worker retains its separate preview D1.
 SDK concurrency is separate per channel. A protected release publication cannot hold later preview publications in the same queue.
