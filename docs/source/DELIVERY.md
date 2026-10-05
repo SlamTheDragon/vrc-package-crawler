@@ -5,7 +5,7 @@ One rule: **the root `package.json` starts every delivery.** Product folders for
 `config.versions.json` (release) and `config.preview.versions.json` (preview).
 Do not edit those files by hand. The bump command changes them.
 
-> Owner target model (2026-10-06). Gaps against current behavior are in [§7](#7-target-model-and-current-gaps).
+> Owner target model (2026-10-06). R58 clarifies R57-C57A/B. Open checks are in [§7](#7-target-model-and-current-gaps).
 > - **Preview:** bump patch → commit and push → tag → CI builds → publishes with no approval guard → GitHub prerelease page with artifacts.
 > - **Release:** same chain, with owner approval checkpoints.
 > - Preview works from any synchronized branch. Release requires main after a manually reviewed promotion PR.
@@ -27,9 +27,19 @@ bun run delivery:check <tag>                   # check published bytes, receipts
 Use `delivery:release` instead of `delivery:preview` for release.
 From a product folder, `bun run delivery:preview --execute` does the same thing.
 
+Start releases only from main after a manually reviewed promotion merge.
+The current executor still pushes a version commit directly. Do not bypass protected-main rules.
+The reviewed version-PR and final-tag path remains open.
+
 If the push fails, run `bun run delivery:retry <tag>`. This retries the same tag. It does not bump again.
 If CI fails, rerun the CI job. Do not bump a new version only to retry CI.
 Do not move, delete or force-push a published tag.
+
+For remote preview allocation, start `preview-delivery.yml` with a synchronized branch and product.
+The preview App calls the same root executor. It does not allocate versions on every ordinary push.
+Configure the App first with [these steps](#preview-app-setup). The live branch trial remains open.
+Do not rerun the allocator: it refuses repeated attempts before requesting an App token.
+Inspect its original tag first. Retry that tag's delivery, not another patch allocation.
 
 **Order:** publish producers before consumers. That is the SDK (`package`), then `network` if SDK peer bounds changed,
 then `crawler` / `worker` / `crawler-client`. Do not push all tags at once.
@@ -88,10 +98,10 @@ Both channels use the release SDK. Preview format is `YY.M.Patch-pre`. Release u
 
 | Gap | Current behavior | Target |
 | --- | --- | --- |
-| Dirty worktree | Bump stops if worktree is dirty | Commit pending changes, then bump (see R58 in the unmerged plan) |
-| Preview guards | Preview publish also needs repo variables `VRCP_*_PREVIEW_PUBLISH_APPROVED` / `VRCP_WORKER_DEPLOY_APPROVED` / `VRCP_CONTAINER_PUBLISH_APPROVED` = `true` | No guard for preview |
-| Branches | Root guard changes are unverified. Preview checks remote tag and main config freshness. Release start/retry requires main. CI provenance and reviewed-main finalization remain open. | Any synchronized preview branch. Main-only gated releases after manual promotion |
-| Preview GitHub App | Accepted, not configured or wired yet | Repository-scoped preview automation only. No merge or release-approval bypass |
+| Dirty worktree | Bump stops if the worktree is dirty. Pending-file scope is undecided. | Commit selected pending changes before the version commit. See R58-DIRTY-COMMIT in the canonical ledger. |
+| Preview approval switches | Removed. Release switches, reviews and byte checks remain. Local root checks passed 118 tests and 1869 assertions. | Automatic preview publication after successful checks. No preview approval switch. |
+| Branches | Root checks reject stale tag/main versions and non-main release start/retry. CI release provenance and reviewed-main finalization remain open. | Any synchronized preview branch. Main-only gated releases after manual promotion. |
+| Preview GitHub App | Dispatcher wired and locally checked. Owner will configure installation and credentials. Live branch proof remains open. | Repository-scoped preview allocation. No merge or release-approval bypass. |
 | `--execute` | Required; without it the command only plans | Unchanged unless the owner decides otherwise |
 
 ---
@@ -137,7 +147,8 @@ If both configs have the same version for a product, routing fails. Fix that bef
 | --- | --- | --- |
 | `cloudflare-preview` env | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `OPERATOR_TOKEN` | Preview Worker deploy and admin key |
 | `vrcp-api-release` env | `NPM_TOKEN` | Stage-only npm token for release staging |
-| repo variables | `VRCP_WORKER_DEPLOY_APPROVED`, `VRCP_SDK_PUBLISH_APPROVED`, `VRCP_SDK_PREVIEW_PUBLISH_APPROVED`, `VRCP_CONTAINER_PUBLISH_APPROVED`, `VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED`, `VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED` | Publish switches (`true` enables) |
+| repo variables | `VRCP_SDK_PUBLISH_APPROVED`, `VRCP_CONTAINER_PUBLISH_APPROVED`, `VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED` | Release publish switches (`true` enables). No preview switch. |
+| repo variable / secret | `VRCP_PREVIEW_APP_CLIENT_ID` / `VRCP_PREVIEW_APP_PRIVATE_KEY` | Preview-only App dispatcher |
 
 Preview SDK uses OIDC with no npm token. GHCR uses `GITHUB_TOKEN`.
 Generate `OPERATOR_TOKEN` locally (64 hex chars) and do not print it:
@@ -145,6 +156,23 @@ Generate `OPERATOR_TOKEN` locally (64 hex chars) and do not print it:
 
 Worker IDs: production `vrc-package-crawler` / D1 `722bdd0d-92ca-445b-9319-da0b27adf7b2`;
 preview `vrc-package-crawler-preview` / D1 `vrcp-preview-d1` `fbef6ce1-4145-45ae-ae91-5d617a1f2672`.
+
+### Preview App setup
+
+1. Register a GitHub App with repository Contents read/write permission.
+2. Install it only on `SlamTheDragon/vrc-packages`.
+3. Save its Client ID as repository variable `VRCP_PREVIEW_APP_CLIENT_ID`.
+4. Save its private key as repository secret `VRCP_PREVIEW_APP_PRIVATE_KEY`.
+5. Keep the key outside source, chat, logs and artifacts.
+6. Do not grant a main-rule bypass or permission to approve releases or merge PRs.
+7. After App setup and source/protection checks, start `preview-delivery.yml` on a synchronized branch.
+8. Check the allocated tag, CI result, published bytes and deployment link.
+
+The [official App-token action](https://github.com/actions/create-github-app-token) documents these credentials and current-repository token scope.
+This dispatcher uses the App token for tag pushes because the default Actions token suppresses new push workflows.
+See [GitHub token behavior](https://docs.github.com/en/actions/concepts/security/github_token).
+Keep the App out of release allocation. Contents-write permission does not restrict it to a preview tag prefix.
+CI release provenance must enforce that boundary too. Missing App credentials fail before allocation.
 
 ### Local development
 
@@ -171,3 +199,5 @@ Local Worker: `bun run dev` in `src-worker`, with `OPERATOR_TOKEN` in an ignored
 - Each artifact has a SHA-256 receipt. Release pages, npm and GHCR publication check bytes against it.
 - Published versions, tags and images are never replaced.
 - Worker bundles and container archives stay CI-only (`ci-only-*`).
+- SDK, crawler and Worker queues preserve pending runs, with separate preview and release groups.
+- Attachment retries also preserve pending runs. GitHub queues at most 100 per group, not an unlimited backlog.

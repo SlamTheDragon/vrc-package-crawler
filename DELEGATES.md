@@ -137,5 +137,5 @@ The cleanup allowlist covers current product build and test outputs. The nested 
 Reset all includes root tools and every product dependency directory. Run root setup again after a root reset.
 Do not clear shared dependency downloads or add whole runtime state directories as cleanup targets.
 Keep node databases, secrets, bin, logs and local D1 state outside generated output cleanup.
-Use [the setup and cleanup procedure](docs/source/DELIVERY.md#local-cleanup-and-dependency-reset).
+Use [the setup and cleanup procedure](docs/source/DELIVERY.md#local-development).
 Isolated safety fixtures do not eliminate concurrent-filesystem or partial-deletion risks.
