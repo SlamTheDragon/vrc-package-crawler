@@ -15,6 +15,7 @@ Do not treat a checked build as proof of npm publication, container publication 
 
 - Internal node/coordinator contracts are a distributed package, not sibling source imports.
 - Release and preview GitHub Releases contain checked tarballs, receipts, milestone notes and checksums. npm registry selection remains open.
+- Root delivery commands plan one patch, trigger tagged CI, and check published artifact receipts without local release files.
 
 ## crawler
 

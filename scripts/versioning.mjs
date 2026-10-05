@@ -58,25 +58,33 @@ export async function readVersionConfig(channel, workspace = root) {
   return { config, configPath };
 }
 
-/** Change one config value only. Sync, build, tag and publication remain separate. */
-export async function bumpVersion(channel, product, increment, workspace = root, now = new Date()) {
+/** Compute a version without changing config or metadata. */
+export function nextVersion(channel, product, increment, previous, now = new Date()) {
   if (!products.includes(product) ||
       !(channel === "release" ? ["patch", "minor", "major"] : ["patch"]).includes(increment)) {
     throw new Error("Use bump release <product> <patch|minor|major> or bump preview <product> patch");
   }
-  const { config, configPath } = await readVersionConfig(channel, workspace);
-  const key = `${channel}-${product}`;
-  const previous = config[key];
+  if (semver.valid(previous) !== previous) throw new Error("Previous version must be canonical SemVer");
   if (channel === "preview") {
     if (!(now instanceof Date) || !Number.isFinite(now.getTime())) throw new Error("Preview bump requires a valid calendar date");
     const bumped = semver.parse(semver.inc(previous.split("-")[0], "patch"));
     if (!bumped) throw new Error("Preview patch exceeds the supported version range");
     if (product === "crawler-client" && bumped.patch > 65535) throw new Error("Desktop preview patch exceeds the MSI limit of 65535");
     const year = product === "crawler-client" ? now.getUTCFullYear() % 100 : now.getUTCFullYear();
-    config[key] = `${year}.${now.getUTCMonth() + 1}.${bumped.patch}${semver.prerelease(previous) ? "-pre" : ""}`;
+    return `${year}.${now.getUTCMonth() + 1}.${bumped.patch}${semver.prerelease(previous) ? "-pre" : ""}`;
   } else {
-    config[key] = semver.inc(previous, increment);
+    const version = semver.inc(previous, increment);
+    if (!version) throw new Error("Version exceeds the supported range");
+    return version;
   }
+}
+
+/** Change one config value only. Sync, build, tag and publication remain separate. */
+export async function bumpVersion(channel, product, increment, workspace = root, now = new Date()) {
+  const { config, configPath } = await readVersionConfig(channel, workspace);
+  const key = `${channel}-${product}`;
+  const previous = config[key];
+  config[key] = nextVersion(channel, product, increment, previous, now);
   await writeFile(configPath, JSON.stringify(config, null, 2) + "\n");
   return { channel, product, previous, version: config[key], configPath };
 }

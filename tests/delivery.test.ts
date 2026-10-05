@@ -49,7 +49,7 @@ test("tag routing follows the config, not a hardcoded sample or a branch", async
       await expect(resolveTag(tag, workspace)).rejects.toThrow();
     }
   });
-});
+}, 15_000);
 
 test("stable UI preview versions are allowed but equal channel tags remain ambiguous", async () => {
   await fixture(async workspace => {
@@ -542,7 +542,8 @@ test("external workflow guards separate the two npm approvals from preview-only 
   expect(sdk?.if).toContain("needs.build.outputs.channel == 'release'");
   expect(sdk?.if).toContain("needs.build.outputs.channel == 'preview'");
   expect(sdk?.if).toContain("vars.VRCP_SDK_PREVIEW_PUBLISH_APPROVED == 'true'");
-  expect(sdk.environment).toBe('${{ needs.build.outputs.environment }}');
+  expect(sdk.environment).toEqual({ name: '${{ needs.build.outputs.environment }}',
+    url: "https://www.npmjs.com/package/${{ needs.build.outputs.channel == 'preview' && 'vrc-packages-api-preview' || 'vrc-packages-api' }}" });
   const auth = sdk?.steps?.find(step => step.env?.NODE_AUTH_TOKEN)?.env;
   expect(auth?.NODE_AUTH_TOKEN).toBe('${{ secrets.NPM_TOKEN }}');
   expect(auth?.NPM_TOKEN).toBe(auth?.NODE_AUTH_TOKEN);

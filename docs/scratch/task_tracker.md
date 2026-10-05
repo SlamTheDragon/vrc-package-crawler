@@ -1,77 +1,52 @@
-# G14 distribution and installer checkpoint
+# G14 — R57-C57A root delivery chain
 
-## Active gate and authority
+## Authority and active boundary
 
-G14 covers delivery paths, with G13 dependency isolation. The full goal remains active.
-Owner approves current and subsequent crawler publication trials. Both protected environment approvals were submitted under that grant.
-npm keeps separate owner staging review. SDK v0.1 still requires the complete owner API review.
-Owner selects desktop preview YY.M.Patch-pre, currently 26.10.0-pre. Release desktop patch trial is 0.0.1.
-Other products keep their configured formats. Explicit preview bumps use the UTC calendar and increment patch only.
-Builds read saved config. No branch-push publication, production Worker or website activation is authorized by this checkpoint.
-Check both artifact channels for each enabled distributed product. Cloudflare has no GitHub Release assets.
-Finish R57-C57A delivery chains after individual proof. Use a question hook before R57-C57B.
+The full goal remains active. Both artifact channels for enabled distributed products are checked.
+The owner authorizes current and subsequent delivery trials. npm keeps separate owner staging review and the SDK v0.1 API-review hold.
+Desktop preview remains 26.10.0-pre. Only MSI receives numeric 26.10.0. Other product formats stay unchanged.
+Website delivery stays deferred. Production Worker deployment is disabled. Cloudflare has no GitHub Release assets.
+Finish R57-C57A and ask the requested question hook before R57-C57B. No dedicated desktop notification tool is available.
 
-## Working theories and changed paths
+## Ground truth and working theory
 
-One checked Docker image passes to protected publication without rebuilding.
-CI receipts bind archive bytes, image ID, source commit, channel and SDK/network identities.
-Independent registry readback checks version/latest config digests and labels.
+R57-C57A now has root plan/execute/status/check/retry commands.
+Theory: standard Git atomic pushes and existing product workflows can supply the chain without a new CI controller.
+The dry-run reports dirty worktrees, divergent origin and existing tags. Execution commits only the selected config patch.
+CI owns manifest sync, channel dependencies, builds, publication and attachments. npm approval stays manual.
+Exact retries retain the original tag/version. Public artifact checks reuse receipt validation in memory.
+Human procedures are in DELIVERY.md and CONTRIBUTING.md. The separate agent procedure is in docs/decisions/AGENT_DELIVERY.md.
+Owner README edits remain untouched. The ledger retains the owner's PER RESPONSIBILITY and each-preview-channel wording.
 
-Installer 0.0.0 exposed a different boundary: GitHub replaced filename spaces with dots after receipt stamping.
-Theory: normalize output names before stamping, then reject server-renamed uploads before publishing the draft.
-scripts/release-assets.mjs now does this. Collision checks precede renames and prevent overwrites.
-The published 0.0.0 assets stay untouched. New release/preview CI trials must check names and bytes strictly.
+## Grouped gate evidence
 
-## Checked evidence
+Root: 69 tests, 747 assertions passed. Release metadata, syntax and diff checks passed.
+The first run hit default five-second test timeouts during real temporary Git operations.
+Explicit fixture timeouts fixed that harness failure. No check or approval was removed.
+Fixtures cover config-only commits, atomic pushes, lost push ACK, dirty/divergent/existing-tag refusal and malformed public artifacts.
+The root checker passed the existing desktop preview and network preview Releases with no local artifact writes.
+Docs lint issues per 100 words: DELIVERY 1.30, agent procedure 0.80, CONTRIBUTING 1.47.
 
-Root gate: 64 tests, 704 assertions passed with Bun 1.4.2. Svelte found zero errors and warnings.
-Release metadata check, desktop preview routing and diff checks passed. No local release installers were built.
-Fixtures cover short-year/month rollover, pre retention, MSI patch overflow without writes, config-owned Cargo sync and filename collisions.
+SDK release/preview registry and Release bytes passed current rechecks.
+Network release 37245377275 and preview 37245068853 have four checked assets each. Retry 37246014865 retained preview bytes.
+Crawler release 37244482532 and preview 37244482335 have six checked assets each and independently checked GHCR channels.
+Preview GHCR manifest: sha256:6af2b893a100639f31d0a01929e1aefbadb0ab8a950a419c7e8fa1ccb768e24f.
+Release GHCR manifest: sha256:5f3db18b98868fb356fed96ba49bb3b05a25d125deea24ea127c73cbdfbdbe82.
+Desktop release 0.0.1 run 37248173416 passed five strict assets at 1208199.
+Repaired preview run 37249187889 passed five strict assets at b8c8edc5656be389d0e8edab4b14882af5728cf7.
+Preview MSI SHA-256: fec1738e0f1ba3d1943ce1ccb49fc78db44fa1f1c9ba36225615f72a9d349922.
+Preview NSIS SHA-256: 67df435c67dae990fdacdd40868b44d1bfeac0f829aa87bb3dbd16199ad1cec4.
+Original desktop 0.0.0 remains immutable with its known hosted filename mismatch.
+SDK deployment environments now link channel npm pages. Staging success does not prove approved publication.
 
-Crawler preview CI 37244482335 and release CI 37244482532 succeeded at fb9edf66ce1b9954bd672826a3090c735b60632d.
-Both built Linux/Windows binaries and tested the actual image with matching channel dependencies.
-Non-root startup, config persistence and missing-token failure passed without networking.
-Each GitHub Release has six assets. Memory-only downloads match digests, receipts, source commit, notes and checksums.
-Preview binary hashes: Linux 3e123d513bd7e24025a7060f0093611617834655ee057188a977cd7c6e421951, Windows 5cd14deb1304954c4a4cefce3215cc57376748d985c2c8398699503b22efdaa3.
-Release binary hashes: Linux b0945f2d16f630546205472cdd2f91264be6349e6608b844a73dab8ce038f8cf, Windows 12006c122a757b52959343248217a4a0dbf264eb0dd4f81787dd3c3388c986b0.
-GHCR preview manifest: sha256:6af2b893a100639f31d0a01929e1aefbadb0ab8a950a419c7e8fa1ccb768e24f.
-GHCR release manifest: sha256:5f3db18b98868fb356fed96ba49bb3b05a25d125deea24ea127c73cbdfbdbe82.
-Independent anonymous registry readback matched both publication receipts, latest/version image IDs and dependency labels.
+## Recovery and next action
 
-Network preview CI 37245068853 and release CI 37245377275 passed at d0a9119.
-Each has four checked public assets. Preview attachment-only retry 37246014865 retained the original four digests.
-The network private flag blocks npm publication, not public GitHub downloads. External registry policy remains open.
-Current rechecks passed both SDK registry/Release channels and both network Release channels, including tarball receipts, notes and checksums.
-SDK preview's remaining package/v* environment rule now matches the approved vrcp-api/v* workflow prefix. Readback passed.
-Worker and SDK release rules already match. Secrets, reviewers and publication switches did not change.
+Failed unpublished desktop preview tag object de7481a8dfd9255740953c11e1d5d54f165fcae0 was replaced under an exact-target lease.
+Failed crawler release/preview tag objects f9b91f3d55417ed8f84d9597acd09ca185b91516 and 453041770201c42111fc52fc8d1ea5f79024543d were also replaced.
+All published replacements are now immutable.
 
-Desktop release CI 37245553485 passed at d0a9119 with five unsigned installer assets.
-All bytes match after the explicit historical space-to-dot mapping. The filename contract is not conformant.
-Initial asset diagnostics mishandled nested arrays. The corrected per-asset checks exposed the real filename mismatch.
-MSI SHA-256: 4b7877dbca4aa1e55bbb80613868e080d3a7e63298971bf3dcd935799005821a.
-NSIS SHA-256: fb1690bfb0215a17160cba425ad37c664b0d1a2db536bfcf3548313adbbf4f26.
-Fix commit: 120819946c199a2f3000ac89d0cf1ce6322f89b3. Both new tags were pushed atomically with main.
-Preview CI 37248173184 and release CI 37248173416 passed preparation and entered the native Windows build.
-Release CI 37248173416 passed native build and automatic attachments. Strict five-asset byte/name/receipt/note/checksum readback passed in memory.
-Release 0.0.1 MSI SHA-256: 81d6a65c7a8109a855ca1ec3a4e4e542f8ae90ac785688f1d8c4de6a89704e4f.
-Release 0.0.1 NSIS SHA-256: 240353f254f10575bee68e6c32f5f914a2ec0a381af5331273f62842259569cb.
-Preview CI 37248173184 failed native MSI bundling: Tauri requires numeric-only prerelease identifiers for MSI.
-The run uploaded zero artifacts. Failed preview tag object: de7481a8dfd9255740953c11e1d5d54f165fcae0.
-Version sync now supplies numeric bundle.windows.wix.version from config while keeping app/Cargo/tag pre labels.
-The owner approved exact-target replacement of that failed unpublished preview tag. App/config version remains unchanged.
-Local mapping checks passed, including stale overrides, numeric bounds and preview-to-release reset. Native preview repair proof remains open.
-
-## Recovery and next actions
-
-Initial unpublished crawler runs 37244055542/37244055733 failed Bun's bare network-tarball resolution.
-Explicit named file dependencies fixed it. Owner-authorized exact-target tag replacements passed without a version bump.
-Old release tag object: f9b91f3d55417ed8f84d9597acd09ca185b91516.
-Old preview tag object: 453041770201c42111fc52fc8d1ea5f79024543d.
-Both pointed to d5456e5fa289ae3ee3132a79d65478f78260aebc. Published replacement tags must not move.
-
-Next: check the two native CI trials, then strict installer names, bytes, receipts, notes and both channel flags.
-SDK, network and crawler channel rechecks passed. Retain strict names, bytes and source provenance in the desktop trials.
-Then implement R57-C57A root chains and separate human/agent procedures. Do not start R57-C57B before the requested question hook.
-OIDC, live npm draft promotion, installation identity/coexistence, updater safety and fleet recovery remain separate open exits.
-Config persistence is not durable result recovery or real-source fleet proof.
-Private attacker research stays unread until pipeline setup finishes. No remote D1/schema/source grants changed.
+Next: commit the checked root chain, then run an authorized network preview trial from a clean temporary checkout.
+Check its exact source run and public assets before marking R57-C57A checked.
+Keep owner README edits outside the commit. No local release builds, D1 changes or source grants.
+OIDC, live npm draft promotion, installation identity, updater safety and real-source fleet recovery remain open.
+Private attacker research remains unread until pipeline setup finishes.

@@ -25,7 +25,8 @@ Tags use these exact values, with the form `<product-prefix>/v<configured-versio
 Config keys and local command product names stay unchanged. Product-specific tag prefixes select those keys.
 Already-published generic tags stay immutable. Only historical attachment checks accept their earlier prefixes.
 No command substitutes the example `0.0.1` for a config value.
-Version changes, metadata sync, builds and external publication are separate actions.
+Primitive commands separate version changes, metadata sync, builds and external publication.
+The root delivery chain joins config allocation and tagged CI. CI still owns release builds and publication checks.
 
 | Product | Version meaning | Tagged destination |
 | --- | --- | --- |
@@ -53,6 +54,65 @@ That release-version hold does not block the separate preview identity.
 
 The two identities share one source tree and export layout. They do not share npm version histories.
 API schema versions remain independent of package versions.
+
+## Human delivery procedure
+
+The root chain selects one product: package, network, crawler, crawler-client or preview worker.
+Website delivery and production Worker deployment remain disabled.
+Only an explicit execution allocates a patch. Builds read the saved config without changing the calendar.
+
+| Product argument | Preview responsibility | Release responsibility |
+| --- | --- | --- |
+| package | Stage vrc-packages-api-preview, then attach assets after owner npm approval | Stage vrc-packages-api below v0.1, with the same owner approval |
+| network | Build preview-contract tarballs and attach checked assets | Build release-contract tarballs and attach checked assets, without npm publication |
+| crawler | Build matching preview dependencies, preview GHCR image and Linux/Windows assets | Build matching release dependencies, release GHCR image and Linux/Windows assets |
+| crawler-client | Build preview SDK consumer and unsigned MSI/NSIS assets | Build release SDK consumer and unsigned MSI/NSIS assets |
+| worker | Build preview SDK consumer and deploy to isolated preview D1 | Disabled. No Worker GitHub Release assets in either channel |
+
+- Review the product's bounded section in [CHANGELOG.md](CHANGELOG.md).
+- Commit and push the reviewed implementation before starting delivery.
+- Run `npm run delivery:preview -- <product>` for a read-only plan.
+- For release patches, use `npm run delivery:release -- <product>` instead.
+- Read the planned config version, tag, branch and blockers.
+- Add `--execute` to the same command only when delivery has owner authorization.
+- Review required GitHub environments without changing their protection settings.
+- For the SDK, approve its checked npm stage separately on npm.
+- Run `npm run delivery:status -- <tag>` to read the exact tagged CI run.
+- Run `npm run delivery:check -- <tag>` after publication to check hosted assets in memory.
+
+Execution changes only the selected config value. It commits that config and creates an annotated product tag.
+An atomic, non-forced push sends the branch commit and tag together. Existing tags and divergent branches stop the command.
+CI syncs manifests and channel dependencies, builds checked outputs, and uses the existing publication and attachment jobs.
+No local release build, npm promotion or environment approval runs through this chain.
+Local metadata can remain unchanged after the config commit. Use the separate version-sync command before a local development build.
+Automatic branch-push previews remain deferred. Branch pushes alone do not start these product workflows.
+
+The status command distinguishes failed CI, active CI, missing publication, npm approval and public artifacts that still need checks.
+The check command downloads public assets into memory only. It checks names, hosted digests, source receipts, notes and checksum coverage.
+For SDK assets it also checks the published registry version and integrity. It does not promote an npm stage.
+For the Worker it reports the preview deployment job, not Release assets or real-source readiness.
+For crawler images, retain the separate CI publication receipt and GHCR digest check. Binary asset checks do not prove container bytes.
+No installer check proves installation, signed updates, side-by-side channels or node supervision.
+
+If a push fails, retain the local config commit and tag. Inspect the remote before allocating another patch.
+Run `npm run delivery:retry -- <tag>` to retry that exact tag without another bump.
+An identical remote tag needs no push. A different remote tag stops the retry and needs separate owner authorization.
+No retry deletes, replaces or force-pushes a published tag. If commit or tag creation failed earlier, resolve that state manually.
+Use the existing CI rerun or attachment retry for a build failure. Do not allocate another version just to retry CI.
+
+Git uses its existing credential helper for pushes. Read-only GitHub checks use GH_TOKEN, GITHUB_TOKEN or the existing Git credential helper.
+Public metadata can work without credentials, subject to GitHub rate limits. Commands never print credential values.
+The agent procedure is separate in [AGENT_DELIVERY.md](../decisions/AGENT_DELIVERY.md).
+
+### npm registry links in GitHub
+
+The SDK publish job links each GitHub environment to its channel's npm package page.
+The deployment view reflects the staging job. Success there does not prove that the owner approved the npm stage.
+The package page shows published versions. The checked GitHub Release stays draft until publication passes the registry byte check.
+GHCR images appear in the repository's Packages tab because GitHub hosts them. npmjs.org packages use a separate registry.
+No GitHub Packages mirror or alternate npm scope is configured.
+See [GitHub's npm registry guide](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry)
+and [environment URL support](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/deploy-to-environment).
 
 ## Local development
 

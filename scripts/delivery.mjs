@@ -80,6 +80,12 @@ export function stageSDKArtifact(artifact, expected, receipt, run) {
 }
 
 export async function resolveTag(tag, workspace = root, historical = false) {
+  const configs = Object.fromEntries(await Promise.all(["release", "preview"].map(async channel =>
+    [channel, (await readVersionConfig(channel, workspace)).config])));
+  return selectTag(tag, configs, historical);
+}
+
+export function selectTag(tag, configs, historical = false) {
   if (typeof tag !== "string" || tag.trim() !== tag) throw new Error("Tag must be an exact canonical string");
   const match = /^([a-z-]+)\/v(.+)$/.exec(tag);
   const product = match && Object.keys(productTagPrefixes).find(key =>
@@ -88,8 +94,7 @@ export async function resolveTag(tag, workspace = root, historical = false) {
   const version = match[2];
   const matches = [];
   for (const channel of ["release", "preview"]) {
-    const { config } = await readVersionConfig(channel, workspace);
-    if (config[`${channel}-${product}`] === version) matches.push(channel);
+    if (configs[channel]?.[`${channel}-${product}`] === version) matches.push(channel);
   }
   if (matches.length !== 1) throw new Error("Tag must match exactly one version config. Equal channel values need an explicit channel-tag decision.");
   const channel = matches[0];

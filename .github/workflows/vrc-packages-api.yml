@@ -52,7 +52,10 @@ jobs:
     # Separate package identities and environments. Release v0.1 remains held in delivery.mjs.
     if: (needs.build.outputs.channel == 'release' && vars.VRCP_SDK_PUBLISH_APPROVED == 'true') || (needs.build.outputs.channel == 'preview' && vars.VRCP_SDK_PREVIEW_PUBLISH_APPROVED == 'true')
     runs-on: ubuntu-latest
-    environment: ${{ needs.build.outputs.environment }}
+    environment:
+      name: ${{ needs.build.outputs.environment }}
+      # This links the channel's registry, not an unapproved staged version.
+      url: https://www.npmjs.com/package/${{ needs.build.outputs.channel == 'preview' && 'vrc-packages-api-preview' || 'vrc-packages-api' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

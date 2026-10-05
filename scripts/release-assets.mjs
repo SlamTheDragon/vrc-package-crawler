@@ -38,6 +38,12 @@ export function checkedAssets(paths, selected, commit, manifest) {
     if (files.has(name)) throw new Error("Duplicate release asset name");
     files.set(name, readFileSync(path));
   }
+  return checkedAssetBytes(files, selected, commit, manifest);
+}
+
+/** Reuse the same receipt checks for memory-only public artifact readback. */
+export function checkedAssetBytes(files, selected, commit, manifest) {
+  if (selected.product === "worker") throw new Error("Worker bundles are CI-only, not GitHub Release assets");
   const { product, version, channel } = selected;
   const used = new Set();
   const get = name => {
