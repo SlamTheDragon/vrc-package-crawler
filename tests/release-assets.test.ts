@@ -289,7 +289,13 @@ test("desktop review protects attachment itself, including manual retries, witho
       (value: string, part: string) => value.includes(part));
   expect(unguarded.environment).toBeUndefined();
   expect(guarded.steps).toEqual(unguarded.steps);
-  expect(guarded.steps.at(-1).run).toContain("release-assets.mjs attach");
+  const attachment = guarded.steps.find((step: any) => step.run?.includes("release-assets.mjs attach"));
+  expect(attachment).toBeDefined();
+  const receipt = guarded.steps.at(-1);
+  expect(receipt.uses).toBe("actions/upload-artifact@v4");
+  expect(receipt.with.name).toBe("ci-only-release-announcement");
+  expect(receipt.with.path).toBe("${{ runner.temp }}/vrcp-release-announcement.json");
+  expect(receipt.with["retention-days"]).toBe(14);
   expect(guarded.steps.at(-1).env.RELEASE_TOKEN).toBe("${{ secrets.GITHUB_TOKEN }}");
   for (const prefix of ["vrcp-crawler-client", "crawler-client"]) {
     for (const [version, environment] of [["0.0.3", "vrcp-crawler-client-release"], ["26.10.3-pre", "vrcp-crawler-client-preview"]]) {
