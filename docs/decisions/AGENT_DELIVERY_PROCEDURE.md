@@ -29,6 +29,10 @@ Use prepare:dev to refresh checked development dependencies. Never allocate an u
 
 ## Capability milestone selection
 
+Commit each implemented slice with its scoped files. Mark it unverified until grouped gate checks pass.
+At a gate pass, commit the evidence and push through the authorized branch or reviewed promotion path.
+Do not treat an intermediate slice commit as publication approval.
+
 1. Finish the capability gate or related gate group, then run its grouped checks.
 2. Identify changed deliverables and their dependency producers. Do not select every product because one gate passed.
 3. Check producer publication before consumer delivery. Publish a new network archive if changed SDK peer bounds require one.
