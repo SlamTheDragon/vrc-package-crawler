@@ -1,6 +1,6 @@
 {
   "name": "vrcp-crawler-client",
-  "version": "26.10.2-pre",
+  "version": "0.0.2",
   "description": "Desktop crawler-client shell for VRC Packages (VRCP).",
   "type": "module",
   "scripts": {
@@ -18,7 +18,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "vrc-packages-api": "npm:vrc-packages-api-preview@latest"
+    "vrc-packages-api": "latest"
   },
   "devDependencies": {
     "@fontsource-variable/figtree": "^5.3.0",
