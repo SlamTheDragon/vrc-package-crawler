@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import semver from "semver";
 import { bumpVersion, networkArchiveURL, nextVersion, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, versionFiles } from "./versioning.mjs";
 import { checkSDKPublicationVersion, selectTag } from "./delivery.mjs";
 import { allowedBinary, checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink, sourceRunID } from "./release-assets.mjs";
@@ -24,6 +25,18 @@ export function repositoryFromRemote(remote) {
   return match[1];
 }
 
+function newerRemoteVersion(channel, product, version, refs) {
+  const prefix = `refs/tags/${productTagPrefixes[product]}/v`;
+  return refs.some(line => {
+    const ref = line.split("\t")[1];
+    if (!ref?.startsWith(prefix) || ref.endsWith("^{}")) return false;
+    const candidate = ref.slice(prefix.length);
+    if (semver.valid(candidate) !== candidate) return false;
+    const selectedChannel = product === "network" || semver.prerelease(candidate) ? "preview" : "release";
+    return selectedChannel === channel && semver.gt(candidate, version);
+  });
+}
+
 /** Read-only planning. Only --execute allocates a patch and triggers tagged CI. */
 export async function planDelivery(channel, product, workspace = root, now = new Date(), git = runGit) {
   if (!Object.hasOwn(workflows, product)) throw new Error("Product delivery is disabled or unknown. Website hosting remains deferred.");
@@ -36,12 +49,25 @@ export async function planDelivery(channel, product, workspace = root, now = new
   const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
   const tag = `${productTagPrefixes[product]}/v${version}`;
   const blockers = [];
+  if (channel === "release" && branch !== "main") blockers.push("Release delivery requires main after reviewed promotion");
   if (git(workspace, "status", "--porcelain")) blockers.push("Worktree or index is dirty");
   if (git(workspace, "for-each-ref", "--format=%(refname)", `refs/tags/${tag}`)) blockers.push("Local tag already exists");
-  const refs = git(workspace, "ls-remote", "origin", `refs/heads/${branch}`, `refs/tags/${tag}`).split("\n");
+  const refs = git(workspace, "ls-remote", "origin", `refs/heads/${branch}`, "refs/heads/main",
+    `refs/tags/${productTagPrefixes[product]}/v*`).split("\n");
   const head = git(workspace, "rev-parse", "HEAD");
   if (!refs.includes(`${head}\trefs/heads/${branch}`)) blockers.push("Origin branch differs from HEAD or does not exist");
   if (refs.some(line => line.endsWith(`\trefs/tags/${tag}`))) blockers.push("Remote tag already exists");
+  if (newerRemoteVersion(channel, product, previous, refs)) blockers.push("Version config is behind a remote delivery tag; synchronize before bumping");
+  const main = refs.find(line => line.endsWith("\trefs/heads/main"))?.split("\t")[0];
+  if (!/^[a-f0-9]{40}$/.test(main ?? "")) blockers.push("Origin main is unavailable");
+  else {
+    try {
+      const mainConfig = JSON.parse(git(workspace, "show", `${main}:${channel === "release" ? "config.versions.json" : "config.preview.versions.json"}`));
+      const mainVersion = mainConfig[`${channel}-${product}`];
+      if (semver.valid(mainVersion) !== mainVersion) throw new Error("Invalid main version");
+      if (semver.lt(previous, mainVersion)) blockers.push("Version config is behind origin main; synchronize before bumping");
+    } catch { blockers.push("Cannot read current origin main version config; fetch origin main before delivery"); }
+  }
   const other = (await readVersionConfig(channel === "preview" ? "release" : "preview", workspace)).config;
   if (other[`${channel === "preview" ? "release" : "preview"}-${product}`] === version) blockers.push("Channel tag would be ambiguous");
   return { channel, product, previous, version, tag, branch, repository, head, configPath, blockers,
@@ -91,6 +117,11 @@ export function retryDelivery(tag, workspace = root, git = runGit) {
       throw new Error("Retry requires a clean checkout at the tag commit");
     }
     const branch = git(workspace, "symbolic-ref", "--short", "HEAD");
+    if (selected.channel === "release" && branch !== "main") throw new Error("Release retry requires main after reviewed promotion");
+    const versions = git(workspace, "ls-remote", "origin", `refs/tags/${productTagPrefixes[selected.product]}/v*`).split("\n");
+    if (newerRemoteVersion(selected.channel, selected.product, selected.version, versions)) {
+      throw new Error("Newer remote delivery exists. Inspect the retained local tag; do not replace it or skip a patch.");
+    }
     // Atomic normal pushes fail on divergence and existing tags. Never replace a tag.
     git(workspace, "push", "--atomic", "origin", `HEAD:refs/heads/${branch}`, `refs/tags/${tag}`);
   }

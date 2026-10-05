@@ -153,6 +153,53 @@ test("dirty worktrees, divergent origin, existing tags and SDK holds fail withou
   });
 }, 60_000);
 
+test("preview delivery works on a feature branch but stale tag/config history and release attempts stop before writes", async () => {
+  await fixture(async (workspace, git) => {
+    const original = git(workspace, "rev-parse", "HEAD");
+    const path = resolve(workspace, "config.preview.versions.json");
+    const before = await readFile(path, "utf8");
+    git(workspace, "checkout", "-b", "feature-preview");
+    git(workspace, "push", "-u", "origin", "feature-preview");
+    expect((await planDelivery("preview", "network", workspace, now, git)).blockers).toEqual([]);
+    await expect(startDelivery("release", "worker", true, workspace, now, git)).rejects.toThrow("requires main");
+    expect(await readFile(path, "utf8")).toBe(before);
+    expect(git(workspace, "rev-parse", "HEAD")).toBe(original);
+    const delivered = await startDelivery("preview", "network", true, workspace, now, git);
+    expect(delivered.status).toBe("pushed");
+    expect(delivered.version).toBe("2026.10.1");
+    git(workspace, "checkout", "-b", "stale-preview", original);
+    git(workspace, "push", "-u", "origin", "stale-preview");
+    expect((await planDelivery("preview", "network", workspace, now, git)).blockers.join(" ")).toContain("behind a remote delivery tag");
+    await expect(startDelivery("preview", "network", true, workspace, now, git)).rejects.toThrow("behind");
+    expect(await readFile(path, "utf8")).toBe(before);
+    expect(git(workspace, "rev-parse", "HEAD")).toBe(original);
+    // Stale main config must also stop a channel with no published tag yet.
+    git(workspace, "checkout", "main");
+    const mainConfig = JSON.parse(await readFile(path, "utf8"));
+    mainConfig["preview-worker"] = "2026.10.2-pre";
+    await writeFile(path, JSON.stringify(mainConfig));
+    git(workspace, "add", "--", "config.preview.versions.json");
+    git(workspace, "commit", "-m", "Synthetic authoritative version update");
+    git(workspace, "push", "origin", "main");
+    git(workspace, "checkout", "stale-preview");
+    await expect(startDelivery("preview", "worker", true, workspace, now, git)).rejects.toThrow("behind origin main");
+    expect(await readFile(path, "utf8")).toBe(before);
+  });
+}, 60_000);
+
+test("an unpublished release retry cannot use a feature branch to bypass main", async () => {
+  await fixture(async (workspace, git) => {
+    const stopPush = (cwd: string, ...args: string[]) => {
+      if (args[0] === "push" && args.includes("--atomic")) throw new Error("Synthetic rejected push");
+      return git(cwd, ...args);
+    };
+    await expect(startDelivery("release", "worker", true, workspace, now, stopPush)).rejects.toThrow("rejected push");
+    git(workspace, "checkout", "-b", "feature-release");
+    expect(() => retryDelivery("cloudflare-worker/v0.0.1", workspace, git)).toThrow("requires main");
+    expect(git(workspace, "ls-remote", "origin", "refs/tags/cloudflare-worker/v0.0.1")).toBe("");
+  });
+}, 60_000);
+
 test("lost push acknowledgments recover the same tag, but differing remote tags never move", async () => {
   await fixture(async (workspace, git) => {
     let lost = true;

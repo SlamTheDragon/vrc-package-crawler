@@ -8,7 +8,8 @@ Do not edit those files by hand. The bump command changes them.
 > Owner target model (2026-10-06). Gaps against current behavior are in [§7](#7-target-model-and-current-gaps).
 > - **Preview:** bump patch → commit and push → tag → CI builds → publishes with no approval guard → GitHub prerelease page with artifacts.
 > - **Release:** same chain, with owner approval checkpoints.
-> - Works from any branch.
+> - Preview works from any synchronized branch. Release requires main after a manually reviewed promotion PR.
+> - Keep responsibility branches and separate evergreen tracking PRs. Never merge the tracking PR as a release promotion.
 
 ---
 
@@ -61,12 +62,12 @@ Both channels use the preview SDK.
    CI builds unsigned MSI/NSIS installers and attaches them to a prerelease page.
 2. For release, approve `vrcp-crawler-client-release` before assets publish.
 
-Both channels use the release SDK. Version format is `YY.M.Patch-pre`. The MSI version drops `-pre`.
+Both channels use the release SDK. Preview format is `YY.M.Patch-pre`. Release uses SemVer. The MSI preview version drops `-pre`.
 
 ## 5. Worker — `src-worker` (`worker`)
 
 1. Run `bun run delivery:preview worker --execute`.
-   CI deploys `vrc-package-crawler-preview` with the preview D1 database. No Release page and no artifacts.
+   CI deploys `vrc-package-crawler-preview` with preview D1. Its checked bundle stays in Actions, not GitHub Release assets.
 2. Release tags build only. Production deployment is disabled.
 
 ## 6. Network archive and web
@@ -89,7 +90,8 @@ Both channels use the release SDK. Version format is `YY.M.Patch-pre`. The MSI v
 | --- | --- | --- |
 | Dirty worktree | Bump stops if worktree is dirty | Commit pending changes, then bump (see R58 in the unmerged plan) |
 | Preview guards | Preview publish also needs repo variables `VRCP_*_PREVIEW_PUBLISH_APPROVED` / `VRCP_WORKER_DEPLOY_APPROVED` / `VRCP_CONTAINER_PUBLISH_APPROVED` = `true` | No guard for preview |
-| Branches | Bump works on any branch that tracks `origin` and matches it. Environment rules filter by tag, not branch. `dependency-cache.yml` runs on `main` only. | Any branch |
+| Branches | Root guard changes are unverified. Preview checks remote tag and main config freshness. Release start/retry requires main. CI provenance and reviewed-main finalization remain open. | Any synchronized preview branch. Main-only gated releases after manual promotion |
+| Preview GitHub App | Accepted, not configured or wired yet | Repository-scoped preview automation only. No merge or release-approval bypass |
 | `--execute` | Required; without it the command only plans | Unchanged unless the owner decides otherwise |
 
 ---
@@ -156,6 +158,12 @@ bun run reset <product> [--apply]      # remove node_modules (plan first)
 
 Tools: Bun 1.4.2 for installs, scripts and builds. Node and npm for registry, packing and publishing. Rust and Tauri for the desktop app.
 Local Worker: `bun run dev` in `src-worker`, with `OPERATOR_TOKEN` in an ignored `.dev.vars.preview`.
+
+- Fetch origin main before delivery if its current config object is missing locally. The plan does not fetch or change saved versions.
+- Refresh checked dependencies after producer publication. Root setup alone does not install every product.
+- Stop processes before cleanup. Inspect every planned path before --apply. Applied deletion has no recovery copy.
+- Clean preserves Worker local D1. Reset removes selected node_modules only. Reset all includes root and nested network dependencies.
+- Run setup after root reset, then prepare the selected product again. Shared Bun caches and published identities are not cleanup targets.
 
 ### Safety properties kept by CI
 

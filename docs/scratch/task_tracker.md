@@ -1,5 +1,18 @@
 # G14 — checked local setup and output cleanup
 
+## Owner resume and R58 — 2026-10-06
+
+- The owner resumed and directly supplied the R58 prompt. Preview App automation is accepted for synchronized branches only.
+- Checked setup/cleanup evidence is pushed as 0f2c384.
+- Local 7a1f097 is unverified and unpushed. It includes concurrent DELIVERY.md and R58 ledger rewrites, not only this agent's audit.
+- docs/decisions/AGENT_DELIVERY_PROCEDURE.md has a separate concurrent, uncommitted rewrite. Preserve it unchanged.
+- The supplied original prompt now confirms the rewrite's authority. Releases require main and manual promotion merges, not arbitrary branches.
+- The shortened DELIVERY.md removed earlier audit/setup detail. Its artifact claims and existing links need a conformance check.
+- Keep long-lived responsibility branches plus separate evergreen tracking PRs. Merged promotion PRs are terminal, not reopened.
+- Root guards now reject stale advertised tag/main config versions and non-main release start/retry. Changes remain unverified until grouped root checks pass.
+- The root plan does not fetch missing main objects or silently advance config. Sync first. Preview App wiring and release CI provenance remain open.
+- No infrastructure setting, credential, version, tag or publication changed. Auto-staging dirty files remains a separate unresolved safety scope.
+
 ## Authority and current boundary
 
 - Checked related gate: Q-PRODUCT-TEST-OUTPUTS and R57-DEV-READINESS. Evidence commit: 0f2c384, pushed.
