@@ -8,6 +8,11 @@ on:
         required: true
         type: choice
         options: [package, network, crawler, crawler-client, worker]
+      diagnose-only:
+        description: Check App access and the synchronized branch preview plan without allocating a version.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -49,11 +54,34 @@ jobs:
         with:
           project: root
       - run: bun run setup
+      - name: Check preview allocation without writes
+        if: inputs.diagnose-only
+        run: |
+          bun run delivery:preview "$VRCP_PREVIEW_PRODUCT" > "$RUNNER_TEMP/vrcp-preview-plan.json"
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const plan = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'vrcp-preview-plan.json'), 'utf8'));
+          if (plan.purpose !== 'plan-only' || plan.channel !== 'preview' ||
+              plan.branch !== process.env.VRCP_PREVIEW_BRANCH || plan.product !== process.env.VRCP_PREVIEW_PRODUCT ||
+              !Array.isArray(plan.blockers) || plan.blockers.length !== 0 ||
+              typeof plan.version !== 'string' || typeof plan.tag !== 'string') {
+            throw new Error('Preview diagnostic requires a synchronized branch and a preview plan with zero blockers.');
+          }
+          const summary = { branch: plan.branch, product: plan.product, version: plan.version, tag: plan.tag,
+            result: 'plan-only; zero delivery mutations' };
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, JSON.stringify(summary) + '\n');
+          NODE
+        env:
+          VRCP_PREVIEW_PRODUCT: ${{ inputs.product }}
+          VRCP_PREVIEW_BRANCH: ${{ github.ref_name }}
       - name: Configure preview commit identity
+        if: ${{ !inputs.diagnose-only }}
         run: |
           git config user.name 'VRCP Preview Automation'
           git config user.email 'vrcp-preview@users.noreply.github.com'
       - name: Allocate one configured patch and queue tagged delivery
+        if: ${{ !inputs.diagnose-only }}
         run: bun run delivery:preview "$VRCP_PREVIEW_PRODUCT" --execute
         env:
           VRCP_PREVIEW_PRODUCT: ${{ inputs.product }}

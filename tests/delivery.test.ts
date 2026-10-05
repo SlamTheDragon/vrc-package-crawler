@@ -914,7 +914,7 @@ test("preview App dispatcher is branch-only, serializes allocation and calls the
   expect(checkout.with.token).toBe("${{ steps.app.outputs.token }}");
   expect(checkout.with["fetch-depth"]).toBe(0);
   expect(checkout.with.ref).toBe("${{ github.ref_name }}");
-  const command = steps.find((step: any) => step.run?.includes("delivery:preview"));
+  const command = steps.find((step: any) => step.name === "Allocate one configured patch and queue tagged delivery");
   expect(command.run).toBe('bun run delivery:preview "$VRCP_PREVIEW_PRODUCT" --execute');
   expect(command.env.VRCP_PREVIEW_PRODUCT).toBe("${{ inputs.product }}");
   expect(JSON.stringify(steps)).not.toContain("delivery:release");
