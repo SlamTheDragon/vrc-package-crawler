@@ -340,11 +340,11 @@ export async function deliver(action, channel, product, ci = false) {
             process.env.NODE_AUTH_TOKEN || process.env.NPM_TOKEN) {
           throw new Error("Direct preview publication requires OIDC without npm write tokens");
         }
-        const publication = await publishPreviewSDKArtifact(artifact, expected, receipt, npm);
+        const publication = await publishPreviewSDKArtifact(artifact, expected, receipt, packageCommand);
         writeFileSync(`${artifact}.published.json`, JSON.stringify(publication, null, 2) + "\n");
         return { action, channel, product, purpose: "ci-release", status: publication.status };
       }
-      const stage = stageSDKArtifact(artifact, expected, receipt, npm);
+      const stage = stageSDKArtifact(artifact, expected, receipt, packageCommand);
       writeFileSync(`${artifact}.stage.json`, JSON.stringify({ ...stage, channel }, null, 2) + "\n");
       return { action, channel, product, purpose: "ci-release", status: stage.status, stageId: stage.stageId };
     }

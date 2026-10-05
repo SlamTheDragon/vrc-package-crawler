@@ -1,102 +1,89 @@
-# G14 — delivery proof and conditional main sign-off
+# G14 — nine delivery paths and conditional main sign-off
 
 ## Authority
 
-The goal remains active. R57-C57A is the current delivery gate. R57-C57B requires the owner's question hook before work starts.
-Configured versions are authoritative. Allocate only the next patch through the root chain. Keep failed tags fixed.
+The full goal remains active. R57-C57A is open. Use the owner question hook before R57-C57B.
+Keep the three scratch files. Preserve owner comments and unrelated edits.
+Root delivery allocates only the next configured patch, synchronizes metadata, commits, tags and atomically pushes.
+Keep failed tags fixed. Never align unrelated product patches or skip configured versions.
 Website CI stays disabled. Worker release builds only, without production deployment or GitHub Release assets.
-Worker links remain deferred to the future docs.vrcpackages.com target.
-Release SDK publication retains owner-approved npm staging and the v0.1 API-review hold.
-The owner will create branches and perform the fresh clone after conditional sign-off. Do not delete this checkout.
+Worker links remain deferred to docs.vrcpackages.com. Keep isolated preview D1 fbef6ce1-4145-45ae-ae91-5d617a1f2672.
+Release SDK keeps owner-approved staging and the v0.1 API-review hold.
+The owner creates branches and performs the fresh clone after conditional sign-off. Do not delete this checkout.
 
-## Accepted dependency and tool mapping
+## Accepted dependency mapping
 
 | Project, both artifact channels | SDK | Network |
 | --- | --- | --- |
 | src-crawler | Preview latest, checked against preview config | Single configured YYYY.M.Patch archive |
 | src-worker | Preview latest, checked against preview config | Same internal archive |
 | src-crawler-client | Release latest, checked against release config | None |
-| src-web | Release latest, checked against release config | None. Remote delivery disabled |
+| src-web | Release latest, checked against release config | None. Delivery disabled |
 
-Bun owns installs, package scripts, checks and builds. Manifests and CI pin Bun 1.4.2.
-The installed local Bun is 1.4.1. Node runs orchestration and compatibility checks.
-npm remains the registry, packing, staging and trusted-publication interface.
-Network uses a required SDK peer. Changed peer bounds require a new checked archive before consumer delivery.
+Bun owns installs, package scripts, checks and builds. Manifests and CI pin 1.4.2. Local Bun remains 1.4.1.
+Node runs orchestration and compatibility checks. npm owns registry queries, packing, staging and OIDC publication.
+SDK aliases remain latest. Existing installations require checked prepare:dev.
+Network has a required SDK peer. Changed peer bounds require a checked new archive before consumer delivery.
 
-## Latest gate checkpoint — 2026-10-06
+## Current proof — 2026-10-06
 
-Working theory: changing package manager syntax can silently skip checks even when the process exits successfully.
-The live check confirmed that `bun --cwd path run script` printed help and exited zero on local Bun.
-Commands now use `bun run --cwd path script`. An execution regression checks every product forwarding script.
-The test preserves product arguments and proves that the root command executes.
-
-- Root: 93 tests passed, zero failed, 1397 assertions.
-- Crawler: typecheck passed. 137 tests passed, zero failed, 839 assertions.
-- Worker: generated types and typechecks passed. 235 tests passed, zero failed, 2051 assertions.
-- Worker preview dry run passed with isolated preview D1 fbef6ce1-4145-45ae-ae91-5d617a1f2672. No remote deploy or D1 write ran.
-- Desktop: Svelte check passed with zero errors and warnings.
-- Checked development preparation passed for Worker/crawler with preview SDK 2026.10.3-pre and network 2026.10.2.
-- Desktop preparation passed with release SDK 0.0.3 despite its preview artifact channel.
-- Metadata sync selected existing preview versions without allocating patches. Development outputs stay product-local.
-
-## Hosted delivery baseline
-
-These checks predate the new Bun command order and fixed project dependency mapping. Do not treat them as current-channel proof.
-
-| Product | Delivered proof | Remaining check |
+| Delivery path | Version and run | Evidence |
 | --- | --- | --- |
-| SDK 3 | Preview run 37316086763 attempt 2 and release run 37316100746. Both npm identities and five assets passed independent checks | New Bun producer workflow trial |
-| Network 2026.10.2 | Run 37321030222. All four hosted assets passed. Deployment 6860981068 links to its exact Release | New producer workflow trial if changed peer bounds need publication |
-| Desktop 2 | Preview run 37318551722 and release run 37321046041. Five assets per channel passed. Deployment links passed | New preview trial with release SDK. Protected attachment job needs hosted review proof |
-| Worker 3 | Preview run 37322988392 deployed. Release run 37323008883 passed build and skipped deployment. Root checker passed both bundle archives | New mapping/Bun workflow trial |
-| Crawler 3 | Preview run 37323027639 and release run 37323046478 failed at container dependency checks, before publication | Repaired guard is committed in ff6720f. Next actual trials allocate patch 4 |
+| SDK preview | 2026.10.4-pre, 37347261867 | Build passed. Publication failed before registry writes: npm is not defined. Version absent |
+| SDK release | 0.0.4, 37347280896 | Build passed. Owner environment approval received. Staging failed at the same removed helper. Version absent |
+| Crawler preview | 2026.10.4-pre, 37345238751 | CI passed. Root binary/receipt/checksum readback passed. GHCR manifest/config and latest matched the CI receipt |
+| Crawler release | 0.0.4, 37345255800 | Protected publication passed. Root binary/receipt/checksum readback passed. Independent GHCR readback remains |
+| Desktop preview | 26.10.3-pre, 37345364715 | CI and root installer/receipt/checksum readback passed. Uses release SDK |
+| Desktop release | 0.0.3, 37345381229 | Live pre-attachment review wait proved. Owner approval and publication passed. Root installer readback passed |
+| Worker preview | 2026.10.5-pre, 37346723325 | Deployment and root Actions bundle readback passed after the isolated tooling repair |
+| Worker release | 0.0.4, 37345503423 | Build and root Actions bundle readback passed. Production deployment skipped |
+| Internal network | 2026.10.2, 37321030222 | Earlier four-asset proof passed. New Bun producer and next SDK peer-bound trial remain |
 
-Network tag object: 8bcb75d5587409966722580923dbb23f40fd9a62.
-Desktop release tag object: 1c44d936b1f3b28ca7f3c948395330df78da238a.
-SDK release latest is 0.0.3. SDK preview latest is 2026.10.3-pre.
-Exact-version selectors reject changed registry identity or bytes. Existing installations require prepare:dev after publication.
+Crawler deployment links passed: preview 6865068223 and release 6865131797.
+Desktop deployment links passed: preview 6865219211 and release 6865227792.
+Each points to its exact tagged Release. These checks do not prove installer execution or image-layer downloads.
+Crawler preview image digest: sha256:bc9bd0ffb9021341f7e502cd252cba318f14a07bbfac33a5ed3a337adee8f4fe.
+Its labels matched preview SDK 2026.10.3-pre, network 2026.10.2 and source a5d43284dadff1cc7ea6bd9070245416d8fdb9d0.
+The six successful consumer/Worker trials used SDK 3 and network 2. They do not prove compatibility with a later SDK.
 
-## Open delivery risks and next actions
+## Reliability findings and local checkpoint
 
-Root-chain trials are now pushed: crawler preview/release 4, desktop preview/release 3, and Worker preview/release 4.
-Crawler preview run 37345238751 passed publication and root hosted binary readback. Container readback and deployment links still need independent checks.
-Worker preview run 37345486644 built successfully but failed before deployment because the expected pinned Wrangler CLI was absent.
-Working theory: Bun searches parent manifests when the generated tools directory has no package.json, so the executable installs outside the expected directory.
-Repair the tool manifest before installation. Derive its exact Wrangler pin from the Worker manifest and check the executable before deployment.
-The repair passed 99 root tests, zero failures and 1537 assertions. Local Bun installed Wrangler 4.147.0 at the exact isolated path.
-Keep failed Worker patch 4 fixed. The next actual preview trial must allocate patch 5.
-Cache run 37345265811 confirmed HTTP 403 on operation=cap, before selection or deletion. Do not add administrator credentials or guess an unmeasured cap.
-Crawler preview deployment 6865068223 links to its exact patch-4 Release. Desktop preview run 37345364715 passed CI and attachment.
-Crawler release run 37345255800 and desktop release run 37345381229 passed builds and await owner environment review.
-The desktop guard now proves a live pre-attachment wait. The owner question hooks contain both exact run links.
-Worker release run 37345503423 passed build and skipped production deployment. Its archive still needs root byte readback.
+Working theory confirmed: bun --cwd path run script can print help and exit zero.
+Commands use bun run --cwd path script. A regression proves actual forwarding, arguments and working directory.
+Working theory confirmed: an empty tooling directory permits Bun to select a parent manifest.
+Worker CI now creates a private tools manifest from its exact Wrangler pin before installation.
+Local installation resolved Wrangler 4.147.0 at the expected path. Worker preview patch 5 passed that hosted path.
+Failed Worker preview patch 4 remains fixed and did not replace the previous live preview.
 
-1. Finish the final diff, documentation and clean-checkout checkpoint. Preserve the owner's README changes.
-2. Run changed delivery paths through root commands. Do not force all products to the same patch.
-3. Desktop release protection now gates attachment itself, with the exact Release URL on that job.
-   The shared steps use a YAML alias, without a second post-publication review job. Manual retries select the same environment.
-   Working theory: a later deployment-record guard cannot protect earlier published assets. Root 94/1453 passed, including tagged and manual routing.
-   Preview remains automatic. Release uses the existing protected environment. Hosted review behavior remains unverified.
-4. Worker bundle proof passed in memory without writing release files. Archive digests, file coverage, source receipts, configuration and unchanged tags matched.
-   Preview artifact 11350297918: bundle SHA-256 3317b7412ad2399556a9a4bae31275da2775e37aef92d3fc28a2f1bfe47af453, 1,060,537 bytes.
-   Release artifact 11350498030: bundle SHA-256 2bc610a6ce3bb9b85cb863489d2b0ba9115aa524f4360e67d47b5e140ec42e0c, 1,060,529 bytes.
-   This used Python's standard ZIP reader and the existing receipt contract.
-   Root delivery:check now passed both exact archives with declared fflate decoding and the existing receipt contract.
-   Root gate: 98 tests passed, zero failed, 1524 assertions. Negative cases include expired/ambiguous artifacts, changed receipts, moved tags, unsafe redirects, ZIP sizes and duplicate names.
-   The archive and bundle budgets are 16 MiB each. Receipts are limited to 2 MiB. Credentials stay off signed storage requests.
-   Source-access profiles, leases and catalog behavior did not change. Their runtime tests are outside this root-verifier change.
-5. Diagnose cache maintenance with its fixed operation/status output. Run 37323059939 returned 403. Do not add administrator credentials.
-   Read-only local usage was 1,414,776,479 bytes against 10 GB. No cache deletion ran.
-   The policy selects at most 25 old tag-cache IDs at 80% usage toward 60%. It protects branch, PR, recent and active caches.
-   Artifact, Release, npm and GHCR data are not deletion targets. Account storage budgets remain unverified.
-   Read-only inspection of latest cache run 37323388985 found no operation diagnostic. The new diagnostic still needs hosted execution.
-6. Complete C57A before the requested owner hook for C57B. Branch automation and main protection remain unimplemented.
-7. After pipeline setup, read attacker.md.secretresearch. Commit sanitized findings in the ledgers before sign-off.
-   The private file exists and remains unread. Never publish the raw input.
+Working theory confirmed: helper tests did not exercise the publication entry point after the Bun rename.
+Both SDK publication callbacks referenced the removed npm function. Both now use packageCommand.
+A real CLI fixture exercises direct preview publication and release staging, including receipt files and no automatic approval.
+Latest root gate: 100 tests passed, zero failed, 1547 assertions. Syntax and whitespace checks passed.
+Earlier runtime checkpoint: crawler 137/839 and Worker 235/2051 passed. Worker typechecks/dry run and desktop check passed.
+No runtime source changed in the publication repair. Local outputs contain development artifacts only.
 
-The final sign-off and pause conditions are not met.
+Root Worker checks use declared fflate decoding, exact archive/file coverage, source/config receipts and tag rechecks.
+Archive and bundle limits are 16 MiB each. Receipts are limited to 2 MiB.
+Credentials stay on GitHub API requests, not signed storage requests. No local release files are written.
 
-The owner approved the push. Checkpoints through a43614a are now on origin/main.
-The new verifier passed local tests and live readback without deployment or release-file writes.
-Commit and push this checkpoint before the next configured delivery trials. Preserve the owner's README edit unchanged.
-The goal remains active, not complete or paused.
+## Next actions and open risks
+
+1. Commit and push the tested publication repair. Next SDK trial patches are 5 in both channels.
+   Keep failed SDK 4 tags fixed. Release staging still requires GitHub review and separate npm approval.
+2. After both SDK publications pass, publish the next network archive with their checked peer bounds.
+   Current source peer bounds changed, but published network 2 still targets SDK 3. Do not claim clean-install readiness yet.
+3. Finish independent crawler release GHCR readback and all current producer/consumer dependency proofs.
+   Root binary checks do not independently prove image layers. Branch publication triggers and main protection remain unimplemented.
+4. Cache run 37345265811 confirmed HTTP 403 on operation=cap before selection or deletion.
+   Existing policy uses an 80% threshold, 60% target and at most 25 old tag-cache IDs, with a conservative 10 GB ceiling.
+   It protects branch, PR, recent and active caches and repeats identity checks before deletion.
+   Critical R57-RETENTION records the unresolved scoped capacity source. Do not add administrator credentials or guess a cap.
+   Prior read-only usage was 1,414,776,479 bytes. No cache deletion ran. Account/artifact/GHCR budgets remain unproved.
+5. Complete C57A before the requested owner hook for C57B.
+6. After pipeline setup, read attacker.md.secretresearch and commit sanitized findings in the ledgers.
+   The input exists and remains unread. Never publish raw private research.
+7. Main sign-off and the conditional goal pause require all requested checks and security intake. Conditions are not met.
+
+Push approval is explicit. Checkpoints through da23807 and subsequent root delivery commits are on origin/main.
+Do not describe a green run as a guarantee against future credential, dependency or platform failures.
+Sign-off requires bounded failure, visible diagnostics and recovery evidence, not confidence.

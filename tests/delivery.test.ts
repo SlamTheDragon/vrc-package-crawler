@@ -798,6 +798,67 @@ if(args[0]==='view') {
   });
 }, 60_000);
 
+test("real publication CLI routes preview publish and release stage through the registry helper", async () => {
+  await fixture(async workspace => {
+    await mkdir(resolve(workspace, "scripts"));
+    await mkdir(resolve(workspace, "node_modules"));
+    await cp(new URL("../node_modules/semver", import.meta.url), resolve(workspace, "node_modules/semver"), { recursive: true });
+    for (const file of ["delivery.mjs", "versioning.mjs"]) {
+      await cp(new URL(`../scripts/${file}`, import.meta.url), resolve(workspace, "scripts", file));
+    }
+    await writeFile(resolve(workspace, "package.json"), '{"type":"module"}');
+    const cli = resolve(workspace, "npm-cli.js"), preload = resolve(workspace, "registry-fixture.mjs");
+    const log = resolve(workspace, "registry-commands.jsonl"), marker = resolve(workspace, "published-marker");
+    const bytes = Buffer.from("Synthetic CLI fixture bytes, not a distributed package");
+    const stageId = "9ab1b418-531d-41df-aa66-2f66bdde947b";
+    await writeFile(cli, `import {readFileSync,writeFileSync,appendFileSync} from 'node:fs';
+import {createHash} from 'node:crypto'; import {join} from 'node:path';
+const a=process.argv.slice(2),e=process.env;appendFileSync(e.FIXTURE_LOG,JSON.stringify(a)+'\\n');
+const bytes=Buffer.from(e.FIXTURE_BYTES,'base64');
+const stage={id:${JSON.stringify(stageId)},packageName:e.FIXTURE_NAME,version:e.FIXTURE_VERSION,tag:'latest',shasum:createHash('sha1').update(bytes).digest('hex')};
+if(a[0]==='--version')console.log('11.19.0');
+else if(a[0]==='publish'){writeFileSync(e.FIXTURE_MARKER,'published');console.log('{}');}
+else if(a[0]==='stage'&&a[1]==='list')console.log('[]');
+else if(a[0]==='stage'&&a[1]==='publish')console.log(JSON.stringify({[e.FIXTURE_NAME]:{stageId:stage.id,name:stage.packageName,version:stage.version,shasum:stage.shasum}}));
+else if(a[0]==='stage'&&a[1]==='view')console.log(JSON.stringify(stage));
+else if(a[0]==='stage'&&a[1]==='download'){writeFileSync(join(process.cwd(),e.FIXTURE_NAME+'-'+e.FIXTURE_VERSION+'-'+stage.id+'.tgz'),bytes);console.log('{}');}
+else throw new Error('Unexpected registry fixture command');`);
+    await writeFile(preload, `import {existsSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+globalThis.fetch=async input=>{const url=new URL(String(input)),e=process.env;
+if(url.origin!=='https://registry.npmjs.org')throw new Error('Unexpected network fixture request');
+if(!existsSync(e.FIXTURE_MARKER))return new Response(null,{status:404});
+return Response.json({name:e.FIXTURE_NAME,version:e.FIXTURE_VERSION,dist:{integrity:'sha512-'+createHash('sha512').update(Buffer.from(e.FIXTURE_BYTES,'base64')).digest('base64')}});};`);
+    for (const channel of ["preview", "release"]) {
+      const name = sdkPackageNames[channel], version = channel === "preview" ? "2026.10.1-pre" : "0.0.1";
+      await versionFiles("sync", channel, "all", workspace);
+      const project = resolve(workspace, productDirectories.package), directory = resolve(project, ".artifacts/ci");
+      await writeFile(resolve(project, "package.json"), JSON.stringify({ name, version, private: false }));
+      await mkdir(directory, { recursive: true });
+      const artifact = resolve(directory, `${name}-${version}.tgz`);
+      await writeFile(artifact, bytes);
+      await writeFile(`${artifact}.json`, JSON.stringify({ name, version, commit: "a".repeat(40), purpose: "ci-release",
+        sha256: createHash("sha256").update(bytes).digest("hex") }));
+      await writeFile(log, "");
+      execFileSync(process.execPath, ["--import", preload, "scripts/delivery.mjs", "publish", channel, "package", "--ci"], {
+        cwd: workspace, encoding: "utf8", stdio: "pipe", timeout: 15_000,
+        env: { ...process.env, npm_execpath: cli, FIXTURE_LOG: log, FIXTURE_MARKER: marker,
+          FIXTURE_NAME: name, FIXTURE_VERSION: version, FIXTURE_BYTES: bytes.toString("base64"),
+          GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "a".repeat(40), GITHUB_REF: `refs/tags/vrcp-api/v${version}`,
+          ACTIONS_ID_TOKEN_REQUEST_URL: "https://example.invalid/synthetic", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "synthetic-not-a-credential",
+          NODE_AUTH_TOKEN: "", NPM_TOKEN: "" }
+      });
+      const commands = (await readFile(log, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+      const result = JSON.parse(await readFile(`${artifact}.${channel === "preview" ? "published" : "stage"}.json`, "utf8"));
+      expect(result.status).toBe(channel === "preview" ? "published-verified" : "awaiting-npm-approval");
+      expect(commands.some(a => a[0] === "publish")).toBe(channel === "preview");
+      expect(commands.some(a => a[0] === "stage" && a[1] === "publish")).toBe(channel === "release");
+      expect(commands.some(a => ["approve", "reject", "dist-tag"].includes(a[0]) || a[1] === "approve")).toBe(false);
+      expect(await readFile(artifact)).toEqual(bytes);
+    }
+  });
+});
+
 test("consumer workflows verify their own distributions without running the SDK producer", () => {
   for (const name of ["cloudflare-worker", "node-docker", "node-client", "network", "web"]) {
     const source = readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8");
