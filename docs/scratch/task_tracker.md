@@ -84,12 +84,12 @@ Obsolete OIDC/MSI pending claims and historical tag-replacement grants were remo
 Human procedures remain separate from AGENT_DELIVERY_PROCEDURE.md.
 Documentation lint: DELIVERY 1.15 issues per 100 words. Whitespace checks passed.
 
-1. Ask the requested owner question before R57-C57B. Do not start milestone-rule changes before that hook.
+1. The requested owner question before R57-C57B is issued. Await its answer before milestone-rule changes.
 2. After authorization, update milestone delivery procedures within the selected product's authority. Do not publish every product automatically.
 3. Pipeline setup now permits the queued attacker.md.secretresearch intake. The input remains unread.
    Read it in the next bounded security slice. Commit sanitized findings, never the raw private input.
-4. Branch-push triggers, main protection, fresh-clone review and security intake still block conditional main sign-off.
-   The owner creates the branches. Website delivery stays disabled.
+4. Reconcile deferred branch triggers and main protection, then finish the security intake before conditional main sign-off.
+   The owner creates branches and performs the fresh-clone review after that sign-off. Website delivery stays disabled.
 5. Preserve source-access profiles, robots gates and the fail-closed lease boundary.
    Delivery checks do not authorize live crawling or establish age, rights or legal clearance.
 
