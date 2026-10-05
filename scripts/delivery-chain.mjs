@@ -165,7 +165,8 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
     }
     totalSize += asset.size;
     if (totalSize > 256 * 1024 * 1024) throw new Error("Hosted artifacts exceed the memory-check budget");
-    const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+    // Headless binaries are about 85 MB; allow bounded readback on slower links.
+    const response = await fetch(url, { signal: AbortSignal.timeout(180_000) });
     if (!response.ok || !response.body || !Number.isSafeInteger(asset.size) || asset.size < 1 || asset.size > 256 * 1024 * 1024) {
       await response.body?.cancel();
       throw new Error("Hosted artifact is missing or oversized");

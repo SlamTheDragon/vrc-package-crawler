@@ -33,8 +33,8 @@ Branch automation waits for the patch-1 proof. Cross-branch dependency-version u
 | --- | --- | --- | --- |
 | SDK | 0.0.1 | 2026.10.1-pre | Both npm channels and five assets per GitHub Release independently verified |
 | Network | 0.0.1 | 2026.10.1-pre | Both channels and four assets per GitHub Release verified; release CI 37301273812 |
-| Crawler | 0.0.1 | 2026.10.1-pre | Preview build checks passed; CI 37301612185 waits for environment review. Release CI 37301626762 queued |
-| Desktop | 0.0.1 | 26.10.1-pre | Release verified. Preview CI 37301287106 still building |
+| Crawler | 0.0.1 | 2026.10.1-pre | Both CI runs passed; independent binary readback in progress after a download timeout |
+| Desktop | 0.0.1 | 26.10.1-pre | Both CI runs and five assets per Release independently verified |
 | Worker | 0.0.1 build only | 2026.10.1-pre deploy | Both CI bundle receipts independently verified; preview deployed, production skipped |
 | Website | Disabled | Disabled | Owner excludes delivery |
 
@@ -96,12 +96,18 @@ Network release tarball SHA-256: 586372ad697ae730ec4cf4122c3a2e1b1b334d6feec1378
 Desktop preview source ee996aba25b0a40cfd3d40187abf0db01f623c97; tag object 426580841d81a0b6eb5ff5dd267a2c200db3f8b8.
 Crawler preview source 26aa7bdbfadee8e83ab44af1269696b6dccda3c8; tag object c90b7db28ac453e11ac1cac4fc1c697896a74fc7.
 Crawler release source deccb1f6fd96b5ccca5655e816ca58406188860a; tag object 3078228c77b68240716a21c9228fd34ba1b351e6.
-GitHub requires owner environment review for vrcp-crawler-preview despite standing publication authorization. The question hook links its run; protection is unchanged.
+The owner approved both crawler runs and removed preview's reviewer requirement. Readback confirms its tag policy remains; release stays protected.
 Worker preview CI 37301422846 deployed version b709408c-17a8-4ab0-985f-05dd003a80d4 to the existing preview Worker and preview-only D1.
 Its bundle SHA-256: 725d1edfc05537a817d65d42df81a5fa3c38fbce86a96dd39cc6ae2a3715c131.
 Worker release CI 37301598940 passed build and skipped deployment; bundle SHA-256 f2819114064e354917f4ff52b1217c4a413b16cedf92afcd4c3a5168fa55caea.
 Both Worker CI archives passed memory-only receipt/channel/version/source checks. Neither has GitHub Release assets.
 Unauthenticated preview initialization returned 401 before storage access. No authorized initialization, schema write or source grant ran.
+Desktop preview CI 37301287106 passed and all five assets/source/tag checks passed independently.
+Preview MSI SHA-256: c13d477fe68aed792441d6ea225bd49ddd2bc5371d9b820126f0392245d43e08.
+Both crawler runs passed publication and attachments. Independent binary readback timed out at 60 seconds.
+The checker now permits 180 seconds per file without relaxing its 256 MiB total bound or digest/source checks. Grouped checks passed 30 tests and 324 assertions.
+Storage snapshot: 0.97 GiB caches and 0.73 GiB CI artifacts. Largest caches are Bun archives; most CI artifacts retain 90 days.
+R57-RETENTION and R57-DEPLOYMENT-LINKS record the owner's new concerns. No cache deletion, budget change or retention-policy change ran.
 
 ## Next actions and safety
 
