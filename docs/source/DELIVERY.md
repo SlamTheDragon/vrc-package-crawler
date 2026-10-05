@@ -178,6 +178,8 @@ npm run versions:bump -- release package
 
 Add --execute to allocate the patch, synchronize metadata, commit, tag and atomically push the delivery.
 This command uses the same chain as delivery:preview and delivery:release. It does not leave an unqueued version edit.
+The versioning CLI bump command uses this chain too. Without --execute, it only plans the delivery.
+SDK bumps also synchronize network SDK peer bounds. They do not allocate a network patch or switch consumer channels.
 Root delivery increments are patch-only. Release increments use SemVer, not the calendar.
 Preview bumps derive year and month from the current UTC calendar, increase patch and retain an existing pre suffix.
 In the same month, `2026.10.0-pre` becomes `2026.10.1-pre`. In November, that next bump becomes `2026.11.2-pre`.

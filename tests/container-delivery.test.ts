@@ -164,9 +164,11 @@ test("repository rename accepts only the exact two published patch-0 latest imag
 
 test("Docker workflow has one read-only image build and a protected, channel-gated archive publication", () => {
   const workflow: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/node-docker.yml", import.meta.url), "utf8"));
-  expect(workflow.permissions).toEqual({ contents: "read" });
+  expect(workflow.permissions).toEqual({ contents: "read", actions: "read" });
   const build = workflow.jobs["build-linux"];
-  expect(build.permissions).toEqual({ contents: "read" });
+  expect(build.permissions).toEqual({ contents: "read", actions: "read" });
+  const prepare = build.steps.find((step: any) => step.run?.includes("delivery.mjs prepare"));
+  expect(prepare.env.GH_TOKEN).toBe("${{ secrets.GITHUB_TOKEN }}");
   expect(build.environment).toBeUndefined();
   expect(build.steps.filter((step: any) => step.uses?.startsWith("docker/build-push-action@"))).toHaveLength(1);
   expect(build.steps.some((step: any) => step.uses?.startsWith("docker/login-action@"))).toBe(false);
@@ -180,7 +182,7 @@ test("Docker workflow has one read-only image build and a protected, channel-gat
   const dockerfile = readFileSync(new URL("../src-crawler/Dockerfile", import.meta.url), "utf8");
   expect(dockerfile).toContain('"vrc-packages-network@file:$1"');
   const publish = workflow.jobs["publish-container"];
-  expect(publish.permissions).toEqual({ contents: "read", packages: "write" });
+  expect(publish.permissions).toEqual({ contents: "read", actions: "read", packages: "write" });
   expect(publish.if).toContain("VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED");
   expect(publish.if).toContain("VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED");
   expect(publish.environment.name).toContain("vrcp-crawler-preview");

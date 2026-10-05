@@ -58,8 +58,16 @@ Both SDK selections passed separate npm and Bun installs, Node/Bun runtime check
 The hosted network installer checks release assets, checksums, receipts, successful source CI and unchanged remote tags. Its new-stream live proof remains pending.
 Network and desktop deployment cards now have exact Release links in workflow configuration. Patch-2 CI must exercise those links.
 The final workflow change adds read-only Actions permissions and passes the GitHub token to dependency preparation; remote execution remains pending.
-The owner authorized committing all changes, including existing documentation edits. No new tag, publication, deployment or D1 write has run for this group.
-Next: commit the checked implementation, then exercise the authorized patch-2 delivery chain, starting with both SDK channels and the shared network archive.
+The owner-authorized commit-all checkpoint is 13552cd, pushed to main. Root delivery then queued both SDK patch-2 tags without manual Git steps.
+Preview tag vrcp-api/v2026.10.2-pre: commit 3f8117ccdd9c3021a99bb1b79a6793fd4fb793c9, tag object 7593342a92cf0bb0cb06e05bd621716cf2cef2f0, run 37314453807.
+Release tag vrcp-api/v0.0.2: commit a066d0f6ef49660b6a259bea1dfbc29db1a4c27b, tag object 301783d8e165eb4c84a5a94e1e1de465d8955c58, run 37314471554.
+Both runs failed in root tests before packing or publication: the container workflow test still expected no Actions read permission.
+The exact permission assertions are corrected. Root checks also exposed stale network peer bounds after SDK bumps; SDK sync now updates them without a network bump or consumer-channel change.
+The direct versioning CLI bump now routes through the same plan/execute commit-tag-push chain. The metadata-only function remains an internal primitive.
+Repair gate passed: 84 root tests, zero failures, 968 assertions; versioning syntax and diff checks passed.
+Registry and GitHub Release checks returned 404 for both patch-2 identities. No published tag, D1 write or source grant changed.
+Replacement approval for these two failed, unpublished tags is pending. Do not allocate patch 3 or move either tag without that decision.
+Next: commit the checked repair and resume the same-version SDK trials if replacement is authorized. Publish the network patch-2 archive only after both SDKs are available.
 
 R57-NETWORK-SINGLE: one internal YYYY.M.Patch archive, without -pre or a future release path.
 The owner confirms monorepo-only use. A required SDK peer lets the Worker and crawler select their own SDK channel.
@@ -70,6 +78,6 @@ The root versions:bump command now selects the delivery chain: planning is read-
 A network bump updates both consumer archive URLs while preserving their runtime versions and SDK channels.
 The configured suffix-free network archive is not yet published. Do not claim fresh-clone installation or main sign-off before patch-2 live proofs pass.
 
-R57-RETENTION remains open: caches measured 0.97 GiB and CI artifacts 0.73 GiB, with most artifacts retained 90 days.
+R57-RETENTION remains open: latest readback measured 63 caches / 1,304,427,315 bytes and 55 CI artifacts / 787,333,938 bytes, with no expired artifacts listed.
 Confirm budgets and cache caps before unattended branch delivery. No deletion, paid limit increase or retention change ran.
 Complete the setup changes, then run patch-2 delivery proofs and private security intake before conditional main sign-off.

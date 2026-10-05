@@ -118,7 +118,8 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
   const preview = channel === "preview" ? config : other;
   // Prepare every selected edit before writing. Invalid input leaves files unchanged.
   const edits = [];
-  for (const name of product === "all" ? products : [product]) {
+  // SDK changes also update the internal archive's peer contract, not its version or consumer channels.
+  for (const name of product === "all" ? products : product === "package" ? ["package", "network"] : [product]) {
     const version = name === "network" ? preview["preview-network"] : config[`${channel}-${name}`];
     const path = resolve(workspace, productDirectories[name], "package.json");
     const text = await readFile(path, "utf8");
@@ -224,8 +225,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const [mode, channel, product, ...extra] = process.argv.slice(2);
   try {
     if (mode === "bump") {
-      if (extra.length !== 1) throw new Error("Bump requires one increment");
-      console.log(JSON.stringify(await bumpVersion(channel, product, extra[0])));
+      if (extra[0] !== "patch" || extra.length > 2 || (extra.length === 2 && extra[1] !== "--execute")) {
+        throw new Error("Bump requires patch and optional --execute; execution commits and pushes tagged delivery");
+      }
+      const { startDelivery } = await import("./delivery-chain.mjs");
+      console.log(JSON.stringify(await startDelivery(channel, product, extra[1] === "--execute")));
     } else {
       if (extra.length) throw new Error("Unexpected version command arguments");
       console.log(JSON.stringify(await versionFiles(mode, channel, product)));

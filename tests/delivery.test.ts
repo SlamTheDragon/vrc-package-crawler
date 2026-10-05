@@ -133,6 +133,36 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
   });
 });
 
+test("versioning CLI bumps use tagged delivery, never the metadata-only primitive", () => {
+  const source = readFileSync(new URL("../scripts/versioning.mjs", import.meta.url), "utf8");
+  const cli = source.slice(source.indexOf('if (process.argv[1]'));
+  expect(cli).toContain('await import("./delivery-chain.mjs")');
+  expect(cli).toContain('await startDelivery(channel, product, extra[1] === "--execute")');
+  expect(cli).not.toContain("await bumpVersion(");
+  expect(cli).toContain('extra[0] !== "patch"');
+});
+
+test("SDK synchronization updates network peer bounds without bumping its stream or switching consumers", async () => {
+  await fixture(async workspace => {
+    const networkPath = resolve(workspace, productDirectories.network, "package.json");
+    const networkVersion = (await readVersionConfig("preview", workspace)).config["preview-network"];
+    const consumers = await Promise.all(["crawler", "worker"].map(name => readFile(resolve(workspace, productDirectories[name], "package.json"), "utf8")));
+    for (const channel of ["preview", "release"] as const) {
+      const { config, configPath } = await readVersionConfig(channel, workspace);
+      config[`${channel}-package`] = channel === "preview" ? "2026.10.2-pre" : "0.0.2";
+      await writeFile(configPath, JSON.stringify(config));
+      const result = await versionFiles("sync", channel, "package", workspace);
+      expect(result.changed).toContain(networkPath);
+      const network = JSON.parse(await readFile(networkPath, "utf8"));
+      expect(network.version).toBe(networkVersion);
+      expect(network.peerDependencies["vrc-packages-api"]).toBe(`${channel === "release" ? "0.0.2" : "0.0.1"} || 2026.10.2-pre`);
+      expect(network.dependencies["vrc-packages-api"]).toBeUndefined();
+      await versionFiles("check", channel, "package", workspace);
+    }
+    expect(await Promise.all(["crawler", "worker"].map(name => readFile(resolve(workspace, productDirectories[name], "package.json"), "utf8")))).toEqual(consumers);
+  });
+});
+
 test("network peer metadata follows both SDK configs without allowing a runtime channel override", async () => {
   await fixture(async workspace => {
     const path = resolve(workspace, productDirectories.network, "package.json");
