@@ -22,7 +22,7 @@ function fixture(product = "package", promotion = false) {
     html_url: `https://github.com/${repository}/releases/tag/${receipt.tag}`,
     body: `# Release notes\nCommit: ${commit}.\n[Checked CI run](https://github.com/${repository}/actions/runs/7)\n\nA checked change.\nCurrent delivery status: npm publication checked.\n`,
     assets: ["CHANGELOG.md", "CHECKSUMS.sha256", "product-artifact"].map(name => ({ name, digest: `sha256:${"b".repeat(64)}`, state: "uploaded" })) };
-  const checks: any[] = [], messages: any[] = [];
+  const checks: any[] = [], messages: any[] = [], channels: string[] = [];
   let listingOverride: any;
   const archive = () => zipSync({ "vrcp-release-announcement.json": Buffer.from(JSON.stringify(receipt)) });
   const api = async (method: string, path: string, body?: any) => {
@@ -40,8 +40,8 @@ function fixture(product = "package", promotion = false) {
     if (method === "PATCH" && path.endsWith("/check-runs/99")) { Object.assign(checks[0], body); return checks[0]; }
     throw new Error(`Unexpected fixture operation: ${method} ${path}`);
   };
-  const send = async (payload: any) => { messages.push(payload); return "1234567890"; };
-  return { receipt, source, event, jobs, release, checks, messages, api, archive, send,
+  const send = async (payload: any, channel: string) => { messages.push(payload); channels.push(channel); return "1234567890"; };
+  return { receipt, source, event, jobs, release, checks, messages, channels, api, archive, send,
     setListing: (value: any) => { listingOverride = value; },
     run: () => announceRelease(event, repository, api, async () => archive(), send) };
 }
@@ -51,6 +51,7 @@ test("all three release products send rich notes and a release button once", asy
     const f = fixture(product);
     expect((await f.run()).status).toBe("announced");
     expect(f.messages).toHaveLength(1);
+    expect(f.channels).toEqual(["release"]);
     expect(f.messages[0].embeds[0].description).toContain("A checked change.");
     expect(f.messages[0].components[0].components[0]).toEqual({ type: 2, style: 5, label: "View release", url: f.release.html_url });
     expect(f.messages[0].allowed_mentions).toEqual({ parse: [] });
@@ -61,11 +62,27 @@ test("all three release products send rich notes and a release button once", asy
   expect((await fixture("package", true).run()).status).toBe("announced");
 });
 
-test("draft, preview, failed, foreign and wrong-source deliveries never send", async () => {
+test("preview products use their own channel and matching prerelease state", async () => {
+  for (const product of Object.keys(paths)) {
+    const f = fixture(product);
+    const prefix = f.receipt.tag.split("/v")[0];
+    f.receipt.channel = "preview";
+    f.receipt.tag = `${prefix}/v${product === "crawler-client" ? "26" : "2026"}.10.6-pre`;
+    f.source.head_branch = f.receipt.tag;
+    f.release.tag_name = f.receipt.tag;
+    f.release.prerelease = true;
+    f.release.html_url = `https://github.com/${repository}/releases/tag/${f.receipt.tag}`;
+    expect((await f.run()).status).toBe("announced");
+    expect(f.channels).toEqual(["preview"]);
+    expect(f.messages[0].embeds[0].color).toBe(0x5865f2);
+    expect(f.messages[0].embeds[0].footer.text).toStartWith("Preview verified");
+    expect((await f.run()).status).toBe("already-announced");
+  }
+});
+
+test("draft, failed, foreign and wrong-source deliveries never send", async () => {
   const draft = fixture(); draft.receipt.draft = true;
-  expect((await draft.run()).status).toBe("draft-or-preview-skipped");
-  const preview = fixture(); preview.event.workflow_run.head_branch = "vrcp-api/v2026.10.6-pre";
-  expect((await preview.run()).status).toBe("preview-skipped");
+  expect((await draft.run()).status).toBe("draft-skipped");
   for (const alter of [
     (f: ReturnType<typeof fixture>) => { f.source.conclusion = "failure"; },
     (f: ReturnType<typeof fixture>) => { f.source.status = "in_progress"; },
@@ -152,6 +169,7 @@ test("terminal workflow keeps secrets off source tags and excludes Worker/networ
   expect(workflow).toContain("workflow_run.conclusion == 'success'");
   expect(workflow).toContain("ref: ${{ github.event.repository.default_branch }}");
   expect(workflow).toContain("DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}");
+  expect(workflow).toContain("DISCORD_PREVIEW_WEBHOOK: ${{ secrets.DISCORD_PREVIEW_WEBHOOK }}");
   expect(workflow).not.toContain("Cloudflare Worker tagged deployment");
   expect(workflow).not.toContain("https://discord.com/api/webhooks/");
   expect(workflow).toContain("checks: write");

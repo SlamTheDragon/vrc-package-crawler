@@ -103,7 +103,7 @@ No runtime code, source access, protocol, credential or infrastructure setting c
 No ceremonial version bump or publication is needed. Static research is not an exercised security guarantee.
 Checks passed: relative links, owner-comment preservation, private-input exclusion, three-file scratch footprint and whitespace.
 Documentation lint: agent procedure 1.10, API audit 1.89, crypto shelf 2.02 and tracker 1.72 issues per 100 words.
-Next: commit the sanitized checkpoint, then check product-local test outputs and branch/main controls.
+The sanitized checkpoint is committed. Product-local output and branch/main checks follow below.
 The owner creates branches and performs the fresh clone after conditional sign-off. Website delivery stays disabled.
 Legal/age/creator-rights decisions and source-access profiles remain separate from delivery success.
 
@@ -113,10 +113,11 @@ The full goal is not complete. A green run cannot guarantee future credential, d
 ## Active release-announcement slice
 
 C57B and sanitized intake are committed and pushed as 8543802. The slice-commit/gate-push amendment is 1302681.
-Owner now requests Discord embeds for API, crawler and client release channels only, after final green delivery.
-The webhook is encrypted in repository Actions secret DISCORD_RELEASE_WEBHOOK. Its value is absent from source and artifacts.
+Owner requests Discord embeds for API, crawler and client, after final green delivery, with separate release and preview destinations.
+Both webhook values are encrypted in repository Actions secrets DISCORD_RELEASE_WEBHOOK and DISCORD_PREVIEW_WEBHOOK.
+Neither value enters source or artifacts.
 Implementation is unverified: terminal workflow, bounded receipt, public release/source/tag checks, embed/button and persistent duplicate guard.
-Preview, draft, Worker, network and website paths stay silent. No live Discord message or historical backfill ran.
+Draft, Worker, network and website paths stay silent. No live Discord message or historical backfill ran.
 At the grouped gate checkpoint, run root tests and script/YAML checks. Hosted notification proof waits for the next normal release.
 
 Post-C57B output inspection: root tests passed 101/1643 on local Bun 1.4.1, with no new or removed root entries.

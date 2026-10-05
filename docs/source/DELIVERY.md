@@ -530,15 +530,17 @@ Subsequent npm publications require new configured preview versions. Never repla
 
 ## Release announcements
 
-API, crawler and crawler-client release channels use the repository secret `DISCORD_RELEASE_WEBHOOK`.
-Do not put its value in source, logs, notes or artifacts. Rotate it in Discord and replace the GitHub secret if disclosed.
+API, crawler and crawler-client announcements use separate repository secrets: `DISCORD_RELEASE_WEBHOOK` and `DISCORD_PREVIEW_WEBHOOK`.
+Release artifacts use the release channel. Prerelease artifacts use the preview channel.
+Do not put either value in source, logs, notes or artifacts. Rotate a disclosed webhook and replace its GitHub secret.
 The terminal announcement workflow uses `bun run release:announce`. This command is CI-only.
 
-The whole source workflow must finish successfully before an announcement. Preview, draft and incomplete releases stay silent.
+The whole source workflow must finish successfully before an announcement. Draft and incomplete releases stay silent.
 SDK staging approval still comes first. A successful draft-promotion workflow can announce the checked public release afterward.
 Crawler announcements also require successful container publication. Worker, network and website delivery do not announce.
 
-Messages use a green rich embed with published release notes, asset names and a successful build link.
+Messages use rich embeds with published release notes, asset names and a successful build link.
+Release embeds are green. Preview embeds use a separate color and label.
 A non-interactive View release button opens the exact repository Release page. Mentions are disabled.
 Notes that exceed Discord's limit show an explicit excerpt notice and link to the complete release.
 See [Discord webhook components](https://docs.discord.com/developers/resources/webhook#execute-webhook)

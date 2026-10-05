@@ -36,8 +36,9 @@ jobs:
         with:
           project: root
       - run: bun install --no-save --ignore-scripts
-      - name: Announce only public release-channel deliveries after final success
+      - name: Announce public deliveries to their separate release or preview channels
         run: bun run release:announce
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          DISCORD_PREVIEW_WEBHOOK: ${{ secrets.DISCORD_PREVIEW_WEBHOOK }}

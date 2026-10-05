@@ -47,10 +47,10 @@ export function releaseEmbed(release, receipt, repository) {
   const description = body.length > 3900 ? body.slice(0, 3900 - suffix.length) + suffix : body;
   return { allowed_mentions: { parse: [] }, embeds: [{
     title: `${products[receipt.product].title} ${receipt.tag.split("/v")[1]}`.slice(0, 256),
-    url, description, color: 0x2ecc71,
+    url, description, color: receipt.channel === "preview" ? 0x5865f2 : 0x2ecc71,
     fields: [{ name: "Build", value: `[Successful CI run](https://github.com/${repository}/actions/runs/${receipt.sourceRun})`, inline: true },
       { name: "Assets", value: release.assets.map(asset => asset.name).join("\n").slice(0, 1024), inline: true }],
-    footer: { text: `Release verified · ${receipt.commit.slice(0, 12)}` }
+    footer: { text: `${receipt.channel === "preview" ? "Preview" : "Release"} verified · ${receipt.commit.slice(0, 12)}` }
   }], components: [{ type: 1, components: [{ type: 2, style: 5, label: "View release", url }] }] };
 }
 
@@ -95,8 +95,6 @@ export async function announceRelease(event, repository, api, download, send) {
   if (!notified || notified.status !== "completed" || notified.conclusion !== "success" ||
       notified.head_repository?.full_name !== repository || !sourcePaths.includes(notified.path) ||
       !Number.isSafeInteger(notified.id)) throw new Error("Announcement requires a successful trusted workflow");
-  // Preview parent workflows need no artifact read and never get an announcement.
-  if (notified.head_branch?.includes("-pre") && notified.event === "push") return { status: "preview-skipped" };
   const listing = await api("GET", `/repos/${repository}/actions/runs/${notified.id}/artifacts?per_page=100`);
   if (!Array.isArray(listing.artifacts) || listing.total_count !== listing.artifacts.length || listing.total_count >= 100) {
     throw new Error("Incomplete announcement artifact listing");
@@ -104,7 +102,7 @@ export async function announceRelease(event, repository, api, download, send) {
   const matching = listing.artifacts.filter(artifact => artifact.name === "ci-only-release-announcement");
   if (matching.length !== 1 || matching[0].expired || matching[0].size_in_bytes > 256 * 1024) throw new Error("Announcement artifact missing or invalid");
   const receipt = readAnnouncementReceipt(await download(matching[0]), matching[0]);
-  if (receipt.channel !== "release" || receipt.draft) return { status: "draft-or-preview-skipped" };
+  if (receipt.draft) return { status: "draft-skipped" };
   const source = await api("GET", `/repos/${repository}/actions/runs/${receipt.sourceRun}`);
   if (source.status !== "completed" || source.conclusion !== "success" || source.head_sha !== receipt.commit ||
       (notified.path !== ".github/workflows/release-assets.yml" && notified.id !== receipt.sourceRun)) throw new Error("Original release workflow is not green");
@@ -116,7 +114,7 @@ export async function announceRelease(event, repository, api, download, send) {
   }
   await checkRemoteTag(api, repository, receipt.tag, receipt.commit);
   const release = await api("GET", `/repos/${repository}/releases/${receipt.releaseId}`);
-  if (release.id !== receipt.releaseId || release.tag_name !== receipt.tag || release.draft !== false || release.prerelease !== false ||
+  if (release.id !== receipt.releaseId || release.tag_name !== receipt.tag || release.draft !== false || release.prerelease !== (receipt.channel === "preview") ||
       release.html_url !== `https://github.com/${repository}/releases/tag/${receipt.tag}` || typeof release.body !== "string" ||
       release.body.length > 16_384 || !release.body.includes(`Commit: ${receipt.commit}.\n`) ||
       !sameSourceRunLink(release.body, `https://github.com/${repository}/actions/runs/${receipt.sourceRun}`, repository) ||
@@ -141,7 +139,7 @@ export async function announceRelease(event, repository, api, download, send) {
   const check = await api("POST", `/repos/${repository}/check-runs`, { name, head_sha: receipt.commit, status: "in_progress",
     details_url: release.html_url, external_id: `release:${receipt.releaseId}` });
   if (!Number.isSafeInteger(check.id) || check.id < 1) throw new Error("Invalid announcement check");
-  const messageId = await send(releaseEmbed(release, receipt, repository));
+  const messageId = await send(releaseEmbed(release, receipt, repository), receipt.channel);
   await api("PATCH", `/repos/${repository}/check-runs/${check.id}`, { status: "completed", conclusion: "success",
     external_id: `discord:${messageId}`, output: { title: "Release announcement delivered", summary: `[View release](${release.html_url})` } });
   return { status: "announced", tag: receipt.tag, release: release.html_url };
@@ -152,7 +150,8 @@ async function main() {
   if (env.GITHUB_ACTIONS !== "true" || env.GITHUB_EVENT_NAME !== "workflow_run" ||
       env.GITHUB_REPOSITORY !== "SlamTheDragon/vrc-packages" || !env.GITHUB_TOKEN) throw new Error("Announcement is CI-only");
   const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
-  webhookURL(env.DISCORD_RELEASE_WEBHOOK);
+  const webhooks = { release: env.DISCORD_RELEASE_WEBHOOK, preview: env.DISCORD_PREVIEW_WEBHOOK };
+  for (const webhook of Object.values(webhooks)) webhookURL(webhook);
   const api = async (method, path, body) => {
     const response = await fetch(`https://api.github.com${path}`, { method, redirect: "error", signal: AbortSignal.timeout(30_000),
       headers: { accept: "application/vnd.github+json", "user-agent": "VRCPReleaseAnnouncement",
@@ -163,7 +162,7 @@ async function main() {
   };
   const result = await announceRelease(event, env.GITHUB_REPOSITORY, api,
     artifact => downloadActionsArchive(env.GITHUB_REPOSITORY, artifact.id, env.GITHUB_TOKEN),
-    payload => sendDiscordRelease(env.DISCORD_RELEASE_WEBHOOK, payload));
+    (payload, channel) => sendDiscordRelease(webhooks[channel], payload));
   console.log(JSON.stringify(result));
 }
 
