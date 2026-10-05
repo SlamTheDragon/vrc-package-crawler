@@ -1,4 +1,4 @@
-# G14 — release-channel announcements after C57B/security intake
+# G14 — checked release and preview announcements
 
 ## Authority and boundary
 
@@ -116,9 +116,17 @@ C57B and sanitized intake are committed and pushed as 8543802. The slice-commit/
 Owner requests Discord embeds for API, crawler and client, after final green delivery, with separate release and preview destinations.
 Both webhook values are encrypted in repository Actions secrets DISCORD_RELEASE_WEBHOOK and DISCORD_PREVIEW_WEBHOOK.
 Neither value enters source or artifacts.
-Implementation is unverified: terminal workflow, bounded receipt, public release/source/tag checks, embed/button and persistent duplicate guard.
+The local gate passed: terminal workflow, bounded receipt, public release/source/tag checks, embed/button and persistent duplicate guard.
 Draft, Worker, network and website paths stay silent. No live Discord message or historical backfill ran.
-At the grouped gate checkpoint, run root tests and script/YAML checks. Hosted notification proof waits for the next normal release.
+The final root suite passed 109 tests and 1772 assertions, with zero failures, on local Bun 1.4.1.
+Two earlier runs exposed a test that assumed the attachment command was the last workflow step.
+The test now finds the named attachment step and checks its protected token and the terminal receipt upload.
+Both scripts passed Node syntax checks. Both workflow files passed Bun YAML parsing. Whitespace checks passed.
+The root suite created no repository-root entries. Both webhook values remain absent from tracked source and artifacts.
+The global notification queue retains pending runs. A per-tag check records success or an unresolved send before any retry.
+Notification implementation commits: afe4a6f, 95c8e3b, 5c97c27 and b93ea48.
+Hosted workflow execution and a live Discord acknowledgement remain unverified until the next normal product delivery.
+No version bump is needed for this setup gate. The owner committed the separate rule 01 edit as a9da908.
 
 Post-C57B output inspection: root tests passed 101/1643 on local Bun 1.4.1, with no new or removed root entries.
 Crawler fixtures use product dist/tests. Worker helpers use product dist/tests; two older fixtures still use OS temporary storage.
