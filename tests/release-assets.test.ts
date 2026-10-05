@@ -315,7 +315,7 @@ test("SDK promotion retains original notes and checksums when main or the note r
   const orphanBody = release.body;
   release.body = orphanBody.replace("owner/repo", "attacker/fork");
   await expect(attachRelease(api, "owner/repo", "package/v0.0.0", commit, newBody, new Map(files), false, false))
-    .rejects.toThrow("another delivery");
+    .rejects.toThrow("checked repository");
   release.body = orphanBody;
   const checksumAsset = assets.splice(assets.findIndex(asset => asset.name === "CHECKSUMS.sha256"), 1)[0];
   await expect(attachRelease(api, "owner/repo", "package/v0.0.0", commit, newBody, new Map(files), false, false))
