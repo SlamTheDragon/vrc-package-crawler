@@ -1,0 +1,43 @@
+name: Announce verified product releases
+
+on:
+  workflow_run:
+    workflows:
+      - SDK tagged artifact and channel npm publication
+      - Build & Publish Crawler Node Container
+      - Build & Publish Crawler Client
+      - Attach checked release assets
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+concurrency:
+  group: release-announcement-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Never execute the tag's code or an artifact in this secret-bearing workflow.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: ./.github/actions/dependency-cache
+        with:
+          project: root
+      - run: bun install --no-save --ignore-scripts
+      - name: Announce only public release-channel deliveries after final success
+        run: bun run release:announce
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}

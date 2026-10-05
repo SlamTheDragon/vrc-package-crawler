@@ -423,6 +423,11 @@ async function main(directory) {
   await checkRemoteTag(api, env.GITHUB_REPOSITORY, tag, run.head_sha, tagObject);
   const release = await attachRelease(api, env.GITHUB_REPOSITORY, tag, run.head_sha,
     `${notes}\nCurrent delivery status: ${status}.\n`, assets, draft, selected.channel === "preview");
+  // A separate workflow reads this receipt only after the whole parent run succeeds.
+  writeFileSync(join(env.RUNNER_TEMP, "vrcp-release-announcement.json"), JSON.stringify({
+    schemaVersion: 1, product: selected.product, channel: selected.channel, tag,
+    sourceRun: Number(runId), commit: run.head_sha, releaseId: release.id, draft: release.draft
+  }) + "\n");
   if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, releaseSummary(env.GITHUB_REPOSITORY, tag, release.draft));
   console.log(JSON.stringify({ tag, sourceRun: runId, status, draft: release.draft, url: release.html_url, assets: [...assets.keys()] }));
 }

@@ -528,6 +528,29 @@ SDK concurrency is separate per channel. A protected release publication cannot 
 Keep release SDK publication in vrcp-api-release, with its owner review and v0.1 API-review hold.
 Subsequent npm publications require new configured preview versions. Never replace an existing package version or move its release tag.
 
+## Release announcements
+
+API, crawler and crawler-client release channels use the repository secret `DISCORD_RELEASE_WEBHOOK`.
+Do not put its value in source, logs, notes or artifacts. Rotate it in Discord and replace the GitHub secret if disclosed.
+The terminal announcement workflow uses `bun run release:announce`. This command is CI-only.
+
+The whole source workflow must finish successfully before an announcement. Preview, draft and incomplete releases stay silent.
+SDK staging approval still comes first. A successful draft-promotion workflow can announce the checked public release afterward.
+Crawler announcements also require successful container publication. Worker, network and website delivery do not announce.
+
+Messages use a green rich embed with published release notes, asset names and a successful build link.
+A non-interactive View release button opens the exact repository Release page. Mentions are disabled.
+Notes that exceed Discord's limit show an explicit excerpt notice and link to the complete release.
+See [Discord webhook components](https://docs.discord.com/developers/resources/webhook#execute-webhook)
+and [embed limits](https://docs.discord.com/developers/resources/message#embed-limits).
+
+The checked attachment job emits a small announcement receipt as a 14-day CI-only artifact.
+The notifier reads that data and trusted default-branch code. It never executes a tag's code or downloaded artifact.
+A per-tag GitHub check stores the confirmed Discord message ID and prevents repeated success announcements.
+An uncertain send remains unresolved. Do not automatically retry it: Discord may already contain the message.
+Inspect the channel and check record before recovery. Notification failure does not undo a published product.
+No historical release or test message is sent during setup. The next normal release supplies the live delivery proof.
+
 ## Dependency cache reuse and monitoring
 
 Run `bun run cache:check` to read cache bytes and count with a scoped GitHub token supplied through the environment.

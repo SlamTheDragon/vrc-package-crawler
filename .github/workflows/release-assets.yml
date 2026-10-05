@@ -51,6 +51,13 @@ jobs:
           RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           RELEASE_SOURCE_RUN: ${{ inputs.source-run || github.run_id }}
+      - name: Preserve checked announcement identity for the terminal workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-only-release-announcement
+          path: ${{ runner.temp }}/vrcp-release-announcement.json
+          if-no-files-found: error
+          retention-days: 14
   attach-desktop:
     if: ${{ startsWith(inputs.tag || github.ref_name, 'vrcp-crawler-client/v') || startsWith(inputs.tag || github.ref_name, 'crawler-client/v') }}
     runs-on: ubuntu-latest

@@ -1,4 +1,4 @@
-# G14 — C57B milestone rules and sanitized security intake
+# G14 — release-channel announcements after C57B/security intake
 
 ## Authority and boundary
 
@@ -109,3 +109,19 @@ Legal/age/creator-rights decisions and source-access profiles remain separate fr
 
 Push approval is explicit. The nine-path proof is committed as 92200c2 and the owner hook as 7d60cae.
 The full goal is not complete. A green run cannot guarantee future credential, dependency or platform behavior.
+
+## Active release-announcement slice
+
+C57B and sanitized intake are committed and pushed as 8543802. The slice-commit/gate-push amendment is 1302681.
+Owner now requests Discord embeds for API, crawler and client release channels only, after final green delivery.
+The webhook is encrypted in repository Actions secret DISCORD_RELEASE_WEBHOOK. Its value is absent from source and artifacts.
+Implementation is unverified: terminal workflow, bounded receipt, public release/source/tag checks, embed/button and persistent duplicate guard.
+Preview, draft, Worker, network and website paths stay silent. No live Discord message or historical backfill ran.
+At the grouped gate checkpoint, run root tests and script/YAML checks. Hosted notification proof waits for the next normal release.
+
+Post-C57B output inspection: root tests passed 101/1643 on local Bun 1.4.1, with no new or removed root entries.
+Crawler fixtures use product dist/tests. Worker helpers use product dist/tests; two older fixtures still use OS temporary storage.
+SDK distribution fixtures rebuild product dist. Root synthetic repositories and release/cache fixtures use scoped OS temporary folders.
+Hosted outputs stay under the relevant product or runner temporary storage.
+Remote main is unprotected; only main exists, and no rulesets are configured. Preview push automation is not active.
+Protected-main promotion must reconcile the current root chain's direct branch push before conditional sign-off.
