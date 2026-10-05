@@ -1,15 +1,20 @@
 import { lstat, realpath, rm } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { productDirectories } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-// FIXME: include cache directories and temporary areas
+const projects = { root: ".", ...productDirectories };
 const outputs = {
-  crawler: ["dist/local-node/vrcp-crawler-node.exe", "dist/local-node/vrcp-crawler-node-linux"],
-  "crawler-client": ["build", "src-tauri/target"],
-  package: ["dist"],
-  web: ["dist"],
-  worker: [".wrangler/api-build"]
+  crawler: [["dist/dev/vrcp-crawler-node.exe", "file"], ["dist/dev/vrcp-crawler-node-linux", "file"],
+    ["dist/tests", "directory"], [".artifacts/dev", "directory"], [".ci-artifacts", "directory"]],
+  "crawler-client": [["build", "directory"], [".svelte-kit", "directory"], ["src-tauri/target", "directory"],
+    [".artifacts/dev", "directory"]],
+  package: [["dist", "directory"], [".artifacts/dev", "directory"], [".artifacts/tests", "directory"]],
+  web: [["dist", "directory"], [".astro", "directory"], [".artifacts/dev", "directory"]],
+  worker: [[".wrangler/dev-build", "directory"], [".wrangler/ci-tools", "directory"], ["dist/tests", "directory"],
+    [".artifacts/dev", "directory"]],
+  network: [["dist", "directory"], [".artifacts/dev", "directory"], [".artifacts/tests", "directory"]]
 };
 
 function inside(parent, target) {
@@ -18,7 +23,7 @@ function inside(parent, target) {
 }
 
 async function inspectTarget(workspace, productRoot, target, kind) {
-  if (!inside(workspace, productRoot) || !inside(productRoot, target)) {
+  if ((productRoot !== workspace && !inside(workspace, productRoot)) || !inside(productRoot, target)) {
     throw new Error("Cleanup target must stay inside its selected product");
   }
   const segments = relative(workspace, target).split(sep);
@@ -42,23 +47,23 @@ async function inspectTarget(workspace, productRoot, target, kind) {
 /** Plan by default. Delete only explicit generated targets after --apply. */
 export async function cleanup(mode, product, apply = false, workspace = root) {
   if (!["clean", "reset"].includes(mode) ||
-      (product !== "all" && !Object.hasOwn(outputs, product)) || typeof apply !== "boolean") {
-    throw new Error("Usage: cleanup.mjs <clean|reset> <crawler|crawler-client|package|web|worker|all> [--apply]");
+      (product !== "all" && !Object.hasOwn(projects, product)) ||
+      mode === "clean" && product === "root" || typeof apply !== "boolean") {
+    throw new Error("Usage: cleanup.mjs <clean|reset> <crawler|crawler-client|package|web|worker|network|all> [--apply]; root supports reset only");
   }
   const base = await realpath(workspace);
   const targets = [];
-  for (const name of product === "all" ? Object.keys(outputs) : [product]) {
-    const productRoot = resolve(base, `src-${name}`);
-    for (const path of mode === "clean" ? outputs[name] : ["node_modules"]) {
+  for (const name of product === "all" ? Object.keys(mode === "clean" ? outputs : projects) : [product]) {
+    const productRoot = resolve(base, projects[name]);
+    for (const [path, kind] of mode === "clean" ? outputs[name] : [["node_modules", "directory"]]) {
       const target = resolve(productRoot, path);
-      const kind = mode === "clean" && name === "crawler" ? "file" : "directory";
       targets.push({ product: name, path: target, kind, exists: await inspectTarget(base, productRoot, target, kind) });
     }
   }
   // Validate the whole plan before deletion, then recheck each target immediately before rm.
   if (apply) {
     for (const target of targets) {
-      if (await inspectTarget(base, resolve(base, `src-${target.product}`), target.path, target.kind)) {
+      if (await inspectTarget(base, resolve(base, projects[target.product]), target.path, target.kind)) {
         await rm(target.path, { recursive: target.kind === "directory", force: false });
       }
     }

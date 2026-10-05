@@ -43,12 +43,15 @@
     "clean:package": "node scripts/cleanup.mjs clean package",
     "clean:web": "node scripts/cleanup.mjs clean web",
     "clean:worker": "node scripts/cleanup.mjs clean worker",
+    "clean:network": "node scripts/cleanup.mjs clean network",
     "reset": "node scripts/cleanup.mjs reset",
     "reset:crawler": "node scripts/cleanup.mjs reset crawler",
     "reset:crawler-client": "node scripts/cleanup.mjs reset crawler-client",
     "reset:package": "node scripts/cleanup.mjs reset package",
     "reset:web": "node scripts/cleanup.mjs reset web",
-    "reset:worker": "node scripts/cleanup.mjs reset worker"
+    "reset:worker": "node scripts/cleanup.mjs reset worker",
+    "reset:network": "node scripts/cleanup.mjs reset network",
+    "reset:root": "node scripts/cleanup.mjs reset root"
   },
   "name": "vrc-packages",
   "type": "module",

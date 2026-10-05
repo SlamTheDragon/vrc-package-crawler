@@ -133,7 +133,9 @@ The network registry channel, website hosting, desktop signing and node installa
 
 Cleanup requires a product and defaults to a dry run. Reset targets only the selected node_modules directory.
 Inspect the target list before adding --apply. Deletion has no recovery copy. Stop processes that use those outputs first.
-The current cleanup allowlist still includes earlier node binary paths and the earlier Worker api-build path.
-New development artifact/cache targets need review before expansion. Never add whole runtime state directories as cleanup targets.
+The cleanup allowlist covers current product build and test outputs. The nested network package has its own target.
+Reset all includes root tools and every product dependency directory. Run root setup again after a root reset.
+Do not clear shared dependency downloads or add whole runtime state directories as cleanup targets.
 Keep node databases, secrets, bin, logs and local D1 state outside generated output cleanup.
-No real cleanup ran during this iteration. Isolated safety fixtures do not eliminate concurrent-filesystem or partial-deletion risks.
+Use [the setup and cleanup procedure](docs/source/DELIVERY.md#local-cleanup-and-dependency-reset).
+Isolated safety fixtures do not eliminate concurrent-filesystem or partial-deletion risks.

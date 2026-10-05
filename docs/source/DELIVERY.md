@@ -139,6 +139,24 @@ Bun owns dependency installation, package scripts, checks and builds.
 Node runs delivery orchestration and compatibility checks. npm handles registry queries, packing, staging and trusted publication.
 Root setup installs orchestration dependencies only.
 
+### First setup and dependency refresh
+
+- Clone the repository and enter its root. Keep each src-* project independent.
+- Install Bun 1.4.2 and Node with npm. Desktop native builds also need Rust and the Windows Tauri prerequisites.
+- Run `bun run setup` to install the root tools without lifecycle scripts.
+- Select one product. Crawler and Worker use preview SDK. Desktop and website use release SDK. Network has one stream.
+- Sync its saved config when needed. For example, run `bun run versions:sync:preview worker`.
+- Run `bun run prepare:dev preview worker` to install checked distributed dependencies for that product.
+- Run `bun run build:dev preview worker` for development output only. Use another product argument for its own build.
+- Run the product's checks from its folder. Worker uses `bun run check`, `bun run test` and `bun run test:runtime`.
+- Inspect `git diff` after metadata sync. Sync does not allocate a version or queue publication.
+- Repeat preparation after a selected SDK or network publication changes. Bare installs do not check the full hosted receipt chain.
+- Set local credentials only when starting the runtime. Do not enable remote source access through setup.
+- Use the cleanup procedure below for generated outputs. Reinstall after an explicit dependency reset.
+
+These steps do not create installers, npm publications, tags or deployments. Website remote delivery remains disabled.
+The owner will exercise the complete fresh-clone procedure after conditional sign-off. Existing installations do not prove that step.
+
 ```sh
 bun run setup
 bun run versions:sync:preview
@@ -568,6 +586,29 @@ Minimal private manifests in temporary storage exclude project scripts and distr
 Tagged builds restore dependency caches without saving new tag-scoped download entries. Every build still installs and checks its configured distributed dependencies.
 Missing caches require downloads, not a different build or permission path. Website delivery remains disabled.
 There is no cache of node_modules, credentials, compiled targets, D1 state or release outputs.
+
+## Local cleanup and dependency reset
+
+- Stop build, test and runtime processes that use the selected outputs.
+- Run `bun run clean <product>` to inspect generated targets. Use `all` only when every product is intended.
+- Read every absolute target before adding `--apply`. Applied deletion has no recovery copy.
+- Run `bun run clean <product> --apply` to remove only those generated outputs.
+- Clean covers current development binaries, test fixtures, checked development dependency copies and generated frontend/build directories.
+- Worker cleanup does not remove `.wrangler/local-preview`, `.wrangler/state` or other D1 storage.
+- Keep credentials, databases, bin, logs and hand-written files outside generated output directories.
+- Run `bun run reset <product>` to inspect dependency targets. Reset does not remove build outputs or runtime state.
+- Add `--apply` only to remove the selected `node_modules`. `reset all` includes root tools and the nested network project.
+- Use `bun run reset:root` for root tools alone. Root has no generated-output clean target.
+- After a root reset, run `bun run setup` before using the other tools.
+- After a product reset, repeat its checked preparation and required build steps.
+- Run cleanup again to inspect the remaining targets. Missing targets are harmless. Linked paths or unexpected types stop cleanup.
+- Do not clear shared Bun downloads through these commands. Hosted cache usage remains read-only, with GitHub-managed eviction.
+
+Network cleanup is `bun run clean:network`. Its dependency reset is `bun run reset:network`.
+Root commands derive the nested project path from the same product mapping as delivery.
+The complete plan is checked before deletion. Each target is checked again immediately before deletion.
+Filesystem changes during deletion can still cause a partial cleanup. Inspect the result instead of assuming rollback.
+No real repository cleanup is required to test safety. Disposable fixtures check deletion and preservation separately.
 
 GitHub controls expiry and storage-limit eviction. Inspect usage and cache-hit reports before enabling larger paid limits or a custom retention policy.
 Caches are optional build acceleration, not durable storage. CI artifacts, Release assets, npm versions and GHCR images have separate retention requirements.

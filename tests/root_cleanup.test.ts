@@ -17,7 +17,7 @@ async function fixture(run: (workspace: string) => Promise<void>) {
 
 test("cleanup plans by default and deletes only selected crawler binaries", async () => {
   await fixture(async workspace => {
-    const build = resolve(workspace, "src-crawler/dist/local-node");
+    const build = resolve(workspace, "src-crawler/dist/dev");
     await mkdir(build, { recursive: true });
     await mkdir(resolve(workspace, "src-package/dist"), { recursive: true });
     for (const name of ["vrcp-crawler-node.exe", "vrcp-crawler-node-linux", "node.db", "activity.log"]) {
@@ -25,12 +25,13 @@ test("cleanup plans by default and deletes only selected crawler binaries", asyn
     }
     const plan = await cleanup("clean", "crawler", false, workspace);
     expect(plan.dryRun).toBe(true);
-    expect(plan.targets).toHaveLength(2);
+    expect(plan.targets.filter(target => target.kind === "file")).toHaveLength(2);
     expect(await readFile(resolve(build, "vrcp-crawler-node.exe"), "utf8")).toBe("vrcp-crawler-node.exe");
     await cleanup("clean", "crawler", true, workspace);
     await expect(readFile(resolve(build, "vrcp-crawler-node.exe"))).rejects.toThrow();
     expect(await readFile(resolve(build, "node.db"), "utf8")).toBe("node.db");
     expect(await readFile(resolve(build, "activity.log"), "utf8")).toBe("activity.log");
+    expect((await cleanup("clean", "crawler", true, workspace)).targets.every(target => !target.exists)).toBe(true);
     expect((await cleanup("clean", "package", false, workspace)).targets[0].exists).toBe(true);
   });
 });
@@ -38,16 +39,71 @@ test("cleanup plans by default and deletes only selected crawler binaries", asyn
 test("cleanup preserves Worker local D1 state and reset touches only node_modules", async () => {
   await fixture(async workspace => {
     const worker = resolve(workspace, "src-worker");
-    for (const path of [".wrangler/api-build", ".wrangler/state", "node_modules", "bin"]) {
+    for (const path of [".wrangler/dev-build", ".wrangler/ci-tools", "dist/tests", ".artifacts/dev",
+      ".wrangler/state", ".wrangler/local-preview", "node_modules", "bin", "logs"]) {
       await mkdir(resolve(worker, path), { recursive: true });
       await writeFile(resolve(worker, path, "fixture"), path);
     }
     await cleanup("clean", "worker", true, workspace);
+    await expect(readFile(resolve(worker, ".wrangler/dev-build/fixture"))).rejects.toThrow();
+    await expect(readFile(resolve(worker, "dist/tests/fixture"))).rejects.toThrow();
     expect(await readFile(resolve(worker, ".wrangler/state/fixture"), "utf8")).toBe(".wrangler/state");
+    expect(await readFile(resolve(worker, ".wrangler/local-preview/fixture"), "utf8")).toBe(".wrangler/local-preview");
+    expect(await readFile(resolve(worker, "logs/fixture"), "utf8")).toBe("logs");
     expect((await cleanup("reset", "worker", false, workspace)).dryRun).toBe(true);
     await cleanup("reset", "worker", true, workspace);
     expect(await readFile(resolve(worker, "bin/fixture"), "utf8")).toBe("bin");
     expect(await readFile(resolve(worker, ".wrangler/state/fixture"), "utf8")).toBe(".wrangler/state");
+  });
+});
+
+test("cleanup covers generated package and network fixtures without removing source or secrets", async () => {
+  await fixture(async workspace => {
+    for (const project of ["src-package", "src-worker/packages/network"]) {
+      for (const path of ["dist", ".artifacts/dev", ".artifacts/tests", "src", "bin"]) {
+        await mkdir(resolve(workspace, project, path), { recursive: true });
+        await writeFile(resolve(workspace, project, path, "fixture"), path);
+      }
+      await writeFile(resolve(workspace, project, ".env"), "fixture-only-secret");
+    }
+    await cleanup("clean", "all", true, workspace);
+    for (const project of ["src-package", "src-worker/packages/network"]) {
+      for (const path of ["dist", ".artifacts/dev", ".artifacts/tests"]) {
+        await expect(readFile(resolve(workspace, project, path, "fixture"))).rejects.toThrow();
+      }
+      expect(await readFile(resolve(workspace, project, "src/fixture"), "utf8")).toBe("src");
+      expect(await readFile(resolve(workspace, project, "bin/fixture"), "utf8")).toBe("bin");
+      expect(await readFile(resolve(workspace, project, ".env"), "utf8")).toBe("fixture-only-secret");
+    }
+  });
+});
+
+test("reset covers root and nested network dependencies but does not clear shared caches", async () => {
+  await fixture(async workspace => {
+    for (const path of ["node_modules", "src-worker/packages/network/node_modules", ".bun-cache", "src-worker/.wrangler/local-preview"]) {
+      await mkdir(resolve(workspace, path), { recursive: true });
+      await writeFile(resolve(workspace, path, "fixture"), path);
+    }
+    const plan = await cleanup("reset", "all", false, workspace);
+    expect(plan.targets.map(target => target.product)).toContain("root");
+    expect(plan.targets.map(target => target.product)).toContain("network");
+    expect(await readFile(resolve(workspace, "node_modules/fixture"), "utf8")).toBe("node_modules");
+    await cleanup("reset", "all", true, workspace);
+    await expect(readFile(resolve(workspace, "node_modules/fixture"))).rejects.toThrow();
+    await expect(readFile(resolve(workspace, "src-worker/packages/network/node_modules/fixture"))).rejects.toThrow();
+    expect(await readFile(resolve(workspace, ".bun-cache/fixture"), "utf8")).toBe(".bun-cache");
+    expect(await readFile(resolve(workspace, "src-worker/.wrangler/local-preview/fixture"), "utf8")).toBe("src-worker/.wrangler/local-preview");
+  });
+});
+
+test("cleanup refuses a generated directory with an unexpected type before deletion", async () => {
+  await fixture(async workspace => {
+    await mkdir(resolve(workspace, "src-package/dist"), { recursive: true });
+    await mkdir(resolve(workspace, "src-package/.artifacts"), { recursive: true });
+    await writeFile(resolve(workspace, "src-package/dist/fixture"), "preserve");
+    await writeFile(resolve(workspace, "src-package/.artifacts/dev"), "not-a-directory");
+    await expect(cleanup("clean", "package", true, workspace)).rejects.toThrow("Unexpected cleanup target type");
+    expect(await readFile(resolve(workspace, "src-package/dist/fixture"), "utf8")).toBe("preserve");
   });
 });
 

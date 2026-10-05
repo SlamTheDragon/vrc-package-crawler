@@ -145,3 +145,18 @@ Do not put packed consumers under dist: SDK prepack removes dist before building
 Keep random fixture names and current cleanup. Keep test consumers out of published tarballs.
 The gate remains unverified until grouped unit, type, distribution and native runtime checks pass.
 Capture repository-root entries before and after the checks. Do not delete owner files or publish a test artifact.
+
+## Expanded readiness gate: setup and cleanup
+
+The owner requires setup, cache, build and test cleanup checks before feature work resumes.
+Inspection found obsolete clean targets in scripts/cleanup.mjs: crawler dist/local-node binaries and Worker .wrangler/api-build.
+Current development builds use crawler dist/dev and Worker .wrangler/dev-build. The repaired allowlist now names those generated outputs.
+Cleanup currently plans first, requires --apply, rejects linked paths and checks all targets before deletion.
+The implemented reset contract now includes the nested network project and root tools through the shared product mapping.
+Root setup installs orchestration dependencies only. Product preparation and distributed dependency checks remain separate steps.
+Hosted cache monitoring is read-only. Preserve the owner's GitHub-managed eviction policy. Do not delete shared download caches without approval.
+The simple setup/cleanup checklist and narrow allowlist are implemented but unverified.
+Use disposable fixtures to check deletion safety, repeatability and preservation of credentials, databases, logs and local D1 state.
+Do not apply cleanup to this checkout during the audit. Fresh-clone proof remains the owner's later step.
+The approval reviewer recovered. No bypass was needed.
+Next: run the grouped root, Worker, SDK/network distribution and output checks. Product-output commit 8e32469 remains unverified.
