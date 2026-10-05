@@ -89,7 +89,9 @@ async function readPublicSDK(name, version) {
 
 /** Preview is directly published through OIDC. Releases still use owner-approved stages. */
 export async function publishPreviewSDKArtifact(artifact, expected, receipt, run, registry = readPublicSDK) {
-  const bytes = readFileSync(artifact), project = dirname(artifact);
+  // The SDK project .npmrc is for token-backed staging. Its empty token would
+  // shadow the user-level credential installed by npm's OIDC exchange.
+  const bytes = readFileSync(artifact), project = root;
   validateCIArtifact(receipt, expected, bytes);
   if (expected.name !== sdkPackageNames.preview) throw new Error("Direct publication is preview-only");
   checkSDKPublicationVersion(expected.version, "preview", expected.name);

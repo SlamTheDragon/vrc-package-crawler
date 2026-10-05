@@ -393,7 +393,8 @@ test("direct preview publication checks bytes before writes and recovers a lost 
       dist: { integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}` } };
     let published: any = null, latest: any = null, calls = 0, lostACK = true;
     const registry = async (_name: string, version: string) => version === "latest" ? latest : published;
-    const run = (args: string[]) => {
+    const run = (args: string[], cwd: string) => {
+      expect(resolve(cwd)).toBe(resolve(import.meta.dir, ".."));
       if (args[0] === "--version") return "11.19.0";
       expect(args).toEqual(["publish", artifact, "--access", "public", "--tag", "latest", "--ignore-scripts", "--json", "--registry=https://registry.npmjs.org"]);
       calls++; published = latest = metadata;
