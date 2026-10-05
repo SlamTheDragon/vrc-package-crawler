@@ -15,7 +15,8 @@ permissions:
   checks: write
 
 concurrency:
-  group: release-announcement-${{ github.event.workflow_run.head_sha }}
+  group: vrcp-release-announcements
+  queue: max
   cancel-in-progress: false
 
 jobs:

@@ -173,4 +173,6 @@ test("terminal workflow keeps secrets off source tags and excludes Worker/networ
   expect(workflow).not.toContain("Cloudflare Worker tagged deployment");
   expect(workflow).not.toContain("https://discord.com/api/webhooks/");
   expect(workflow).toContain("checks: write");
+  expect(workflow).toContain("group: vrcp-release-announcements");
+  expect(workflow).toContain("queue: max");
 });

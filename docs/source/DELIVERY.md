@@ -549,6 +549,8 @@ and [embed limits](https://docs.discord.com/developers/resources/message#embed-l
 The checked attachment job emits a small announcement receipt as a 14-day CI-only artifact.
 The notifier reads that data and trusted default-branch code. It never executes a tag's code or downloaded artifact.
 A per-tag GitHub check stores the confirmed Discord message ID and prevents repeated success announcements.
+The announcement workflow serializes sends and queues up to 100 pending runs without replacing earlier pending notifications.
+See [GitHub concurrency queues](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
 An uncertain send remains unresolved. Do not automatically retry it: Discord may already contain the message.
 Inspect the channel and check record before recovery. Notification failure does not undo a published product.
 No historical release or test message is sent during setup. The next normal release supplies the live delivery proof.
