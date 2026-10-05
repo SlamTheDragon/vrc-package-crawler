@@ -12,6 +12,14 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
 const directory = join(root, "src-crawler/.artifacts/ci/container");
 
+export function requireContainerApproval(channel, env = process.env) {
+  assert(channel === "preview" || channel === "release", "Unknown container channel");
+  if (channel === "release") {
+    assert(env.VRCP_CONTAINER_PUBLISH_APPROVED === "true" && env.VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED === "true",
+      "Release container publication needs global and channel approval");
+  }
+}
+
 export function imageLabels(expected) {
   return { "org.opencontainers.image.version": expected.version, "org.opencontainers.image.revision": expected.commit,
     "org.opencontainers.image.source": `https://github.com/${expected.repository}`, "io.vrcp.channel": expected.channel,
@@ -139,10 +147,7 @@ async function main(action, channel) {
       ...await archiveDigest(archive) }, null, 2) + "\n", { flag: "wx" });
     return;
   }
-  if (action === "publish") {
-    const approval = channel === "preview" ? "VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED" : "VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED";
-    assert(process.env.VRCP_CONTAINER_PUBLISH_APPROVED === "true" && process.env[approval] === "true", "Container publication needs global and channel approval");
-  }
+  if (action === "publish") requireContainerApproval(channel);
   assert.deepEqual(readdirSync(directory).sort(), ["container.receipt.json", "container.tar"], "Unexpected container handoff files");
   assert(!lstatSync(receiptPath).isSymbolicLink(), "Container receipt cannot be a symlink");
   const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));

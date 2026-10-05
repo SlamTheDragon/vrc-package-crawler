@@ -1,0 +1,53 @@
+name: Queue preview delivery through the root executor
+
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: Product to bump and deliver from the selected branch. Producers must be delivered first.
+        required: true
+        type: choice
+        options: [package, network, crawler, crawler-client, worker]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-version-${{ inputs.product }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  allocate:
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v3
+        id: app
+        with:
+          client-id: ${{ vars.VRCP_PREVIEW_APP_CLIENT_ID }}
+          private-key: ${{ secrets.VRCP_PREVIEW_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: ./.github/actions/dependency-cache
+        with:
+          project: root
+      - run: bun run setup
+      - name: Configure preview commit identity
+        run: |
+          git config user.name 'VRCP Preview Automation'
+          git config user.email 'vrcp-preview@users.noreply.github.com'
+      - name: Allocate one configured patch and queue tagged delivery
+        run: bun run delivery:preview "$VRCP_PREVIEW_PRODUCT" --execute
+        env:
+          VRCP_PREVIEW_PRODUCT: ${{ inputs.product }}

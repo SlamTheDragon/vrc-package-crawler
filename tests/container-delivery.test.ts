@@ -3,7 +3,17 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveDigest, checkContainerReceipt, checkImage, imageLabels, publishCheckedImage, registryMissing } from "../scripts/container-delivery.mjs";
+import { archiveDigest, checkContainerReceipt, checkImage, imageLabels, publishCheckedImage, registryMissing, requireContainerApproval } from "../scripts/container-delivery.mjs";
+
+test("preview needs no approval variables while release retains both approvals", () => {
+  expect(() => requireContainerApproval("preview", {})).not.toThrow();
+  expect(() => requireContainerApproval("preview", { VRCP_CONTAINER_PUBLISH_APPROVED: "false" })).not.toThrow();
+  for (const env of [{}, { VRCP_CONTAINER_PUBLISH_APPROVED: "true" }, { VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED: "true" }]) {
+    expect(() => requireContainerApproval("release", env)).toThrow("approval");
+  }
+  expect(() => requireContainerApproval("release", { VRCP_CONTAINER_PUBLISH_APPROVED: "true", VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED: "true" })).not.toThrow();
+  expect(() => requireContainerApproval("unknown", {})).toThrow("Unknown");
+});
 
 const id = "sha256:" + "a".repeat(64);
 const otherId = "sha256:" + "b".repeat(64);
@@ -183,7 +193,7 @@ test("Docker workflow has one read-only image build and a protected, channel-gat
   expect(dockerfile).toContain('"vrc-packages-network@file:$1"');
   const publish = workflow.jobs["publish-container"];
   expect(publish.permissions).toEqual({ contents: "read", actions: "read", packages: "write" });
-  expect(publish.if).toContain("VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED");
+  expect(publish.if).not.toContain("VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED");
   expect(publish.if).toContain("VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED");
   expect(publish.environment.name).toContain("vrcp-crawler-preview");
   expect(publish.environment.name).toContain("vrcp-crawler-release");

@@ -53,7 +53,7 @@ jobs:
   deploy:
     needs: build
     # Current owner authorization is preview-only. Release tags still build artifacts.
-    if: needs.build.outputs.channel == 'preview' && vars.VRCP_WORKER_DEPLOY_APPROVED == 'true'
+    if: needs.build.outputs.channel == 'preview'
     runs-on: ubuntu-latest
     environment: ${{ needs.build.outputs.environment }}
     steps:

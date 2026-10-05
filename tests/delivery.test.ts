@@ -890,6 +890,32 @@ test("publication links cover internal network and both desktop channels only af
   expect(manifest.scripts["versions:bump"]).toBe(manifest.scripts["delivery:preview"].replace(" start preview", " start"));
 });
 
+test("preview App dispatcher is branch-only, serializes allocation and calls the root preview executor", () => {
+  const workflow = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/preview-delivery.yml", import.meta.url), "utf8"));
+  expect(workflow.on.push).toBeUndefined();
+  expect(workflow.on.pull_request_target).toBeUndefined();
+  expect(workflow.on.workflow_dispatch.inputs.product.options).toEqual(["package", "network", "crawler", "crawler-client", "worker"]);
+  expect(workflow.permissions).toEqual({ contents: "read" });
+  expect(workflow.jobs.allocate.if).toBe("github.ref_type == 'branch'");
+  expect(workflow.concurrency.cancel_in_progress).not.toBe(true);
+  expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
+  expect(workflow.concurrency.queue).toBe("max");
+  const steps = workflow.jobs.allocate.steps;
+  const app = steps.find((step: any) => step.id === "app");
+  expect(app.with["client-id"]).toBe("${{ vars.VRCP_PREVIEW_APP_CLIENT_ID }}");
+  expect(app.with["private-key"]).toBe("${{ secrets.VRCP_PREVIEW_APP_PRIVATE_KEY }}");
+  expect(app.with["permission-contents"]).toBe("write");
+  const checkout = steps.find((step: any) => step.uses?.startsWith("actions/checkout@"));
+  expect(checkout.with.token).toBe("${{ steps.app.outputs.token }}");
+  expect(checkout.with["fetch-depth"]).toBe(0);
+  expect(checkout.with.ref).toBe("${{ github.ref_name }}");
+  const command = steps.find((step: any) => step.run?.includes("delivery:preview"));
+  expect(command.run).toBe('bun run delivery:preview "$VRCP_PREVIEW_PRODUCT" --execute');
+  expect(command.env.VRCP_PREVIEW_PRODUCT).toBe("${{ inputs.product }}");
+  expect(JSON.stringify(steps)).not.toContain("delivery:release");
+  expect(JSON.stringify(steps)).not.toContain("pulls/");
+});
+
 test("external workflow guards separate the two npm approvals from preview-only Worker authority", () => {
   const workflow = (name: string) => Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8")) as {
     jobs: Record<string, { if?: string | boolean; environment?: string; steps?: { env?: Record<string, string>; with?: { path?: string } }[] }>;
@@ -897,13 +923,15 @@ test("external workflow guards separate the two npm approvals from preview-only 
   const sdk = workflow("vrc-packages-api").jobs.publish;
   expect(sdk?.if).toContain("needs.build.outputs.channel == 'release'");
   expect(sdk?.if).toContain("needs.build.outputs.channel == 'preview'");
-  expect(sdk?.if).toContain("vars.VRCP_SDK_PREVIEW_PUBLISH_APPROVED == 'true'");
+  expect(sdk?.if).not.toContain("VRCP_SDK_PREVIEW_PUBLISH_APPROVED");
+  expect(sdk?.if).toContain("vars.VRCP_SDK_PUBLISH_APPROVED == 'true'");
   expect(sdk.environment).toEqual({ name: '${{ needs.build.outputs.environment }}',
     url: "https://www.npmjs.com/package/${{ needs.build.outputs.channel == 'preview' && 'vrc-packages-api-preview' || 'vrc-packages-api' }}" });
   const auth = sdk?.steps?.find(step => step.env?.NODE_AUTH_TOKEN)?.env;
   expect(auth?.NODE_AUTH_TOKEN).toBe('${{ secrets.NPM_TOKEN }}');
   expect(auth?.NPM_TOKEN).toBe(auth?.NODE_AUTH_TOKEN);
   expect(workflow("cloudflare-worker").jobs.deploy?.if).toContain("needs.build.outputs.channel == 'preview'");
+  expect(workflow("cloudflare-worker").jobs.deploy?.if).not.toContain("VRCP_WORKER_DEPLOY_APPROVED");
   expect(workflow("cloudflare-worker").jobs.deploy?.steps?.find(step => step.env?.OPERATOR_TOKEN)?.env?.OPERATOR_TOKEN)
     .toBe('${{ secrets.OPERATOR_TOKEN }}');
   expect(workflow("web").jobs.build?.if).toBe(false);
