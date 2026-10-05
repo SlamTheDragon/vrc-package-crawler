@@ -157,6 +157,13 @@ export async function checkRemoteTag(api, repository, tag, commit, expectedTagOb
   return { tagObject, commit };
 }
 
+// GitHub can detach a draft when PATCH omits tag_name. Its checked title retains the intended SDK tag.
+function sdkDraftTag(release) {
+  if (!release.draft || !/^untagged-[a-f0-9]{20}$/.test(release.tag_name ?? "")) return release.tag_name;
+  const match = /^VRC Packages - ((?:vrcp-api|package)\/v(.+))$/.exec(release.name ?? "");
+  return match && semver.valid(match[2]) === match[2] ? match[1] : release.tag_name;
+}
+
 /** Published assets are immutable here. Retry only missing uploads or an unfinished draft. */
 export async function attachRelease(api, repository, tag, commit, notes, files, draft, prerelease) {
   const base = `/repos/${repository}/releases`;
@@ -166,7 +173,9 @@ export async function attachRelease(api, repository, tag, commit, notes, files, 
     for (let page = 1; page <= 10; page++) {
       const releases = await api("GET", `${base}?per_page=100&page=${page}`);
       if (!Array.isArray(releases)) throw new Error("Invalid release listing");
-      release = releases.find(item => item.tag_name === tag);
+      const matches = releases.filter(item => sdkDraftTag(item) === tag);
+      if (matches.length > 1) throw new Error("Multiple releases claim this checked tag");
+      release = matches[0];
       if (release || releases.length < 100) break;
       if (page === 10) throw new Error("Release lookup exceeded its bound");
     }
@@ -174,10 +183,21 @@ export async function attachRelease(api, repository, tag, commit, notes, files, 
   // The caller already checked the existing tag. Do not create or retarget a tag through this endpoint.
   if (!release) release = await api("POST", base, { tag_name: tag,
     name: `VRC Packages - ${tag}`, body: notes, draft: true, prerelease, make_latest: "false" });
-  if (release.tag_name !== tag || (release.prerelease !== prerelease)) throw new Error("Existing release channel differs");
+  const orphan = release.tag_name !== tag && sdkDraftTag(release) === tag;
+  if ((!orphan && release.tag_name !== tag) || (release.prerelease !== prerelease)) throw new Error("Existing release channel differs");
+  if (orphan) {
+    const runLink = /\[Checked CI run\]\(([^)]+)\)/.exec(notes)?.[1];
+    if (!runLink || !sameSourceRunLink(release.body ?? "", runLink, repository) ||
+        !release.body?.includes(`Commit: ${commit}.\n`) || !release.body.includes("\nCurrent delivery status: ")) {
+      throw new Error("Orphan draft identifies another delivery");
+    }
+  }
   const existing = await api("GET", `${base}/${release.id}/assets?per_page=100`);
   if (!Array.isArray(existing) || existing.length >= 100 || existing.some(asset => !files.has(asset.name))) {
     throw new Error("Unexpected existing release assets");
+  }
+  if (orphan && !["CHANGELOG.md", "CHECKSUMS.sha256"].every(name => existing.some(asset => asset.name === name))) {
+    throw new Error("Orphan draft lacks checked notes and checksums");
   }
   if (existing.some(asset => asset.name === "CHANGELOG.md") && release.body?.includes("\nCurrent delivery status: ")) {
     // Notes belong to the first attachment, not moving main. Retain checked historical bytes on promotion/retry.
@@ -227,7 +247,9 @@ export async function attachRelease(api, repository, tag, commit, notes, files, 
     if (draft) throw new Error("Publication state regressed. Existing release remains unchanged");
     return release;
   }
-  return api("PATCH", `${base}/${release.id}`, { body: notes, draft, prerelease, make_latest: "false" });
+  const updated = await api("PATCH", `${base}/${release.id}`, { tag_name: tag, body: notes, draft, prerelease, make_latest: "false" });
+  if (updated.tag_name !== tag) throw new Error("Release update lost its checked tag association");
+  return updated;
 }
 
 async function stamp(channel, product, directory, platform) {
@@ -289,7 +311,8 @@ export async function reconcileSDKDrafts(api, repository, isPublished, report) {
     for (const release of releases) {
       counts.releases++;
       if (release.draft) counts.drafts++;
-      const match = /^(?:vrcp-api|package)\/v(.+)$/.exec(release.tag_name ?? "");
+      const tag = sdkDraftTag(release);
+      const match = /^(?:vrcp-api|package)\/v(.+)$/.exec(tag ?? "");
       if (!release.draft || !match || semver.valid(match[1]) !== match[1]) continue;
       counts.sdkDrafts++;
       const link = /\[Checked CI run\]\((https:\/\/github\.com\/[^)]+)\)/.exec(release.body ?? "");
@@ -302,7 +325,7 @@ export async function reconcileSDKDrafts(api, repository, isPublished, report) {
       if (!(await isPublished(sdkPackageNames[channel], match[1]))) { counts.unpublished++; continue; }
       if (++dispatched > 20) throw new Error("SDK draft dispatch limit exceeded");
       await api("POST", `/repos/${repository}/actions/workflows/release-assets.yml/dispatches`,
-        { ref: "main", inputs: { tag: release.tag_name, "source-run": sourceRun } });
+        { ref: "main", inputs: { tag, "source-run": sourceRun } });
     }
     if (releases.length < 100) {
       report?.({ ...counts, dispatched });

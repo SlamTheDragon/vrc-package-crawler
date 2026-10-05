@@ -198,7 +198,9 @@ test("Release upload retries retain exact bytes, never clobber assets and publis
       if (loseACK) { loseACK = false; throw new Error("lost ACK"); }
       return asset;
     }
+    // Reproduce the live API behavior: draft updates without tag_name detach the tag.
     Object.assign(release, body);
+    if (body.draft && !body.tag_name) release.tag_name = "untagged-" + "a".repeat(20);
     return release;
   };
   await expect(attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "pending", files, true, false)).rejects.toThrow("lost ACK");
@@ -206,6 +208,7 @@ test("Release upload retries retain exact bytes, never clobber assets and publis
   expect(actions).not.toContain("PATCH");
   await attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "pending", files, true, false);
   expect(release.draft).toBe(true);
+  expect(release.tag_name).toBe("vrcp-api/v0.0.0");
   expect(assets).toHaveLength(2);
   await attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "publication checked", files, false, false);
   expect(release.draft).toBe(false);
@@ -263,7 +266,10 @@ test("SDK promotion retains original notes and checksums when main or the note r
     body: oldNotes.toString() + "\nCurrent delivery status: npm publication pending.\n" };
   let patches = 0;
   const api = async (method: string, path: string, body: any) => {
-    if (method === "GET") return path.includes("/tags/") ? release : assets;
+    if (method === "GET") {
+      if (path.includes("/tags/")) return release.draft ? null : release;
+      return path.includes("/assets?") ? assets : [release];
+    }
     if (method === "DOWNLOAD") return files.get(assets.find(asset => path.endsWith(`/${asset.id}`))!.name);
     if (method === "UPLOAD") {
       expect(path).toContain("name=CHECKSUMS.sha256");
@@ -299,6 +305,34 @@ test("SDK promotion retains original notes and checksums when main or the note r
   await attachRelease(api, "owner/repo", release.tag_name, commit, newBody, new Map(files), false, false);
   expect(release.draft).toBe(false);
   expect(patches).toBe(2);
+  release.draft = true;
+  release.tag_name = "untagged-" + "a".repeat(20);
+  release.name = "VRC Packages - package/v0.0.0";
+  release.body = oldNotes.toString() + "\nCurrent delivery status: npm publication pending.\n";
+  await expect(attachRelease(api, "owner/repo", "package/v0.0.0", "b".repeat(40), newBody, new Map(files), false, false))
+    .rejects.toThrow("another delivery");
+  expect(patches).toBe(2);
+  const orphanBody = release.body;
+  release.body = orphanBody.replace("owner/repo", "attacker/fork");
+  await expect(attachRelease(api, "owner/repo", "package/v0.0.0", commit, newBody, new Map(files), false, false))
+    .rejects.toThrow("another delivery");
+  release.body = orphanBody;
+  const checksumAsset = assets.splice(assets.findIndex(asset => asset.name === "CHECKSUMS.sha256"), 1)[0];
+  await expect(attachRelease(api, "owner/repo", "package/v0.0.0", commit, newBody, new Map(files), false, false))
+    .rejects.toThrow("lacks checked");
+  assets.push(checksumAsset);
+  const noteAsset = assets.find(asset => asset.name === "CHANGELOG.md")!;
+  const noteDigest = noteAsset.digest;
+  noteAsset.digest = "sha256:" + "0".repeat(64);
+  await expect(attachRelease(api, "owner/repo", "package/v0.0.0", commit, newBody, new Map(files), false, false))
+    .rejects.toThrow("digest");
+  noteAsset.digest = noteDigest;
+  expect(patches).toBe(2);
+  await attachRelease(api, "owner/repo", "package/v0.0.0", commit, newBody, new Map(files), false, false);
+  expect(release.tag_name).toBe("package/v0.0.0");
+  expect(release.draft).toBe(false);
+  expect(patches).toBe(3);
+  expect(files.get("CHANGELOG.md")).toEqual(oldNotes);
 });
 
 test("SDK draft reconciliation dispatches only public versions with original checked run links", async () => {
@@ -308,7 +342,8 @@ test("SDK draft reconciliation dispatches only public versions with original che
     { ...draft, tag_name: "cloudflare-worker/v0.0.0" }, { ...draft, tag_name: "vrcp-network/v0.0.0" },
     { ...draft, body: "[Checked CI run](https://github.com/attacker/fork/actions/runs/123)" },
     { ...draft, body: "[Checked CI run](https://github.com/owner/repo/actions/runs/123?modified=true)" },
-    { ...draft, tag_name: "vrcp-api/v01.0.0" }, { ...draft, body: "No checked source run" }];
+    { ...draft, tag_name: "vrcp-api/v01.0.0" }, { ...draft, body: "No checked source run" },
+    { ...draft, tag_name: "untagged-" + "a".repeat(20), name: "VRC Packages - vrcp-api/v0.0.0" }];
   const dispatched: any[] = [];
   const registry: string[] = [];
   const reports: any[] = [];
@@ -321,10 +356,10 @@ test("SDK draft reconciliation dispatches only public versions with original che
   expect(await reconcileSDKDrafts(api, "owner/repo", async (name: string, version: string) => {
     registry.push(`${name}@${version}`);
     return version !== "0.0.1";
-  }, (counts: any) => reports.push(counts))).toBe(2);
-  expect(reports).toEqual([{ releases: 10, drafts: 9, sdkDrafts: 6, checkedDrafts: 3, unpublished: 1, dispatched: 2 }]);
-  expect(registry).toEqual(["vrc-packages-api@0.0.0", "vrc-packages-api-preview@2026.10.0-pre", "vrc-packages-api@0.0.1"]);
-  expect(dispatched.map(item => item.inputs.tag)).toEqual(["vrcp-api/v0.0.0", "package/v2026.10.0-pre"]);
+  }, (counts: any) => reports.push(counts))).toBe(3);
+  expect(reports).toEqual([{ releases: 11, drafts: 10, sdkDrafts: 7, checkedDrafts: 4, unpublished: 1, dispatched: 3 }]);
+  expect(registry).toEqual(["vrc-packages-api@0.0.0", "vrc-packages-api-preview@2026.10.0-pre", "vrc-packages-api@0.0.1", "vrc-packages-api@0.0.0"]);
+  expect(dispatched.map(item => item.inputs.tag)).toEqual(["vrcp-api/v0.0.0", "package/v2026.10.0-pre", "vrcp-api/v0.0.0"]);
   expect(dispatched.every(item => item.ref === "main" && item.inputs["source-run"] === "123")).toBe(true);
   const renamedDraft = { ...draft, body: draft.body.replace("owner/repo", "SlamTheDragon/vrc-package-crawler") };
   const renamedDispatches: any[] = [];

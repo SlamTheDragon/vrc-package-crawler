@@ -56,6 +56,9 @@ The owner explicitly approved contents: write. The repair also disables saved ch
 Historical commit 24bfec4 introduced the read-only checker. Successful release attachments use contents: write in 7c7e252.
 Repair 60cdcd0 passed 14 tests and 155 assertions. Live controller 37257129900 still returned dispatched 0.
 The permission correction alone did not prove promotion. Theory: bounded filter counters identify the remaining draft exclusion.
+Run 37257451130 found one draft but no SDK-tagged draft. Draft 403316984 has synthetic tag untagged-0a9df2fcbfa12c2ac86e.
+Its title, source run, source commit and five asset digests identify the original 0.0.1 delivery.
+GitHub loses draft tag associations when PATCH omits tag_name. The repair retains tag_name and checks orphan notes before in-place recovery.
 Preview tag vrcp-api/v2026.10.1-pre binds commit 83a05071baaa5c645484cda6dd67977c3261a173 and tag object 037249c1b94cb7cf395cf08b7433d80ad8f1fa62.
 Preview CI 37255217168 passed build but direct publication failed with ENEEDAUTH. Attempt 3 failed after the owner recreated trusted publishers.
 Preview exact metadata still returns 404. No trial tag was replaced. Release byte readback remains pending.
