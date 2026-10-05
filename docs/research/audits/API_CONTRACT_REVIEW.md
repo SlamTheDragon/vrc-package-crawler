@@ -116,11 +116,11 @@ This preserves one network contract. Convenience mapping changes names only afte
 
 The owner must review this complete inventory and its missing functionality. Resolve accepted changes before the release-check batch. Then check clean package installation, exports/declarations, malformed payloads, errors, auth/ownership, pagination and native Worker contracts. Check every src-* dependency boundary, registry identity, license and config-driven version.
 
-The package now has private: true to prevent accidental npm publication. This guard is not evidence that G15 passed. Remove it only after verification and owner approval. No npm release, remote deployment or tag push is authorized by this review.
+The owner permits checked pre-0.1 SDK releases. Release 0.0.5 and preview 2026.10.5-pre are published and checked under G14. This does not approve unfinished API contracts. Full owner review still blocks v0.1.0. This audit does not grant publication or deployment authority.
 
 ## Delegated creator removal — G15 proposal, 2026-10-04
 
-Owner correction: downstream apps check creator challenges. The coordinator checks their authenticated attestations and applies authorized removal during the HTTP request. Neither the Worker nor the crawler fleet probes storefronts for this flow. Shared-secret authentication and SDK utilities remain design candidates. [Unmerged slices R54-C38A through C](../../scratch/UNMERGED_IMPLEMENTATION_PLAN.md) retain the remaining decisions.
+Current owner direction, reconciled 2026-10-06: downstream apps check creator challenges. Only trusted, reviewed apps may submit verified takedown requests for manual operator/staff review. This supersedes the earlier immediate-removal proposal. Neither the Worker nor the crawler fleet probes storefronts for this flow. Shared-secret authentication and SDK utilities remain design candidates. [Unmerged slices R54-C38A through C](../../scratch/UNMERGED_IMPLEMENTATION_PLAN.md) retain the remaining decisions.
 
 | Question | Current evidence | Proposed boundary |
 | --- | --- | --- |
@@ -138,10 +138,23 @@ See [the separate cryptographic delegation shelf](../topics/05_cryptographic_del
 | --- | --- | --- |
 | Creator | Place a fresh token on the relevant profile or prove control through another accepted method. | Control of a hosted marketplace domain or every canonical front. |
 | Approved downstream backend | Check the challenge at its authoritative location. Authenticate the exact target, requested action and minimal verification outcome. | General app registration grants removal authority. |
-| API-only Worker | Check app/key status, permission, target scope, message authentication, expiry and replay. Commit suppression, lifecycle and audit atomically. | The Worker independently observed the storefront or can recover an app's concealed false statement. |
+| API-only Worker | Check app/key status, permission, target scope, message authentication, expiry and replay. Record a pending request for authorized review. Apply an approved, scoped action with its audit atomically. | The Worker observed the storefront, proved rights ownership or approved the request merely because its signature matched. |
 | Crawler fleet | No role in this removal verification flow. | A new driver, source profile or leased verification job is needed. |
 
-Successful validation can return an immediate committed-removal receipt. Generic reports and invalid attestations remain non-destructive. A cryptographic match alone is insufficient without the other checks. Duplicate requests return the same committed result. Record the consumed nonce and action in the same transaction to resist concurrent replay. Expiry, key revocation and current suppression must be checked at the write boundary.
+Successful intake must return a pending-review receipt, not a committed-removal receipt. An authorized review decision is a separate operation. Record the accepted attestation, consumed nonce and intake receipt atomically. Record an approved action and its audit atomically at the later write boundary. Exact retries must not create duplicate requests or actions. Check expiry, revocation and current suppression at the applicable boundary. Ordinary reports remain non-destructive. These are proposed contracts, not implemented guarantees.
+
+```mermaid
+flowchart LR
+  C[Creator and session] -->|Fresh public challenge| F[Accepted canonical front]
+  F -->|Observation under access rules| A[Admitted downstream backend]
+  A -->|Authenticated scoped attestation| W[Worker intake checks]
+  W --> P[Pending review receipt]
+  P --> O[Authorized operator or staff decision]
+  O -->|Approved scoped action| D[D1 action and audit]
+  O -->|Rejected request| N[No new suppression]
+```
+
+The diagram separates observations, authenticated statements and destructive authority. It selects no issuer, algorithm or route. Current `/v1/app/report` stores a pending report; it does not implement this attestation flow. Wrongful-removal recovery must preserve unrelated valid suppressions.
 
 HMAC is a keyed-hash message authentication code, not encryption. It authenticates the statement of a shared-key holder. See [RFC 2104](https://www.rfc-editor.org/rfc/rfc2104.html). HMAC-SHA-256 through Web Crypto is a candidate, not an accepted algorithm. [Workers Web Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/) documents the platform primitive. Do not invent a cryptographic implementation.
 
@@ -149,10 +162,30 @@ A possible authenticated statement binds schemaVersion, appId, keyId, challenge 
 
 Current app credentials are bearer tokens stored as hashes. They are not attestation keys. A shared-secret design needs a separate secret per approved app, protected key storage, provisioning, rotation and revocation. Do not reuse a bearer token or its stored hash as a signing key. One global shared secret would let any holder impersonate other apps. Challenge production can occur in the approved app or use a cheap coordinator token endpoint. Neither requires coordinator storefront access. The issuer and token format remain undecided.
 
-SDK candidate: a dedicated backend-only export for challenge construction, strict attestation schemas and message authentication. The consumer supplies key material at runtime. Do not publish secrets in npm, browser bundles, static sites or distributed desktop binaries. Those clients can guide creators but need a trusted backend for shared-key attestations. Scope any optional bio/DNS checker to approved verification methods, not crawler drivers. Worker implementation must consume a distributed contract artifact, never src-package source. Full G15 review still holds publication.
+SDK candidate: a dedicated backend-only export for challenge construction, strict attestation schemas and message authentication. The consumer supplies key material at runtime. Do not publish secrets in npm, browser bundles, static sites or distributed desktop binaries. Those clients can guide creators but need a trusted backend for shared-key attestations. Scope any optional bio/DNS checker to approved verification methods, not crawler drivers. Worker implementation must consume a distributed contract artifact, never src-package source. Contract verification precedes these additions; full owner G15 review still blocks v0.1.0.
 
 A bio token is public proof of fresh control, not a secret. Use a random, expiring, single-use challenge rather than the draft's predictable vendorId marker. Check it on the specific approved profile, not anywhere in a product page. Domain control does not prove ownership of every item under a hosted marketplace. Define front-to-creator mapping and delegation separately. A canonical product can have several creators or storefronts. Do not extend one front's proof to all fronts by inference.
 
 Store a minimal verification outcome and digest. Do not send raw profiles, session cookies or unnecessary end-user identity. App-side fetch helpers need body limits, redirect rejection and DNS/private-address guards. Coordinator validation needs expiry, rate limits, permission and replay checks, but no external fetch. Revoking a verifier must stop new attestations. Define incident review and restoration for wrongful removal without undoing another valid suppression.
 
 Sequence: settle verifier admission and target scope, define versioned contracts, repair moderation ownership, then wire the Worker and distributed SDK. Gate fixtures must cover tampered messages, wrong app/target, nonce races, revoked keys, concurrent notices and audit rollback. Also check zero coordinator/fleet verification egress. A rejected request must not undo another valid suppression. Full API_ROUTES.md owner review and artifact verification still precede v0.1.0 publication.
+
+## Sanitized private security intake — 2026-10-06
+
+The owner-provided private research was read in full after C57A. Its raw file remains ignored and must not enter commits or release artifacts. The following findings distinguish inspected code from untested threats and proposed controls. No attack, load test, live source crawl or runtime change ran during intake.
+
+| Concern | Current evidence | Disposition and gate |
+| --- | --- | --- |
+| API cost and availability | `api/public_handler.ts` exposes list/delta without app authentication. Node handlers read and validate up to 256 KiB before checking bearer credentials. The inspected entry, handlers and Wrangler bindings define no API abuse limiter. Dashboard controls were not inspected. | Critical admission/resource-budget follow-up under G15. Bound anonymous, authenticated and batch work separately; measure CPU, D1 rows, retained reports and failure logs. Origin crawl pacing is not an API request budget. |
+| Search injection versus expensive queries | `searchCatalogPackages` builds clauses from fixed fragments and binds supplied values. It performs a COUNT and substring searches; a 100-row output cap does not bound scanned rows. | No SQL injection was demonstrated. Retain bound parameters; review all dynamic SQL and query costs under R53-C37/R50-C30. Do not infer safe cost from safe SQL syntax. |
+| Authenticated app authority | `authenticateApp` returns permissions, but `downstream_handler.ts` does not enforce them. `recordRemovalReport` inserts a pending row. | Existing R53-C37 and R54-C38 gaps. Registration is not trusted-verifier admission. Do not attach destructive behavior to an ordinary accepted report. |
+| Malicious authorized nodes | Authentication checks a stored hash, revocation and encoded capabilities. `submit` checks job identity, live lease, source profile, robots and idempotency. Those checks do not prove the observation is truthful. | Preserve lease checks. Queue poisoning/provenance negatives at the G13/G15 ingestion boundary: job-target binding, canonical association, oversized valid batches, replay races and revocation. No successful poisoning exploit was shown. |
+| Diagnostic leakage and amplification | `worker_entry.ts` logs full request URLs. `worker_logger.ts` keeps error messages/stacks without redaction. Some downstream/public 500 responses return exception messages. | Extend R53-C37/Q-SDK-ERRORS with stable errors, bounded/redacted metadata, query-value suppression and log-volume checks. No credential leak was demonstrated. |
+| Bot impersonation and blocked forks | Nodes obtain their versioned bot identity from the distributed network package. Robots matching retains the earlier bot's restrictive rules. Public headers and repository/contact links do not authenticate a caller. | Keep coordinated bot/robots/profile checks under R55-C55B. Do not put credentials in headers or rotate identities to evade a refusal. Origin-verified request signatures would require a separate protocol and cooperating origin; none is approved. |
+| D1 identifiers and credential scope | Worker bindings name databases; D1 REST access also requires authorization. An account ID or database UUID alone is not a database credential. Public Worker routes are a separate access path. | Keep preview isolation and protect deployment/API secrets. Review the actual supported token permissions, scope and expiry; do not assume per-database token isolation or rotate IDs as an authentication remedy. |
+
+For admission and cost controls, [OWASP API4](https://api-security.owasp.org/editions/2023/en/0xa4-unrestricted-resource-consumption/) recommends payload, frequency and operation limits plus spending controls. [D1 prepared statements](https://developers.cloudflare.com/d1/worker-api/prepared-statements/) document bound parameters. These references guide the queued checks; they do not establish that this application meets them.
+
+The [D1 query API](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/) separates account/database path identifiers from authorization and accepted permissions. [Cloudflare token setup](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/) documents permission, resource, optional IP and expiry controls. Verify actual available scope before making an isolation claim.
+
+[RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html) states that robots rules are not access authorization. Compliance, open source and a contact page do not establish legal clearance. Keep source-access and legal review independent. If impersonation or abuse affects a source, pause the affected profile or node, preserve minimal evidence and review revocation/resumption. Coordinator controls cannot constrain modified forks outside its fleet. No external outreach or incident action was authorized by this intake.

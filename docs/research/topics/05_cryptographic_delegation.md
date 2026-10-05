@@ -1,6 +1,6 @@
 # Cryptographic delegation resource library
 
-Reviewed 2026-10-04 for owner-requested slice R54-C38R under G15. Research is not protocol approval. The owner assigns storefront challenge checks to downstream apps. The Worker checks authenticated attestations and commits authorized removal without storefront access or crawler-fleet work. See [the API audit](../audits/API_CONTRACT_REVIEW.md#delegated-creator-removal--g15-proposal-2026-10-04) for code gaps and [the decision queue](../../scratch/UNMERGED_IMPLEMENTATION_PLAN.md) for remaining choices.
+Reviewed 2026-10-04; owner direction reconciled 2026-10-06 under R54-C38/G15. Research is not protocol approval. Downstream apps check storefront challenges. The Worker accepts authenticated requests from admitted verifiers for manual operator/staff review, without storefront access or crawler-fleet work. See [the API audit and trust-boundary diagram](../audits/API_CONTRACT_REVIEW.md#delegated-creator-removal--g15-proposal-2026-10-04) and [the decision queue](../../scratch/UNMERGED_IMPLEMENTATION_PLAN.md). Earlier immediate-removal proposals are superseded.
 
 ## Separate three claims
 
@@ -25,7 +25,7 @@ No choice of encryption can make an authorized malicious verifier tell the truth
 
 ## Payment analogy applied to this system
 
-The useful analogy is a trusted verifier's authenticated event, followed by a transaction that the receiver commits once. Do not imitate card cryptograms, acquire payment credentials or integrate a card network for this feature. Also do not copy generic webhook advice to acknowledge first and process later. The owner requests immediate removal. A success receipt must distinguish committed action from merely accepted intake.
+The useful analogy is a trusted verifier's authenticated event, recorded once. Do not imitate card cryptograms, acquire payment credentials or integrate a card network for this feature. The current owner direction requires manual review. Distinguish accepted intake from a later committed action; an intake receipt is not removal approval.
 
 Candidate sequence:
 
@@ -35,7 +35,8 @@ Candidate sequence:
 4. The app checks that location under applicable access rules.
 5. The app authenticates an attestation of its check and requested action.
 6. The Worker checks app authority, key, payload, target mapping, expiry and replay without external fetch.
-7. The Worker atomically records the action, audit, consumed identifier and committed receipt.
+7. The Worker atomically records a pending request, consumed identifier and intake receipt.
+8. An authorized operator/staff decision applies a scoped action with its audit, or rejects the request without a new suppression.
 
 Challenge issuer remains undecided. App-issued and coordinator-issued challenges have different state and round-trip costs. Neither requires Worker storefront access. A duplicate request with the same identity and payload needs the original receipt, not another lifecycle mutation. Reuse of its identifier with another payload must fail. Revoked credentials, concurrent replay and unrelated suppression require write-boundary checks.
 
@@ -43,7 +44,7 @@ Challenge issuer remains undecided. App-issued and coordinator-issued challenges
 
 Owner clarification, 2026-10-04: the downstream website already knows a claimed creator/front relationship. A signed-in user asks to claim it. The website generates a token, the user places it on that canonical front, and the website checks it. This describes the proposed app-side ownership check. It does not establish how any particular VRChat ecosystem site implements the flow.
 
-The coordinator adds a second boundary: it authenticates the app's statement about that check, then applies the authorized action. The public placement token is not an app credential. Bind the challenge to the requester, verifier, exact front, requested action and expiry. A successful placement shows control of the permitted location at that time. It does not establish copyright ownership or authority over every related product/front.
+The coordinator adds a second boundary: it authenticates the app's statement about that check and records it for review. Only an authorized review decision applies removal. The public placement token is not an app credential. Bind the challenge to the requester, verifier, exact front, requested action and expiry. A successful placement shows control of the permitted location at that time. It does not establish copyright ownership or authority over every related product/front.
 
 The website can keep this work behind its interface, but the protocol must distinguish pending verification from committed removal. Challenge issuance, account linking and removal are separate operations. A stale catalog claim is not sufficient evidence that a front still belongs to the stated creator. Challenge issuer and accepted front mappings remain decisions.
 
@@ -52,7 +53,8 @@ The website can keep this work behind its interface, but the protocol must disti
 | Generate a random placement challenge | Downstream app or coordinator, undecided | Randomness and bounded state. Not mining, password cracking or proof-of-work. |
 | Read the front and find the challenge | Downstream app | Network wait, access rules, bounded parsing and optional rendering. No Worker/fleet storefront check. |
 | Authenticate the attestation | Coordinator | Bounded payload validation, registered-key lookup and one standard MAC/signature check. |
-| Apply removal | Coordinator | Current permission/target checks, atomic replay/action/audit and receipt. |
+| Accept the request | Coordinator | Current verifier/target checks, atomic replay/intake receipt; no automatic removal. |
+| Apply approved removal | Coordinator, after authorized review | Review authority, scoped action/audit and receipt. |
 
 [Cloudflare limits](https://developers.cloudflare.com/workers/platform/limits/#cpu-time), checked 2026-10-04, specify 10 ms CPU per HTTP request on Workers Free. Waiting for network or database responses does not count toward CPU time. Parsing and application computation still consume CPU. Consistent overruns can terminate execution with Error 1102. Native [Web Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/) supports HMAC and public-key operations, but documentation supplies no latency guarantee for this route.
 
@@ -73,7 +75,7 @@ These services supply parts of the flow. The reviewed documentation does not sup
 
 ## Candidate SDK boundary and next decisions
 
-src-package currently exports token-prefix helpers and typed API models. It depends on zod, not jose. No signing utility, key registration, delegation grant or replay receipt exists in the inspected SDK path. Candidate exports can include strict attestation types, challenge helpers and backend-only authentication functions. Consumers supply keys at runtime. Do not install dependencies or publish before the contract and G15 gates pass.
+src-package currently exports token-prefix helpers and typed API models. It depends on zod, not jose. No signing utility, key registration, delegation grant or replay receipt exists in the inspected SDK path. Candidate exports can include strict attestation types, challenge helpers and backend-only authentication functions. Consumers supply keys at runtime. Verify these contracts before adding or distributing helpers. Checked pre-0.1 releases are allowed; v0.1.0 remains held for full owner G15 review.
 
 Shared secrets and app private keys belong in trusted backends, not static sites or distributed desktop binaries. A device-generated key can identify a device, but does not grant it trusted-verifier status. If downstream apps have no trusted backend, resolve that topology before choosing a signing design.
 

@@ -15,6 +15,7 @@ description: "Protect crawler/coordinator boundaries and require system-level re
    retry/idempotency, concurrency/origin pacing, schema compatibility,
    persistence/restart, and what a downstream consumer can observe. Mark
    inapplicable checks with a reason, not an unchecked tick.
-4. Run targeted tests first, then relevant integration/protocol tests,
-   typecheck/build, and a final diff audit. A green suite is evidence for
+4. Implement the capability gate or related gate group before its checkpoint.
+   Then run relevant unit/integration/protocol tests, typechecks, runtime/build
+   checks and a final diff audit together. A green suite is evidence for
    exercised cases, not proof of all paths. Record gaps and counterexamples.

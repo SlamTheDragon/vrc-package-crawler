@@ -1,9 +1,11 @@
-# G14 — checked delivery wiring and the before-C57B hook
+# G14 — C57B milestone rules and sanitized security intake
 
 ## Authority and boundary
 
-The full goal remains active. R57-C57A delivery checks passed on 2026-10-06. R57-C57B has not started.
-Keep the owner question hook before C57B. Keep exactly three scratch files and preserve owner comments.
+The full goal remains active. R57-C57A delivery checks passed on 2026-10-06.
+The owner answered the requested hook: Proceed with C57B and security intake.
+Milestone rules and sanitized research passed this documentation checkpoint.
+Keep exactly three scratch files and preserve owner comments.
 Root delivery allocates the next configured patch, synchronizes metadata, commits, tags and atomically pushes.
 Failed and published tags remain fixed. Do not align unrelated product patches or skip configured versions.
 Release SDK keeps owner-approved staging and the v0.1 API-review hold.
@@ -77,22 +79,33 @@ Bun executable caching remains action-managed. Monitoring 37354471371 passed wit
 Latest recorded usage: 1,844,706,464 bytes across 78 caches. Capacity is not measured.
 Artifact, GHCR and account budgets remain separate. No deletion or quota change ran.
 
-## Documentation and next action
+## Current documentation gate
 
 DELIVERY.md now describes current commands, dependency mapping, environment rules, staging, immutable retries and cache behavior.
 Obsolete OIDC/MSI pending claims and historical tag-replacement grants were removed.
 Human procedures remain separate from AGENT_DELIVERY_PROCEDURE.md.
 Documentation lint: DELIVERY 1.15 issues per 100 words. Whitespace checks passed.
 
-1. The requested owner question before R57-C57B is issued. Await its answer before milestone-rule changes.
-2. After authorization, update milestone delivery procedures within the selected product's authority. Do not publish every product automatically.
-3. Pipeline setup now permits the queued attacker.md.secretresearch intake. The input remains unread.
-   Read it in the next bounded security slice. Commit sanitized findings, never the raw private input.
-4. Reconcile deferred branch triggers and main protection, then finish the security intake before conditional main sign-off.
-   The owner creates branches and performs the fresh-clone review after that sign-off. Website delivery stays disabled.
-5. Preserve source-access profiles, robots gates and the fail-closed lease boundary.
-   Delivery checks do not authorize live crawling or establish age, rights or legal clearance.
+Rules and the separate agent procedure select changed products after grouped capability checks.
+They preserve root delivery chains, immutable tags, dependency channels and release approvals.
+Removed orientation paths were replaced with the canonical ledgers. Source/test edits are not subject to the scratch-file limit.
 
-Push approval is explicit. Tags through ec6c9cd are on origin/main.
-The next checkpoint commit records this proof without another delivery bump.
+The private research was read in full. Its raw file remains ignored and must not enter commits or artifacts.
+Sanitized findings and a trust-boundary diagram are in API_CONTRACT_REVIEW.md.
+The crypto shelf and C38 proposals now require manual operator/staff review, not automatic removal.
+Confirmed code gaps: unenforced app permissions, node body parsing before bearer checks, and unredacted exception/URL diagnostics.
+No limiter appears in inspected API code/bindings. Dashboard protections are unknown.
+Bound SQL parameters and lease/profile/robots/replay checks exist. No successful injection or poisoning exploit was demonstrated.
+Q-API-RESOURCE-BUDGET and Q-NODE-OBSERVATION-TRUST queue the remaining audits. Diagnostics extend existing R53-C37/Q-SDK-ERRORS.
+Bot impersonation stays with the identity/source-access gates. No identity evasion or outbound credential disclosure is approved.
+
+No runtime code, source access, protocol, credential or infrastructure setting changed in this gate.
+No ceremonial version bump or publication is needed. Static research is not an exercised security guarantee.
+Checks passed: relative links, owner-comment preservation, private-input exclusion, three-file scratch footprint and whitespace.
+Documentation lint: agent procedure 1.10, API audit 1.89, crypto shelf 2.02 and tracker 1.72 issues per 100 words.
+Next: commit the sanitized checkpoint, then check product-local test outputs and branch/main controls.
+The owner creates branches and performs the fresh clone after conditional sign-off. Website delivery stays disabled.
+Legal/age/creator-rights decisions and source-access profiles remain separate from delivery success.
+
+Push approval is explicit. The nine-path proof is committed as 92200c2 and the owner hook as 7d60cae.
 The full goal is not complete. A green run cannot guarantee future credential, dependency or platform behavior.

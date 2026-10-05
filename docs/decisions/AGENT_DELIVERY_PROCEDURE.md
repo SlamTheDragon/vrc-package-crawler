@@ -1,6 +1,7 @@
 # Agent delivery procedure — G14
 
-This procedure implements R57-C57A. It does not authorize R57-C57B milestone publication or waive its owner question.
+This procedure implements R57-C57A and the owner-approved R57-C57B milestone practice.
+The owner approved the before-C57B question on 2026-10-06. Publication authority still applies separately to each product and channel.
 Human commands and logistics are in [DELIVERY.md](../source/DELIVERY.md).
 
 1. Read the active tracker, canonical decisions and owner changes before selecting a product.
@@ -25,3 +26,17 @@ Website remote delivery stays disabled. Worker release builds only. Worker envir
 Keep native build hooks separate from root forwarding to prevent recursion.
 Root synchronization updates manifests before tagged publication. It does not update existing local installations after a registry change.
 Use prepare:dev to refresh checked development dependencies. Never allocate an unrelated package patch merely to align version numbers.
+
+## Capability milestone selection
+
+1. Finish the capability gate or related gate group, then run its grouped checks.
+2. Identify changed deliverables and their dependency producers. Do not select every product because one gate passed.
+3. Check producer publication before consumer delivery. Publish a new network archive if changed SDK peer bounds require one.
+4. Plan the selected product's next configured patch through the root chain. Inspect its blockers before execution.
+5. Deliver relevant previews within owner authority. Use protected release publication only when the release milestone requires it.
+6. Check the resulting artifacts, registry identities and deployment links. Record incomplete approval or failed checks as pending, not verified.
+7. For a documentation-only gate or unchanged product, record why no delivery is needed. Do not allocate a ceremonial version.
+8. Keep source access, legal clearance, SDK v0.1.0 review and protected release approval separate from deployment success.
+
+Do not implement branch-push automation from this procedure alone. The owner creates the responsibility branches after conditional sign-off.
+Current delivery uses product tags. Future triggers need version ownership, collision checks and loop prevention before activation.

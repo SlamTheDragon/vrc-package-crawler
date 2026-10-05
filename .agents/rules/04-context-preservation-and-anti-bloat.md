@@ -16,7 +16,7 @@ description: "Mitigate the 3 pillars of AI failure (quadratic context limits, sp
 
 3. **Pillar 3 Mitigation: Triangulate against decoupled RAG & indexing blind spots**:
    - Never treat an isolated search hit, doc summary, or embedding snippet as self-evident truth. A decoupled chunk lacks AST semantics, call hierarchies, and runtime wiring.
-   - Always triangulate retrieved snippets by verifying both directions: caller ↔ callee ↔ live test fixture. When documentation disagrees with live source, descriptive truth (runnable code and tests) takes precedence for runtime behavior, while normative truth (`DIRECTION.md`) governs architectural intent.
+   - Always triangulate retrieved snippets by verifying both directions: caller ↔ callee ↔ live test fixture. Runnable code and tests describe current behavior. Current owner instructions and accepted decisions in the canonical ledgers govern intent. Do not rely on removed orientation documents.
 
 4. **Economic Trap Mitigation: Resist Jevons Paradox & software bloat**:
    - Cheaper code generation must not result in bloated architectures. Never add synthetic wrappers, duplicate helpers, speculative abstractions, or new files when an existing module or language primitive suffices.
@@ -24,4 +24,4 @@ description: "Mitigate the 3 pillars of AI failure (quadratic context limits, sp
 
 5. **Operational Discipline: Externalize state; never trust conversational memory**:
    - Long conversations inevitably suffer from context compaction and recency bias. Never rely on internal conversational memory across turns for critical decisions, active task ledgers, or dependency maps.
-   - Persist active state, gate boundaries, and unresolved questions to durable disk artifacts (`TODO.md`, `docs/scratch/`, or task ledgers). Re-anchor from disk at the beginning of each slice.
+   - Persist active state, gate boundaries and unresolved questions in the three canonical `docs/scratch/` files. Re-anchor from disk at the beginning of each slice.
