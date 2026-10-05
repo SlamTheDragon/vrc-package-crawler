@@ -4,12 +4,11 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bumpVersion, nextVersion, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames } from "./versioning.mjs";
 import { checkSDKPublicationVersion, selectTag } from "./delivery.mjs";
-import { checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink } from "./release-assets.mjs";
+import { allowedBinary, checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink } from "./release-assets.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const workflows = { package: "vrc-packages-api", network: "network", crawler: "node-docker",
   "crawler-client": "node-client", worker: "cloudflare-worker" };
-const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 
 function runGit(workspace, ...args) {
   try {
@@ -129,6 +128,35 @@ function githubReader(workspace) {
   };
 }
 
+/** Hash binaries incrementally. Only bounded receipts and package archives stay in memory. */
+export async function readHostedAsset(asset, binary = false) {
+  const metadata = /\.(?:json|md|sha256)$/.test(asset.name);
+  const limit = binary ? 2 * 1024 ** 3 - 1 : metadata ? 2 * 1024 ** 2 : 256 * 1024 ** 2;
+  if (!Number.isSafeInteger(asset.size) || asset.size < 1 || asset.size > limit || !/^sha256:[a-f0-9]{64}$/.test(asset.digest ?? "")) {
+    throw new Error("Hosted artifact is missing, oversized or lacks a digest");
+  }
+  const response = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(binary ? 1_800_000 : 180_000) });
+  if (!response.ok || !response.body) {
+    await response.body?.cancel();
+    throw new Error("Hosted artifact is unavailable");
+  }
+  const reader = response.body.getReader(), chunks = [], digest = createHash("sha256");
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > asset.size) throw new Error("Hosted artifact exceeds its declared size");
+      digest.update(value);
+      if (!binary) chunks.push(value);
+    }
+  } finally { await reader.cancel(); }
+  const sha256 = digest.digest("hex");
+  if (size !== asset.size || asset.digest !== `sha256:${sha256}`) throw new Error("Hosted artifact digest or size differs");
+  return { size, sha256, ...(binary ? {} : { bytes: Buffer.concat(chunks) }) };
+}
+
 export async function inspectDelivery(tag, check = false, workspace = root, api = githubReader(workspace)) {
   const git = runGit;
   const selected = sourceTag(tag, workspace);
@@ -155,53 +183,40 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
   if (release.prerelease !== (selected.channel === "preview")) throw new Error("Release channel differs from the source config");
   const assets = await api(`${base}/releases/${release.id}/assets?per_page=100`);
   if (!Array.isArray(assets) || !assets.length || assets.length > 10) throw new Error("Unexpected release asset count");
-  const files = new Map();
-  let totalSize = 0;
+  const files = new Map(), digests = new Map(), binaryDigests = new Map();
+  let totalSize = 0, bufferedSize = 0;
   for (const asset of assets) {
-    if (files.has(asset.name)) throw new Error("Duplicate hosted asset name");
+    if (digests.has(asset.name)) throw new Error("Duplicate hosted asset name");
     const url = new URL(asset.browser_download_url);
     if (url.origin !== "https://github.com" || !url.pathname.startsWith(`/${repository}/releases/download/`)) {
       throw new Error("Unexpected public artifact URL");
     }
+    const binary = ["crawler", "crawler-client"].includes(selected.product) && allowedBinary(asset.name, selected.product, selected.version);
+    if (!Number.isSafeInteger(asset.size) || asset.size < 1) throw new Error("Invalid hosted artifact size");
     totalSize += asset.size;
-    if (totalSize > 256 * 1024 * 1024) throw new Error("Hosted artifacts exceed the memory-check budget");
-    // Headless binaries are about 85 MB; allow bounded readback on slower links.
-    const response = await fetch(url, { signal: AbortSignal.timeout(180_000) });
-    if (!response.ok || !response.body || !Number.isSafeInteger(asset.size) || asset.size < 1 || asset.size > 256 * 1024 * 1024) {
-      await response.body?.cancel();
-      throw new Error("Hosted artifact is missing or oversized");
-    }
-    const reader = response.body.getReader(), chunks = [];
-    let size = 0;
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.length;
-        if (size > asset.size) throw new Error("Hosted artifact exceeds its declared size");
-        chunks.push(value);
-      }
-    } finally { await reader.cancel(); }
-    const bytes = Buffer.concat(chunks);
-    if (size !== asset.size || asset.digest !== `sha256:${sha256(bytes)}`) throw new Error("Hosted artifact digest or size differs");
-    files.set(asset.name, bytes);
+    if (!binary) bufferedSize += asset.size;
+    if (totalSize > 4 * 1024 ** 3 || bufferedSize > 256 * 1024 ** 2) throw new Error("Hosted artifacts exceed the bounded readback budget");
+    const { bytes, size, sha256 } = await readHostedAsset(asset, binary);
+    digests.set(asset.name, sha256);
+    if (binary) binaryDigests.set(asset.name, { size, sha256 });
+    else files.set(asset.name, bytes);
   }
   const notes = files.get("CHANGELOG.md")?.toString("utf8");
   if (!notes || !notes.includes(`Commit: ${selected.commit}.`) || !sameSourceRunLink(notes, run.html_url, repository)) {
     throw new Error("Hosted changelog differs from its source run");
   }
   const checksums = files.get("CHECKSUMS.sha256")?.toString("utf8").trim().split("\n");
-  if (!checksums || checksums.length !== files.size - 1) throw new Error("Hosted checksum list is incomplete");
+  if (!checksums || checksums.length !== digests.size - 1) throw new Error("Hosted checksum list is incomplete");
   const seen = new Set();
   for (const line of checksums) {
     const match = /^([a-f0-9]{64})  (.+)$/.exec(line);
-    if (!match || seen.has(match[2]) || !files.has(match[2]) || match[2] === "CHECKSUMS.sha256" || sha256(files.get(match[2])) !== match[1]) {
+    if (!match || seen.has(match[2]) || !digests.has(match[2]) || match[2] === "CHECKSUMS.sha256" || digests.get(match[2]) !== match[1]) {
       throw new Error("Hosted checksum entry differs from its artifact");
     }
     seen.add(match[2]);
   }
   const manifest = JSON.parse(git(workspace, "show", `${selected.commit}:${productDirectories[selected.product]}/package.json`));
-  checkedAssetBytes(new Map([...files].filter(([name]) => !["CHANGELOG.md", "CHECKSUMS.sha256"].includes(name))), selected, selected.commit, manifest);
+  checkedAssetBytes(new Map([...files].filter(([name]) => !["CHANGELOG.md", "CHECKSUMS.sha256"].includes(name))), selected, selected.commit, manifest, binaryDigests);
   if (selected.product === "package") {
     const name = sdkPackageNames[selected.channel];
     const metadata = await fetch(`https://registry.npmjs.org/${name}/${selected.version}`, {
@@ -215,7 +230,7 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
   }
   await checkRemoteTag(tagAPI, repository, tag, selected.commit, selected.tagObject);
   return { ...result, status: "release-artifacts-verified", artifactsVerified: true,
-    sha256: Object.fromEntries([...files].map(([name, bytes]) => [name, sha256(bytes)])) };
+    sha256: Object.fromEntries(digests) };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

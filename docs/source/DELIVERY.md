@@ -91,10 +91,15 @@ API preview pushes will publish directly, with patches allocated before commit. 
 These branch triggers and main protection are not yet implemented. Current branch pushes do not start product publication.
 
 The status command distinguishes failed CI, active CI, missing publication, npm approval and public artifacts that still need checks.
-The check command downloads public assets into memory only. It checks names, hosted digests, source receipts, notes and checksum coverage.
+The check command hashes public binaries as a stream. It keeps only bounded package archives and metadata in memory.
+Each binary must be smaller than 2 GiB. The total transfer limit is 4 GiB, with a 30-minute deadline per binary.
+Metadata files have a 2 MiB limit. Buffered archives have a combined 256 MiB limit and a three-minute deadline per file.
+It checks names, hosted digests, source receipts, notes and checksum coverage. No local release files are created.
 For SDK assets it also checks the published registry version and integrity. It does not promote an npm stage.
 For the Worker it reports preview deployment or the release build-only boundary, not Release assets or real-source readiness.
 For crawler images, retain the separate CI publication receipt and GHCR digest check. Binary asset checks do not prove container bytes.
+Crawler deployment cards link to their exact GitHub Release. Attachment summaries also link to the checked Release or pending draft.
+SDK deployment cards retain their npm registry URL. Worker links remain deferred, with https://docs.vrcpackages.com as the owner's future target.
 No installer check proves installation, signed updates, side-by-side channels or node supervision.
 
 If a push fails, retain the local config commit and tag. Inspect the remote before allocating another patch.

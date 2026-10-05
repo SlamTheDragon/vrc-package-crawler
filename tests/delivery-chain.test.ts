@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { inspectDelivery, planDelivery, repositoryFromRemote, retryDelivery, startDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
+import { inspectDelivery, planDelivery, readHostedAsset, repositoryFromRemote, retryDelivery, startDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
 import { productDirectories } from "../scripts/versioning.mjs";
 import { createHash } from "node:crypto";
 
@@ -25,6 +25,8 @@ async function fixture(run: (workspace: string, git: (workspace: string, ...args
     }
     await mkdir(resolve(workspace, productDirectories.network), { recursive: true });
     await writeFile(resolve(workspace, productDirectories.network, "package.json"), JSON.stringify({ name: "vrc-packages-network", version: "0.0.0" }));
+    await mkdir(resolve(workspace, productDirectories.crawler), { recursive: true });
+    await writeFile(resolve(workspace, productDirectories.crawler, "package.json"), JSON.stringify({ name: "vrcp-crawler-node", version: "0.0.0" }));
     actual(workspace, "add", "."); actual(workspace, "commit", "-m", "Synthetic delivery fixture");
     actual(workspace, "remote", "add", "origin", remote); actual(workspace, "push", "-u", "origin", "main");
     // Only identity lookup is substituted. Commits, tags, atomic pushes and divergence use real Git in a temporary bare remote.
@@ -121,6 +123,41 @@ test("CI summaries keep staging, failed builds, absent publication and Worker as
   }
 });
 
+test("hosted readback streams binary hashes and rejects oversized, truncated, corrupt and unavailable bodies", async () => {
+  const bytes = Buffer.from("Synthetic chunked artifact bytes"), originalFetch = globalThis.fetch;
+  const asset = { name: "vrcp-crawler-node-linux", size: bytes.length,
+    digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`, browser_download_url: "https://github.com/example/fixture/releases/download/test/node" };
+  let body = bytes, status = 200, calls = 0;
+  globalThis.fetch = (async (_input: unknown, init: RequestInit) => {
+    calls++; expect(init.signal).toBeDefined();
+    return new Response(new ReadableStream({ start(controller) {
+      for (let index = 0; index < body.length; index += 3) controller.enqueue(body.subarray(index, index + 3));
+      controller.close();
+    } }), { status });
+  }) as typeof fetch;
+  try {
+    const binary = await readHostedAsset(asset, true);
+    expect(binary).toEqual({ size: bytes.length, sha256: asset.digest.slice(7) });
+    expect((await readHostedAsset(asset, false)).bytes).toEqual(bytes);
+    const before = calls;
+    for (const size of [0, NaN, 1.5, 2 * 1024 ** 3]) await expect(readHostedAsset({ ...asset, size }, true)).rejects.toThrow();
+    await expect(readHostedAsset({ ...asset, name: "receipt.json", size: 2 * 1024 ** 2 + 1 })).rejects.toThrow("oversized");
+    await expect(readHostedAsset({ ...asset, size: 256 * 1024 ** 2 + 1 })).rejects.toThrow("oversized");
+    await expect(readHostedAsset({ ...asset, digest: undefined }, true)).rejects.toThrow("digest");
+    expect(calls).toBe(before);
+    body = bytes.subarray(0, -1);
+    await expect(readHostedAsset(asset, true)).rejects.toThrow("size differs");
+    body = Buffer.concat([bytes, Buffer.from("extra")]);
+    await expect(readHostedAsset(asset, true)).rejects.toThrow("declared size");
+    body = Buffer.alloc(bytes.length);
+    await expect(readHostedAsset(asset, true)).rejects.toThrow("digest");
+    body = Buffer.alloc(0);
+    await expect(readHostedAsset(asset, true)).rejects.toThrow("size differs");
+    status = 404;
+    await expect(readHostedAsset(asset, true)).rejects.toThrow("unavailable");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("memory-only release checks use exact source receipts and reject bad channels, bytes and checksum coverage", async () => {
   await fixture(async (workspace, git) => {
     const result = await startDelivery("preview", "network", true, workspace, now, git);
@@ -179,6 +216,51 @@ test("memory-only release checks use exact source receipts and reject bad channe
       await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("CI artifact differs");
       run.status = "in_progress";
       expect((await inspectDelivery(result.tag, true, workspace, api)).artifactsVerified).toBe(false);
+      expect(git(workspace, "status", "--porcelain")).toBe("");
+    } finally { globalThis.fetch = previousFetch; }
+  });
+}, 60_000);
+
+test("crawler delivery checks bind streamed binaries to both receipts and hosted checksum coverage", async () => {
+  await fixture(async (workspace, git) => {
+    const result = await startDelivery("preview", "crawler", true, workspace, now, git);
+    git(workspace, "remote", "set-url", "origin", "https://github.com/example/fixture.git");
+    const hash = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+    const files = new Map<string, Buffer>();
+    for (const platform of ["linux", "windows"]) {
+      const name = platform === "linux" ? "vrcp-crawler-node-linux" : "vrcp-crawler-node.exe";
+      const bytes = Buffer.from(`Synthetic ${platform} binary`);
+      files.set(name, bytes);
+      files.set(`crawler-${platform}.receipt.json`, Buffer.from(JSON.stringify({ ...result, purpose: "ci-release",
+        files: [{ name, size: bytes.length, sha256: hash(bytes) }] })));
+    }
+    const url = "https://github.com/example/fixture/actions/runs/123";
+    files.set("CHANGELOG.md", Buffer.from(`Commit: ${result.commit}.\n[Checked CI run](${url})\n`));
+    const checksums = () => Buffer.from([...files].filter(([name]) => name !== "CHECKSUMS.sha256")
+      .map(([name, bytes]) => `${hash(bytes)}  ${name}`).join("\n") + "\n");
+    files.set("CHECKSUMS.sha256", checksums());
+    const run = { id: 123, head_sha: result.commit, head_branch: result.tag, event: "push", html_url: url,
+      status: "completed", conclusion: "success", path: ".github/workflows/node-docker.yml", head_repository: { full_name: "example/fixture" } };
+    const api = async (path: string) => {
+      if (path.includes("/git/ref/tags/")) return { ref: `refs/tags/${result.tag}`, object: { type: "tag", sha: result.tagObject } };
+      if (path.includes("/git/tags/")) return { sha: result.tagObject, object: { type: "commit", sha: result.commit } };
+      if (path.includes("/runs?")) return { workflow_runs: [run] };
+      if (path.includes("/jobs?")) return { total_count: 3, jobs: ["build-linux", "standalone-windows", "publish-container"]
+        .map(name => ({ name, status: "completed", conclusion: "success" })) };
+      if (path.includes("/assets?")) return [...files].map(([name, bytes]) => ({ name, size: bytes.length, digest: `sha256:${hash(bytes)}`,
+        browser_download_url: `https://github.com/example/fixture/releases/download/trial/${name}` }));
+      return { id: 123, draft: false, prerelease: true };
+    };
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request) => new Response(files.get(new URL(String(input)).pathname.split("/").pop()!))) as typeof fetch;
+    try {
+      const checked = await inspectDelivery(result.tag, true, workspace, api);
+      expect(checked.artifactsVerified).toBe(true);
+      expect(checked.sha256["vrcp-crawler-node-linux"]).toBe(hash(files.get("vrcp-crawler-node-linux")!));
+      files.set("vrcp-crawler-node-linux", Buffer.from("Altered transport with updated hosted metadata"));
+      await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("checksum entry");
+      files.set("CHECKSUMS.sha256", checksums());
+      await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("Binary bytes");
       expect(git(workspace, "status", "--porcelain")).toBe("");
     } finally { globalThis.fetch = previousFetch; }
   });

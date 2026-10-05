@@ -162,7 +162,9 @@ jobs:
     needs: [route, build-linux, standalone-windows]
     if: vars.VRCP_CONTAINER_PUBLISH_APPROVED == 'true' && ((needs.route.outputs.channel == 'preview' && vars.VRCP_CRAWLER_PREVIEW_PUBLISH_APPROVED == 'true') || (needs.route.outputs.channel == 'release' && vars.VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED == 'true'))
     runs-on: ubuntu-latest
-    environment: ${{ needs.route.outputs.channel == 'preview' && 'vrcp-crawler-preview' || 'vrcp-crawler-release' }}
+    environment:
+      name: ${{ needs.route.outputs.channel == 'preview' && 'vrcp-crawler-preview' || 'vrcp-crawler-release' }}
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
     permissions:
       contents: read
       packages: write

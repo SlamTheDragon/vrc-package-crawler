@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { allowedBinary, attachRelease, checkedAssets, checkSourceRun, checkRemoteTag, sourceRunID, sameSourceRunLink, milestoneNotes, reconcileSDKDrafts } from "../scripts/release-assets.mjs";
+import { allowedBinary, attachRelease, checkedAssets, checkedAssetBytes, checkSourceRun, checkRemoteTag, sourceRunID, sameSourceRunLink, milestoneNotes, reconcileSDKDrafts, releaseSummary } from "../scripts/release-assets.mjs";
 import { readVersionConfig } from "../scripts/versioning.mjs";
 
 const commit = "a".repeat(40);
@@ -113,6 +113,46 @@ test("Binary receipts bind both platforms and reject altered, misplaced and unli
   expect(allowedBinary("client_0.0.0-setup.exe", "crawler-client", "0.0.0")).toBe(true);
   expect(allowedBinary("vrcp-web-0.0.0.tgz", "web", "0.0.0")).toBe(true);
   expect(allowedBinary("vrcp-web-0.0.1.tgz", "web", "0.0.0")).toBe(false);
+});
+
+test("streamed binary hashes retain receipt, platform, coverage and package boundaries", () => {
+  const crawler = { product: "crawler", version: "0.0.1", channel: "release" };
+  const files = new Map<string, Buffer>(), digests = new Map<string, { size: number; sha256: string }>();
+  for (const platform of ["linux", "windows"]) {
+    const name = platform === "linux" ? "vrcp-crawler-node-linux" : "vrcp-crawler-node.exe";
+    const actual = { size: 300 * 1024 ** 2, sha256: digest(Buffer.from(platform)) };
+    digests.set(name, actual);
+    files.set(`crawler-${platform}.receipt.json`, Buffer.from(JSON.stringify({ ...crawler, commit, purpose: "ci-release",
+      files: [{ name, ...actual }] })));
+  }
+  expect(checkedAssetBytes(files, crawler, commit, {}, digests)).toBe(files);
+  const name = "vrcp-crawler-node-linux", original = digests.get(name)!;
+  for (const invalid of [{ ...original, size: 1 }, { ...original, sha256: "b".repeat(64) },
+    { ...original, size: 0 }, { ...original, size: NaN }, { ...original, sha256: "not-a-hash" }]) {
+    digests.set(name, invalid);
+    expect(() => checkedAssetBytes(files, crawler, commit, {}, digests)).toThrow();
+  }
+  digests.delete(name);
+  expect(() => checkedAssetBytes(files, crawler, commit, {}, digests)).toThrow("Missing");
+  digests.set(name, original);
+  files.set(name, Buffer.from("duplicate"));
+  expect(() => checkedAssetBytes(files, crawler, commit, {}, digests)).toThrow("Invalid streamed");
+  files.delete(name);
+  files.set("crawler-linux.receipt.json", files.get("crawler-windows.receipt.json")!);
+  expect(() => checkedAssetBytes(files, crawler, commit, {}, digests)).toThrow("platform");
+  expect(() => checkedAssetBytes(files, selected, commit, {}, digests)).toThrow("Invalid streamed");
+  digests.set("extra.exe", original);
+  expect(() => checkedAssetBytes(files, crawler, commit, {}, digests)).toThrow("Invalid streamed");
+});
+
+test("attachment summaries link exact releases, mark drafts and reject Worker or injected targets", () => {
+  const tag = "vrcp-api/v2026.10.1-pre";
+  expect(releaseSummary("SlamTheDragon/vrc-packages", tag, false))
+    .toContain("[GitHub Release](https://github.com/SlamTheDragon/vrc-packages/releases/tag/vrcp-api%2Fv2026.10.1-pre)");
+  expect(releaseSummary("SlamTheDragon/vrc-packages", tag, true)).toContain("publication pending");
+  for (const invalid of ["cloudflare-worker/v0.0.1", `${tag}\nmalicious`, "vrcp-api/vlatest"])
+    expect(() => releaseSummary("SlamTheDragon/vrc-packages", invalid, false)).toThrow();
+  expect(() => releaseSummary("https://evil.invalid", tag, false)).toThrow("repository");
 });
 
 test("installer stamping normalizes names before receipts and rejects collisions without overwriting", async () => {

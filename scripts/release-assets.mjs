@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,9 +60,15 @@ export function checkedAssets(paths, selected, commit, manifest) {
 }
 
 /** Reuse the same receipt checks for memory-only public artifact readback. */
-export function checkedAssetBytes(files, selected, commit, manifest) {
+export function checkedAssetBytes(files, selected, commit, manifest, binaryDigests = new Map()) {
   if (selected.product === "worker") throw new Error("Worker bundles are CI-only, not GitHub Release assets");
   const { product, version, channel } = selected;
+  for (const [name, digest] of binaryDigests) {
+    if (!["crawler", "crawler-client"].includes(product) || !allowedBinary(name, product, version) || files.has(name) ||
+        !Number.isSafeInteger(digest?.size) || digest.size < 1 || !/^[a-f0-9]{64}$/.test(digest?.sha256 ?? "")) {
+      throw new Error("Invalid streamed binary digest");
+    }
+  }
   const used = new Set();
   const get = name => {
     if (!files.has(name)) throw new Error(`Missing checked release asset: ${name}`);
@@ -104,13 +110,23 @@ export function checkedAssetBytes(files, selected, commit, manifest) {
         if (product === "crawler" && file.name !== (receiptName.includes("linux") ? "vrcp-crawler-node-linux" : "vrcp-crawler-node.exe")) {
           throw new Error("Binary platform differs from its receipt");
         }
-        const bytes = get(file.name);
-        if (file.size !== bytes.length || file.sha256 !== hash(bytes)) throw new Error("Binary bytes differ from receipt");
+        let actual = binaryDigests.get(file.name);
+        if (actual) used.add(file.name);
+        else { const bytes = get(file.name); actual = { size: bytes.length, sha256: hash(bytes) }; }
+        if (file.size !== actual.size || file.sha256 !== actual.sha256) throw new Error("Binary bytes differ from receipt");
       }
     }
   }
-  if (used.size !== files.size) throw new Error("Unexpected file in release artifacts");
+  if (used.size !== files.size + binaryDigests.size) throw new Error("Unexpected file in release artifacts");
   return files;
+}
+
+/** Called only after attachment checks; npm deployment cards retain their registry URL. */
+export function releaseSummary(repository, tag, draft) {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error("Invalid release repository");
+  const match = /^(?:vrcp-api|vrcp-network|vrcp-crawler|vrcp-crawler-client|package|network|crawler|crawler-client|web)\/v(.+)$/.exec(tag);
+  if (!match || semver.valid(match[1]) !== match[1]) throw new Error("Invalid release tag; Worker assets remain CI-only");
+  return `\n[${draft ? "Draft GitHub Release (publication pending)" : "GitHub Release"}](https://github.com/${repository}/releases/tag/${encodeURIComponent(tag)})\n`;
 }
 
 export function milestoneNotes(markdown, product, selected, commit, runURL, status) {
@@ -407,6 +423,7 @@ async function main(directory) {
   await checkRemoteTag(api, env.GITHUB_REPOSITORY, tag, run.head_sha, tagObject);
   const release = await attachRelease(api, env.GITHUB_REPOSITORY, tag, run.head_sha,
     `${notes}\nCurrent delivery status: ${status}.\n`, assets, draft, selected.channel === "preview");
+  if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, releaseSummary(env.GITHUB_REPOSITORY, tag, release.draft));
   console.log(JSON.stringify({ tag, sourceRun: runId, status, draft: release.draft, url: release.html_url, assets: [...assets.keys()] }));
 }
 
