@@ -7,6 +7,9 @@
   "main": "src/index.ts",
   "type": "module",
   "scripts": {
+    "delivery:preview": "bun --cwd .. run delivery:preview crawler",
+    "delivery:release": "bun --cwd .. run delivery:release crawler",
+    "prepare:dev": "bun --cwd .. run prepare:dev preview crawler",
     "typecheck": "tsc --noEmit",
     "node": "bun run src/main.ts",
     "build": "bun run build:dev",
@@ -28,8 +31,9 @@
     "@types/node": "^26.6.3",
     "cheerio": "^1.2.0",
     "semver": "^7.8.5",
-    "vrc-packages-api": "latest",
+    "vrc-packages-api": "npm:vrc-packages-api-preview@latest",
     "vrc-packages-network": "https://github.com/SlamTheDragon/vrc-packages/releases/download/vrcp-network/v2026.10.2/vrc-packages-network-2026.10.2.tgz",
     "zod": "^4.6.5"
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

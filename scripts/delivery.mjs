@@ -5,7 +5,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
-import { distributedArtifact, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, versionFiles } from "./versioning.mjs";
+import { distributedArtifact, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, sdkChannelForProduct, versionFiles } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const artifacts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
@@ -187,7 +187,11 @@ export function previewOIDCFailure(stderr) {
     noCredentials: /\bENEEDAUTH\b/.test(log) };
 }
 
-function npm(args, cwd, capture = false) {
+function packageCommand(args, cwd, capture = false) {
+  // Bun owns installs and package scripts. npm remains the checked registry/staging interface.
+  if (["install", "run"].includes(args[0])) {
+    return execFileSync("bun", args, { cwd, stdio: capture ? "pipe" : "inherit", encoding: "utf8" });
+  }
   const cli = [process.env.npm_execpath, join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
     resolve(dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js")]
     .find(path => path?.endsWith("npm-cli.js") && existsSync(path));
@@ -238,8 +242,9 @@ export async function deliver(action, channel, product, ci = false) {
   if (["pack", "verify"].includes(action) && !["package", "network"].includes(product)) throw new Error("Pack/verify applies only to distributed packages");
   if (ci) await requireCI(product, channel);
   await versionFiles("check", channel, product);
-  const { config } = await readVersionConfig(channel);
-  const sdkVersion = config[`${channel}-package`];
+  const sdkChannel = sdkChannelForProduct(product, channel);
+  const { config: sdkConfig } = await readVersionConfig(sdkChannel);
+  const sdkVersion = sdkConfig[`${sdkChannel}-package`];
   const project = resolve(root, productDirectories[product]);
   const manifest = JSON.parse(readFileSync(join(project, "package.json"), "utf8"));
 
@@ -247,7 +252,7 @@ export async function deliver(action, channel, product, ci = false) {
     const inputs = [];
     const needsNetwork = !!manifest.dependencies?.["vrc-packages-network"];
     const needsSDK = product === "network" || !!manifest.dependencies?.["vrc-packages-api"];
-    if (needsSDK) inputs.push(`vrc-packages-api@file:${packRegistrySDK(resolve(root, productDirectories.package), channel, sdkVersion)}`);
+    if (needsSDK) inputs.push(`vrc-packages-api@file:${packRegistrySDK(resolve(root, productDirectories.package), sdkChannel, sdkVersion)}`);
     if (needsNetwork) {
       if (!needsSDK) throw new Error("Network consumers must declare their selected SDK dependency");
       const { readNetworkDistribution } = await import("./delivery-chain.mjs");
@@ -265,7 +270,7 @@ export async function deliver(action, channel, product, ci = false) {
       inputs.push(`vrc-packages-network@file:${artifact}`);
     }
     // These are packed JS/type dependencies. No sibling source is read by a consumer build.
-    npm(["install", "--no-save", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", ...inputs], project);
+    packageCommand(["install", "--no-save", "--ignore-scripts", ...inputs], project);
     inspectDependencies(project, sdkVersion);
     if (needsNetwork) execFileSync(process.execPath, ["--input-type=module", "-e",
       "import { NodeIdSchema } from 'vrc-packages-network/node'; import { IssueNodeCredentialSchema } from 'vrc-packages-api'; if (NodeIdSchema !== IssueNodeCredentialSchema.shape.nodeId) throw new Error('Network resolved another SDK');"],
@@ -274,7 +279,7 @@ export async function deliver(action, channel, product, ci = false) {
     if (!["deploy", "publish"].includes(action)) inspectDependencies(project, sdkVersion);
     if (action === "build") {
       if (product === "worker") {
-        npm(["run", `build:${channel}`], project);
+        packageCommand(["run", `build:${channel}`], project);
         if (ci) {
           const bundle = join(project, ".wrangler/dev-build", channel === "preview" ? "preview" : "production", "worker_entry.js");
           writeFileSync(`${bundle}.json`, JSON.stringify({ purpose: "ci-release", product,
@@ -283,25 +288,25 @@ export async function deliver(action, channel, product, ci = false) {
             sha256: createHash("sha256").update(readFileSync(bundle)).digest("hex") }, null, 2) + "\n");
         }
       }
-      else if (product === "crawler") npm(["run", process.platform === "win32" ? "build:dev" : "build:node:linux"], project);
-      else if (product === "crawler-client" && !ci) npm(["run", "build:dev"], project);
-      else npm(["run", "build"], project);
+      else if (product === "crawler") packageCommand(["run", process.platform === "win32" ? "build:dev" : "build:node:linux"], project);
+      else if (product === "crawler-client" && !ci) packageCommand(["run", "build:dev"], project);
+      else packageCommand(["run", "build"], project);
     } else if (action === "pack") {
-      npm(["run", "build"], project);
+      packageCommand(["run", "build"], project);
       console.log(JSON.stringify({ artifact: pack(project, ci), purpose: ci ? "ci-release" : "development" }));
     } else if (action === "verify") {
-      if (product === "package") npm(["test"], project);
-      npm(["run", "typecheck"], project);
+      if (product === "package") packageCommand(["run", "test"], project);
+      packageCommand(["run", "typecheck"], project);
       if (product === "network") {
         // Pack once. Both SDK channels must consume these same network bytes.
-        npm(["run", "build"], project);
+        packageCommand(["run", "build"], project);
         const network = pack(project, false);
         for (const sdkChannel of ["release", "preview"]) {
           const sdkConfig = (await readVersionConfig(sdkChannel)).config;
           const sdk = packRegistrySDK(resolve(root, productDirectories.package), sdkChannel, sdkConfig[`${sdkChannel}-package`]);
-          npm(["run", "test:distribution", "--", "--sdk-tarball", sdk, "--network-tarball", network], project);
+          packageCommand(["run", "test:distribution", "--sdk-tarball", sdk, "--network-tarball", network], project);
         }
-      } else npm(["run", "test:distribution"], project);
+      } else packageCommand(["run", "test:distribution"], project);
     } else if (action === "deploy") {
       if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) throw new Error("CI requires protected Cloudflare account/token secrets");
       const directory = channel === "preview" ? "preview" : "production";
@@ -364,13 +369,13 @@ function packRegistrySDK(project, channel, configuredVersion) {
   const version = configuredVersion ?? JSON.parse(readFileSync(join(project, "package.json"), "utf8")).version;
   const registry = "https://registry.npmjs.org";
   const spec = `${name}@latest`;
-  const metadata = JSON.parse(npm(["view", spec, "--json", `--registry=${registry}`], root, true));
+  const metadata = JSON.parse(packageCommand(["view", spec, "--json", `--registry=${registry}`], root, true));
   if (metadata.name !== sdkPackageNames[channel] || metadata.version !== version) {
     throw new Error("Registry SDK channel resolves outside the authoritative version config");
   }
   const destination = join(project, ".artifacts/dev");
   mkdirSync(destination, { recursive: true });
-  const [result] = JSON.parse(npm(["pack", `${name}@${version}`, "--ignore-scripts", "--json", `--registry=${registry}`,
+  const [result] = JSON.parse(packageCommand(["pack", `${name}@${version}`, "--ignore-scripts", "--json", `--registry=${registry}`,
     "--pack-destination", destination], root, true));
   const artifact = join(destination, `${name}-${version}.tgz`);
   const bytes = readFileSync(artifact);
@@ -384,7 +389,7 @@ function packRegistrySDK(project, channel, configuredVersion) {
 function pack(project, ci) {
   const destination = join(project, ".artifacts", ci ? "ci" : "dev");
   mkdirSync(destination, { recursive: true });
-  const [result] = JSON.parse(npm(["pack", "--ignore-scripts", "--json", "--pack-destination", destination], project, true));
+  const [result] = JSON.parse(packageCommand(["pack", "--ignore-scripts", "--json", "--pack-destination", destination], project, true));
   const expected = JSON.parse(readFileSync(join(project, "package.json"), "utf8"));
   if (result.name !== expected.name || result.version !== expected.version ||
       !result.files.every(file => ["package.json", "README.md", "LICENSE", "LICENSE.md"].includes(file.path) ||

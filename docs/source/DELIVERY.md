@@ -1,23 +1,5 @@
 # Development and tagged delivery
 
-Implementation status, 2026-10-05: the grouped local checks passed for packages, node, Worker, website and desktop development builds.
-Preview dependency selection, the replacement D1 binding and the persistent preview Worker deployment passed.
-Local commands create development outputs only. They do not upload releases, publish packages or deploy a Worker.
-
-Remote checkpoint: SDK release run 37234232443 and preview run 37234232436 passed at commit 8907ef2.
-Both runs uploaded the checked tarball and a separate npm stage receipt. The owner promoted the stages on npm.
-Public latest resolves to vrc-packages-api@0.0.0 and vrc-packages-api-preview@2026.10.0-pre.
-The published tarballs match their CI stage receipts by SHA-256. The check used memory only, with no local release files.
-The authorized SDK tag replacements used exact-target leases. Published SDK tags must not move again.
-Worker run 37235649307 passed at 8907ef2 for worker/v2026.10.0-pre.
-It deployed version 4a93db4f-8d7f-493b-9d85-76ead98d4510 to the separate persistent preview Worker.
-The unauthenticated operator-init probe returned 401. No remote schema initialization or source grant ran.
-SDK release attachments passed remotely at 12b26f1. Runs 37237551535 and 37237553499 attached the original checked outputs.
-The two SDK releases contain five assets each. All checksum entries match uploaded digests.
-Owner correction: Worker environments have no GitHub Release assets. Worker bundles and receipts stay in Actions artifacts.
-SDK retries 37239255957 and 37239258107 passed at bf6badd, retaining original assets after note-renderer changes.
-The hourly draft checker passed its manual CI run 37238419166. No draft existed, so live post-approval promotion remains untested.
-
 ## Version authority
 
 `config.versions.json` supplies release versions. `config.preview.versions.json` supplies preview versions.
@@ -45,17 +27,21 @@ The owner authorizes release `0.0.0` and configured CalVer preview publication a
 Release `v0.1.0` remains the stable `/v1/` milestone and requires the full owner API review.
 That release-version hold does not block the separate preview identity.
 
-| Consumer channel | SDK identity | Dependency selection |
+| Project, both artifact channels | SDK identity | Dependency selection |
 | --- | --- | --- |
-| Preview Worker and other preview apps | vrc-packages-api-preview | npm:vrc-packages-api-preview@latest under vrc-packages-api, checked against the preview config |
+| src-crawler | vrc-packages-api-preview | npm:vrc-packages-api-preview@latest, checked against the preview config. Internal network archive from its single stream |
+| src-worker | vrc-packages-api-preview | npm:vrc-packages-api-preview@latest, checked against the preview config. Internal network archive from its single stream |
+| src-crawler-client | vrc-packages-api | latest, checked against the release config, including preview installers |
+| src-web | vrc-packages-api | latest, checked against the release config. Remote delivery remains disabled |
 | Internal network package | Consumer-selected SDK | Required peer accepts the two config-selected SDK versions. Development uses the preview SDK alias. |
-| Release Worker | vrc-packages-api | latest, with its resolved version checked against config.versions.json |
-| Other release consumers | vrc-packages-api | latest, with its resolved version checked against config.versions.json |
+
+The owner mapping separates SDK selection from product artifact labels. A release crawler still consumes the preview SDK.
+A preview desktop installer consumes the release SDK. Neither choice changes its executable version or publication environment.
 
 The two identities share one source tree and export layout. They do not share npm version histories.
 API schema versions remain independent of package versions.
 
-## Human delivery procedure
+## Delivery procedure
 
 The root chain selects one product: package, network, crawler, crawler-client or preview worker.
 Website delivery and production Worker deployment remain disabled.
@@ -65,8 +51,8 @@ Only an explicit execution allocates a patch. Builds read the saved config witho
 | --- | --- | --- |
 | package | Publish vrc-packages-api-preview through OIDC, then attach checked assets | Stage vrc-packages-api below v0.1, then attach public assets after owner npm approval |
 | network | Build one suffix-free archive against both SDK channels and attach checked assets | Disabled. Release consumers reuse the same archive. |
-| crawler | Build matching preview dependencies, preview GHCR image and Linux/Windows assets | Build matching release dependencies, release GHCR image and Linux/Windows assets |
-| crawler-client | Build preview SDK consumer and unsigned MSI/NSIS assets | Build release SDK consumer and unsigned MSI/NSIS assets |
+| crawler | Build preview SDK and single-stream network consumer, preview GHCR image and binaries | Use those same dependency channels, but publish release GHCR image and binaries |
+| crawler-client | Build release SDK consumer and unsigned MSI/NSIS assets | Build release SDK consumer and unsigned MSI/NSIS assets |
 | worker | Build preview SDK consumer and deploy to isolated preview D1 | Build only. Production deployment stays disabled. No Worker GitHub Release assets in either channel |
 
 - Review the product's bounded section in [CHANGELOG.md](CHANGELOG.md).
@@ -85,6 +71,14 @@ For the desktop, it also synchronizes Cargo and the numeric MSI version.
 It commits those files and creates an annotated product tag.
 An atomic, non-forced push sends the branch commit and tag together. Existing tags and divergent branches stop the command.
 CI syncs manifests and channel dependencies, builds checked outputs, and uses the existing publication and attachment jobs.
+Each product's delivery:preview and delivery:release scripts forward to this root chain. The network has only delivery:preview.
+For example, run `npm --prefix src-crawler run delivery:preview -- --execute` from the root.
+From inside src-crawler, use `npm run delivery:preview -- --execute` instead.
+These forwarding commands keep the same clean-checkout, patch-allocation, tag and publication guards.
+Website forwarding stops at the disabled-delivery guard. It does not enable a workflow or emit remote artifacts.
+Native build scripts remain separate because the root build command calls them. Forwarding them back would create a build-hook loop.
+CI-only SDK publish and Worker deploy helpers also forward through root package.json. They do not replace the full delivery chain.
+Agent instructions are separate in [the agent delivery procedure](../decisions/AGENT_DELIVERY_PROCEDURE.md).
 No local release build, npm promotion or environment approval runs through this chain.
 The owner requires patch-2 proof for every enabled channel before main sign-off. Website CI remains disabled without artifacts.
 After proof, the approved branches are website-preview, crawler-client-preview, api-package-preview and worker-preview.
@@ -145,7 +139,7 @@ npm run build:dev -- preview worker
 ```
 
 Local and CI `prepare` resolve the selected SDK's latest tag and check its version against that channel's config.
-Release consumers reject an SDK version outside the authoritative release config.
+Each consumer rejects an SDK outside the config selected by the owner mapping, regardless of its artifact channel.
 Preparation then downloads that exact version, not the moving tag. Both paths check identity, SHA-512 integrity and compiled files.
 Network consumers resolve the GitHub archive selected by preview-network, regardless of their SDK channel.
 The reader checks its source tag before and after download, successful CI source, receipt, notes, digests and checksum coverage.
@@ -157,6 +151,9 @@ Development dependency files stay under product-local .artifacts/dev directories
 Manifests declare an exact GitHub archive URL, so bare installs no longer request the unpublished network package from npm.
 Bare installs do not perform the full delivery receipt check. Use root preparation for that check.
 Network bumps also update each declared consumer archive URL, without changing its runtime version or SDK channel.
+SDK latest aliases receive new publications without a JSON rewrite. Installed node_modules still need explicit preparation.
+An SDK bump synchronizes network peer bounds. If those bounds change, publish a checked network archive before dependent consumer delivery.
+Never silently bypass a stale peer bound or replace an already published archive.
 Project SDK dependencies use the appropriate latest alias. CI checks that alias against config before it builds.
 After preview publication, CI checks the version and latest alias for up to six read attempts within 90 seconds.
 Absent records and an older latest alias can wait for registry propagation. Different bytes, identity or a newer alias fail immediately.
@@ -469,7 +466,7 @@ The owner selects separate image packages. Each uses its configured version and 
 | Release | vrcp-crawler-node | vrcp-crawler-release |
 | Preview | vrcp-crawler-node-preview | vrcp-crawler-preview |
 
-Release builds use release SDK and network versions. Preview builds use preview versions and the preview SDK identity.
+Both crawler artifact channels use the preview SDK and the same suffix-free network stream.
 The internal network dependency remains a packed input, not a public npm package.
 Docker arguments come from the selected version config. The builder checks installed manifests before compiling.
 An SDK identity, dependency version or declaration mismatch stops the build.

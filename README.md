@@ -1,4 +1,4 @@
-# VRC Packages
+# VRC Packages (⚠️WIP!)
 
 VRC Packages (VRCP) is an open-source discovery and indexing engine for public VRChat creator packages (Tools, Assets, Avatars).
 
@@ -34,11 +34,11 @@ cd src-crawler
 bun test
 
 # Run Worker-owned tests
-cd ../src-worker
+cd src-worker
 bun run test
 
 # Run consumer SDK tests
-cd ../src-package
+cd src-package
 bun test
 ```
 
@@ -52,15 +52,15 @@ cd src-crawler
 bun run typecheck
 
 # Typecheck consumer SDK
-cd ../src-package
+cd src-package
 bun run typecheck
 
 # Build the standalone node
-cd ../src-crawler
+cd src-crawler
 bun run build
 
 # Check and build the API Worker without deploying
-cd ../src-worker
+cd src-worker
 bun run check
 bun run build
 
@@ -74,7 +74,7 @@ bun run test:runtime
 
 ### 1. Downstream Integration (`vrc-packages-api`)
 
-Downstream applications can use the SDK's public contracts. No integration with VCC or `vrc-get` is claimed.
+Downstream applications can use the SDK's public contracts. For full documentation, read [docs/source](docs/source). For agents: See [DELEGATES.md](DELEGATES.md) for full SDK documentation overview, registration procedures, and keyset pagination guides.
 
 ```typescript
 import { VRCPackageClient } from "vrc-packages-api";
@@ -99,8 +99,6 @@ const deltas = await client.index.syncDeltas({
   limit: 100,
 });
 ```
-
-See [DELEGATES.md](DELEGATES.md) for full SDK documentation, registration procedures, and keyset pagination guides.
 
 The example environment variable is a backend convention, not an SDK requirement. The Worker accepts queryOrigin but does not record or apply search attribution. Do not treat that field as implemented attribution or auditing.
 

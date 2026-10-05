@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { bumpVersion, distributedArtifact, networkArchiveURL, productDirectories, readVersionConfig, sdkPackageNames, versionFiles } from "../scripts/versioning.mjs";
+import { bumpVersion, distributedArtifact, networkArchiveURL, productDirectories, readVersionConfig, sdkPackageNames, sdkChannelForProduct, versionFiles } from "../scripts/versioning.mjs";
 import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, stageSDKArtifact, publishPreviewSDKArtifact, previewOIDCFailure, validateCIArtifact, validateRegistrySDK, validateSDKStage, workerSecretBindings } from "../scripts/delivery.mjs";
 
 test("preview npm failure summaries expose only statuses and fixed flags, never raw authentication logs", () => {
@@ -128,8 +128,11 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
     await versionFiles("sync", "release", "all", workspace);
     await versionFiles("check", "release", "all", workspace);
     expect(JSON.parse(await readFile(resolve(workspace, "src-package/package.json"), "utf8")).name).toBe(sdkPackageNames.release);
-    expect(JSON.parse(await readFile(resolve(workspace, "src-worker/package.json"), "utf8")).dependencies["vrc-packages-api"]).toBe("latest");
-    expect(JSON.parse(await readFile(resolve(workspace, "src-crawler/package.json"), "utf8")).dependencies["vrc-packages-api"]).toBe("latest");
+    expect(JSON.parse(await readFile(resolve(workspace, "src-worker/package.json"), "utf8")).dependencies["vrc-packages-api"]).toBe("npm:vrc-packages-api-preview@latest");
+    expect(JSON.parse(await readFile(resolve(workspace, "src-crawler/package.json"), "utf8")).dependencies["vrc-packages-api"]).toBe("npm:vrc-packages-api-preview@latest");
+    for (const project of ["src-web", "src-crawler-client"]) {
+      expect(JSON.parse(await readFile(resolve(workspace, project, "package.json"), "utf8")).dependencies["vrc-packages-api"]).toBe("latest");
+    }
   });
 });
 
@@ -140,6 +143,23 @@ test("versioning CLI bumps use tagged delivery, never the metadata-only primitiv
   expect(cli).toContain('await startDelivery(channel, product, extra[1] === "--execute")');
   expect(cli).not.toContain("await bumpVersion(");
   expect(cli).toContain('extra[0] !== "patch"');
+});
+
+test("owner SDK mapping does not change with artifact channels and product delivery forwards to root", () => {
+  for (const channel of ["release", "preview"]) {
+    for (const product of ["crawler", "worker"]) expect(sdkChannelForProduct(product, channel)).toBe("preview");
+    for (const product of ["crawler-client", "web"]) expect(sdkChannelForProduct(product, channel)).toBe("release");
+    expect(sdkChannelForProduct("package", channel)).toBe(channel);
+  }
+  expect(() => sdkChannelForProduct("unknown", "preview")).toThrow();
+  expect(() => sdkChannelForProduct("worker", "unknown")).toThrow();
+  for (const product of ["crawler", "worker", "crawler-client", "web", "package", "network"]) {
+    const manifest = JSON.parse(readFileSync(new URL(`../${productDirectories[product]}/package.json`, import.meta.url), "utf8"));
+    const prefix = product === "network" ? "../../.." : "..";
+    expect(manifest.scripts["delivery:preview"]).toBe(`npm --prefix ${prefix} run delivery:preview -- ${product}`);
+    if (product !== "network") expect(manifest.scripts["delivery:release"]).toBe(`npm --prefix .. run delivery:release -- ${product}`);
+    else expect(manifest.scripts["delivery:release"]).toBeUndefined();
+  }
 });
 
 test("SDK synchronization updates network peer bounds without bumping its stream or switching consumers", async () => {
@@ -639,7 +659,10 @@ test("every CI consumer installs the published SDK while local preparation and t
     await mkdir(resolve(workspace, "node_modules"));
     await cp(new URL("../node_modules/semver", import.meta.url), resolve(workspace, "node_modules/semver"), { recursive: true });
     for (const file of ["delivery.mjs", "versioning.mjs"]) {
-      await writeFile(resolve(workspace, "scripts", file), await readFile(new URL(`../scripts/${file}`, import.meta.url)));
+      let source = await readFile(new URL(`../scripts/${file}`, import.meta.url), "utf8");
+      // Mock the external Bun process only. The real CLI still selects the product's SDK channel.
+      if (file === "delivery.mjs") source = source.replace('execFileSync("bun", args,', 'execFileSync(process.execPath, [process.env.npm_execpath, ...args],');
+      await writeFile(resolve(workspace, "scripts", file), source);
     }
     await writeFile(resolve(workspace, "package.json"), JSON.stringify({ type: "module" }));
     const networkPath = resolve(workspace, productDirectories.network, "package.json");
@@ -690,13 +713,17 @@ if(args[0]==='view') {
         if (product === "network" && channel === "release") continue;
         await writeFile(log, "");
         const productVersion = (await readVersionConfig(channel, workspace)).config[`${channel}-${product}`];
-        run(["scripts/delivery.mjs", "prepare", channel, product, "--ci"], { ...env, GITHUB_REF: `refs/tags/${prefix}/v${productVersion}` });
+        const sdkChannel = sdkChannelForProduct(product, channel);
+        const dependencyVersion = (await readVersionConfig(sdkChannel, workspace)).config[`${sdkChannel}-package`];
+        run(["scripts/delivery.mjs", "prepare", channel, product, "--ci"], { ...env,
+          FIXTURE_SDK_NAME: sdkPackageNames[sdkChannel], FIXTURE_VERSION: dependencyVersion,
+          GITHUB_REF: `refs/tags/${prefix}/v${productVersion}` });
         const trace = await commands();
-        expect(trace.filter(item => item.args[0] === "view").map(item => item.args[1])).toEqual([`${sdkPackageNames[channel]}@latest`]);
+        expect(trace.filter(item => item.args[0] === "view").map(item => item.args[1])).toEqual([`${sdkPackageNames[sdkChannel]}@latest`]);
         expect(trace.some(item => item.cwd === resolve(workspace, productDirectories.package) && item.args[0] === "run")).toBe(false);
-        expect(trace.some(item => item.args[0] === "pack" && item.args[1] === `${sdkPackageNames[channel]}@${version}`)).toBe(true);
+        expect(trace.some(item => item.args[0] === "pack" && item.args[1] === `${sdkPackageNames[sdkChannel]}@${dependencyVersion}`)).toBe(true);
         const installed = JSON.parse(await readFile(resolve(workspace, productDirectories[product], "node_modules/vrc-packages-api/package.json"), "utf8"));
-        expect(installed).toEqual({ name: sdkPackageNames[channel], version });
+        expect(installed).toEqual({ name: sdkPackageNames[sdkChannel], version: dependencyVersion });
       }
       await writeFile(log, "");
       expect(() => run(["scripts/delivery.mjs", "prepare", channel, "crawler", "--ci"], {
@@ -707,7 +734,8 @@ if(args[0]==='view') {
       run(["scripts/delivery.mjs", "prepare", channel, "package", "--ci"], { ...env, GITHUB_REF: `refs/tags/vrcp-api/v${version}` });
       expect((await commands()).some(item => item.args[0] === "view")).toBe(false);
       await writeFile(log, "");
-      run(["scripts/delivery.mjs", "prepare", channel, "crawler"], env);
+      run(["scripts/delivery.mjs", "prepare", channel, "crawler"], { ...env,
+        FIXTURE_SDK_NAME: sdkPackageNames.preview, FIXTURE_VERSION: "2026.10.1-pre" });
       const local = await commands();
       expect(local.some(item => item.args[0] === "view")).toBe(true);
       expect(local.some(item => item.cwd === resolve(workspace, productDirectories.package) && item.args[0] === "run")).toBe(false);

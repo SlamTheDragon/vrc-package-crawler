@@ -14,10 +14,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
-      - run: npm install --ignore-scripts --package-lock=false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.2'
+      - run: bun install --no-save --ignore-scripts
       - id: route
         run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'

@@ -6,6 +6,9 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "delivery:preview": "bun --cwd .. run delivery:preview web",
+    "delivery:release": "bun --cwd .. run delivery:release web",
+    "prepare:dev": "bun --cwd .. run prepare:dev preview web",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
@@ -16,9 +19,10 @@
     "astro": "^7.3.5",
     "svelte": "^5.57.1",
     "typescript": "^6.0.3",
-    "vrc-packages-api": "npm:vrc-packages-api-preview@latest"
+    "vrc-packages-api": "latest"
   },
   "allowScripts": {
     "esbuild": true
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

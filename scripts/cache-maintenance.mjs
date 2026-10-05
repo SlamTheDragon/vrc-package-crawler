@@ -85,14 +85,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const response = await fetch(`https://api.github.com${path}`, { method, redirect: "error", signal: AbortSignal.timeout(30_000),
         headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2026-03-10" } });
       if (method === "DELETE" && response.status === 204) return;
-      if (!response.ok || method === "DELETE") throw new Error(`Cache API failed (${response.status}); no further deletion ran`);
+      if (!response.ok || method === "DELETE") {
+        const operation = path.endsWith("/storage-limit") ? "cap" : path.includes("/actions/runs?") ? "active-runs" : method === "DELETE" ? "delete" : "list";
+        throw new Error(`Cache API failed (${response.status}); operation=${operation}; no further deletion ran`);
+      }
       return response.json();
     };
     console.log(JSON.stringify(await maintainCaches(api, { execute: args[0] === "--execute" }), null, 2));
   } catch (error) {
     // Show only our numeric HTTP status, never a fetch URL, token, or response body.
-    const status = error instanceof Error && /^Cache API failed \((\d{3})\);/.exec(error.message);
-    if (status) console.error(`Cache API status: ${status[1]}`);
+    const status = error instanceof Error && /^Cache API failed \((\d{3})\); operation=(cap|active-runs|delete|list);/.exec(error.message);
+    if (status) console.error(`Cache API status: ${status[1]}, operation: ${status[2]}`);
     console.error("Cache maintenance failed closed. Inspect API permissions and bounded listing checks. No artifacts or registry versions were targets.");
     process.exitCode = 1;
   }

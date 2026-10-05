@@ -28,7 +28,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.2'
-      - run: npm install --ignore-scripts --package-lock=false
+      - run: bun install --no-save --ignore-scripts
       - run: node scripts/versioning.mjs sync '${{ needs.route.outputs.channel }}'
       - run: bun test ./tests
       - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
@@ -36,8 +36,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify package contracts and node
         run: |
-          npm --prefix src-crawler run typecheck
-          npm --prefix src-crawler test
+          bun --cwd src-crawler run typecheck
+          bun --cwd src-crawler run test
           node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci
           src-crawler/dist/dev/vrcp-crawler-node-linux --help
       - run: node scripts/release-assets.mjs stamp '${{ needs.route.outputs.channel }}' crawler src-crawler/dist/dev linux
@@ -59,7 +59,7 @@ jobs:
       - id: dependencies
         name: Read configured dependency identities
         run: |
-          node -e 'const c=process.env.VRCP_BUILD_CHANNEL; const v=require(c==="preview"?"./config.preview.versions.json":"./config.versions.json"); console.log("sdk-name="+require("./src-package/package.json").name); console.log("sdk-version="+v[c+"-package"]); console.log("network-version="+require("./config.preview.versions.json")["preview-network"]);' >> "$GITHUB_OUTPUT"
+          node --input-type=module -e 'import {readVersionConfig,sdkChannelForProduct,sdkPackageNames} from "./scripts/versioning.mjs"; const c=sdkChannelForProduct("crawler",process.env.VRCP_BUILD_CHANNEL); const {config:v}=await readVersionConfig(c); console.log("sdk-name="+sdkPackageNames[c]); console.log("sdk-version="+v[c+"-package"]); console.log("network-version="+(await readVersionConfig("preview")).config["preview-network"]);' >> "$GITHUB_OUTPUT"
         env:
           VRCP_BUILD_CHANNEL: ${{ needs.route.outputs.channel }}
 
@@ -130,14 +130,14 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.2'
-      - run: npm install --ignore-scripts --package-lock=false
+      - run: bun install --no-save --ignore-scripts
       - run: node scripts/versioning.mjs sync '${{ needs.route.outputs.channel }}'
       - run: bun test ./tests
       - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: npm --prefix src-crawler run typecheck
-      - run: npm --prefix src-crawler test
+      - run: bun --cwd src-crawler run typecheck
+      - run: bun --cwd src-crawler run test
       - run: node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci
       - run: src-crawler/dist/dev/vrcp-crawler-node.exe --version
       - run: node scripts/release-assets.mjs stamp '${{ needs.route.outputs.channel }}' crawler src-crawler/dist/dev windows
@@ -159,7 +159,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
-      - run: npm install --ignore-scripts --package-lock=false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: bun install --no-save --ignore-scripts
       - id: route
         run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
   publish-container:
@@ -178,7 +181,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
-      - run: npm install --ignore-scripts --package-lock=false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: bun install --no-save --ignore-scripts
       - uses: actions/download-artifact@v4
         with:
           name: ci-only-crawler-${{ needs.route.outputs.version }}-container

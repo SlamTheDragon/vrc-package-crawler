@@ -4,15 +4,18 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "npm run build:preview",
+		"delivery:preview": "bun --cwd .. run delivery:preview worker",
+		"delivery:release": "bun --cwd .. run delivery:release worker",
+		"prepare:dev": "bun --cwd .. run prepare:dev preview worker",
+		"build": "bun run build:preview",
 		"build:preview": "wrangler deploy --dry-run --autoconfig=false --env preview --outdir .wrangler/dev-build/preview --config wrangler.toml",
 		"build:release": "wrangler deploy --dry-run --autoconfig=false --env=\"\" --outdir .wrangler/dev-build/production --config wrangler.toml",
 		"check": "bun run cf-typegen && tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
-		"deploy": "node ../scripts/delivery.mjs deploy release worker --ci",
-		"deploy:preview": "node ../scripts/delivery.mjs deploy preview worker --ci",
-		"deploy:release": "node ../scripts/delivery.mjs deploy release worker --ci",
+		"deploy": "bun --cwd .. run deploy:release:worker",
+		"deploy:preview": "bun --cwd .. run deploy:preview:worker",
+		"deploy:release": "bun --cwd .. run deploy:release:worker",
 		"dev": "wrangler dev --env preview --config wrangler.toml --persist-to .wrangler/local-preview",
-		"start": "npm run dev",
+		"start": "bun run dev",
 		"test": "bun test ./test",
 		"test:workers": "vitest run",
 		"test:runtime": "node test/coordinator_runtime_smoke.mjs",
@@ -20,7 +23,7 @@
 	},
 	"dependencies": {
 		"@trybyte/robotstxt-parser": "2.0.0",
-		"vrc-packages-api": "latest",
+		"vrc-packages-api": "npm:vrc-packages-api-preview@latest",
 		"vrc-packages-network": "https://github.com/SlamTheDragon/vrc-packages/releases/download/vrcp-network/v2026.10.2/vrc-packages-network-2026.10.2.tgz",
 		"zod": "^4.6.5"
 	},
@@ -32,5 +35,6 @@
 		"typescript": "^5.5.2",
 		"vitest": "~4.1.0",
 		"wrangler": "4.147.0"
-	}
+	},
+	"packageManager": "bun@1.4.2"
 }

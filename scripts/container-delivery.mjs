@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import semver from "semver";
 import { requireCI } from "./delivery.mjs";
-import { readVersionConfig, sdkPackageNames } from "./versioning.mjs";
+import { readVersionConfig, sdkPackageNames, sdkChannelForProduct } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
@@ -115,12 +115,13 @@ export async function archiveDigest(path) {
 async function main(action, channel) {
   assert(["seal", "load", "publish"].includes(action), "Expected container-delivery.mjs <seal|load|publish> <release|preview>");
   const selected = await requireCI("crawler", channel);
-  const { config } = await readVersionConfig(channel);
+  const sdkChannel = sdkChannelForProduct("crawler", channel);
+  const { config } = await readVersionConfig(sdkChannel);
   const { config: networkConfig } = await readVersionConfig("preview");
   const repository = process.env.GITHUB_REPOSITORY;
   assert(/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repository ?? ""), "Container receipt needs the source repository");
   const expected = { product: "crawler", channel, version: selected.version, commit: process.env.GITHUB_SHA, repository,
-    sdkName: sdkPackageNames[channel], sdkVersion: config[`${channel}-package`], networkVersion: networkConfig["preview-network"] };
+    sdkName: sdkPackageNames[sdkChannel], sdkVersion: config[`${sdkChannel}-package`], networkVersion: networkConfig["preview-network"] };
   const checkTag = `vrcp-node-check:${expected.commit}`;
   const archive = join(directory, "container.tar");
   const receiptPath = join(directory, "container.receipt.json");

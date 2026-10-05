@@ -54,10 +54,11 @@
 		}
 	},
 	"scripts": {
+		"delivery:preview": "bun --cwd ../../.. run delivery:preview network",
 		"typecheck": "tsc --noEmit",
 		"test:distribution": "node test/distribution_smoke.mjs",
 		"build": "tsc --project tsconfig.json",
-		"prepack": "npm run build"
+		"prepack": "bun run build"
 	},
 	"dependencies": {
 		"semver": "^7.8.5",
@@ -72,5 +73,6 @@
 		"typescript": "^7.0.2",
 		"miniflare": "5.20261001.0-alpha",
 		"wrangler": "4.147.0"
-	}
+	},
+	"packageManager": "bun@1.4.2"
 }

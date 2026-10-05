@@ -16,6 +16,12 @@ const products = Object.keys(productDirectories);
 const distributedProducts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
 export const sdkPackageNames = { release: "vrc-packages-api", preview: "vrc-packages-api-preview" };
 
+/** Dependency channels belong to products, not to their artifact release labels. */
+export function sdkChannelForProduct(product, channel) {
+  if (!products.includes(product) || !["release", "preview"].includes(channel)) throw new Error("Unknown SDK consumer or build channel");
+  return { crawler: "preview", worker: "preview", "crawler-client": "release", web: "release" }[product] ?? channel;
+}
+
 export function networkArchiveURL(version) {
   if (semver.valid(version) !== version) throw new Error("Network archive requires a canonical version");
   return `https://github.com/SlamTheDragon/vrc-packages/releases/download/vrcp-network/v${version}/vrc-packages-network-${version}.tgz`;
@@ -145,8 +151,8 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
     for (const [dependency, dependencyProduct] of Object.entries(distributedProducts)) {
       if (Object.hasOwn(manifest.dependencies ?? {}, dependency)) {
         const artifactVersion = dependencyProduct === "network" ? networkArchiveURL(preview["preview-network"])
-          : dependencyProduct === "package" && channel === "preview"
-          ? `npm:${sdkPackageNames.preview}@${name === "network" ? config["preview-package"] : "latest"}`
+          : dependencyProduct === "package" && sdkChannelForProduct(name, channel) === "preview"
+          ? `npm:${sdkPackageNames.preview}@latest`
           : "latest";
         if (manifest.dependencies[dependency] !== artifactVersion) {
           manifest.dependencies[dependency] = artifactVersion;

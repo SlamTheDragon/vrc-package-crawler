@@ -40,7 +40,7 @@ describe("Pre-production directory layout and configuration conformance", () => 
     for (const project of ["src-worker", "src-crawler", "src-web", "src-crawler-client"]) {
       const manifest = JSON.parse(readFileSync(join(rootDir, project, "package.json"), "utf8"));
       const sdkSpec = manifest.dependencies["vrc-packages-api"];
-      const previewSDK = sdkSpec.startsWith("npm:");
+      const previewSDK = project === "src-worker" || project === "src-crawler";
       expect(sdkSpec).toBe(previewSDK ? "npm:vrc-packages-api-preview@latest" : "latest");
       expect(Object.values(manifest.dependencies).some(value => String(value).startsWith("file:"))).toBe(false);
       if (project === "src-worker" || project === "src-crawler") {

@@ -94,7 +94,7 @@ export function retryDelivery(tag, workspace = root, git = runGit) {
     git(workspace, "push", "--atomic", "origin", `HEAD:refs/heads/${branch}`, `refs/tags/${tag}`);
   }
   return { ...selected, repository, status: remote ? "already-pushed" : "pushed",
-    next: [`npm run delivery:status -- ${tag}`, `npm run delivery:check -- ${tag}`] };
+    next: [`bun run delivery:status ${tag}`, `bun run delivery:check ${tag}`] };
 }
 
 export function summarizeRun(run, jobs, release, product, channel = "preview") {

@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { maintainCaches } from "../scripts/cache-maintenance.mjs";
 
 const now = new Date("2026-10-05T12:00:00Z"), base = "/repos/SlamTheDragon/vrc-packages";
@@ -76,4 +78,19 @@ test("cache CI uses scoped actions write, trusted main and only canonical comple
   expect(job.steps.some((step: any) => step.uses?.includes("download-artifact"))).toBe(false);
   expect(job.steps.at(-1).run).toBe("npm run cache:prune");
   expect(job.steps.at(-1).env.GH_TOKEN).toBe("${{ secrets.GITHUB_TOKEN }}");
+});
+
+test("cache CLI exposes only the rejected operation and numeric status, never response bodies", () => {
+  const path = fileURLToPath(new URL("../scripts/cache-maintenance.mjs", import.meta.url));
+  const script = `process.argv[1] = ${JSON.stringify(path)};
+    globalThis.fetch = async () => Response.json({ message: 'PRIVATE_RESPONSE_SENTINEL' }, { status: 403 });
+    await import(${JSON.stringify(new URL("../scripts/cache-maintenance.mjs", import.meta.url).href)});`;
+  const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env, GH_TOKEN: "not-a-credential", GITHUB_TOKEN: "", GITHUB_REPOSITORY: "SlamTheDragon/vrc-packages" },
+    encoding: "utf8", timeout: 10_000
+  });
+  expect(run.status).toBe(1);
+  expect(run.stderr).toContain("Cache API status: 403, operation: cap");
+  expect(run.stderr).not.toContain("PRIVATE_RESPONSE_SENTINEL");
+  expect(run.stderr).not.toContain("not-a-credential");
 });

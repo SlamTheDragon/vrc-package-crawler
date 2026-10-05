@@ -3,7 +3,7 @@
     "@types/node": "^26.6.4"
   },
   "scripts": {
-    "setup": "npm install --ignore-scripts --package-lock=false",
+    "setup": "bun install --no-save --ignore-scripts",
     "delivery": "node scripts/delivery.mjs",
     "delivery:preview": "node scripts/delivery-chain.mjs start preview",
     "delivery:release": "node scripts/delivery-chain.mjs start release",
@@ -59,5 +59,6 @@
   },
   "peerDependencies": {
     "typescript": "^7"
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

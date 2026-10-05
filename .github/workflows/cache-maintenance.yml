@@ -29,7 +29,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
-      - run: npm install --ignore-scripts --package-lock=false
-      - run: npm run cache:prune
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: bun install --no-save --ignore-scripts
+      - run: bun run cache:prune
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

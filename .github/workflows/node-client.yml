@@ -20,17 +20,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
+      - uses: dtolnay/rust-toolchain@stable
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.2'
-      - uses: dtolnay/rust-toolchain@stable
-      - run: npm install --ignore-scripts --package-lock=false
+      - run: bun install --no-save --ignore-scripts
       - id: route
         run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
       - run: bun test ./tests
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' crawler-client --ci
-      - run: npm --prefix src-crawler-client run check
+      - run: bun --cwd src-crawler-client run check
       - run: node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' crawler-client --ci
       - run: node scripts/release-assets.mjs stamp '${{ steps.route.outputs.channel }}' crawler-client src-crawler-client/src-tauri/target/release/bundle
       - uses: actions/upload-artifact@v4
