@@ -103,6 +103,9 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
       .dependencies["vrc-packages-api"]).toBe("npm:vrc-packages-api-preview@2026.10.1-pre");
     expect(await readFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), "utf8"))
       .toContain('version = "26.10.1-pre" # retain owner note');
+    const tauri = JSON.parse(await readFile(resolve(workspace, "src-crawler-client/src-tauri/tauri.conf.json"), "utf8"));
+    expect(tauri.version).toBe("../package.json");
+    expect(tauri.bundle.windows.wix.version).toBe("26.10.1");
     await versionFiles("sync", "release", "all", workspace);
     await versionFiles("check", "release", "all", workspace);
     expect(JSON.parse(await readFile(resolve(workspace, "src-package/package.json"), "utf8")).name).toBe(sdkPackageNames.release);
@@ -241,6 +244,31 @@ test("desktop preview uses short UTC years, retains pre and syncs Cargo from the
     expect(await readFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), "utf8"))
       .toContain('version = "27.1.3-pre" # retain owner note');
     expect(JSON.parse(await readFile(resolve(workspace, "src-crawler-client/package.json"), "utf8")).version).toBe("27.1.3-pre");
+    const tauri = JSON.parse(await readFile(resolve(workspace, "src-crawler-client/src-tauri/tauri.conf.json"), "utf8"));
+    expect(tauri.bundle.windows.wix.version).toBe("27.1.3");
+    tauri.bundle.windows.wix.version = "27.1.2";
+    await writeFile(resolve(workspace, "src-crawler-client/src-tauri/tauri.conf.json"), JSON.stringify(tauri));
+    await expect(versionFiles("check", "preview", "crawler-client", workspace)).rejects.toThrow("metadata differs");
+    await versionFiles("sync", "release", "crawler-client", workspace);
+    expect(JSON.parse(await readFile(resolve(workspace, "src-crawler-client/src-tauri/tauri.conf.json"), "utf8"))
+      .bundle.windows.wix.version).toBe("0.0.1");
+  });
+});
+
+test("MSI numeric field overflow fails before any metadata sync writes", async () => {
+  await fixture(async workspace => {
+    const { config, configPath } = await readVersionConfig("release", workspace);
+    const cargoPath = resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml");
+    const manifestPath = resolve(workspace, "src-crawler-client/package.json");
+    const beforeCargo = await readFile(cargoPath, "utf8");
+    const beforeManifest = await readFile(manifestPath, "utf8");
+    for (const invalid of ["256.0.0", "0.256.0", "0.0.65536"]) {
+      config["release-crawler-client"] = invalid;
+      await writeFile(configPath, JSON.stringify(config));
+      await expect(versionFiles("sync", "release", "crawler-client", workspace)).rejects.toThrow("MSI numeric");
+      expect(await readFile(cargoPath, "utf8")).toBe(beforeCargo);
+      expect(await readFile(manifestPath, "utf8")).toBe(beforeManifest);
+    }
   });
 });
 

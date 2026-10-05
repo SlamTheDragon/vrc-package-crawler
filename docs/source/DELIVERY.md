@@ -30,10 +30,10 @@ Version changes, metadata sync, builds and external publication are separate act
 | Product | Version meaning | Tagged destination |
 | --- | --- | --- |
 | package | Release SemVer or preview CalVer with pre, from the selected config | Two npm identities from one SDK source. Separate publication environments and switches. |
-| network | npm SemVer for internal contracts, with `pre` for preview distribution | CI tarball only. Registry selection remains open. |
+| network | npm SemVer for internal contracts, with `pre` for preview distribution | Checked GitHub Release tarballs. npm registry selection remains open. |
 | worker | Runtime version, with `pre` for preview | Persistent preview Worker or existing production Worker |
-| crawler | Headless executable version | Standalone CI binary and optional container publication |
-| crawler-client | Release SemVer or preview YY.M.Patch-pre, not a staging environment | Unsigned Windows shell installers in CI |
+| crawler | Headless executable version | Linux/Windows Release binaries and separate GHCR channels |
+| crawler-client | Release SemVer or preview YY.M.Patch-pre, not a staging environment | Unsigned MSI/NSIS assets in GitHub Releases |
 | web | Site artifact version. Current calendar-shaped value remains authoritative. | CI is disabled pending hosting selection. Local static builds remain available. |
 
 Numeric values must fit SemVer syntax. Calendar-shaped values do not become API compatibility guarantees.
@@ -99,6 +99,9 @@ The preview SDK uses YYYY.M.Patch-pre. npm requires months without a leading zer
 Desktop previews use YY.M.Patch-pre: `26.10.0-pre`, then `26.10.1-pre`, or `26.11.2-pre` after a November bump.
 Only desktop preview bumps shorten the UTC year. Other products keep their configured formats.
 Desktop preview patches stop at 65535, the MSI limit. Preview and release currently share the installed application identity.
+App, Cargo and tag versions retain pre. MSI uses the same config's numeric fields through bundle.windows.wix.version.
+For `26.10.0-pre`, the MSI version is `26.10.0`. Version sync checks this mapping for both channels.
+MSI cannot encode pre. [Tauri supports a separate numeric installer version](https://v2.tauri.app/reference/config/#wixconfig).
 Separate installation and data identities remain a future decision. Do not infer side-by-side installation support.
 Only the explicit bump command reads the calendar. Builds and publication read the saved config, preserving older tagged builds.
 Sync metadata separately after a config change. Product-only sync does not sync its dependency projects.
@@ -171,7 +174,11 @@ Desktop release 0.0.0 passed native CI, but its receipt/checksum filenames conta
 Its bytes match after that explicit historical mapping. Do not call its filename contract conformant or replace published assets.
 New installer builds normalize names before stamping. Attachment checks reject server-renamed assets before publishing the draft.
 [GitHub documents asset filename changes](https://docs.github.com/en/rest/releases/assets#upload-a-release-asset).
-Desktop preview 26.10.0-pre and release 0.0.1 exercise that fix. Installation, supervision and updater behavior remain untested.
+Desktop release 0.0.1 passed CI 37248173416 and strict memory-only checks of all five attached assets.
+Hosted names, bytes, receipts, notes and checksums agree. Its published tag and assets remain immutable.
+Preview CI 37248173184 failed MSI bundling before uploads because Tauri requires a numeric prerelease identifier for MSI.
+Version sync now supplies the numeric MSI override while retaining app version 26.10.0-pre. Remote repair proof remains open.
+Installation, supervision and updater behavior remain untested.
 Container archives and publication receipts remain CI-only. Attachment downloads exclude artifacts named `ci-only-*`.
 Binary attachments wait for successful platform builds and successful or disabled container publication.
 
@@ -315,9 +322,10 @@ CI deploys this binding with pinned Wrangler 4.147.0 and `--secrets-file`.
 It does not upload Cloudflare or npm credentials as Worker bindings.
 The temporary secret file is removed after the deployment attempt. Worker preview CI passed this path in run 37235649307.
 
-The read-only GitHub inspection on 2026-10-05 confirmed all three current environments and the expected secret names.
-That inspection found the earlier worker/v* and package/v* restrictions. The new prefixes require owner updates before another product tag.
-Use cloudflare-worker/v* in cloudflare-preview. Use vrcp-api/v* in vrcp-api-preview and vrcp-api-release.
+GitHub inspections on 2026-10-05 confirmed all three current environments and the expected secret names.
+The Worker and SDK release environments already use the approved product prefixes. SDK preview retained the earlier package/v* rule.
+Its rule now uses vrcp-api/v*, with checked readback. This change retained its secrets and reviewer settings.
+All three tag rules match the workflows: cloudflare-worker/v* in cloudflare-preview, and vrcp-api/v* in both SDK environments.
 Keep existing secrets and reviewers. Keep the npm trusted-publisher workflow filename unchanged.
 The two preview environments have no required reviewer. The owner explicitly accepts automatic preview deployment/publication.
 vrcp-api-release requires owner review and permits self-review. All three SDK/Worker enable switches are true.

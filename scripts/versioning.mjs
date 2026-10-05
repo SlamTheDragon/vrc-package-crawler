@@ -138,8 +138,22 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
         edits.push({ path: cargoPath, content: lines.join(cargoText.includes("\r\n") ? "\r\n" : "\n") });
       }
       const tauriPath = resolve(workspace, "src-crawler-client/src-tauri/tauri.conf.json");
-      const tauri = JSON.parse(await readFile(tauriPath, "utf8"));
+      const tauriText = await readFile(tauriPath, "utf8");
+      const tauri = JSON.parse(tauriText);
       if (tauri.version !== "../package.json") throw new Error("Tauri must read ../package.json for its version");
+      // MSI cannot represent the app's pre label. Its numeric version still comes from the same config.
+      const msiVersion = version.split("-")[0];
+      if (semver.major(version) > 255 || semver.minor(version) > 255 || semver.patch(version) > 65535) {
+        throw new Error("Desktop version exceeds MSI numeric field limits");
+      }
+      if (tauri.bundle?.windows?.wix?.version !== msiVersion) {
+        tauri.bundle ??= {};
+        tauri.bundle.windows ??= {};
+        tauri.bundle.windows.wix ??= {};
+        tauri.bundle.windows.wix.version = msiVersion;
+        const indent = tauriText.match(/\n([\t ]+)"/)?.[1] ?? "  ";
+        edits.push({ path: tauriPath, content: JSON.stringify(tauri, null, indent) + "\n" });
+      }
     }
   }
   if (mode === "check" && edits.length) {

@@ -28,6 +28,7 @@ Do not treat a checked build as proof of npm publication, container publication 
 
 - The Windows desktop shell has an independent build and version.
 - Desktop previews use YY.M.Patch-pre from config, with short UTC years and MSI-bounded patches. Other product formats stay unchanged.
+- MSI receives config-derived numeric version fields. The app, Cargo and preview tags keep the pre label.
 - Installer outputs are unsigned. Node installation, supervision and update contracts remain unimplemented.
 - CI normalizes installer filenames before receipts and stops if GitHub changes an uploaded name. Existing 0.0.0 assets remain immutable.
 

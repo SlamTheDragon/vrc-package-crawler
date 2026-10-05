@@ -24,7 +24,7 @@ The published 0.0.0 assets stay untouched. New release/preview CI trials must ch
 
 ## Checked evidence
 
-Root gate: 63 tests, 690 assertions passed with Bun 1.4.2. Svelte found zero errors and warnings.
+Root gate: 64 tests, 704 assertions passed with Bun 1.4.2. Svelte found zero errors and warnings.
 Release metadata check, desktop preview routing and diff checks passed. No local release installers were built.
 Fixtures cover short-year/month rollover, pre retention, MSI patch overflow without writes, config-owned Cargo sync and filename collisions.
 
@@ -42,13 +42,24 @@ Network preview CI 37245068853 and release CI 37245377275 passed at d0a9119.
 Each has four checked public assets. Preview attachment-only retry 37246014865 retained the original four digests.
 The network private flag blocks npm publication, not public GitHub downloads. External registry policy remains open.
 Current rechecks passed both SDK registry/Release channels and both network Release channels, including tarball receipts, notes and checksums.
+SDK preview's remaining package/v* environment rule now matches the approved vrcp-api/v* workflow prefix. Readback passed.
+Worker and SDK release rules already match. Secrets, reviewers and publication switches did not change.
 
 Desktop release CI 37245553485 passed at d0a9119 with five unsigned installer assets.
 All bytes match after the explicit historical space-to-dot mapping. The filename contract is not conformant.
 Initial asset diagnostics mishandled nested arrays. The corrected per-asset checks exposed the real filename mismatch.
 MSI SHA-256: 4b7877dbca4aa1e55bbb80613868e080d3a7e63298971bf3dcd935799005821a.
 NSIS SHA-256: fb1690bfb0215a17160cba425ad37c664b0d1a2db536bfcf3548313adbbf4f26.
-Preview 26.10.0-pre and corrected release 0.0.1 tags have not run yet.
+Fix commit: 120819946c199a2f3000ac89d0cf1ce6322f89b3. Both new tags were pushed atomically with main.
+Preview CI 37248173184 and release CI 37248173416 passed preparation and entered the native Windows build.
+Release CI 37248173416 passed native build and automatic attachments. Strict five-asset byte/name/receipt/note/checksum readback passed in memory.
+Release 0.0.1 MSI SHA-256: 81d6a65c7a8109a855ca1ec3a4e4e542f8ae90ac785688f1d8c4de6a89704e4f.
+Release 0.0.1 NSIS SHA-256: 240353f254f10575bee68e6c32f5f914a2ec0a381af5331273f62842259569cb.
+Preview CI 37248173184 failed native MSI bundling: Tauri requires numeric-only prerelease identifiers for MSI.
+The run uploaded zero artifacts. Failed preview tag object: de7481a8dfd9255740953c11e1d5d54f165fcae0.
+Version sync now supplies numeric bundle.windows.wix.version from config while keeping app/Cargo/tag pre labels.
+The owner approved exact-target replacement of that failed unpublished preview tag. App/config version remains unchanged.
+Local mapping checks passed, including stale overrides, numeric bounds and preview-to-release reset. Native preview repair proof remains open.
 
 ## Recovery and next actions
 
@@ -58,7 +69,7 @@ Old release tag object: f9b91f3d55417ed8f84d9597acd09ca185b91516.
 Old preview tag object: 453041770201c42111fc52fc8d1ea5f79024543d.
 Both pointed to d5456e5fa289ae3ee3132a79d65478f78260aebc. Published replacement tags must not move.
 
-Next: commit the installer/config fix, push new desktop release/preview tags, and check exact CI runs and assets.
+Next: check the two native CI trials, then strict installer names, bytes, receipts, notes and both channel flags.
 SDK, network and crawler channel rechecks passed. Retain strict names, bytes and source provenance in the desktop trials.
 Then implement R57-C57A root chains and separate human/agent procedures. Do not start R57-C57B before the requested question hook.
 OIDC, live npm draft promotion, installation identity/coexistence, updater safety and fleet recovery remain separate open exits.
