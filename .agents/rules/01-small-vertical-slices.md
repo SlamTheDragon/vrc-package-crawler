@@ -34,7 +34,7 @@ Every task must strictly adhere to the following sequence of rules:
 5. **Execute the slice via the task tracker**:
    - Obtain a single slice from the true implementation plan ledger.
    - Rewrite `docs/scratch/task_tracker.md` specifically for the current slice iteration.
-   - Commit each implemented slice as a scoped checkpoint. Keep its status unverified until the capability gate checks pass.
+   - Commit locally each implemented slice as a scoped checkpoint. Keep its status unverified until the capability gate checks pass.
    - Preserve unrelated owner edits. Commit only the slice's files unless the owner explicitly requests a combined checkpoint.
    - Implement the capability gate or related gate group before running its checks and checkpoint write-ups.
    - Keep incomplete changes marked unverified. Run the relevant tests, typechecks and runtime/build checks together at that checkpoint.
