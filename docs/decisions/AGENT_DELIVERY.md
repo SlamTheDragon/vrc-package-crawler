@@ -5,7 +5,7 @@ Use [the human manual](../source/DELIVERY.md#human-delivery-procedure) for comma
 Read AGENTS.md and the active three scratch documents before delivery.
 
 - Read the latest owner authorization for the selected product and channel.
-- Keep the SDK v0.1 owner-review hold and separate npm stage approval.
+- Keep the SDK v0.1 owner-review hold and separate release npm stage approval. Preview publication uses OIDC directly.
 - Preserve dirty owner changes. Do not include them in an automatic delivery commit.
 - Complete the related capability gate before its grouped tests and checkpoint.
 - Review the diff, package boundaries, secrets, changelog and disabled delivery paths.

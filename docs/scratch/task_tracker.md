@@ -1,60 +1,57 @@
-# G14 — R57-C57A root delivery chain
+# G14 — R57-C57A per-product patch-1 proof
 
 ## Authority and active boundary
 
-The full goal remains active. Both artifact channels for enabled distributed products are checked.
-The owner authorizes current and subsequent delivery trials. npm keeps separate owner staging review and the SDK v0.1 API-review hold.
-Desktop preview remains 26.10.0-pre. Only MSI receives numeric 26.10.0. Other product formats stay unchanged.
-Website delivery stays deferred. Production Worker deployment is disabled. Cloudflare has no GitHub Release assets.
-Finish R57-C57A and ask the requested question hook before R57-C57B. No dedicated desktop notification tool is available.
+The full goal remains active. The owner now requires release and preview patch-1 proof for every enabled product.
+Website CI stays disabled. It emits no preview or production artifacts.
+Worker release tags build only. Production deployment and Worker GitHub Release assets remain disabled.
+Release SDK publication keeps owner-approved staging and the v0.1 API-review hold.
+Preview SDK publication is direct through its trusted publisher.
+After proof, create website-preview, crawler-client-preview, api-package-preview and worker-preview.
+Every API preview branch push must publish. Allocate its patch before the source commit.
+Main keeps release responsibility and requires reviewed promotion PRs. Do not delete main.
+Preserve staged owner README edits.
 
-## Ground truth and working theory
+## Working theories and source boundaries
 
-R57-C57A now has root plan/execute/status/check/retry commands.
-Theory: standard Git atomic pushes and existing product workflows can supply the chain without a new CI controller.
-The dry-run reports dirty worktrees, divergent origin and existing tags. Execution commits only the selected config patch.
-CI owns manifest sync, channel dependencies, builds, publication and attachments. npm approval stays manual.
-Exact retries retain the original tag/version. Public artifact checks reuse receipt validation in memory.
-Human procedures are in DELIVERY.md and CONTRIBUTING.md. The separate agent procedure is in docs/decisions/AGENT_DELIVERY.md.
-Owner README edits remain untouched. The ledger retains the owner's PER RESPONSIBILITY and each-preview-channel wording.
+Root delivery commands call version allocation, a config-only commit, an annotated product tag and an atomic non-forced push.
+Tagged CI builds the selected channel dependencies and owns release artifacts.
+Independent public checks compare exact tag, source run, receipts, notes, checksums and registry bytes.
+Theory: reuse those paths for per-product proof rather than create a second CI controller.
+The remote-tag check binds the remote object before and after public artifact checks. The first grouped root pass passed.
+Theory: direct preview OIDC publication can preserve checked tarball bytes without npm staging inspection.
+Release staging remains separate. The owner renamed the repository to SlamTheDragon/vrc-packages.
+Git origin, SDK repository.url and repository contact links now use the new name. Cloudflare names and D1 bindings stay unchanged.
+All five delivery environments and their reviewer rules remain present. The owner reports updated npm trusted publishers.
+Historical note checks accept only this exact previous name and the same CI run. Published assets stay unchanged.
+The grouped root check passed 72 tests and 813 assertions, including rename and remote-ref negative cases.
+Branch automation waits for the patch-1 proof. Cross-branch dependency-version updates must retain the config check.
 
-## Grouped gate evidence
+## Proof inventory
 
-Root: 69 tests, 747 assertions passed. Release metadata, syntax and diff checks passed.
-The first run hit default five-second test timeouts during real temporary Git operations.
-Explicit fixture timeouts fixed that harness failure. No check or approval was removed.
-Fixtures cover config-only commits, atomic pushes, lost push ACK, dirty/divergent/existing-tag refusal and malformed public artifacts.
-The root checker passed the existing desktop preview and network preview Releases with no local artifact writes.
-Docs lint issues per 100 words: DELIVERY 1.30, agent procedure 0.80, CONTRIBUTING 1.47.
+| Product | Release target | Preview target | Current proof |
+| --- | --- | --- | --- |
+| SDK | 0.0.1 | 2026.10.1-pre | Pending new paths and publication |
+| Network | 0.0.1 | 2026.10.1-pre | Preview CI 37251743937 passed at 0117444f525dd5e83648d212a43fa4b1397a32ad |
+| Crawler | 0.0.1 | 2026.10.1-pre | Pending binaries, separate GHCR images and assets |
+| Desktop | 0.0.1 | 26.10.1-pre | Release CI 37248173416 passed at 120819946c199a2f3000ac89d0cf1ce6322f89b3 |
+| Worker | 0.0.1 build only | 2026.10.1-pre deploy | Pending CI bundle checks and preview readback |
+| Website | Disabled | Disabled | Owner excludes delivery |
 
-SDK release/preview registry and Release bytes passed current rechecks.
-Network release 37245377275 and preview 37245068853 have four checked assets each. Retry 37246014865 retained preview bytes.
-Crawler release 37244482532 and preview 37244482335 have six checked assets each and independently checked GHCR channels.
-Preview GHCR manifest: sha256:6af2b893a100639f31d0a01929e1aefbadb0ab8a950a419c7e8fa1ccb768e24f.
-Release GHCR manifest: sha256:5f3db18b98868fb356fed96ba49bb3b05a25d125deea24ea127c73cbdfbdbe82.
-Desktop release 0.0.1 run 37248173416 passed five strict assets at 1208199.
-Repaired preview run 37249187889 passed five strict assets at b8c8edc5656be389d0e8edab4b14882af5728cf7.
-Preview MSI SHA-256: fec1738e0f1ba3d1943ce1ccb49fc78db44fa1f1c9ba36225615f72a9d349922.
-Preview NSIS SHA-256: 67df435c67dae990fdacdd40868b44d1bfeac0f829aa87bb3dbd16199ad1cec4.
-Original desktop 0.0.0 remains immutable with its known hosted filename mismatch.
-SDK deployment environments now link channel npm pages. Staging success does not prove approved publication.
+Published patch-1 identities stay unchanged. Historical desktop release used SDK 0.0.0.
+Network preview tarball SHA-256: b824c1dc35447ae956684de1c20caaaf7d810161b6d062ed709d38075660e356.
+Latest grouped root pass: 72 tests and 813 assertions passed. Syntax and diff checks passed.
+Both existing patch-1 deliveries passed live memory-only readback under the new repository name, including remote tag-object checks.
+Both patch-0 crawler image channels and SDK registry artifacts passed earlier checks. They do not satisfy the new patch-1 exit.
 
-## Recovery and next action
+## Next actions and safety
 
-Failed unpublished desktop preview tag object de7481a8dfd9255740953c11e1d5d54f165fcae0 was replaced under an exact-target lease.
-Failed crawler release/preview tag objects f9b91f3d55417ed8f84d9597acd09ca185b91516 and 453041770201c42111fc52fc8d1ea5f79024543d were also replaced.
-All published replacements are now immutable.
-
-Root chain commit c4b285531f6e892f9c070b3e6fdf7c865e2bda42 was pushed.
-The clean temporary checkout ran the approved command and atomically pushed network preview 2026.10.1-pre.
-Source commit: 0117444f525dd5e83648d212a43fa4b1397a32ad. Tag object: e0a0df2ba22614936411426dfbacdc4013e13d8b.
-CI 37251743937 passed build and automatic Release attachment. Four hosted assets passed root memory-only checks.
-Preview tarball SHA-256: b824c1dc35447ae956684de1c20caaaf7d810161b6d062ed709d38075660e356.
-Release network readback passed too. R57-C57A shared chain is checked; other product paths retain earlier individual proof.
-SDK registry deployment links are wired but need a later staging job to appear. No new SDK publication ran.
-Owner rolling-tag self-check is Q-ROLLING-TAGS. Primary research distinguishes fixed delivery identity from moving aliases.
-No rolling tag, force push, existing asset replacement or new publication trigger ran.
-Next: use the requested owner question hook before R57-C57B. Keep G14 and the full goal open.
-Keep owner README edits outside the commit. No local release builds, D1 changes or source grants.
-OIDC, live npm draft promotion, installation identity, updater safety and real-source fleet recovery remain open.
+Finish direct preview SDK publication, remote tag checks and Worker build-only root routing.
+Run related tests together. Commit only owned changes.
+Use the root commands from a clean temporary checkout for the remaining trials.
+Prove the reported npm setup with SDK trials. Publish SDK channel versions before consumer trials.
+Record exact runs, checked bytes and required manual release promotion.
+Do not replace published tags or increment existing patch-1 deliveries.
+Then implement the branch split and main protection. R57-C57B remains behind its requested owner question hook.
+No local release builds, D1 writes, source grants or production Worker deployment.
 Private attacker research remains unread until pipeline setup finishes.

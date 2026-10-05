@@ -4,12 +4,52 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { allowedBinary, attachRelease, checkedAssets, checkSourceRun, milestoneNotes, reconcileSDKDrafts } from "../scripts/release-assets.mjs";
+import { allowedBinary, attachRelease, checkedAssets, checkSourceRun, checkRemoteTag, sourceRunID, sameSourceRunLink, milestoneNotes, reconcileSDKDrafts } from "../scripts/release-assets.mjs";
 import { readVersionConfig } from "../scripts/versioning.mjs";
 
 const commit = "a".repeat(40);
 const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const selected = { product: "package", version: "2026.10.0-pre", channel: "preview" };
+
+test("repository rename retains original run links but never accepts another owner, run or redirect target", () => {
+  const repository = "SlamTheDragon/vrc-packages", current = `https://github.com/${repository}/actions/runs/123`;
+  const previous = "https://github.com/SlamTheDragon/vrc-package-crawler/actions/runs/123";
+  expect(sourceRunID(previous, repository)).toBe("123");
+  expect(sameSourceRunLink(`[Checked CI run](${previous})`, current, repository)).toBe(true);
+  expect(sameSourceRunLink(`[Checked CI run](${previous}4)`, current, repository)).toBe(false);
+  for (const link of [previous.replace("SlamTheDragon", "attacker"), previous.replace("github.com", "evil.invalid"),
+    `${previous}?redirect=evil`, `${previous}#fragment`, `${previous}/logs`, previous.replace("/123", "/00123")]) {
+    expect(() => sourceRunID(link, repository)).toThrow();
+  }
+  expect(() => sourceRunID(previous, "example/fixture")).toThrow();
+});
+
+test("remote tag binding rejects moved, malformed and cyclic refs while accepting fixed annotated or lightweight tags", async () => {
+  const tag = "vrcp-api/v0.0.0", oid = "b".repeat(40);
+  let ref = { ref: `refs/tags/${tag}`, object: { type: "tag", sha: oid } };
+  let annotation = { sha: oid, object: { type: "commit", sha: commit } };
+  let calls = 0;
+  const api = async (method: string, path: string) => { expect(method).toBe("GET"); calls++;
+    return path.includes("/git/ref/") ? ref : annotation; };
+  expect(await checkRemoteTag(api, "owner/repo", tag, commit, oid)).toEqual({ tagObject: oid, commit });
+  await expect(checkRemoteTag(api, "owner/repo", tag, commit, "c".repeat(40))).rejects.toThrow("tag object differs");
+  annotation.object.sha = "c".repeat(40);
+  await expect(checkRemoteTag(api, "owner/repo", tag, commit)).rejects.toThrow("source commit");
+  annotation.object.sha = commit;
+  annotation.sha = "d".repeat(40);
+  await expect(checkRemoteTag(api, "owner/repo", tag, commit)).rejects.toThrow("annotated tag object");
+  annotation.sha = oid;
+  for (const malformed of [{}, { ref: "refs/heads/main", object: ref.object },
+    { ref: ref.ref, object: { type: "blob", sha: oid } }, { ref: ref.ref, object: { type: "tag", sha: "../escape" } }]) {
+    const invalid = async () => malformed;
+    await expect(checkRemoteTag(invalid, "owner/repo", tag, commit)).rejects.toThrow("Invalid remote tag binding");
+  }
+  annotation.object = { type: "tag", sha: oid }; calls = 0;
+  await expect(checkRemoteTag(api, "owner/repo", tag, commit)).rejects.toThrow("chain exceeds");
+  expect(calls).toBe(5);
+  ref = { ref: `refs/tags/${tag}`, object: { type: "commit", sha: commit } };
+  expect(await checkRemoteTag(api, "owner/repo", tag, commit, commit)).toEqual({ tagObject: commit, commit });
+});
 
 function fixture(files: Record<string, string | Buffer>, inspect: (paths: string[]) => void) {
   const directory = mkdtempSync(join(tmpdir(), "vrcp-release-unit-"));
@@ -37,6 +77,15 @@ test("SDK attachments require original CI bytes and identity, not a build-direct
     paths => expect(checkedAssets(paths, selected, commit, {}, undefined).size).toBe(3));
   fixture({ ...files, [`${name}.stage.json`]: JSON.stringify({ ...receipt, purpose: "npm-stage", channel: "release" }) },
     paths => expect(() => checkedAssets(paths, selected, commit, {}, undefined)).toThrow("stage receipt"));
+  const publication = { ...receipt, channel: "preview", purpose: "npm-publication", tag: "latest", status: "published-verified",
+    integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}` };
+  fixture({ ...files, [`${name}.published.json`]: JSON.stringify(publication) },
+    paths => expect(checkedAssets(paths, selected, commit, {}).size).toBe(3));
+  for (const invalid of [{ ...publication, sha256: "changed" }, { ...publication, channel: "release" },
+    { ...publication, integrity: "changed" }, { ...publication, status: "pending" }, { ...publication, commit: "b".repeat(40) }]) {
+    fixture({ ...files, [`${name}.published.json`]: JSON.stringify(invalid) },
+      paths => expect(() => checkedAssets(paths, selected, commit, {})).toThrow("publication receipt"));
+  }
 });
 
 test("Worker bundles cannot become GitHub Release assets", () => {
@@ -275,6 +324,13 @@ test("SDK draft reconciliation dispatches only public versions with original che
   expect(registry).toEqual(["vrc-packages-api@0.0.0", "vrc-packages-api-preview@2026.10.0-pre", "vrc-packages-api@0.0.1"]);
   expect(dispatched.map(item => item.inputs.tag)).toEqual(["vrcp-api/v0.0.0", "package/v2026.10.0-pre"]);
   expect(dispatched.every(item => item.ref === "main" && item.inputs["source-run"] === "123")).toBe(true);
+  const renamedDraft = { ...draft, body: draft.body.replace("owner/repo", "SlamTheDragon/vrc-package-crawler") };
+  const renamedDispatches: any[] = [];
+  expect(await reconcileSDKDrafts(async (method: string, _path: string, body: any) => {
+    if (method === "GET") return [renamedDraft];
+    renamedDispatches.push(body); return {};
+  }, "SlamTheDragon/vrc-packages", async () => true)).toBe(1);
+  expect(renamedDispatches[0].inputs["source-run"]).toBe("123");
   await expect(reconcileSDKDrafts(api, "owner/repo", async () => { throw new Error("registry unavailable"); })).rejects.toThrow("unavailable");
   await expect(reconcileSDKDrafts(async () => Array(100).fill({ draft: false }), "owner/repo", async () => true)).rejects.toThrow("bound");
   await expect(reconcileSDKDrafts(async (method: string) => method === "GET" ? Array(21).fill(draft) : null,

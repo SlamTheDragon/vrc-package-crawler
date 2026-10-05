@@ -13,6 +13,24 @@ const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const workflowNames = { package: "vrc-packages-api", network: "network",
   crawler: "node-docker", "crawler-client": "node-client", web: "web" };
 
+/** Preserve receipts authored before the owner renamed this same repository. */
+export function sourceRunID(link, repository) {
+  const url = new URL(link);
+  const names = repository === "SlamTheDragon/vrc-packages"
+    ? [repository, "SlamTheDragon/vrc-package-crawler"] : [repository];
+  const name = names.find(value => url.pathname.startsWith(`/${value}/actions/runs/`));
+  const id = name && url.pathname.slice(`/${name}/actions/runs/`.length);
+  if (url.origin !== "https://github.com" || url.username || url.password || url.search || url.hash || !/^[1-9]\d*$/.test(id ?? "")) {
+    throw new Error("Changelog source run does not belong to the checked repository");
+  }
+  return id;
+}
+
+export function sameSourceRunLink(markdown, expectedURL, repository) {
+  const link = /\[Checked CI run\]\(([^)]+)\)/.exec(markdown)?.[1];
+  return !!link && sourceRunID(link, repository) === sourceRunID(expectedURL, repository);
+}
+
 function filesIn(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const path = join(directory, entry.name);
@@ -65,6 +83,15 @@ export function checkedAssetBytes(files, selected, commit, manifest) {
         throw new Error("SDK stage receipt differs from the checked artifact");
       }
     }
+    if (product === "package" && files.has(`${asset}.published.json`)) {
+      const publication = JSON.parse(get(`${asset}.published.json`));
+      if (channel !== "preview" || publication.name !== name || publication.version !== version ||
+          publication.commit !== commit || publication.channel !== channel || publication.tag !== "latest" ||
+          publication.sha256 !== hash(get(asset)) || publication.purpose !== "npm-publication" ||
+          publication.status !== "published-verified" ||
+          publication.integrity !== `sha512-${createHash("sha512").update(get(asset)).digest("base64")}` ||
+          files.has(`${asset}.stage.json`)) throw new Error("SDK publication receipt differs from the checked preview artifact");
+    }
   } else {
     const receiptNames = product === "crawler" ? ["crawler-linux.receipt.json", "crawler-windows.receipt.json"] : [`${product}.receipt.json`];
     for (const receiptName of receiptNames) {
@@ -110,6 +137,26 @@ export function checkSourceRun(run, jobs, tag, repository, product) {
   }
 }
 
+/** Bind a remote ref to its checked source, with bounded annotated-tag peeling. */
+export async function checkRemoteTag(api, repository, tag, commit, expectedTagObject) {
+  const ref = await api("GET", `/repos/${repository}/git/ref/tags/${encodeURIComponent(tag)}`);
+  const validObject = object => object && /^[a-f0-9]{40}$/.test(object.sha ?? "") && ["tag", "commit"].includes(object.type);
+  if (!/^[a-f0-9]{40}$/.test(commit ?? "") || ref?.ref !== `refs/tags/${tag}` || !validObject(ref.object)) {
+    throw new Error("Invalid remote tag binding");
+  }
+  const tagObject = ref.object.sha;
+  if (expectedTagObject && tagObject !== expectedTagObject) throw new Error("Remote tag object differs from the checked tag");
+  let object = ref.object;
+  for (let depth = 0; object.type === "tag"; depth++) {
+    if (depth >= 4) throw new Error("Remote annotated tag chain exceeds its bound");
+    const annotation = await api("GET", `/repos/${repository}/git/tags/${object.sha}`);
+    if (annotation?.sha !== object.sha || !validObject(annotation.object)) throw new Error("Invalid remote annotated tag object");
+    object = annotation.object;
+  }
+  if (object.sha !== commit) throw new Error("Remote tag differs from the checked source commit");
+  return { tagObject, commit };
+}
+
 /** Published assets are immutable here. Retry only missing uploads or an unfinished draft. */
 export async function attachRelease(api, repository, tag, commit, notes, files, draft, prerelease) {
   const base = `/repos/${repository}/releases`;
@@ -146,8 +193,8 @@ export async function attachRelease(api, repository, tag, commit, notes, files, 
     if (!hasChecksums) files.set("CHECKSUMS.sha256", Buffer.from([...files].filter(([name]) => name !== "CHECKSUMS.sha256")
       .map(([name, bytes]) => `${hash(bytes)}  ${name}`).join("\n") + "\n"));
     const stored = files.get("CHANGELOG.md").toString("utf8");
-    const link = /\[Checked CI run\]\([^)]+\)/.exec(notes)?.[0];
-    if (!link || !stored.includes(link) || !stored.includes(`Commit: ${commit}.\n`) ||
+    const link = /\[Checked CI run\]\(([^)]+)\)/.exec(notes)?.[1];
+    if (!link || !sameSourceRunLink(stored, link, repository) || !stored.includes(`Commit: ${commit}.\n`) ||
         !stored.includes(`Channel: ${prerelease ? "preview" : "release"}.`) ||
         !stored.split("\n")[0].endsWith(` ${tag.split("/v")[1]}`)) throw new Error("Attached notes identify another delivery");
     const covered = new Set();
@@ -243,10 +290,9 @@ export async function reconcileSDKDrafts(api, repository, isPublished) {
       if (!release.draft || !match || semver.valid(match[1]) !== match[1]) continue;
       const link = /\[Checked CI run\]\((https:\/\/github\.com\/[^)]+)\)/.exec(release.body ?? "");
       if (!link) continue;
-      const url = new URL(link[1]);
-      const prefix = `/${repository}/actions/runs/`;
-      const sourceRun = url.pathname.slice(prefix.length);
-      if (!url.pathname.startsWith(prefix) || !/^\d+$/.test(sourceRun) || url.search || url.hash) continue;
+      let sourceRun;
+      try { sourceRun = sourceRunID(link[1], repository); }
+      catch { continue; }
       const channel = match[1].endsWith("-pre") ? "preview" : "release";
       if (!(await isPublished(sdkPackageNames[channel], match[1]))) continue;
       if (++dispatched > 20) throw new Error("SDK draft dispatch limit exceeded");
@@ -301,10 +347,7 @@ async function main(directory) {
   const jobs = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/actions/runs/${runId}/jobs?per_page=100`);
   if (jobs.total_count >= 100) throw new Error("Unexpected job count");
   checkSourceRun(run, jobs.jobs, tag, env.GITHUB_REPOSITORY, selected.product);
-  const ref = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/git/ref/tags/${encodeURIComponent(tag)}`);
-  let object = ref.object;
-  for (let depth = 0; object.type === "tag" && depth < 4; depth++) object = (await api("GET", `/repos/${env.GITHUB_REPOSITORY}/git/tags/${object.sha}`)).object;
-  if (object.type !== "commit" || object.sha !== run.head_sha) throw new Error("Tag differs from artifact source commit");
+  const { tagObject } = await checkRemoteTag(api, env.GITHUB_REPOSITORY, tag, run.head_sha);
   const manifest = JSON.parse(gitFile(`${productDirectories[selected.product]}/package.json`));
   // Package builds sync channel identities after checkout. Other manifest names stay fixed.
   const assets = checkedAssets(filesIn(artifactDirectory), selected, run.head_sha, manifest);
@@ -330,6 +373,7 @@ async function main(directory) {
     run.head_sha, `https://github.com/${env.GITHUB_REPOSITORY}/actions/runs/${runId}`, "checked artifacts. See the release description for publication/deployment status");
   assets.set("CHANGELOG.md", Buffer.from(notes));
   assets.set("CHECKSUMS.sha256", Buffer.from([...assets].map(([name, bytes]) => `${hash(bytes)}  ${name}`).join("\n") + "\n"));
+  await checkRemoteTag(api, env.GITHUB_REPOSITORY, tag, run.head_sha, tagObject);
   const release = await attachRelease(api, env.GITHUB_REPOSITORY, tag, run.head_sha,
     `${notes}\nCurrent delivery status: ${status}.\n`, assets, draft, selected.channel === "preview");
   console.log(JSON.stringify({ tag, sourceRun: runId, status, draft: release.draft, url: release.html_url, assets: [...assets.keys()] }));

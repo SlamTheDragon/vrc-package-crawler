@@ -8,7 +8,8 @@ Do not treat a checked build as proof of npm publication, container publication 
 ## package
 
 - Separate release and CalVer preview npm identities use the same canonical SDK import key.
-- Checked staging retains owner npm approval. Release v0.1 still requires the complete owner API review.
+- Release staging retains owner npm approval. Preview publication uses the trusted publisher and checks public artifact integrity.
+- Release v0.1 still requires the complete owner API review.
 - Packed-consumer checks exercise Node, declarations and the native Worker runtime. This is a version-0 API, not a stable contract.
 
 ## network

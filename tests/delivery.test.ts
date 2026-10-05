@@ -6,7 +6,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { bumpVersion, distributedArtifact, productDirectories, readVersionConfig, sdkPackageNames, versionFiles } from "../scripts/versioning.mjs";
-import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, stageSDKArtifact, validateCIArtifact, validateRegistrySDK, validateSDKStage, workerSecretBindings } from "../scripts/delivery.mjs";
+import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, stageSDKArtifact, publishPreviewSDKArtifact, validateCIArtifact, validateRegistrySDK, validateSDKStage, workerSecretBindings } from "../scripts/delivery.mjs";
 
 async function fixture(run: (workspace: string) => Promise<void>) {
   const parent = await realpath(tmpdir());
@@ -336,7 +336,7 @@ test("npm stages bind checked SDK identity, explicit latest, UUID and artifact c
 
 test("SDK staging retains checked tarballs, verifies pending bytes and never approves publication in CI", () => {
   const source = readFileSync(new URL("../scripts/delivery.mjs", import.meta.url), "utf8");
-  const publisher = source.slice(source.indexOf('export function stageSDKArtifact'), source.indexOf('export async function resolveTag'));
+  const publisher = source.slice(source.indexOf('export function stageSDKArtifact'), source.indexOf('async function readPublicSDK'));
   expect(publisher.indexOf('validateCIArtifact(receipt, expected, bytes)')).toBeLessThan(publisher.indexOf('["stage", "publish", artifact'));
   expect(publisher).toContain('["stage", "list", expected.name, "--json", registry]');
   expect(publisher).toContain('matches.length > 1');
@@ -350,7 +350,52 @@ test("SDK staging retains checked tarballs, verifies pending bytes and never app
   expect(publisher).not.toContain('["stage", "reject"');
   const workflow = readFileSync(new URL("../.github/workflows/vrc-packages-api.yml", import.meta.url), "utf8");
   expect(workflow).toContain('npm install --global npm@11.19.0');
-  expect(workflow).toContain('src-package/.artifacts/ci/*.tgz.stage.json');
+  expect(workflow).toContain("'published' || 'stage'");
+  const definition = Bun.YAML.parse(workflow);
+  expect(definition.jobs.publish.permissions['id-token']).toBe('write');
+  const preview = definition.jobs.publish.steps.find((step: any) => step.name?.includes('through its trusted publisher'));
+  expect(preview.if).toBe("needs.build.outputs.channel == 'preview'");
+  expect(preview.env).toEqual({ NODE_AUTH_TOKEN: '', NPM_TOKEN: '' });
+  const release = definition.jobs.publish.steps.find((step: any) => step.name?.startsWith('Stage checked release'));
+  expect(release.if).toBe("needs.build.outputs.channel == 'release'");
+});
+
+test("direct preview publication checks bytes before writes and recovers a lost ACK without republishing", async () => {
+  await fixture(async workspace => {
+    const artifact = resolve(workspace, "preview-fixture.tgz"), bytes = Buffer.from("Synthetic preview fixture, not a release artifact");
+    await writeFile(artifact, bytes);
+    const expected = { name: sdkPackageNames.preview, version: "2026.10.1-pre", commit: "a".repeat(40) };
+    const receipt = { ...expected, purpose: "ci-release", sha256: createHash("sha256").update(bytes).digest("hex") };
+    const metadata = { name: expected.name, version: expected.version,
+      dist: { integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}` } };
+    let published: any = null, latest: any = null, calls = 0, lostACK = true;
+    const registry = async (_name: string, version: string) => version === "latest" ? latest : published;
+    const run = (args: string[]) => {
+      if (args[0] === "--version") return "11.19.0";
+      expect(args).toEqual(["publish", artifact, "--access", "public", "--tag", "latest", "--ignore-scripts", "--json", "--registry=https://registry.npmjs.org"]);
+      calls++; published = latest = metadata;
+      if (lostACK) throw new Error("lost publication acknowledgment");
+      return "{}";
+    };
+    await expect(publishPreviewSDKArtifact(artifact, expected, { ...receipt, sha256: "changed" }, run, registry)).rejects.toThrow("CI artifact");
+    expect(calls).toBe(0);
+    await expect(publishPreviewSDKArtifact(artifact, { ...expected, name: sdkPackageNames.release },
+      { ...receipt, name: sdkPackageNames.release }, run, registry)).rejects.toThrow("preview-only");
+    await expect(publishPreviewSDKArtifact(artifact, expected, receipt, run, registry)).rejects.toThrow("lost publication acknowledgment");
+    expect((await publishPreviewSDKArtifact(artifact, expected, receipt, run, registry)).status).toBe("published-verified");
+    expect(calls).toBe(1);
+    published = { ...metadata, dist: { integrity: "changed" } };
+    await expect(publishPreviewSDKArtifact(artifact, expected, receipt, run, registry)).rejects.toThrow("checked artifact");
+    published = null; latest = { ...metadata, version: "2026.10.2-pre" };
+    await expect(publishPreviewSDKArtifact(artifact, expected, receipt, run, registry)).rejects.toThrow("roll back");
+    latest = null;
+    await expect(publishPreviewSDKArtifact(artifact, expected, receipt, () => "11.18.0", registry)).rejects.toThrow("CLI 11.19.0");
+    await expect(publishPreviewSDKArtifact(artifact, expected, receipt, run, async () => { throw new Error("registry unavailable"); }))
+      .rejects.toThrow("registry unavailable");
+    expect(calls).toBe(1); lostACK = false;
+    expect((await publishPreviewSDKArtifact(artifact, expected, receipt, run, registry)).status).toBe("published-verified");
+    expect(calls).toBe(2);
+  });
 });
 
 test("staging uploads checked bytes once, recovers a lost ACK and rejects duplicate, malformed or changed stages", async () => {

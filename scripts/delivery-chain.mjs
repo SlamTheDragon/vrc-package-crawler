@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bumpVersion, nextVersion, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames } from "./versioning.mjs";
 import { checkSDKPublicationVersion, selectTag } from "./delivery.mjs";
-import { checkedAssetBytes, checkSourceRun } from "./release-assets.mjs";
+import { checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink } from "./release-assets.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const workflows = { package: "vrc-packages-api", network: "network", crawler: "node-docker",
@@ -27,7 +27,6 @@ export function repositoryFromRemote(remote) {
 /** Read-only planning. Only --execute allocates a patch and triggers tagged CI. */
 export async function planDelivery(channel, product, workspace = root, now = new Date(), git = runGit) {
   if (!Object.hasOwn(workflows, product)) throw new Error("Product delivery is disabled or unknown. Website hosting remains deferred.");
-  if (product === "worker" && channel !== "preview") throw new Error("Production Worker delivery remains disabled");
   const { config, configPath } = await readVersionConfig(channel, workspace);
   const previous = config[`${channel}-${product}`];
   const version = nextVersion(channel, product, "patch", previous, now);
@@ -46,7 +45,8 @@ export async function planDelivery(channel, product, workspace = root, now = new
   const other = (await readVersionConfig(channel === "preview" ? "release" : "preview", workspace)).config;
   if (other[`${channel === "preview" ? "release" : "preview"}-${product}`] === version) blockers.push("Channel tag would be ambiguous");
   return { channel, product, previous, version, tag, branch, repository, head, configPath, blockers,
-    workflow: `${workflows[product]}.yml`, purpose: "plan-only" };
+    workflow: `${workflows[product]}.yml`, purpose: "plan-only",
+    delivery: product === "worker" && channel === "release" ? "ci-build-only-no-production-deployment" : "tagged-delivery" };
 }
 
 /** Keep failed local commit/tag state so an exact retry cannot allocate another version. */
@@ -72,16 +72,16 @@ function sourceTag(tag, workspace, git = runGit) {
   if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error("Invalid tag commit");
   const configs = Object.fromEntries(["release", "preview"].map(channel => [channel,
     JSON.parse(git(workspace, "show", `${commit}:${channel === "release" ? "config.versions.json" : "config.preview.versions.json"}`))]));
-  return { ...selectTag(tag, configs, true), tag, commit };
+  return { ...selectTag(tag, configs, true), tag, commit, tagObject: git(workspace, "rev-parse", `refs/tags/${tag}`) };
 }
 
 export function retryDelivery(tag, workspace = root, git = runGit) {
   const selected = sourceTag(tag, workspace, git);
-  if (!Object.hasOwn(workflows, selected.product) || selected.product === "worker" && selected.channel !== "preview") {
+  if (!Object.hasOwn(workflows, selected.product)) {
     throw new Error("This product/channel has no authorized tagged delivery");
   }
   const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
-  const oid = git(workspace, "rev-parse", `refs/tags/${tag}`);
+  const oid = selected.tagObject;
   const remote = git(workspace, "ls-remote", "origin", `refs/tags/${tag}`);
   if (remote && remote !== `${oid}\trefs/tags/${tag}`) throw new Error("Remote tag differs. Replacement needs separate owner authorization.");
   if (!remote) {
@@ -96,11 +96,16 @@ export function retryDelivery(tag, workspace = root, git = runGit) {
     next: [`npm run delivery:status -- ${tag}`, `npm run delivery:check -- ${tag}`] };
 }
 
-export function summarizeRun(run, jobs, release, product) {
+export function summarizeRun(run, jobs, release, product, channel = "preview") {
   if (run.status !== "completed") return "ci-active-or-awaiting-environment";
   if (run.conclusion !== "success") return "ci-failed";
-  if (product === "worker") return jobs.some(job => job.name === "deploy" && job.conclusion === "success")
-    ? "preview-deployed-no-release-assets" : "deployment-not-proved";
+  if (product === "worker") {
+    if (channel === "release") return jobs.some(job => job.name === "build" && job.conclusion === "success") &&
+      jobs.some(job => job.name === "deploy" && job.conclusion === "skipped")
+      ? "release-build-only-no-production-deployment" : "build-only-boundary-not-proved";
+    return jobs.some(job => job.name === "deploy" && job.conclusion === "success")
+      ? "preview-deployed-no-release-assets" : "deployment-not-proved";
+  }
   if (release?.draft) return product === "package" ? "awaiting-npm-owner-approval" : "release-draft";
   return release ? "released-artifacts-unverified" : "publication-not-proved";
 }
@@ -130,6 +135,8 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
   if (!Object.hasOwn(workflows, selected.product)) throw new Error("Product delivery remains disabled");
   const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
   const base = `/repos/${repository}`;
+  const tagAPI = (_method, path) => api(path);
+  await checkRemoteTag(tagAPI, repository, tag, selected.commit, selected.tagObject);
   const listing = await api(`${base}/actions/workflows/${workflows[selected.product]}.yml/runs?event=push&head_sha=${selected.commit}&per_page=100`);
   if (!Array.isArray(listing.workflow_runs) || listing.workflow_runs.length >= 100) throw new Error("CI run lookup exceeded its bound");
   const runs = listing.workflow_runs.filter(run => run.head_sha === selected.commit && run.head_branch === tag && run.event === "push" &&
@@ -140,7 +147,7 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
   const jobs = await api(`${base}/actions/runs/${run.id}/jobs?per_page=100`);
   if (!Array.isArray(jobs.jobs) || jobs.total_count >= 100) throw new Error("CI job lookup exceeded its bound");
   const release = selected.product === "worker" ? null : await api(`${base}/releases/tags/${encodeURIComponent(tag)}`, true);
-  const status = summarizeRun(run, jobs.jobs, release, selected.product);
+  const status = summarizeRun(run, jobs.jobs, release, selected.product, selected.channel);
   const result = { ...selected, run: run.id, url: run.html_url, status, artifactsVerified: false,
     jobs: jobs.jobs.map(job => ({ name: job.name, status: job.status, conclusion: job.conclusion })) };
   if (!check || status !== "released-artifacts-unverified") return result;
@@ -179,7 +186,7 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
     files.set(asset.name, bytes);
   }
   const notes = files.get("CHANGELOG.md")?.toString("utf8");
-  if (!notes || !notes.includes(`Commit: ${selected.commit}.`) || !notes.includes(`[Checked CI run](${run.html_url})`)) {
+  if (!notes || !notes.includes(`Commit: ${selected.commit}.`) || !sameSourceRunLink(notes, run.html_url, repository)) {
     throw new Error("Hosted changelog differs from its source run");
   }
   const checksums = files.get("CHECKSUMS.sha256")?.toString("utf8").trim().split("\n");
@@ -205,6 +212,7 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
       throw new Error("npm registry identity or integrity differs from the checked release tarball");
     }
   }
+  await checkRemoteTag(tagAPI, repository, tag, selected.commit, selected.tagObject);
   return { ...result, status: "release-artifacts-verified", artifactsVerified: true,
     sha256: Object.fromEntries([...files].map(([name, bytes]) => [name, sha256(bytes)])) };
 }

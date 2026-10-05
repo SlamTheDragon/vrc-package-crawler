@@ -1,4 +1,4 @@
-name: SDK tagged artifact and gated npm staging
+name: SDK tagged artifact and channel npm publication
 
 # NPM_TOKEN is owner-configured. The package and API review holds remain explicit.
 
@@ -49,6 +49,9 @@ jobs:
     uses: ./.github/workflows/release-assets.yml
   publish:
     needs: build
+    permissions:
+      contents: read
+      id-token: write
     # Separate package identities and environments. Release v0.1 remains held in delivery.mjs.
     if: (needs.build.outputs.channel == 'release' && vars.VRCP_SDK_PUBLISH_APPROVED == 'true') || (needs.build.outputs.channel == 'preview' && vars.VRCP_SDK_PREVIEW_PUBLISH_APPROVED == 'true')
     runs-on: ubuntu-latest
@@ -73,14 +76,21 @@ jobs:
           path: src-package/.artifacts/ci/
       - name: Install supported staging CLI
         run: npm install --global npm@11.19.0
-      - name: Stage checked SDK and compare registry staging bytes
+      - name: Stage checked release SDK and compare registry staging bytes
+        if: needs.build.outputs.channel == 'release'
         run: node scripts/delivery.mjs publish '${{ needs.build.outputs.channel }}' package --ci
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish checked preview SDK through its trusted publisher
+        if: needs.build.outputs.channel == 'preview'
+        run: node scripts/delivery.mjs publish preview package --ci
+        env:
+          NODE_AUTH_TOKEN: ''
+          NPM_TOKEN: ''
       - uses: actions/upload-artifact@v4
         with:
-          name: sdk-${{ needs.build.outputs.channel }}-stage
-          path: src-package/.artifacts/ci/*.tgz.stage.json
+          name: sdk-${{ needs.build.outputs.channel }}-${{ needs.build.outputs.channel == 'preview' && 'publication' || 'stage' }}
+          path: src-package/.artifacts/ci/*.tgz.${{ needs.build.outputs.channel == 'preview' && 'published' || 'stage' }}.json
           include-hidden-files: true
           if-no-files-found: error

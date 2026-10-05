@@ -143,7 +143,7 @@ The crawler voluntarily honors RFC 9309 as an operational signal. The crawler ch
 6.2. **Transparent User-Agent Identification.**  
 All HTTP requests include an honest User-Agent header identifying the project and contact email:
 ```http
-User-Agent: VRCPDiscoveryBot/0.0.0 (+https://github.com/SlamTheDragon/vrc-package-crawler; slamthedragon@gmail.com)
+User-Agent: VRCPDiscoveryBot/0.0.0 (+https://github.com/SlamTheDragon/vrc-packages; slamthedragon@gmail.com)
 ```
 
 The version above is an example. Each runtime reads its config-synchronized product version. During the bot-name transition, robots checks retain restrictions for the earlier product token too. This naming change does not grant access or override source terms.
@@ -254,11 +254,11 @@ The Maintainer has not registered a designated agent under 17 U.S.C. Section 512
 10.1. **Notice and Conditions of Access (IETF RFC 6648 & RFC 8288).**  
 API and catalog access terms are conditions of access and redistribution for Project-controlled feeds, exports, and catalog databases. The Maintainer intends these terms to govern use of Project-controlled materials where legally enforceable. In adherence to IETF RFC 6648 (deprecating the `X-` prefix for custom application protocols) and IETF RFC 8288 (Web Linking), Maintainer-controlled API endpoints inject conspicuous, machine-readable contractual notice on all HTTP responses:
 ```http
-VRC-Packages-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md
+VRC-Packages-Terms-Of-Use: https://github.com/SlamTheDragon/vrc-packages/blob/main/LEGAL.md
 VRC-Packages-Terms-Version: 1.1
-VRC-Packages-Repository: https://github.com/SlamTheDragon/vrc-package-crawler
+VRC-Packages-Repository: https://github.com/SlamTheDragon/vrc-packages
 VRC-Packages-License: Layer-A: AGPL-3.0 / Layer-B: Database Compilation Terms / Layer-C: Third-Party Origin Rights
-Link: <https://github.com/SlamTheDragon/vrc-package-crawler/blob/main/LEGAL.md>; rel="terms-of-service"
+Link: <https://github.com/SlamTheDragon/vrc-packages/blob/main/LEGAL.md>; rel="terms-of-service"
 X-Robots-Tag: noai, noimageai
 ```
 Repeated automated access after conspicuous notice may provide evidence supporting contractual assent in circumstances similar to those recognized in *Register.com, Inc. v. Verio, Inc.* (356 F.3d 393), but does not guarantee contract formation in every jurisdiction or access context. Where a downstream party redistributes Project-controlled catalog data, the applicable redistribution terms are intended to accompany that distribution. Downstream consumers who do not assent to these terms are requested not to access, query, or redistribute Maintainer-controlled catalog outputs.
@@ -459,7 +459,7 @@ These Terms constitute the entire agreement between the Maintainer and users reg
 18.6. **Official Maintainer Contact.**  
 - **Maintainer:** SlamTheDragon
 - **Email:** `slamthedragon@gmail.com`
-- **Repository:** `https://github.com/SlamTheDragon/vrc-package-crawler`
+- **Repository:** `https://github.com/SlamTheDragon/vrc-packages`
 
 ---
 

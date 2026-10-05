@@ -79,6 +79,44 @@ export function stageSDKArtifact(artifact, expected, receipt, run) {
   return { ...expected, stageId, tag: "latest", sha256: receipt.sha256, status: "awaiting-npm-approval", purpose: "npm-stage" };
 }
 
+async function readPublicSDK(name, version) {
+  const response = await fetch(`https://registry.npmjs.org/${name}/${version}`, {
+    redirect: "error", signal: AbortSignal.timeout(30_000), headers: { accept: "application/json" } });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`npm registry check failed (${response.status}). No publication retry ran.`);
+  return response.json();
+}
+
+/** Preview is directly published through OIDC. Releases still use owner-approved stages. */
+export async function publishPreviewSDKArtifact(artifact, expected, receipt, run, registry = readPublicSDK) {
+  const bytes = readFileSync(artifact), project = dirname(artifact);
+  validateCIArtifact(receipt, expected, bytes);
+  if (expected.name !== sdkPackageNames.preview) throw new Error("Direct publication is preview-only");
+  checkSDKPublicationVersion(expected.version, "preview", expected.name);
+  const integrity = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+  const check = metadata => {
+    if (metadata?.name !== expected.name || metadata.version !== expected.version || metadata.dist?.integrity !== integrity) {
+      throw new Error("Public preview SDK differs from its checked artifact");
+    }
+  };
+  const existing = await registry(expected.name, expected.version);
+  if (existing) check(existing);
+  const latest = await registry(expected.name, "latest");
+  if (latest && (latest.name !== expected.name || !semver.valid(latest.version) || semver.gt(latest.version, expected.version))) {
+    throw new Error("Preview latest would roll back or has invalid identity");
+  }
+  if (!existing) {
+    if (semver.lt(run(["--version"], project, true).trim(), "11.19.0")) throw new Error("Preview OIDC publication requires CLI 11.19.0 or later");
+    // Do not approve stages, change dist-tags on retries, or fall back to a write token.
+    run(["publish", artifact, "--access", "public", "--tag", "latest", "--ignore-scripts",
+      "--json", "--registry=https://registry.npmjs.org"], project, true);
+  }
+  check(await registry(expected.name, expected.version));
+  check(await registry(expected.name, "latest"));
+  return { ...expected, channel: "preview", tag: "latest", sha256: receipt.sha256, integrity,
+    status: "published-verified", purpose: "npm-publication" };
+}
+
 export async function resolveTag(tag, workspace = root, historical = false) {
   const configs = Object.fromEntries(await Promise.all(["release", "preview"].map(async channel =>
     [channel, (await readVersionConfig(channel, workspace)).config])));
@@ -232,6 +270,15 @@ export async function deliver(action, channel, product, ci = false) {
       const artifact = join(project, ".artifacts/ci", `${manifest.name}-${manifest.version}.tgz`);
       const receipt = JSON.parse(readFileSync(`${artifact}.json`, "utf8"));
       const expected = { name: manifest.name, version: manifest.version, commit: process.env.GITHUB_SHA };
+      if (channel === "preview") {
+        if (!process.env.ACTIONS_ID_TOKEN_REQUEST_URL || !process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN ||
+            process.env.NODE_AUTH_TOKEN || process.env.NPM_TOKEN) {
+          throw new Error("Direct preview publication requires OIDC without npm write tokens");
+        }
+        const publication = await publishPreviewSDKArtifact(artifact, expected, receipt, npm);
+        writeFileSync(`${artifact}.published.json`, JSON.stringify(publication, null, 2) + "\n");
+        return { action, channel, product, purpose: "ci-release", status: publication.status };
+      }
       const stage = stageSDKArtifact(artifact, expected, receipt, npm);
       writeFileSync(`${artifact}.stage.json`, JSON.stringify({ ...stage, channel }, null, 2) + "\n");
       return { action, channel, product, purpose: "ci-release", status: stage.status, stageId: stage.stageId };

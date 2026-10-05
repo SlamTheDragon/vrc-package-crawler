@@ -72,7 +72,7 @@ test("dirty worktrees, divergent origin, existing tags and SDK holds fail withou
     git(workspace, "push", "origin", "main");
     git(workspace, "tag", "vrcp-network/v2026.10.1-pre");
     await expect(startDelivery("preview", "network", true, workspace, now, git)).rejects.toThrow("already exists");
-    await expect(planDelivery("release", "worker", workspace, now, git)).rejects.toThrow("disabled");
+    expect((await planDelivery("release", "worker", workspace, now, git)).delivery).toBe("ci-build-only-no-production-deployment");
     await expect(planDelivery("preview", "web", workspace, now, git)).rejects.toThrow("deferred");
     const release = JSON.parse(await readFile(resolve(workspace, "config.versions.json"), "utf8"));
     release["release-package"] = "0.0.999";
@@ -111,6 +111,10 @@ test("CI summaries keep staging, failed builds, absent publication and Worker as
   expect(summarizeRun(success, [], { draft: false }, "network")).toBe("released-artifacts-unverified");
   expect(summarizeRun(success, [{ name: "deploy", conclusion: "success" }], null, "worker")).toBe("preview-deployed-no-release-assets");
   expect(summarizeRun(success, [{ name: "deploy", conclusion: "skipped" }], null, "worker")).toBe("deployment-not-proved");
+  expect(summarizeRun(success, [{ name: "build", conclusion: "success" }, { name: "deploy", conclusion: "skipped" }], null, "worker", "release"))
+    .toBe("release-build-only-no-production-deployment");
+  expect(summarizeRun(success, [{ name: "build", conclusion: "success" }, { name: "deploy", conclusion: "success" }], null, "worker", "release"))
+    .toBe("build-only-boundary-not-proved");
   expect(repositoryFromRemote("git@github.com:example/fixture.git")).toBe("example/fixture");
   for (const url of ["https://token@github.com/example/fixture", "https://evil.invalid/example/fixture", "../escape"]) {
     expect(() => repositoryFromRemote(url)).toThrow();
@@ -134,7 +138,10 @@ test("memory-only release checks use exact source receipts and reject bad channe
     const run = { id: 123, head_sha: result.commit, head_branch: result.tag, event: "push", html_url: url,
       status: "completed", conclusion: "success", path: ".github/workflows/network.yml", head_repository: { full_name: "example/fixture" } };
     const release = { id: 123, draft: false, prerelease: true };
+    let remoteCommit = result.commit, remoteTagObject = result.tagObject;
     const api = async (path: string) => {
+      if (path.includes("/git/ref/tags/")) return { ref: `refs/tags/${result.tag}`, object: { type: "tag", sha: remoteTagObject } };
+      if (path.includes("/git/tags/")) return { sha: remoteTagObject, object: { type: "commit", sha: remoteCommit } };
       if (path.includes("/runs?")) return { workflow_runs: [run] };
       if (path.includes("/jobs?")) return { total_count: 1, jobs: [{ name: "build", status: "completed", conclusion: "success" }] };
       if (path.includes("/assets?")) return [...files].map(([name, bytes]) => ({ name, size: bytes.length,
@@ -142,14 +149,23 @@ test("memory-only release checks use exact source receipts and reject bad channe
       return release;
     };
     const previousFetch = globalThis.fetch;
-    let corrupt = false;
+    let corrupt = false, moveDuringRead = false;
     globalThis.fetch = (async (input: string | URL | Request) => {
       const name = new URL(String(input)).pathname.split("/").pop()!;
+      if (moveDuringRead) remoteCommit = "b".repeat(40);
       return new Response(corrupt ? Buffer.from("Corrupted synthetic transport") : files.get(name));
     }) as typeof fetch;
     try {
       expect((await inspectDelivery(result.tag, false, workspace, api)).artifactsVerified).toBe(false);
       expect((await inspectDelivery(result.tag, true, workspace, api)).artifactsVerified).toBe(true);
+      remoteCommit = "b".repeat(40);
+      await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("source commit");
+      remoteCommit = result.commit; remoteTagObject = "c".repeat(40);
+      await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("tag object differs");
+      remoteTagObject = result.tagObject;
+      moveDuringRead = true;
+      await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("source commit");
+      moveDuringRead = false; remoteCommit = result.commit;
       release.prerelease = false;
       await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("channel differs");
       release.prerelease = true; corrupt = true;

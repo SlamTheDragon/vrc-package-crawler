@@ -48,13 +48,16 @@ The complete owner API route review still blocks SDK v0.1.0 and later, including
 
 Use a focused development branch, normally with the codex/ prefix for agent changes.
 Review and merge its commit before tagging that commit for delivery.
-Branch names alone do not select a delivery channel. Automatic preview triggers remain an open decision.
+Branch automation starts after per-product patch-1 proof. The approved responsibility branches are website-preview, crawler-client-preview, api-package-preview and worker-preview.
+Main will own releases and require reviewed promotion PRs. Website CI remains disabled.
+API preview pushes will publish directly, with version patches allocated before commit. These branch triggers are not yet implemented.
 Crawler CI defines standalone Windows and Linux artifacts as well as the container.
 The desktop shell's download, signature, update and supervision contracts remain future work.
 
 For a configured product, run `npm run delivery:preview -- <product>` to see the next patch and delivery blockers.
 Add `--execute` only after review to commit that config patch and atomically push the branch and product tag.
-CI builds, publishes and attaches assets through existing workflows. npm staging still needs the owner's npm approval.
+CI builds, publishes and attaches assets through existing workflows. Release npm staging needs the owner's npm approval.
+Preview npm publication uses its trusted publisher directly. Worker release tags build only, without production deployment or Release assets.
 Use `npm run delivery:status -- <tag>` for CI progress and `npm run delivery:check -- <tag>` for hosted artifact checks.
 No command creates local release binaries. See the delivery manual for retries and disabled paths.
 
