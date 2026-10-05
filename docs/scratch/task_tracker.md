@@ -45,8 +45,16 @@ Failed unpublished desktop preview tag object de7481a8dfd9255740953c11e1d5d54f16
 Failed crawler release/preview tag objects f9b91f3d55417ed8f84d9597acd09ca185b91516 and 453041770201c42111fc52fc8d1ea5f79024543d were also replaced.
 All published replacements are now immutable.
 
-Next: commit the checked root chain, then run an authorized network preview trial from a clean temporary checkout.
-Check its exact source run and public assets before marking R57-C57A checked.
+Root chain commit c4b285531f6e892f9c070b3e6fdf7c865e2bda42 was pushed.
+The clean temporary checkout ran the approved command and atomically pushed network preview 2026.10.1-pre.
+Source commit: 0117444f525dd5e83648d212a43fa4b1397a32ad. Tag object: e0a0df2ba22614936411426dfbacdc4013e13d8b.
+CI 37251743937 passed build and automatic Release attachment. Four hosted assets passed root memory-only checks.
+Preview tarball SHA-256: b824c1dc35447ae956684de1c20caaaf7d810161b6d062ed709d38075660e356.
+Release network readback passed too. R57-C57A shared chain is checked; other product paths retain earlier individual proof.
+SDK registry deployment links are wired but need a later staging job to appear. No new SDK publication ran.
+Owner rolling-tag self-check is Q-ROLLING-TAGS. Primary research distinguishes fixed delivery identity from moving aliases.
+No rolling tag, force push, existing asset replacement or new publication trigger ran.
+Next: use the requested owner question hook before R57-C57B. Keep G14 and the full goal open.
 Keep owner README edits outside the commit. No local release builds, D1 changes or source grants.
 OIDC, live npm draft promotion, installation identity, updater safety and real-source fleet recovery remain open.
 Private attacker research remains unread until pipeline setup finishes.

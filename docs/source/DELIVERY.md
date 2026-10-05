@@ -104,6 +104,11 @@ Git uses its existing credential helper for pushes. Read-only GitHub checks use 
 Public metadata can work without credentials, subject to GitHub rate limits. Commands never print credential values.
 The agent procedure is separate in [AGENT_DELIVERY.md](../decisions/AGENT_DELIVERY.md).
 
+Root-chain checkpoint: network preview 2026.10.1-pre passed CI 37251743937 at commit 0117444f525dd5e83648d212a43fa4b1397a32ad.
+The command committed one config patch and pushed its tag atomically. CI created the four Release assets.
+Memory-only root checks matched their digests, source receipt, notes and checksum coverage. Release network readback passed too.
+Other product paths retain their separate publication evidence. This trial did not republish npm or deploy another Worker.
+
 ### npm registry links in GitHub
 
 The SDK publish job links each GitHub environment to its channel's npm package page.

@@ -25,6 +25,28 @@ Remove unsupported estimates from decisions: requests per second, memory use, de
 
 ## Further reading, not yet implementation authority
 
+### Rolling development tags versus delivery identity — 2026-10-05
+
+The owner suggests a single moving nightly/latest-dev tag instead of a unique tag for every automated preview.
+This is a distribution choice, not a universal release practice. Distinguish a moving alias from a fixed artifact identity.
+
+| Mechanism | Useful purpose | Constraint for this repository |
+| --- | --- | --- |
+| Versioned product tag and Release | Bind source, package version, receipts and assets to one delivery | Keep published tags and bytes unchanged. Current delivery uses this contract. |
+| Moving development Git tag | Point developers to the newest disposable build | Keep it outside versioned Release identity. Cached clones can retain the earlier tag. Separate triggers and consumer rules need owner review. |
+| npm/GHCR channel alias | Let consumers select the newest channel version | Retain immutable package versions or image digests underneath the alias. CI still checks configured versions. |
+
+[Git's retagging guidance](https://git-scm.com/docs/git-tag.html) describes inconsistent local tags and the trust risk of changing a public tag.
+[GitHub's action release guide](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/using-immutable-releases-and-tags-to-manage-your-actions-releases)
+distinguishes immutable releases from movable tags without a Release. Its action-major aliases are not a mandate for package previews.
+[GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+lock published tags and assets when enabled. Repository enforcement is a separate setting, not proof from our scripts.
+[npm dist-tags](https://docs.npmjs.com/adding-dist-tags-to-packages/) supply moving aliases such as latest without replacing a package version.
+
+Recommendation for the current gate: keep versioned delivery snapshots and the existing registry channel aliases.
+If an unreleased rolling pointer is needed, decide its separate trigger, retention and consumer semantics before implementation.
+No rolling Git tag, force push, retention deletion or new publication trigger ran in this self-check.
+
 - [Percolator publication search](https://research.google/search/?query=Percolator): the previously linked USENIX page could not be retrieved in this review. Obtain the primary paper before borrowing its transaction model.
 - [awesome-crawler](https://github.com/brucedone/awesome-crawler): a discovery index, not a security review or package recommendation.
 - [Historical spikes](../SPIKES.md): dated experiments, not current deployment evidence.
