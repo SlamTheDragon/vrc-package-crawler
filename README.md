@@ -2,7 +2,57 @@
 
 VRC Packages (VRCP) is an open-source discovery and indexing engine for public VRChat creator packages (Tools, Assets, Avatars).
 
-The project derives metadata discovery from VPM repositories such as GitHub and creator storefronts like Gumroad, Booth.pm, Jinxxy, Shopify, Payhip, & others. The catalog records public links to original publisher fronts. The policy excludes archives, assets, and executable downloads.
+The project derives metadata discovery from VPM repositories, such as GitHub, and creator storefronts like Gumroad, Booth.pm, Jinxxy, Shopify, Payhip, & others. The catalog records public links to original publisher fronts. The policy excludes archives, assets, and executable downloads.
+
+---
+
+## Using this service
+
+### 1. Integration via (`vrc-packages-api`)
+
+Downstream applications can use the SDK's public contracts. For full documentation, read [docs/source](docs/source). For agents: See [DELEGATES.md](DELEGATES.md) for full SDK documentation overview, registration procedures, and keyset pagination guides.
+
+```typescript
+import { VRCPackageClient } from "vrc-packages-api";
+
+// Backend example: supply the issued credential through protected runtime configuration.
+const applicationCredential = process.env.VRCP_APP_TOKEN;
+if (!applicationCredential) throw new Error("Missing application credential");
+
+const client = new VRCPackageClient({
+  baseUrl: "https://coordinator.example.com",
+  appToken: applicationCredential,
+});
+
+// Bounded authenticated search. Indexed dynamic tag filtering remains open.
+const results = await client.index.search({
+  query: "PhysBones",
+  queryOrigin: "user_authored",
+});
+
+// Resumable delta synchronization for local caches
+const deltas = await client.index.syncDeltas({
+  limit: 100,
+});
+```
+
+The example environment variable is a backend convention, not an SDK requirement. The Worker accepts queryOrigin but does not record or apply search attribution. Do not treat that field as implemented attribution or auditing.
+
+### 2. Contribute to our Discovery Crawler Nodes Network via Docker or Crawler Client
+
+#### Crawler Client
+
+Download & Install the latest release found at [Deployments](https://github.com/SlamTheDragon/vrc-packages/deployments)
+
+#### Crawler Docker
+
+The node has a Dockerfile and a fleet configuration. Image publication, restart recovery and automatic updates are pending.
+
+```bash
+docker compose -f src-crawler/docker-compose.yml config
+```
+
+Review the [Docker runbook](DELEGATES.md#3-crawler-node-operation--fleet-management) before starting containers. The compose file grants Watchtower access to the host Docker socket.
 
 ---
 
@@ -42,8 +92,6 @@ cd src-package
 bun test
 ```
 
-Current measurements and known failures live in [the active tracker](docs/scratch/task_tracker.md). The migration does not prove isolated remote builds or live-source ingestion.
-
 ### Typechecking & Builds
 
 ```powershell
@@ -67,50 +115,6 @@ bun run build
 # Run the isolated native D1 HTTP smoke (requires Node.js)
 bun run test:runtime
 ```
-
----
-
-## Deployment & Operations
-
-### 1. Downstream Integration (`vrc-packages-api`)
-
-Downstream applications can use the SDK's public contracts. For full documentation, read [docs/source](docs/source). For agents: See [DELEGATES.md](DELEGATES.md) for full SDK documentation overview, registration procedures, and keyset pagination guides.
-
-```typescript
-import { VRCPackageClient } from "vrc-packages-api";
-
-// Backend example: supply the issued credential through protected runtime configuration.
-const applicationCredential = process.env.VRCP_APP_TOKEN;
-if (!applicationCredential) throw new Error("Missing application credential");
-
-const client = new VRCPackageClient({
-  baseUrl: "https://coordinator.example.com",
-  appToken: applicationCredential,
-});
-
-// Bounded authenticated search. Indexed dynamic tag filtering remains open.
-const results = await client.index.search({
-  query: "PhysBones",
-  queryOrigin: "user_authored",
-});
-
-// Resumable delta synchronization for local caches
-const deltas = await client.index.syncDeltas({
-  limit: 100,
-});
-```
-
-The example environment variable is a backend convention, not an SDK requirement. The Worker accepts queryOrigin but does not record or apply search attribution. Do not treat that field as implemented attribution or auditing.
-
-### 2. Running Crawler Nodes via Docker
-
-The node has a Dockerfile and a proposed fleet configuration. Image publication, restart recovery and automatic updates remain unverified.
-
-```bash
-docker compose -f src-crawler/docker-compose.yml config
-```
-
-Review the [Docker runbook](DELEGATES.md#3-crawler-node-operation--fleet-management) before starting containers. The compose file grants Watchtower access to the host Docker socket.
 
 ---
 
