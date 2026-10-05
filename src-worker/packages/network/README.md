@@ -17,16 +17,16 @@ Both checks must allow the target. Earlier refusals do not disappear through wil
 
 ## Delivery status
 
-Version `0.0.0` matches the current source manifests. No registry artifact exists from this implementation.
-Consumer dependencies declare this exact version instead of a `file:` link.
-Do not install registry coordinates until package ownership and reviewed artifact integrity are confirmed.
-An ordinary clean install cannot succeed until verified matching artifacts exist in the selected registry.
-Local gate checks must install packed artifacts into isolated consumers, not link these source folders.
+Checked GitHub Release tarballs exist for `0.0.1` and `2026.10.1-pre`. The package has no npm registry publication.
+Version `0.0.0` in a bootstrap manifest does not identify the latest distributed archive.
+A bare install that requests `vrc-packages-network@0.0.0` from npm fails. It does not select a GitHub artifact automatically.
+Install checked packed artifacts into each consumer. Do not link sibling source folders.
 
-The package remains `private: true` until artifact and dependency checks pass.
-The distribution channel remains a deferred owner decision.
-SDK v0.1.0 also requires the separate full owner API review.
-This ownership change does not authorize deployment, publication or live source access.
+The owner selects one future rapid `YYYY.M.Patch` stream, without `-pre` or a separate release path.
+That migration and the hosted development installer remain queued under R57-NETWORK-SINGLE and R57-DEV-INSTALL.
+Existing published tags and receipts stay unchanged. Consumer SDK channel selection still needs a dependency review.
+The package remains `private: true` because GitHub tarball distribution does not require npm publication.
+The SDK v0.1.0 owner-review hold remains. Neither installation nor artifact publication authorizes live source access.
 
 Use [the delivery guide](../../../docs/source/DELIVERY.md) to prepare development artifacts and independent consumers.
 From the repository root, run `npm run prepare:dev -- release worker` after release metadata sync.

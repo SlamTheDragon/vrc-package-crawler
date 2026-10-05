@@ -25,6 +25,29 @@ Remove unsupported estimates from decisions: requests per second, memory use, de
 
 ## Further reading, not yet implementation authority
 
+### One network archive and two SDK channels — 2026-10-05
+
+The owner selects one future network CalVer stream without a prerelease suffix. Other products retain their release and preview channels.
+The current network protocol imports only IssueNodeCredentialSchema from the SDK and reuses its nodeId field.
+Published SDK sources at vrcp-api/v0.0.1 and vrcp-api/v2026.10.1-pre contain the same node-ID rule.
+This source comparison does not prove one packed network archive works with both SDK distributions.
+
+| Candidate | Consequence | Required check |
+| --- | --- | --- |
+| Keep a pinned SDK dependency | The network archive can install its own SDK channel beneath a consumer | Reject channel contamination or duplicate SDK resolution before distribution |
+| Let the consumer supply a required SDK peer | One network archive can reuse the consumer's selected SDK without copying the schema | Pack once, then check npm and Bun installs against both verified SDKs. Confirm actual module resolution, exported declarations and Worker behavior |
+| Copy the node-ID rule into the network package | Removes the dependency but creates two mutable validation authorities | Do not select this shortcut without an explicit contract-ownership decision |
+
+[npm peer dependencies](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/#peerdependencies) express host compatibility and install automatically in npm 7 and later.
+[Bun installation](https://bun.com/docs/pm/cli/install) also installs peers by default. Moving a dependency into peers alone does not prove channel isolation.
+The installed semver library rejects 2026.10.1-pre for both * and >=0.0.0. An explicit 0.0.1 OR 2026.10.1-pre range accepts both current versions.
+No broad range proves compatibility with future API changes. Generate compatibility bounds only from verified distributions, not calendar resemblance.
+
+Preferred research candidate: a consumer-supplied SDK peer, with packed dual-channel checks and explicit compatibility bounds.
+This is not an accepted dependency change. R57-NETWORK-SINGLE records the critical contract decision.
+The hosted installer must select exact checked tarballs and preserve their version, source receipt and checksum.
+An npm latest alias cannot resolve an unpublished network package. Do not use force or legacy-peer-deps to hide dependency conflicts.
+
 ### Rolling development tags versus delivery identity — 2026-10-05
 
 The owner suggests a single moving nightly/latest-dev tag instead of a unique tag for every automated preview.

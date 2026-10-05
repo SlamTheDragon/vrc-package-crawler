@@ -70,3 +70,13 @@ Preserve old published identities. Other products retain their channel rules.
 Critical coupling: node_protocol.ts imports the SDK credential schema. Review how one archive can serve both consumer channels safely.
 R57-DEV-INSTALL then selects verified hosted tarballs for local installs. Bare bun install currently requests an unpublished npm package and fails.
 The SDK preview alias already uses latest. Network latest must resolve through checked GitHub assets, not npm.
+
+Research now identifies only one SDK import in the network protocol: the node-ID rule from IssueNodeCredentialSchema.
+Both published patch-1 SDK sources contain the same rule. This does not prove packed compatibility.
+The infrastructure research shelf records a consumer-supplied peer candidate and required npm/Bun dual-channel checks.
+Ordinary * and >=0.0.0 ranges exclude the preview prerelease. Do not hide compatibility gaps with force or legacy-peer-deps.
+The network README now distinguishes published GitHub archives from the absent npm package and queued single-stream migration.
+
+Active readback: exec session 52813 runs delivery:check for vrcp-crawler/v0.0.1 with streaming hashes and bounded deadlines.
+The session was still live at its latest poll. No success or failure result exists yet.
+Resume by polling this exact handle. Do not restart merely because an observation timed out.
