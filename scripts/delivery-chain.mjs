@@ -2,9 +2,9 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bumpVersion, nextVersion, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames } from "./versioning.mjs";
+import { bumpVersion, networkArchiveURL, nextVersion, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, versionFiles } from "./versioning.mjs";
 import { checkSDKPublicationVersion, selectTag } from "./delivery.mjs";
-import { allowedBinary, checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink } from "./release-assets.mjs";
+import { allowedBinary, checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink, sourceRunID } from "./release-assets.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const workflows = { package: "vrc-packages-api", network: "network", crawler: "node-docker",
@@ -59,8 +59,10 @@ export async function startDelivery(channel, product, execute = false, workspace
   }
   const result = await bumpVersion(channel, product, "patch", workspace, now);
   if (result.version !== plan.version) throw new Error("Config changed after planning. Inspect it before retrying.");
-  git(workspace, "add", "--", plan.configPath);
-  git(workspace, "commit", "--only", "-m", `Deliver ${product} ${channel} ${plan.version}`, "--", plan.configPath);
+  const metadata = await versionFiles("sync", channel, product, workspace);
+  const paths = [plan.configPath, ...metadata.changed];
+  git(workspace, "add", "--", ...paths);
+  git(workspace, "commit", "--only", "-m", `Deliver ${product} ${channel} ${plan.version}`, "--", ...paths);
   git(workspace, "tag", "-a", plan.tag, "-m", `VRC Packages ${product} ${channel} ${plan.version}`);
   return retryDelivery(plan.tag, workspace, git);
 }
@@ -155,6 +157,65 @@ export async function readHostedAsset(asset, binary = false) {
   const sha256 = digest.digest("hex");
   if (size !== asset.size || asset.digest !== `sha256:${sha256}`) throw new Error("Hosted artifact digest or size differs");
   return { size, sha256, ...(binary ? {} : { bytes: Buffer.concat(chunks) }) };
+}
+
+/** Resolve the internal archive from its immutable delivery, never from producer source. */
+export async function readNetworkDistribution(version, workspace = root, api = githubReader(workspace)) {
+  if (!/^\d{4}\.(?:[1-9]|1[0-2])\.\d+$/.test(version)) throw new Error("Network requires the suffix-free rapid stream");
+  const repository = "SlamTheDragon/vrc-packages";
+  const tag = `vrcp-network/v${version}`;
+  const archiveURL = networkArchiveURL(version);
+  const base = `/repos/${repository}`;
+  const release = await api(`${base}/releases/tags/${encodeURIComponent(tag)}`);
+  if (release.tag_name !== tag || release.draft || release.prerelease !== true || !Number.isSafeInteger(release.id)) {
+    throw new Error("Network delivery is not an immutable rapid-stream release");
+  }
+  const tagAPI = (_method, path) => api(path);
+  const { tagObject, commit } = await checkRemoteTag(tagAPI, repository, tag, release.target_commitish);
+  const listing = await api(`${base}/releases/${release.id}/assets?per_page=100`);
+  const archive = `vrc-packages-network-${version}.tgz`;
+  const expected = new Set([archive, `${archive}.json`, "CHANGELOG.md", "CHECKSUMS.sha256"]);
+  if (!Array.isArray(listing) || listing.length !== expected.size) throw new Error("Unexpected network release assets");
+  const files = new Map();
+  let size = 0;
+  for (const asset of listing) {
+    if (!expected.delete(asset.name) || asset.browser_download_url !== archiveURL.replace(archive, asset.name)) {
+      throw new Error("Network release has an unexpected asset or download origin");
+    }
+    size += asset.size;
+    if (size > 256 * 1024 ** 2) throw new Error("Network assets exceed the buffered download budget");
+    const downloaded = await readHostedAsset(asset);
+    files.set(asset.name, downloaded.bytes);
+  }
+  const receipt = JSON.parse(files.get(`${archive}.json`));
+  checkedAssetBytes(new Map([[archive, files.get(archive)], [`${archive}.json`, files.get(`${archive}.json`)]]),
+    { product: "network", channel: "preview", version }, commit, { name: "vrc-packages-network" });
+  const notes = files.get("CHANGELOG.md").toString("utf8");
+  const link = /\[Checked CI run\]\(([^)]+)\)/.exec(notes)?.[1];
+  if (!link || !notes.startsWith(`# VRC Packages - network ${version}\n`) ||
+      !notes.includes(`Commit: ${receipt.commit}.\n`) || !notes.includes("Channel: preview.")) {
+    throw new Error("Network notes identify another source");
+  }
+  const runId = sourceRunID(link, repository);
+  const run = await api(`${base}/actions/runs/${runId}`);
+  const jobs = await api(`${base}/actions/runs/${runId}/jobs?per_page=100`);
+  if (!Array.isArray(jobs.jobs) || jobs.total_count >= 100 || run.head_sha !== receipt.commit ||
+      run.status !== "completed" || run.conclusion !== "success") {
+    throw new Error("Network CI source or jobs differ from its receipt");
+  }
+  checkSourceRun(run, jobs.jobs, tag, repository, "network");
+  const covered = new Set();
+  for (const line of files.get("CHECKSUMS.sha256").toString("utf8").trimEnd().split("\n")) {
+    const match = /^([a-f0-9]{64})  (.+)$/.exec(line);
+    if (!match || match[2] === "CHECKSUMS.sha256" || covered.has(match[2]) || !files.has(match[2]) ||
+        createHash("sha256").update(files.get(match[2])).digest("hex") !== match[1]) {
+      throw new Error("Network checksum coverage differs from its assets");
+    }
+    covered.add(match[2]);
+  }
+  if (covered.size !== files.size - 1) throw new Error("Network checksum coverage is incomplete");
+  await checkRemoteTag(tagAPI, repository, tag, receipt.commit, tagObject);
+  return { bytes: files.get(archive), receipt, url: archiveURL, tag, tagObject, sourceRun: runId };
 }
 
 export async function inspectDelivery(tag, check = false, workspace = root, api = githubReader(workspace)) {

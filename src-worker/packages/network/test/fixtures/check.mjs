@@ -1,5 +1,6 @@
 import { ClaimRequestSchema, ClaimResponseSchema, CrawlJobSchema, ResultRequestSchema,
-  ResultResponseSchema, NODE_API_JSON_SCHEMAS } from 'vrc-packages-network/node';
+  ResultResponseSchema, NODE_API_JSON_SCHEMAS, NodeIdSchema } from 'vrc-packages-network/node';
+import { IssueNodeCredentialSchema } from 'vrc-packages-api';
 import { EvidenceClassSchema } from 'vrc-packages-network/evidence';
 import { isPrivateOrReservedIp } from 'vrc-packages-network/ip-policy';
 import { githubApiRepositoryIdentity } from 'vrc-packages-network/source-targets';
@@ -13,6 +14,8 @@ import { cleanTitle, cleanTrackingParams } from 'vrc-packages-network/catalog-hy
 function check(value, message) { if (!value) throw new Error(message); }
 
 export async function checkArtifact() {
+  check(NodeIdSchema === IssueNodeCredentialSchema.shape.nodeId,
+    'Network resolved a different SDK than the consumer selected');
   const claim = ClaimRequestSchema.parse({ schemaVersion: 1, nodeId: 'artifact-node', capabilities: ['vpm'] });
   check(claim.nodeId === 'artifact-node', 'Claim identity changed');
   check(!ClaimRequestSchema.safeParse({ ...claim, nodeId: '..' }).success, 'Dot node ID accepted');

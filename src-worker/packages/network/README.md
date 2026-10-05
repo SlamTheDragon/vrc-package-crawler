@@ -22,14 +22,19 @@ Version `0.0.0` in a bootstrap manifest does not identify the latest distributed
 A bare install that requests `vrc-packages-network@0.0.0` from npm fails. It does not select a GitHub artifact automatically.
 Install checked packed artifacts into each consumer. Do not link sibling source folders.
 
-The owner selects one future rapid `YYYY.M.Patch` stream, without `-pre` or a separate release path.
-That migration and the hosted development installer remain queued under R57-NETWORK-SINGLE and R57-DEV-INSTALL.
-Existing published tags and receipts stay unchanged. Consumer SDK channel selection still needs a dependency review.
+The current scripts select one rapid `YYYY.M.Patch` stream, without `-pre` or a separate release path.
+Both consumer channels declare the same GitHub archive URL. Each consumer supplies its selected SDK as a required peer.
+The peer bounds follow both authoritative SDK configs. The development dependency uses the preview SDK alias.
+Network verification checks one archive against both SDKs through npm and Bun installations, declarations and native workerd.
+Root preparation downloads checked published dependencies instead of building sibling source.
+It checks the remote tag, CI source, receipt, notes and checksums before installation.
+Tagged publication of the new suffix-free stream and live install proof remain open under R57-NETWORK-SINGLE and R57-DEV-INSTALL.
+Existing published tags and receipts stay unchanged.
 The package remains `private: true` because GitHub tarball distribution does not require npm publication.
 The SDK v0.1.0 owner-review hold remains. Neither installation nor artifact publication authorizes live source access.
 
 Use [the delivery guide](../../../docs/source/DELIVERY.md) to prepare development artifacts and independent consumers.
-From the repository root, run `npm run prepare:dev -- release worker` after release metadata sync.
+From the repository root, run `npm run prepare:dev -- preview worker` after preview metadata sync and network archive publication.
 The 23-file package passed isolated Node, Bun, declarations and native Worker checks on 2026-10-04.
 Those checks do not select a registry or authorize publication.
 Use `npm run build` to emit compiled development modules after dependencies are available.

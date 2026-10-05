@@ -16,7 +16,19 @@ const products = Object.keys(productDirectories);
 const distributedProducts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
 export const sdkPackageNames = { release: "vrc-packages-api", preview: "vrc-packages-api-preview" };
 
+export function networkArchiveURL(version) {
+  if (semver.valid(version) !== version) throw new Error("Network archive requires a canonical version");
+  return `https://github.com/SlamTheDragon/vrc-packages/releases/download/vrcp-network/v${version}/vrc-packages-network-${version}.tgz`;
+}
+
 export function distributedArtifact(name, spec, latestVersion) {
+  if (name === "vrc-packages-network" && typeof spec === "string" && spec.startsWith("https:")) {
+    const match = /\/vrc-packages-network-(.+)\.tgz$/.exec(spec);
+    if (!match || semver.valid(match[1]) !== match[1] || spec !== networkArchiveURL(match[1])) {
+      throw new Error("Distributed dependency requires the canonical network archive URL");
+    }
+    return { name, version: match[1] };
+  }
   const previewPrefix = `npm:${sdkPackageNames.preview}@`;
   const preview = name === sdkPackageNames.release && typeof spec === "string" && spec.startsWith(previewPrefix);
   const selected = preview ? spec.slice(previewPrefix.length) : spec;
@@ -31,7 +43,7 @@ export async function readVersionConfig(channel, workspace = root) {
   if (!["release", "preview"].includes(channel)) throw new Error("Channel must be release or preview");
   const configPath = resolve(workspace, channel === "release" ? "config.versions.json" : "config.preview.versions.json");
   const config = JSON.parse(await readFile(configPath, "utf8"));
-  const keys = products.map(name => `${channel}-${name}`);
+  const keys = products.filter(name => channel !== "release" || name !== "network").map(name => `${channel}-${name}`);
   if (!config || typeof config !== "object" || Array.isArray(config) ||
       Object.keys(config).length !== keys.length || keys.some(key => !Object.hasOwn(config, key))) {
     throw new Error(`Version config must contain exactly: ${keys.join(", ")}`);
@@ -49,9 +61,12 @@ export async function readVersionConfig(channel, workspace = root) {
         (!/^\d{1,2}\.(?:[1-9]|1[0-2])\.\d+-pre$/.test(value) || semver.patch(value) > 65535)) {
       throw new Error("preview-crawler-client must use YY.M.Patch-pre, with patch at most 65535 for MSI");
     }
+    if (key === "preview-network" && !/^\d{4}\.(?:[1-9]|1[0-2])\.\d+$/.test(value)) {
+      throw new Error("preview-network must use the single YYYY.M.Patch stream without a prerelease label");
+    }
     if (channel === "release" && prerelease !== null) throw new Error(`${key} must not contain a prerelease label`);
     // UI/headless artifacts can retain stable versions in the preview config. They are not Worker environments.
-    const requiresPrerelease = ["package", "network", "worker"].some(product => key === `preview-${product}`);
+    const requiresPrerelease = ["package", "worker"].some(product => key === `preview-${product}`);
     if (channel === "preview" && ((requiresPrerelease && prerelease === null) ||
         (prerelease !== null && (prerelease.length !== 1 || prerelease[0] !== "pre")))) throw new Error(`${key} must use only the pre prerelease label when required`);
   }
@@ -60,6 +75,7 @@ export async function readVersionConfig(channel, workspace = root) {
 
 /** Compute a version without changing config or metadata. */
 export function nextVersion(channel, product, increment, previous, now = new Date()) {
+  if (product === "network" && channel === "release") throw new Error("Network has one rapid stream; use preview network patch");
   if (!products.includes(product) ||
       !(channel === "release" ? ["patch", "minor", "major"] : ["patch"]).includes(increment)) {
     throw new Error("Use bump release <product> <patch|minor|major> or bump preview <product> patch");
@@ -91,29 +107,46 @@ export async function bumpVersion(channel, product, increment, workspace = root,
 
 /** Sync metadata only. This command never builds, tags, publishes or deploys. */
 export async function versionFiles(mode, channel, product = "all", workspace = root) {
+  if (product === "network" && channel === "release") throw new Error("Network has one rapid stream; use preview network");
   if (!["check", "sync"].includes(mode) || !["release", "preview"].includes(channel) ||
       (product !== "all" && !products.includes(product))) {
     throw new Error("Usage: versioning.mjs <check|sync> <release|preview> [crawler|crawler-client|package|web|worker|network|all]");
   }
   const { config } = await readVersionConfig(channel, workspace);
+  const other = (await readVersionConfig(channel === "release" ? "preview" : "release", workspace)).config;
+  const release = channel === "release" ? config : other;
+  const preview = channel === "preview" ? config : other;
   // Prepare every selected edit before writing. Invalid input leaves files unchanged.
   const edits = [];
   for (const name of product === "all" ? products : [product]) {
-    const version = config[`${channel}-${name}`];
+    const version = name === "network" ? preview["preview-network"] : config[`${channel}-${name}`];
     const path = resolve(workspace, productDirectories[name], "package.json");
     const text = await readFile(path, "utf8");
     const manifest = JSON.parse(text);
     if (typeof manifest.version !== "string") throw new Error(`Missing package version: ${path}`);
     let changed = manifest.version !== version;
+    if (name === "network") {
+      const peer = `${release["release-package"]} || ${preview["preview-package"]}`;
+      const development = `npm:${sdkPackageNames.preview}@latest`;
+      if (manifest.dependencies?.["vrc-packages-api"]) throw new Error("Network SDK must be a consumer-supplied peer, not a pinned runtime dependency");
+      if (!manifest.peerDependencies?.["vrc-packages-api"]) throw new Error("Network requires an explicit SDK peer contract");
+      manifest.devDependencies ??= {};
+      if (manifest.peerDependencies["vrc-packages-api"] !== peer || manifest.devDependencies["vrc-packages-api"] !== development) {
+        manifest.peerDependencies["vrc-packages-api"] = peer;
+        manifest.devDependencies["vrc-packages-api"] = development;
+        changed = true;
+      }
+    }
     if (name === "package" && manifest.name !== sdkPackageNames[channel]) {
       manifest.name = sdkPackageNames[channel];
       changed = true;
     }
     for (const [dependency, dependencyProduct] of Object.entries(distributedProducts)) {
       if (Object.hasOwn(manifest.dependencies ?? {}, dependency)) {
-        const artifactVersion = dependencyProduct === "package" && channel === "preview"
+        const artifactVersion = dependencyProduct === "network" ? networkArchiveURL(preview["preview-network"])
+          : dependencyProduct === "package" && channel === "preview"
           ? `npm:${sdkPackageNames.preview}@${name === "network" ? config["preview-package"] : "latest"}`
-          : dependencyProduct === "package" && name === "worker" ? "latest" : config[`${channel}-${dependencyProduct}`];
+          : "latest";
         if (manifest.dependencies[dependency] !== artifactVersion) {
           manifest.dependencies[dependency] = artifactVersion;
           changed = true;
@@ -161,6 +194,20 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
         tauri.bundle.windows.wix.version = msiVersion;
         const indent = tauriText.match(/\n([\t ]+)"/)?.[1] ?? "  ";
         edits.push({ path: tauriPath, content: JSON.stringify(tauri, null, indent) + "\n" });
+      }
+    }
+  }
+  if (product === "network") {
+    // Advance only the network dependency. Preserve each consumer's runtime and SDK channel.
+    for (const consumer of ["crawler", "worker"]) {
+      const path = resolve(workspace, productDirectories[consumer], "package.json");
+      const text = await readFile(path, "utf8");
+      const manifest = JSON.parse(text);
+      const archive = networkArchiveURL(preview["preview-network"]);
+      if (Object.hasOwn(manifest.dependencies ?? {}, "vrc-packages-network") && manifest.dependencies["vrc-packages-network"] !== archive) {
+        manifest.dependencies["vrc-packages-network"] = archive;
+        const indent = text.match(/\n([\t ]+)"/)?.[1] ?? "  ";
+        edits.push({ path, content: JSON.stringify(manifest, null, indent) + "\n" });
       }
     }
   }

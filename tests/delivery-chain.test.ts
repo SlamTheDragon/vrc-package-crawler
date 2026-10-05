@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { inspectDelivery, planDelivery, readHostedAsset, repositoryFromRemote, retryDelivery, startDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
-import { productDirectories } from "../scripts/versioning.mjs";
+import { inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, retryDelivery, startDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
+import { networkArchiveURL, productDirectories } from "../scripts/versioning.mjs";
 import { createHash } from "node:crypto";
 
 const now = new Date("2026-10-05T00:00:00Z");
@@ -20,13 +20,18 @@ async function fixture(run: (workspace: string, git: (workspace: string, ...args
     actual(workspace, "config", "user.email", "fixture@example.invalid");
     for (const channel of ["preview", "release"]) {
       await writeFile(resolve(workspace, channel === "preview" ? "config.preview.versions.json" : "config.versions.json"),
-        JSON.stringify(Object.fromEntries(Object.keys(productDirectories).map(product =>
-          [`${channel}-${product}`, channel === "release" ? "0.0.0" : product === "crawler-client" ? "26.10.0-pre" : "2026.10.0-pre"]))));
+        JSON.stringify(Object.fromEntries(Object.keys(productDirectories).filter(product => channel !== "release" || product !== "network").map(product =>
+          [`${channel}-${product}`, channel === "release" ? "0.0.0" : product === "crawler-client" ? "26.10.0-pre" : product === "network" ? "2026.10.0" : "2026.10.0-pre"]))));
     }
     await mkdir(resolve(workspace, productDirectories.network), { recursive: true });
-    await writeFile(resolve(workspace, productDirectories.network, "package.json"), JSON.stringify({ name: "vrc-packages-network", version: "0.0.0" }));
+    await writeFile(resolve(workspace, productDirectories.network, "package.json"), JSON.stringify({ name: "vrc-packages-network", version: "2026.10.0",
+      peerDependencies: { "vrc-packages-api": "0.0.0 || 2026.10.0-pre" }, devDependencies: { "vrc-packages-api": "npm:vrc-packages-api-preview@latest" } }));
     await mkdir(resolve(workspace, productDirectories.crawler), { recursive: true });
-    await writeFile(resolve(workspace, productDirectories.crawler, "package.json"), JSON.stringify({ name: "vrcp-crawler-node", version: "0.0.0" }));
+    await writeFile(resolve(workspace, productDirectories.crawler, "package.json"), JSON.stringify({ name: "vrcp-crawler-node", version: "0.0.0",
+      dependencies: { "vrc-packages-api": "latest", "vrc-packages-network": networkArchiveURL("2026.10.0") } }));
+    await mkdir(resolve(workspace, productDirectories.worker), { recursive: true });
+    await writeFile(resolve(workspace, productDirectories.worker, "package.json"), JSON.stringify({ name: "vrcp-worker", version: "2026.10.0-pre",
+      dependencies: { "vrc-packages-api": "npm:vrc-packages-api-preview@latest", "vrc-packages-network": networkArchiveURL("2026.10.0") } }));
     actual(workspace, "add", "."); actual(workspace, "commit", "-m", "Synthetic delivery fixture");
     actual(workspace, "remote", "add", "origin", remote); actual(workspace, "push", "-u", "origin", "main");
     // Only identity lookup is substituted. Commits, tags, atomic pushes and divergence use real Git in a temporary bare remote.
@@ -45,20 +50,27 @@ test("root chain dry-run is read-only; execute atomically commits one config and
     const before = git(workspace, "rev-parse", "HEAD");
     const release = await readFile(resolve(workspace, "config.versions.json"), "utf8");
     const plan = await startDelivery("preview", "network", false, workspace, now, git);
-    expect(plan.tag).toBe("vrcp-network/v2026.10.1-pre"); expect(plan.blockers).toEqual([]);
+    expect(plan.tag).toBe("vrcp-network/v2026.10.1"); expect(plan.blockers).toEqual([]);
     expect(git(workspace, "rev-parse", "HEAD")).toBe(before);
     expect(git(workspace, "status", "--porcelain")).toBe("");
     const result = await startDelivery("preview", "network", true, workspace, now, git);
     expect(result.status).toBe("pushed"); expect(result.commit).not.toBe(before);
-    expect(git(workspace, "diff", "--name-only", before, result.commit)).toBe("config.preview.versions.json");
+    expect(git(workspace, "diff", "--name-only", before, result.commit).split("\n")).toEqual([
+      "config.preview.versions.json", "src-crawler/package.json", "src-worker/package.json", "src-worker/packages/network/package.json"]);
+    const crawler = JSON.parse(await readFile(resolve(workspace, productDirectories.crawler, "package.json"), "utf8"));
+    const worker = JSON.parse(await readFile(resolve(workspace, productDirectories.worker, "package.json"), "utf8"));
+    expect(crawler.version).toBe("0.0.0"); expect(crawler.dependencies["vrc-packages-api"]).toBe("latest");
+    expect(worker.version).toBe("2026.10.0-pre"); expect(worker.dependencies["vrc-packages-api"]).toBe("npm:vrc-packages-api-preview@latest");
+    expect(crawler.dependencies["vrc-packages-network"]).toBe(networkArchiveURL(result.version));
+    expect(worker.dependencies["vrc-packages-network"]).toBe(networkArchiveURL(result.version));
     expect(await readFile(resolve(workspace, "config.versions.json"), "utf8")).toBe(release);
     expect(retryDelivery(result.tag, workspace, git).status).toBe("already-pushed");
     expect(git(workspace, "rev-parse", "HEAD")).toBe(result.commit);
     // Read exact historical config at the tag, not a later local bump.
     const next = JSON.parse(await readFile(resolve(workspace, "config.preview.versions.json"), "utf8"));
-    next["preview-network"] = "2026.10.2-pre";
+    next["preview-network"] = "2026.10.2";
     await writeFile(resolve(workspace, "config.preview.versions.json"), JSON.stringify(next));
-    expect(retryDelivery(result.tag, workspace, git).version).toBe("2026.10.1-pre");
+    expect(retryDelivery(result.tag, workspace, git).version).toBe("2026.10.1");
   });
 }, 60_000);
 
@@ -72,7 +84,7 @@ test("dirty worktrees, divergent origin, existing tags and SDK holds fail withou
     git(workspace, "add", "owner.txt"); git(workspace, "commit", "-m", "Owner change not yet pushed");
     await expect(startDelivery("preview", "network", true, workspace, now, git)).rejects.toThrow("differs");
     git(workspace, "push", "origin", "main");
-    git(workspace, "tag", "vrcp-network/v2026.10.1-pre");
+    git(workspace, "tag", "vrcp-network/v2026.10.1");
     await expect(startDelivery("preview", "network", true, workspace, now, git)).rejects.toThrow("already exists");
     expect((await planDelivery("release", "worker", workspace, now, git)).delivery).toBe("ci-build-only-no-production-deployment");
     await expect(planDelivery("preview", "web", workspace, now, git)).rejects.toThrow("deferred");
@@ -96,7 +108,7 @@ test("lost push acknowledgments recover the same tag, but differing remote tags 
       return result;
     };
     await expect(startDelivery("preview", "network", true, workspace, now, flaky)).rejects.toThrow("lost push");
-    const tag = "vrcp-network/v2026.10.1-pre";
+    const tag = "vrcp-network/v2026.10.1";
     expect(retryDelivery(tag, workspace, git).status).toBe("already-pushed");
     const conflict = (cwd: string, ...args: string[]) => args[0] === "ls-remote"
       ? `${"a".repeat(40)}\trefs/tags/${tag}` : git(cwd, ...args);
@@ -158,12 +170,65 @@ test("hosted readback streams binary hashes and rejects oversized, truncated, co
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("hosted network resolution checks the whole delivery and refuses source, tag and checksum substitution", async () => {
+  const version = "2026.10.2", tag = `vrcp-network/v${version}`, commit = "a".repeat(40), object = "b".repeat(40);
+  const archive = `vrc-packages-network-${version}.tgz`, repository = "SlamTheDragon/vrc-packages";
+  const hash = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+  const files = new Map<string, Buffer>([[archive, Buffer.from("Synthetic network bytes, not a published artifact")]]);
+  const receipt = { name: "vrc-packages-network", version, commit, purpose: "ci-release", sha256: hash(files.get(archive)!) };
+  files.set(`${archive}.json`, Buffer.from(JSON.stringify(receipt)));
+  files.set("CHANGELOG.md", Buffer.from(`# VRC Packages - network ${version}\n\nChannel: preview.\nCommit: ${commit}.\n[Checked CI run](https://github.com/${repository}/actions/runs/123)\n`));
+  const checksums = () => Buffer.from([...files].filter(([name]) => name !== "CHECKSUMS.sha256")
+    .map(([name, bytes]) => `${hash(bytes)}  ${name}`).join("\n") + "\n");
+  files.set("CHECKSUMS.sha256", checksums());
+  const release = { id: 10, tag_name: tag, target_commitish: commit, draft: false, prerelease: true };
+  const run = { head_sha: commit, head_branch: tag, event: "push", status: "completed", conclusion: "success",
+    path: ".github/workflows/network.yml", head_repository: { full_name: repository } };
+  let remoteObject = object, wrongURL = false, moveDuringRead = false;
+  const api = async (path: string) => {
+    if (path.includes("/git/ref/")) return { ref: `refs/tags/${tag}`, object: { type: "tag", sha: remoteObject } };
+    if (path.includes("/git/tags/")) return { sha: remoteObject, object: { type: "commit", sha: commit } };
+    if (path.includes("/assets?")) return [...files].map(([name, bytes]) => ({ name, size: bytes.length,
+      digest: `sha256:${hash(bytes)}`, browser_download_url: networkArchiveURL(version).replace(archive, name)
+        .replace("github.com", wrongURL ? "attacker.invalid" : "github.com") }));
+    if (path.includes("/jobs?")) return { total_count: 1, jobs: [{ name: "build", status: "completed", conclusion: "success" }] };
+    if (path.includes("/actions/runs/")) return run;
+    return release;
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    if (moveDuringRead) remoteObject = "c".repeat(40);
+    return new Response(files.get(new URL(String(input)).pathname.split("/").pop()!));
+  }) as typeof fetch;
+  try {
+    const result = await readNetworkDistribution(version, undefined, api);
+    expect(result.bytes).toEqual(files.get(archive)); expect(result.receipt).toEqual(receipt);
+    expect(result.tagObject).toBe(object); expect(result.sourceRun).toBe("123");
+    await expect(readNetworkDistribution("2026.10.2-pre", undefined, api)).rejects.toThrow("suffix-free");
+    release.draft = true;
+    await expect(readNetworkDistribution(version, undefined, api)).rejects.toThrow("immutable");
+    release.draft = false; wrongURL = true;
+    await expect(readNetworkDistribution(version, undefined, api)).rejects.toThrow("download origin");
+    wrongURL = false; run.conclusion = "failure";
+    await expect(readNetworkDistribution(version, undefined, api)).rejects.toThrow("CI source");
+    run.conclusion = "success"; moveDuringRead = true;
+    await expect(readNetworkDistribution(version, undefined, api)).rejects.toThrow("tag object differs");
+    moveDuringRead = false; remoteObject = object;
+    files.set("CHECKSUMS.sha256", Buffer.from(`${hash(files.get(archive)!)}  ${archive}\n`));
+    await expect(readNetworkDistribution(version, undefined, api)).rejects.toThrow("coverage is incomplete");
+    files.set("CHECKSUMS.sha256", checksums());
+    files.set(`${archive}.json`, Buffer.from(JSON.stringify({ ...receipt, commit: "d".repeat(40) })));
+    files.set("CHECKSUMS.sha256", checksums());
+    await expect(readNetworkDistribution(version, undefined, api)).rejects.toThrow("CI artifact differs");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("memory-only release checks use exact source receipts and reject bad channels, bytes and checksum coverage", async () => {
   await fixture(async (workspace, git) => {
     const result = await startDelivery("preview", "network", true, workspace, now, git);
     git(workspace, "remote", "set-url", "origin", "https://github.com/example/fixture.git");
     const hash = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
-    const tar = "vrc-packages-network-2026.10.1-pre.tgz";
+    const tar = "vrc-packages-network-2026.10.1.tgz";
     const files = new Map<string, Buffer>([[tar, Buffer.from("Synthetic test bytes, not a release artifact")]]);
     files.set(`${tar}.json`, Buffer.from(JSON.stringify({ name: "vrc-packages-network", version: result.version,
       commit: result.commit, purpose: "ci-release", sha256: hash(files.get(tar)!) })));

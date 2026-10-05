@@ -31,7 +31,7 @@ The root delivery chain joins config allocation and tagged CI. CI still owns rel
 | Product | Version meaning | Tagged destination |
 | --- | --- | --- |
 | package | Release SemVer or preview CalVer with pre, from the selected config | Two npm identities from one SDK source. Separate publication environments and switches. |
-| network | npm SemVer for internal contracts, with `pre` for preview distribution | Checked GitHub Release tarballs. npm registry selection remains open. |
+| network | One YYYY.M.Patch stream from preview-network, without pre | Checked GitHub Release tarballs for repository consumers. No npm publication or separate release stream. |
 | worker | Runtime version, with `pre` for preview | Persistent preview Worker or existing production Worker |
 | crawler | Headless executable version | Linux/Windows Release binaries and separate GHCR channels |
 | crawler-client | Release SemVer or preview YY.M.Patch-pre, not a staging environment | Unsigned MSI/NSIS assets in GitHub Releases |
@@ -48,9 +48,9 @@ That release-version hold does not block the separate preview identity.
 | Consumer channel | SDK identity | Dependency selection |
 | --- | --- | --- |
 | Preview Worker and other preview apps | vrc-packages-api-preview | npm:vrc-packages-api-preview@latest under vrc-packages-api, checked against the preview config |
-| Preview internal network package | vrc-packages-api-preview | Exact config-selected SDK alias, preserving the tested compiled dependency pair |
+| Internal network package | Consumer-selected SDK | Required peer accepts the two config-selected SDK versions. Development uses the preview SDK alias. |
 | Release Worker | vrc-packages-api | latest, with its resolved version checked against config.versions.json |
-| Other release consumers and release network | vrc-packages-api | Exact version from config.versions.json |
+| Other release consumers | vrc-packages-api | latest, with its resolved version checked against config.versions.json |
 
 The two identities share one source tree and export layout. They do not share npm version histories.
 API schema versions remain independent of package versions.
@@ -64,7 +64,7 @@ Only an explicit execution allocates a patch. Builds read the saved config witho
 | Product argument | Preview responsibility | Release responsibility |
 | --- | --- | --- |
 | package | Publish vrc-packages-api-preview through OIDC, then attach checked assets | Stage vrc-packages-api below v0.1, then attach public assets after owner npm approval |
-| network | Build preview-contract tarballs and attach checked assets | Build release-contract tarballs and attach checked assets, without npm publication |
+| network | Build one suffix-free archive against both SDK channels and attach checked assets | Disabled. Release consumers reuse the same archive. |
 | crawler | Build matching preview dependencies, preview GHCR image and Linux/Windows assets | Build matching release dependencies, release GHCR image and Linux/Windows assets |
 | crawler-client | Build preview SDK consumer and unsigned MSI/NSIS assets | Build release SDK consumer and unsigned MSI/NSIS assets |
 | worker | Build preview SDK consumer and deploy to isolated preview D1 | Build only. Production deployment stays disabled. No Worker GitHub Release assets in either channel |
@@ -80,14 +80,16 @@ Only an explicit execution allocates a patch. Builds read the saved config witho
 - Run `npm run delivery:status -- <tag>` to read the exact tagged CI run.
 - Run `npm run delivery:check -- <tag>` after publication to check hosted assets in memory.
 
-Execution changes only the selected config value. It commits that config and creates an annotated product tag.
+Execution changes the selected config value and synchronizes the product manifest and declared dependencies.
+For the desktop, it also synchronizes Cargo and the numeric MSI version.
+It commits those files and creates an annotated product tag.
 An atomic, non-forced push sends the branch commit and tag together. Existing tags and divergent branches stop the command.
 CI syncs manifests and channel dependencies, builds checked outputs, and uses the existing publication and attachment jobs.
 No local release build, npm promotion or environment approval runs through this chain.
-Local metadata can remain unchanged after the config commit. Use the separate version-sync command before a local development build.
-The owner requires patch-1 proof for every enabled product before branch automation starts. Website CI remains disabled without artifacts.
+The owner requires patch-2 proof for every enabled channel before main sign-off. Website CI remains disabled without artifacts.
 After proof, the approved branches are website-preview, crawler-client-preview, api-package-preview and worker-preview.
 API preview pushes will publish directly, with patches allocated before commit. Main will own releases through reviewed promotion PRs.
+The owner will create the branches after sign-off. Do not create them or delete the checkout on the owner's behalf.
 These branch triggers and main protection are not yet implemented. Current branch pushes do not start product publication.
 
 The status command distinguishes failed CI, active CI, missing publication, npm approval and public artifacts that still need checks.
@@ -100,6 +102,8 @@ For the Worker it reports preview deployment or the release build-only boundary,
 For crawler images, retain the separate CI publication receipt and GHCR digest check. Binary asset checks do not prove container bytes.
 Crawler deployment cards link to their exact GitHub Release. Attachment summaries also link to the checked Release or pending draft.
 SDK deployment cards retain their npm registry URL. Worker links remain deferred, with https://docs.vrcpackages.com as the owner's future target.
+Network and desktop publication create deployment records only after their checked Release attachment jobs pass.
+Their cards link to the exact tagged Release. The network uses vrcp-network, while desktop channels use separate environments.
 No installer check proves installation, signed updates, side-by-side channels or node supervision.
 
 If a push fails, retain the local config commit and tag. Inspect the remote before allocating another patch.
@@ -140,16 +144,22 @@ npm run prepare:dev -- preview worker
 npm run build:dev -- preview worker
 ```
 
-Local `prepare` syncs the SDK to the selected channel, then builds and packs dependencies under each package's `.artifacts/dev/`.
-It installs tarballs into the selected consumer. It does not use source links or query unpublished internal registry coordinates.
-Every CI consumer resolves the selected SDK's latest tag and checks its version against that channel's config.
+Local and CI `prepare` resolve the selected SDK's latest tag and check its version against that channel's config.
 Release consumers reject an SDK version outside the authoritative release config.
-CI then packs that exact version, not the moving tag. Both paths check identity, SHA-512 integrity and compiled files.
-Consumers that need internal network contracts build that tarball against the checked SDK.
+Preparation then downloads that exact version, not the moving tag. Both paths check identity, SHA-512 integrity and compiled files.
+Network consumers resolve the GitHub archive selected by preview-network, regardless of their SDK channel.
+The reader checks its source tag before and after download, successful CI source, receipt, notes, digests and checksum coverage.
+The installer checks the required SDK peer and shared schema identity. It never compiles sibling producer source.
 A missing or mismatched registry version fails the build without a source fallback.
 Consumer workflows do not rebuild or test the SDK producer. Its publication workflow owns source and distribution checks.
-Node and network workflows retain their own type, unit and packed-consumer checks.
-This development path does not select a public or private registry for the network package.
+The network workflow tests one archive with both SDKs through separate npm and Bun installations, declarations and native workerd.
+Development dependency files stay under product-local .artifacts/dev directories. They are not local release outputs.
+Manifests declare an exact GitHub archive URL, so bare installs no longer request the unpublished network package from npm.
+Bare installs do not perform the full delivery receipt check. Use root preparation for that check.
+Network bumps also update each declared consumer archive URL, without changing its runtime version or SDK channel.
+Project SDK dependencies use the appropriate latest alias. CI checks that alias against config before it builds.
+Third-party dependencies keep their declared version bounds. This rule does not select unreviewed third-party updates.
+The new suffix-free archive still needs tagged publication and live install proof before fresh-clone sign-off.
 No install scripts run during preparation. Product build commands run their required build hooks explicitly.
 Dependency resolution is not frozen. Preserve the owner's no-lockfile choice and record this reproducibility limit.
 
@@ -159,26 +169,30 @@ Crawler development binaries stay under `src-crawler/dist/dev/`.
 Worker dry-run bundles stay under `src-worker/.wrangler/dev-build/<preview|production>/`.
 SDK/network compiled modules stay under their own `dist/`. Root outputs are not used.
 
-Change one version config value without building or publishing:
+Plan a delivery bump without changes:
 
 ```sh
-npm run versions:bump -- release worker patch
-npm run versions:bump -- preview worker patch
+npm run versions:bump -- preview worker
+npm run versions:bump -- release package
 ```
 
-Release patch, minor and major increments are arithmetic SemVer operations, not automatic calendar updates.
+Add --execute to allocate the patch, synchronize metadata, commit, tag and atomically push the delivery.
+This command uses the same chain as delivery:preview and delivery:release. It does not leave an unqueued version edit.
+Root delivery increments are patch-only. Release increments use SemVer, not the calendar.
 Preview bumps derive year and month from the current UTC calendar, increase patch and retain an existing pre suffix.
 In the same month, `2026.10.0-pre` becomes `2026.10.1-pre`. In November, that next bump becomes `2026.11.2-pre`.
 The preview SDK uses YYYY.M.Patch-pre. npm requires months without a leading zero. No trailing prerelease counter is allowed.
 Desktop previews use YY.M.Patch-pre: `26.10.0-pre`, then `26.10.1-pre`, or `26.11.2-pre` after a November bump.
 Only desktop preview bumps shorten the UTC year. Other products keep their configured formats.
+The internal network uses YYYY.M.Patch without pre. Its release bump/build path is disabled.
+Both consumer channels use that single archive. GitHub still marks its rapid delivery as a prerelease.
 Desktop preview patches stop at 65535, the MSI limit. Preview and release currently share the installed application identity.
 App, Cargo and tag versions retain pre. MSI uses the same config's numeric fields through bundle.windows.wix.version.
 For `26.10.0-pre`, the MSI version is `26.10.0`. Version sync checks this mapping for both channels.
 MSI cannot encode pre. [Tauri supports a separate numeric installer version](https://v2.tauri.app/reference/config/#wixconfig).
 Separate installation and data identities remain a future decision. Do not infer side-by-side installation support.
 Only the explicit bump command reads the calendar. Builds and publication read the saved config, preserving older tagged builds.
-Sync metadata separately after a config change. Product-only sync does not sync its dependency projects.
+For a manual config edit, sync metadata separately. Product-only sync does not sync its dependency projects.
 Use an all-product sync when preparing a consistent dependency graph for the selected config.
 
 Start a local Worker from `src-worker` with `npm run dev`.
@@ -191,7 +205,7 @@ Local operation does not prove remote database ownership or runtime safety for a
 
 Only product-tag pushes trigger build workflows. Ordinary branch pushes do not trigger these workflows.
 The tag must match exactly one authoritative config. CI syncs metadata from that config.
-Related SDK/network builds supply packaged dependencies. Consumer builds import no sibling source.
+Published SDK and network archives supply consumer dependencies. Consumer builds import no sibling source.
 
 The SDK runtime depends on Zod, not Wrangler, Miniflare or coordinator code.
 Wrangler and Miniflare are SDK development dependencies for the packed distribution test.

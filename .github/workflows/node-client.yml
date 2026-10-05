@@ -10,6 +10,8 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    outputs:
+      channel: ${{ steps.route.outputs.channel }}
     defaults:
       run:
         shell: bash
@@ -45,4 +47,12 @@ jobs:
       contents: write
       actions: read
     uses: ./.github/workflows/release-assets.yml
+  deployment-record:
+    needs: [build, release-assets]
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.build.outputs.channel == 'preview' && 'vrcp-crawler-client-preview' || 'vrcp-crawler-client-release' }}
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+    steps:
+      - run: echo 'Release assets passed the attachment checks.'
 # ensure output only expose msi installer or exe installer if ever defined, if not, set up build configs in related source code

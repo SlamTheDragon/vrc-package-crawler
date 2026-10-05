@@ -121,7 +121,9 @@ export async function publishPreviewSDKArtifact(artifact, expected, receipt, run
 
 export async function resolveTag(tag, workspace = root, historical = false) {
   const configs = Object.fromEntries(await Promise.all(["release", "preview"].map(async channel =>
-    [channel, (await readVersionConfig(channel, workspace)).config])));
+    [channel, historical ? JSON.parse(readFileSync(resolve(workspace,
+      channel === "release" ? "config.versions.json" : "config.preview.versions.json"), "utf8"))
+      : (await readVersionConfig(channel, workspace)).config])));
   return selectTag(tag, configs, historical);
 }
 
@@ -134,6 +136,7 @@ export function selectTag(tag, configs, historical = false) {
   const version = match[2];
   const matches = [];
   for (const channel of ["release", "preview"]) {
+    if (product === "network" && channel === "release" && !historical) continue;
     if (configs[channel]?.[`${channel}-${product}`] === version) matches.push(channel);
   }
   if (matches.length !== 1) throw new Error("Tag must match exactly one version config. Equal channel values need an explicit channel-tag decision.");
@@ -189,7 +192,9 @@ function npm(args, cwd, capture = false) {
 function inspectDependencies(project, latestVersion) {
   const manifest = JSON.parse(readFileSync(join(project, "package.json"), "utf8"));
   for (const name of Object.keys(artifacts)) {
-    const expected = manifest.dependencies?.[name];
+    const peer = manifest.peerDependencies?.[name];
+    const expected = manifest.dependencies?.[name] ?? (peer ? manifest.devDependencies?.[name] : undefined);
+    if (peer && !expected) throw new Error(`${name} peer requires an explicit development dependency for package verification`);
     if (!expected) continue;
     const artifact = distributedArtifact(name, expected, latestVersion);
     const path = join(project, "node_modules", name);
@@ -198,11 +203,17 @@ function inspectDependencies(project, latestVersion) {
     }
     const installed = JSON.parse(readFileSync(join(path, "package.json"), "utf8"));
     if (installed.name !== artifact.name || installed.version !== artifact.version) throw new Error(`${name} installed identity/version differs from its declared artifact`);
+    if (peer && !semver.satisfies(installed.version, peer)) throw new Error(`${name} installed version falls outside the checked peer contract`);
+    if (name === "vrc-packages-network" && (installed.dependencies?.["vrc-packages-api"] ||
+        !semver.satisfies(latestVersion, installed.peerDependencies?.["vrc-packages-api"] ?? ""))) {
+      throw new Error("Installed network archive does not accept the consumer's SDK channel");
+    }
   }
 }
 
 /** Produce product-local development artifacts or CI-only release artifacts. Never tag or push. */
 export async function deliver(action, channel, product, ci = false) {
+  if (product === "network" && channel === "release") throw new Error("Network has one rapid stream; use preview network");
   if (!["prepare", "build", "pack", "verify", "deploy", "publish"].includes(action) ||
       !["release", "preview"].includes(channel) || !Object.hasOwn(productDirectories, product)) {
     throw new Error("Usage: delivery.mjs <prepare|build|pack|verify|deploy|publish> <release|preview> <product> [--ci]");
@@ -222,25 +233,29 @@ export async function deliver(action, channel, product, ci = false) {
     const inputs = [];
     const needsNetwork = !!manifest.dependencies?.["vrc-packages-network"];
     const needsSDK = product === "network" || !!manifest.dependencies?.["vrc-packages-api"];
-    for (const name of ["package", ...(needsNetwork ? ["network"] : [])]) {
-      if (!needsSDK) break;
-      const dependencyChannel = channel;
-      if (name === "package") await versionFiles("sync", dependencyChannel, name);
-      await versionFiles("check", dependencyChannel, name);
-      const dependencyProject = resolve(root, productDirectories[name]);
-      if (ci && name === "package") {
-        inputs.push(`vrc-packages-api@file:${packRegistrySDK(dependencyProject, channel)}`);
-        continue;
-      }
-      npm(["install", "--no-save", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", ...inputs], dependencyProject);
-      inspectDependencies(dependencyProject, sdkVersion);
-      npm(["run", "build"], dependencyProject);
-      const artifact = pack(dependencyProject, false);
-      inputs.push(name === "package" ? `vrc-packages-api@file:${artifact}` : artifact);
+    if (needsSDK) inputs.push(`vrc-packages-api@file:${packRegistrySDK(resolve(root, productDirectories.package), channel, sdkVersion)}`);
+    if (needsNetwork) {
+      if (!needsSDK) throw new Error("Network consumers must declare their selected SDK dependency");
+      const { readNetworkDistribution } = await import("./delivery-chain.mjs");
+      const { config: networkConfig } = await readVersionConfig("preview");
+      const version = networkConfig["preview-network"];
+      const downloaded = await readNetworkDistribution(version);
+      const destination = resolve(root, productDirectories.network, ".artifacts/dev");
+      mkdirSync(destination, { recursive: true });
+      const artifact = join(destination, `vrc-packages-network-${version}.tgz`);
+      writeFileSync(artifact, downloaded.bytes);
+      writeFileSync(`${artifact}.json`, JSON.stringify(downloaded.receipt, null, 2) + "\n");
+      writeFileSync(`${artifact}.dependency.json`, JSON.stringify({ purpose: "hosted-development-dependency",
+        version, url: downloaded.url, sourceRun: downloaded.sourceRun, tag: downloaded.tag, tagObject: downloaded.tagObject,
+        sha256: downloaded.receipt.sha256 }, null, 2) + "\n");
+      inputs.push(`vrc-packages-network@file:${artifact}`);
     }
     // These are packed JS/type dependencies. No sibling source is read by a consumer build.
     npm(["install", "--no-save", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", ...inputs], project);
     inspectDependencies(project, sdkVersion);
+    if (needsNetwork) execFileSync(process.execPath, ["--input-type=module", "-e",
+      "import { NodeIdSchema } from 'vrc-packages-network/node'; import { IssueNodeCredentialSchema } from 'vrc-packages-api'; if (NodeIdSchema !== IssueNodeCredentialSchema.shape.nodeId) throw new Error('Network resolved another SDK');"],
+      { cwd: project, stdio: "inherit", timeout: 30_000 });
   } else {
     if (!["deploy", "publish"].includes(action)) inspectDependencies(project, sdkVersion);
     if (action === "build") {
@@ -263,9 +278,16 @@ export async function deliver(action, channel, product, ci = false) {
     } else if (action === "verify") {
       if (product === "package") npm(["test"], project);
       npm(["run", "typecheck"], project);
-      const dependency = product === "network" ? distributedArtifact("vrc-packages-api", manifest.dependencies["vrc-packages-api"], sdkVersion) : null;
-      const sdk = dependency && resolve(root, productDirectories.package, ".artifacts/dev", `${dependency.name}-${dependency.version}.tgz`);
-      npm(["run", "test:distribution", ...(product === "network" ? ["--", "--sdk-tarball", sdk] : [])], project);
+      if (product === "network") {
+        // Pack once. Both SDK channels must consume these same network bytes.
+        npm(["run", "build"], project);
+        const network = pack(project, false);
+        for (const sdkChannel of ["release", "preview"]) {
+          const sdkConfig = (await readVersionConfig(sdkChannel)).config;
+          const sdk = packRegistrySDK(resolve(root, productDirectories.package), sdkChannel, sdkConfig[`${sdkChannel}-package`]);
+          npm(["run", "test:distribution", "--", "--sdk-tarball", sdk, "--network-tarball", network], project);
+        }
+      } else npm(["run", "test:distribution"], project);
     } else if (action === "deploy") {
       if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) throw new Error("CI requires protected Cloudflare account/token secrets");
       const directory = channel === "preview" ? "preview" : "production";
@@ -323,8 +345,9 @@ export function validateRegistrySDK(result, metadata, expected, bytes, name = sd
   }
 }
 
-function packRegistrySDK(project, channel) {
-  const { name, version } = JSON.parse(readFileSync(join(project, "package.json"), "utf8"));
+function packRegistrySDK(project, channel, configuredVersion) {
+  const name = sdkPackageNames[channel];
+  const version = configuredVersion ?? JSON.parse(readFileSync(join(project, "package.json"), "utf8")).version;
   const registry = "https://registry.npmjs.org";
   const spec = `${name}@latest`;
   const metadata = JSON.parse(npm(["view", spec, "--json", `--registry=${registry}`], root, true));

@@ -142,39 +142,39 @@ SDK delta and operator list methods now check strict query schemas before transp
 
 ## 3. Role × Route Access Matrix
 
-| Route | Admin Operator | User | Downstream App | Crawler Node | Public Anonymous |
-|---|:---:|:---:|:---:|:---:|:---:|
-| `POST /v1/node/jobs/claim` | — | — | — | ✅ | — |
-| `POST /v1/node/heartbeat` | — | — | — | ✅ | — |
-| `POST /v1/node/jobs/result` | — | — | — | ✅ | — |
-| `GET /v1/operator/leads` | ✅ | — | — | — | — |
-| `POST /v1/operator/init` | ✅ | — | — | — | — |
-| `POST /v1/operator/jobs` | ✅ | — | — | — | — |
-| `POST /v1/operator/leads/{key}/approve` | ✅ | — | — | — | — |
-| `POST /v1/operator/leads/{key}/reject` | ✅ | — | — | — | — |
-| `GET /v1/operator/source-profiles` | ✅ | — | — | — | — |
-| `POST /v1/operator/source-profiles` | ✅ | — | — | — | — |
-| `POST /v1/operator/source-profiles/{id}/disable` | ✅ | — | — | — | — |
-| `GET /v1/operator/autoqueue-rules` | ✅ | — | — | — | — |
-| `POST /v1/operator/autoqueue-rules` | ✅ | — | — | — | — |
-| `POST /v1/operator/autoqueue-rules/{id}/disable` | ✅ | — | — | — | — |
-| `POST /v1/operator/nodes` | ✅ | — | — | — | — |
-| `POST /v1/operator/nodes/{nodeId}/revoke` | ✅ | — | — | — | — |
-| `GET /v1/operator/catalog` | ✅ | — | — | — | — |
-| `GET /v1/operator/takedowns` | ✅ | — | — | — | — |
-| `POST /v1/operator/takedowns/{id}/verify` | ✅ | — | — | — | — |
-| `GET /v1/user/apps` | — | ✅ | — | — | — |
-| `GET /v1/user/apps/{appId}` | — | ✅ | — | — | — |
-| `GET /v1/user/nodes` 🔲 | — | ✅ | — | — | — |
-| `GET /v1/user/nodes/{nodeId}` 🔲 | — | ✅ | — | — | — |
-| `GET /v1/user` 🔲 | — | ✅ | — | — | — |
-| `DELETE /v1/user/nodes/{id}` 🔲 | — | ✅ | — | — | — |
-| `DELETE /v1/user/apps/{id}` 🔲 | — | ✅ | — | — | — |
-| `POST /v1/app/register` | ✅ | ✅ | — | — | — |
-| `GET /v1/app/index` | — | — | — | — | ✅ |
-| `GET /v1/app/index/delta` | — | — | — | — | ✅ |
-| `POST /v1/app/index/search` | — | — | ✅ | — | — |
-| `POST /v1/app/report` | — | — | ✅ | — | — |
+| Route                                            | Admin Operator | User | Downstream App | Crawler Node | Public Anonymous |
+| ------------------------------------------------ | :------------: | :--: | :------------: | :----------: | :--------------: |
+| `POST /v1/node/jobs/claim`                       |       —        |  —   |       —        |      ✅       |        —         |
+| `POST /v1/node/heartbeat`                        |       —        |  —   |       —        |      ✅       |        —         |
+| `POST /v1/node/jobs/result`                      |       —        |  —   |       —        |      ✅       |        —         |
+| `GET /v1/operator/leads`                         |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/init`                         |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/jobs`                         |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/leads/{key}/approve`          |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/leads/{key}/reject`           |       ✅        |  —   |       —        |      —       |        —         |
+| `GET /v1/operator/source-profiles`               |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/source-profiles`              |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/source-profiles/{id}/disable` |       ✅        |  —   |       —        |      —       |        —         |
+| `GET /v1/operator/autoqueue-rules`               |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/autoqueue-rules`              |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/autoqueue-rules/{id}/disable` |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/nodes`                        |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/nodes/{nodeId}/revoke`        |       ✅        |  —   |       —        |      —       |        —         |
+| `GET /v1/operator/catalog`                       |       ✅        |  —   |       —        |      —       |        —         |
+| `GET /v1/operator/takedowns`                     |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/takedowns/{id}/verify`        |       ✅        |  —   |       —        |      —       |        —         |
+| `GET /v1/user/apps`                              |       —        |  ✅   |       —        |      —       |        —         |
+| `GET /v1/user/apps/{appId}`                      |       —        |  ✅   |       —        |      —       |        —         |
+| `GET /v1/user/nodes` 🔲                          |       —        |  ✅   |       —        |      —       |        —         |
+| `GET /v1/user/nodes/{nodeId}` 🔲                 |       —        |  ✅   |       —        |      —       |        —         |
+| `GET /v1/user` 🔲                                |       —        |  ✅   |       —        |      —       |        —         |
+| `DELETE /v1/user/nodes/{id}` 🔲                  |       —        |  ✅   |       —        |      —       |        —         |
+| `DELETE /v1/user/apps/{id}` 🔲                   |       —        |  ✅   |       —        |      —       |        —         |
+| `POST /v1/app/register`                          |       ✅        |  ✅   |       —        |      —       |        —         |
+| `GET /v1/app/index`                              |       —        |  —   |       —        |      —       |        ✅         |
+| `GET /v1/app/index/delta`                        |       —        |  —   |       —        |      —       |        ✅         |
+| `POST /v1/app/index/search`                      |       —        |  —   |       ✅        |      —       |        —         |
+| `POST /v1/app/report`                            |       —        |  —   |       ✅        |      —       |        —         |
 
 ---
 

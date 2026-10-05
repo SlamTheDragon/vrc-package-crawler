@@ -15,7 +15,9 @@ Do not treat a checked build as proof of npm publication, container publication 
 ## network
 
 - Internal node/coordinator contracts are a distributed package, not sibling source imports.
-- Release and preview GitHub Releases contain checked tarballs, receipts, milestone notes and checksums. npm registry selection remains open.
+- One suffix-free YYYY.M.Patch stream supplies both runtime channels through checked GitHub tarballs, receipts, notes and checksums.
+- Each consumer supplies its SDK channel through a required peer. One network archive is tested against both SDK distributions.
+- Root preparation checks hosted dependencies instead of compiling sibling producer source. The package remains unpublished on npm.
 - Root delivery commands plan one patch, trigger tagged CI, and check published artifact receipts without local release files.
 
 ## crawler

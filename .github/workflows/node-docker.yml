@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 # Standalone artifacts are not yet an installation/supervision contract for the Tauri shell.
 concurrency:
   group: crawler-release
@@ -17,6 +18,7 @@ jobs:
     needs: route
     permissions:
       contents: read
+      actions: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,10 +32,10 @@ jobs:
       - run: node scripts/versioning.mjs sync '${{ needs.route.outputs.channel }}'
       - run: bun test ./tests
       - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify package contracts and node
         run: |
-          npm --prefix src-worker/packages/network run typecheck
-          npm --prefix src-worker/packages/network run test:distribution -- --sdk-tarball "$GITHUB_WORKSPACE/src-package/.artifacts/dev/$(node -p "const p=require('./src-package/package.json'); p.name+'-'+p.version").tgz"
           npm --prefix src-crawler run typecheck
           npm --prefix src-crawler test
           node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci
@@ -57,7 +59,7 @@ jobs:
       - id: dependencies
         name: Read configured dependency identities
         run: |
-          node -e 'const c=process.env.VRCP_BUILD_CHANNEL; const v=require(c==="preview"?"./config.preview.versions.json":"./config.versions.json"); console.log("sdk-name="+require("./src-package/package.json").name); console.log("sdk-version="+v[c+"-package"]); console.log("network-version="+v[c+"-network"]);' >> "$GITHUB_OUTPUT"
+          node -e 'const c=process.env.VRCP_BUILD_CHANNEL; const v=require(c==="preview"?"./config.preview.versions.json":"./config.versions.json"); console.log("sdk-name="+require("./src-package/package.json").name); console.log("sdk-version="+v[c+"-package"]); console.log("network-version="+require("./config.preview.versions.json")["preview-network"]);' >> "$GITHUB_OUTPUT"
         env:
           VRCP_BUILD_CHANNEL: ${{ needs.route.outputs.channel }}
 
@@ -132,6 +134,8 @@ jobs:
       - run: node scripts/versioning.mjs sync '${{ needs.route.outputs.channel }}'
       - run: bun test ./tests
       - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm --prefix src-crawler run typecheck
       - run: npm --prefix src-crawler test
       - run: node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci
@@ -167,6 +171,7 @@ jobs:
       url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
     permissions:
       contents: read
+      actions: read
       packages: write
     steps:
       - uses: actions/checkout@v4

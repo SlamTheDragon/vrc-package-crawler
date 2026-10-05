@@ -116,10 +116,11 @@ async function main(action, channel) {
   assert(["seal", "load", "publish"].includes(action), "Expected container-delivery.mjs <seal|load|publish> <release|preview>");
   const selected = await requireCI("crawler", channel);
   const { config } = await readVersionConfig(channel);
+  const { config: networkConfig } = await readVersionConfig("preview");
   const repository = process.env.GITHUB_REPOSITORY;
   assert(/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repository ?? ""), "Container receipt needs the source repository");
   const expected = { product: "crawler", channel, version: selected.version, commit: process.env.GITHUB_SHA, repository,
-    sdkName: sdkPackageNames[channel], sdkVersion: config[`${channel}-package`], networkVersion: config[`${channel}-network`] };
+    sdkName: sdkPackageNames[channel], sdkVersion: config[`${channel}-package`], networkVersion: networkConfig["preview-network"] };
   const checkTag = `vrcp-node-check:${expected.commit}`;
   const archive = join(directory, "container.tar");
   const receiptPath = join(directory, "container.receipt.json");

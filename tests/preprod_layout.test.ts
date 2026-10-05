@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { networkArchiveURL } from "../scripts/versioning.mjs";
 
 describe("Pre-production directory layout and configuration conformance", () => {
   const rootDir = join(import.meta.dir, "..");
@@ -40,14 +41,16 @@ describe("Pre-production directory layout and configuration conformance", () => 
       const manifest = JSON.parse(readFileSync(join(rootDir, project, "package.json"), "utf8"));
       const sdkSpec = manifest.dependencies["vrc-packages-api"];
       const previewSDK = sdkSpec.startsWith("npm:");
-      expect(sdkSpec).toBe(previewSDK ? "npm:vrc-packages-api-preview@latest" : project === "src-worker" ? "latest" : release["release-package"]);
+      expect(sdkSpec).toBe(previewSDK ? "npm:vrc-packages-api-preview@latest" : "latest");
       expect(Object.values(manifest.dependencies).some(value => String(value).startsWith("file:"))).toBe(false);
       if (project === "src-worker" || project === "src-crawler") {
-        expect(manifest.dependencies["vrc-packages-network"]).toBe(previewSDK ? preview["preview-network"] : release["release-network"]);
+        expect(manifest.dependencies["vrc-packages-network"]).toBe(networkArchiveURL(preview["preview-network"]));
       }
     }
-    expect(network.dependencies["vrc-packages-api"]).toBe(network.dependencies["vrc-packages-api"].startsWith("npm:")
-      ? `npm:vrc-packages-api-preview@${preview["preview-package"]}` : release["release-package"]);
+    expect(network.dependencies["vrc-packages-api"]).toBeUndefined();
+    expect(network.peerDependencies["vrc-packages-api"]).toBe(`${release["release-package"]} || ${preview["preview-package"]}`);
+    expect(network.devDependencies["vrc-packages-api"]).toBe(network.devDependencies["vrc-packages-api"].startsWith("npm:")
+      ? "npm:vrc-packages-api-preview@latest" : release["release-package"]);
     expect(network.private).toBe(true);
     for (const entry of Object.values(network.exports) as { types: string; import: string }[]) {
       expect(entry.types).toMatch(/^\.\/dist\/.*\.d\.ts$/);

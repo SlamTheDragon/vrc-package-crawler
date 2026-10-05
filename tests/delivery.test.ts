@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { bumpVersion, distributedArtifact, productDirectories, readVersionConfig, sdkPackageNames, versionFiles } from "../scripts/versioning.mjs";
+import { bumpVersion, distributedArtifact, networkArchiveURL, productDirectories, readVersionConfig, sdkPackageNames, versionFiles } from "../scripts/versioning.mjs";
 import { checkSDKPublicationVersion, deliver, requireCI, resolveTag, stageSDKArtifact, publishPreviewSDKArtifact, previewOIDCFailure, validateCIArtifact, validateRegistrySDK, validateSDKStage, workerSecretBindings } from "../scripts/delivery.mjs";
 
 test("preview npm failure summaries expose only statuses and fixed flags, never raw authentication logs", () => {
@@ -26,15 +26,17 @@ async function fixture(run: (workspace: string) => Promise<void>) {
   const workspace = await mkdtemp(resolve(parent, "vrcp-delivery-"));
   try {
     for (const channel of ["release", "preview"]) {
-      const config = Object.fromEntries(Object.keys(productDirectories).map(name =>
-        [`${channel}-${name}`, channel === "release" ? "0.0.1" : name === "crawler-client" ? "26.10.1-pre" : "2026.10.1-pre"]));
+      const config = Object.fromEntries(Object.keys(productDirectories).filter(name => channel !== "release" || name !== "network").map(name =>
+        [`${channel}-${name}`, channel === "release" ? "0.0.1" : name === "crawler-client" ? "26.10.1-pre" : name === "network" ? "2026.10.1" : "2026.10.1-pre"]));
       await writeFile(resolve(workspace, channel === "release" ? "config.versions.json" : "config.preview.versions.json"), JSON.stringify(config));
     }
     for (const [name, path] of Object.entries(productDirectories)) {
       await mkdir(resolve(workspace, path), { recursive: true });
-      const dependencies = name === "package" ? {} : { "vrc-packages-api": "0.0.1" };
-      if (["crawler", "worker"].includes(name)) dependencies["vrc-packages-network"] = "0.0.1";
-      await writeFile(resolve(workspace, path, "package.json"), JSON.stringify({ name, version: "0.0.1", dependencies }));
+      const dependencies = ["package", "network"].includes(name) ? {} : { "vrc-packages-api": "0.0.1" };
+      if (["crawler", "worker"].includes(name)) dependencies["vrc-packages-network"] = networkArchiveURL("2026.10.1");
+      const peer = name === "network" ? { peerDependencies: { "vrc-packages-api": "0.0.1 || 2026.10.1-pre" },
+        devDependencies: { "vrc-packages-api": "0.0.1" } } : {};
+      await writeFile(resolve(workspace, path, "package.json"), JSON.stringify({ name, version: "0.0.1", dependencies, ...peer }));
     }
     await mkdir(resolve(workspace, "src-crawler-client/src-tauri"));
     await writeFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), '[package]\nversion = "0.0.1" # retain owner note\n');
@@ -80,12 +82,14 @@ test("stable UI preview versions are allowed but equal channel tags remain ambig
 
 test("product-specific tags are canonical while historical prefixes are attachment-only", async () => {
   await fixture(async workspace => {
-    for (const [prefix, product] of [["vrcp-api", "package"], ["vrcp-network", "network"],
+    for (const [prefix, product] of [["vrcp-api", "package"],
       ["cloudflare-worker", "worker"], ["vrcp-crawler", "crawler"], ["vrcp-crawler-client", "crawler-client"]]) {
       expect((await resolveTag(`${prefix}/v0.0.1`, workspace)).product).toBe(product);
       await expect(resolveTag(`${product}/v0.0.1`, workspace)).rejects.toThrow("product-specific");
       expect((await resolveTag(`${product}/v0.0.1`, workspace, true)).product).toBe(product);
     }
+    expect((await resolveTag("vrcp-network/v2026.10.1", workspace)).channel).toBe("preview");
+    await expect(resolveTag("vrcp-network/v0.0.1", workspace)).rejects.toThrow("exactly one");
   });
   const config = (await readVersionConfig("release")).config;
   await expect(requireCI("worker", "release", { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push",
@@ -98,7 +102,7 @@ test("selected-product sync pins distributed dependencies without changing anoth
     await versionFiles("sync", "preview", "worker", workspace);
     const worker = JSON.parse(await readFile(resolve(workspace, "src-worker/package.json"), "utf8"));
     expect(worker.version).toBe("2026.10.1-pre");
-    expect(worker.dependencies).toEqual({ "vrc-packages-api": "npm:vrc-packages-api-preview@latest", "vrc-packages-network": "2026.10.1-pre" });
+    expect(worker.dependencies).toEqual({ "vrc-packages-api": "npm:vrc-packages-api-preview@latest", "vrc-packages-network": networkArchiveURL("2026.10.1") });
     expect(await readFile(resolve(workspace, "src-crawler/package.json"), "utf8")).toBe(before);
     await versionFiles("check", "preview", "worker", workspace);
     await expect(versionFiles("check", "release", "worker", workspace)).rejects.toThrow("differs");
@@ -112,8 +116,10 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
     const sdk = JSON.parse(await readFile(resolve(workspace, "src-package/package.json"), "utf8"));
     expect(sdk.name).toBe(sdkPackageNames.preview);
     expect(sdk.version).toBe("2026.10.1-pre");
-    expect(JSON.parse(await readFile(resolve(workspace, "src-worker/packages/network/package.json"), "utf8"))
-      .dependencies["vrc-packages-api"]).toBe("npm:vrc-packages-api-preview@2026.10.1-pre");
+    const network = JSON.parse(await readFile(resolve(workspace, "src-worker/packages/network/package.json"), "utf8"));
+    expect(network.dependencies["vrc-packages-api"]).toBeUndefined();
+    expect(network.peerDependencies["vrc-packages-api"]).toBe("0.0.1 || 2026.10.1-pre");
+    expect(network.devDependencies["vrc-packages-api"]).toBe("npm:vrc-packages-api-preview@latest");
     expect(await readFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), "utf8"))
       .toContain('version = "26.10.1-pre" # retain owner note');
     const tauri = JSON.parse(await readFile(resolve(workspace, "src-crawler-client/src-tauri/tauri.conf.json"), "utf8"));
@@ -123,7 +129,44 @@ test("all-product sync preserves Cargo comments and Tauri manifest ownership", a
     await versionFiles("check", "release", "all", workspace);
     expect(JSON.parse(await readFile(resolve(workspace, "src-package/package.json"), "utf8")).name).toBe(sdkPackageNames.release);
     expect(JSON.parse(await readFile(resolve(workspace, "src-worker/package.json"), "utf8")).dependencies["vrc-packages-api"]).toBe("latest");
-    expect(JSON.parse(await readFile(resolve(workspace, "src-crawler/package.json"), "utf8")).dependencies["vrc-packages-api"]).toBe("0.0.1");
+    expect(JSON.parse(await readFile(resolve(workspace, "src-crawler/package.json"), "utf8")).dependencies["vrc-packages-api"]).toBe("latest");
+  });
+});
+
+test("network peer metadata follows both SDK configs without allowing a runtime channel override", async () => {
+  await fixture(async workspace => {
+    const path = resolve(workspace, productDirectories.network, "package.json");
+    const previewPath = resolve(workspace, "config.preview.versions.json");
+    const { config } = await readVersionConfig("preview", workspace);
+    config["preview-package"] = "2026.10.2-pre";
+    await writeFile(previewPath, JSON.stringify(config));
+    await versionFiles("sync", "preview", "network", workspace);
+    const network = JSON.parse(await readFile(path, "utf8"));
+    expect(network.peerDependencies["vrc-packages-api"]).toBe("0.0.1 || 2026.10.2-pre");
+    expect(network.devDependencies["vrc-packages-api"]).toBe("npm:vrc-packages-api-preview@latest");
+    network.dependencies["vrc-packages-api"] = "0.0.1";
+    const invalid = JSON.stringify(network);
+    await writeFile(path, invalid);
+    await expect(versionFiles("sync", "preview", "network", workspace)).rejects.toThrow("consumer-supplied peer");
+    expect(await readFile(path, "utf8")).toBe(invalid);
+    delete network.dependencies["vrc-packages-api"];
+    delete network.peerDependencies;
+    await writeFile(path, JSON.stringify(network));
+    await expect(versionFiles("sync", "preview", "network", workspace)).rejects.toThrow("explicit SDK peer");
+  });
+});
+
+test("single network stream rejects new release bumps while historical config tags remain readable", async () => {
+  await fixture(async workspace => {
+    await expect(bumpVersion("release", "network", "patch", workspace)).rejects.toThrow("one rapid stream");
+    await expect(versionFiles("sync", "release", "network", workspace)).rejects.toThrow("one rapid stream");
+    expect((await bumpVersion("preview", "network", "patch", workspace, new Date("2027-01-01T00:00:00Z"))).version).toBe("2027.1.2");
+    const path = resolve(workspace, "config.versions.json");
+    const { config } = await readVersionConfig("release", workspace);
+    config["release-network"] = "0.0.1";
+    await writeFile(path, JSON.stringify(config));
+    await expect(readVersionConfig("release", workspace)).rejects.toThrow("exactly");
+    expect((await resolveTag("vrcp-network/v0.0.1", workspace, true)).channel).toBe("release");
   });
 });
 
@@ -172,6 +215,12 @@ test("release SDK retains its API hold while only the preview identity permits C
 });
 
 test("distributed identity parsing accepts only exact SDK aliases and config-checked latest", () => {
+  expect(distributedArtifact("vrc-packages-network", networkArchiveURL("2026.10.1")))
+    .toEqual({ name: "vrc-packages-network", version: "2026.10.1" });
+  for (const spec of [networkArchiveURL("2026.10.1").replace("github.com", "attacker.invalid"),
+    networkArchiveURL("2026.10.1") + "?token=not-allowed", networkArchiveURL("2026.10.1").replace("/v2026.10.1/", "/v2026.10.2/")]) {
+    expect(() => distributedArtifact("vrc-packages-network", spec)).toThrow("canonical network");
+  }
   expect(distributedArtifact("vrc-packages-api", "latest", "0.0.0")).toEqual({ name: sdkPackageNames.release, version: "0.0.0" });
   expect(distributedArtifact("vrc-packages-api", "npm:vrc-packages-api-preview@2026.10.0-pre")).toEqual({ name: sdkPackageNames.preview, version: "2026.10.0-pre" });
   expect(distributedArtifact("vrc-packages-api", "npm:vrc-packages-api-preview@latest", "2026.10.0-pre"))
@@ -511,6 +560,13 @@ test("registry SDK inputs require exact identity, bytes and compiled distributio
 
 test("every CI consumer installs the published SDK while local preparation and the SDK producer stay separate", async () => {
   await fixture(async workspace => {
+    // This fixture isolates SDK resolution. Hosted network source/receipt checks have their own fixtures.
+    for (const product of ["worker", "crawler"]) {
+      const path = resolve(workspace, productDirectories[product], "package.json");
+      const manifest = JSON.parse(await readFile(path, "utf8"));
+      delete manifest.dependencies["vrc-packages-network"];
+      await writeFile(path, JSON.stringify(manifest));
+    }
     await mkdir(resolve(workspace, "scripts"));
     await mkdir(resolve(workspace, "node_modules"));
     await cp(new URL("../node_modules/semver", import.meta.url), resolve(workspace, "node_modules/semver"), { recursive: true });
@@ -545,7 +601,7 @@ if(args[0]==='view') {
   console.log(JSON.stringify([{name,version,filename,integrity,files:[{path:'package.json'},{path:'dist/index.js'},{path:'dist/index.d.ts'}]}]));
 } else if(args[0]==='install') {
   const manifest=JSON.parse(readFileSync(join(cwd,'package.json'),'utf8'));
-  for(const name of Object.keys(manifest.dependencies||{})) {
+  for(const name of new Set([...Object.keys(manifest.dependencies||{}),...Object.keys(manifest.peerDependencies||{})])) {
     const directory=join(cwd,'node_modules',name);mkdirSync(directory,{recursive:true});
     writeFileSync(join(directory,'package.json'),JSON.stringify({name:name==='vrc-packages-api'?env.FIXTURE_SDK_NAME:name,version:env.FIXTURE_VERSION}));
   }
@@ -563,6 +619,7 @@ if(args[0]==='view') {
       const env = { ...base, FIXTURE_SDK_NAME: sdkPackageNames[channel], FIXTURE_VERSION: version };
       run(["scripts/versioning.mjs", "sync", channel], env);
       for (const [product, prefix] of Object.entries(prefixes)) {
+        if (product === "network" && channel === "release") continue;
         await writeFile(log, "");
         const productVersion = (await readVersionConfig(channel, workspace)).config[`${channel}-${product}`];
         run(["scripts/delivery.mjs", "prepare", channel, product, "--ci"], { ...env, GITHUB_REF: `refs/tags/${prefix}/v${productVersion}` });
@@ -584,8 +641,8 @@ if(args[0]==='view') {
       await writeFile(log, "");
       run(["scripts/delivery.mjs", "prepare", channel, "crawler"], env);
       const local = await commands();
-      expect(local.some(item => item.args[0] === "view")).toBe(false);
-      expect(local.some(item => item.cwd === resolve(workspace, productDirectories.package) && item.args[0] === "run" && item.args[1] === "build")).toBe(true);
+      expect(local.some(item => item.args[0] === "view")).toBe(true);
+      expect(local.some(item => item.cwd === resolve(workspace, productDirectories.package) && item.args[0] === "run")).toBe(false);
     }
   });
 }, 60_000);
@@ -601,6 +658,21 @@ test("consumer workflows verify their own distributions without running the SDK 
   expect(sdk).toContain("scripts/delivery.mjs verify");
   const docker = readFileSync(new URL("../src-crawler/Dockerfile", import.meta.url), "utf8");
   expect(docker.match(/\[ "\$#" -eq 1 \]/g)).toHaveLength(2);
+});
+
+test("publication links cover internal network and both desktop channels only after checked attachments", () => {
+  const network = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/network.yml", import.meta.url), "utf8"));
+  const client = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/node-client.yml", import.meta.url), "utf8"));
+  expect(network.jobs["deployment-record"].needs).toBe("release-assets");
+  expect(network.jobs["deployment-record"].environment).toEqual({ name: "vrcp-network",
+    url: "https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}" });
+  expect(client.jobs["deployment-record"].needs).toEqual(["build", "release-assets"]);
+  expect(client.jobs["deployment-record"].environment.name).toContain("vrcp-crawler-client-preview");
+  expect(client.jobs["deployment-record"].environment.name).toContain("vrcp-crawler-client-release");
+  expect(client.jobs["deployment-record"].environment.url).toBe(network.jobs["deployment-record"].environment.url);
+  expect(client.jobs.build.outputs.channel).toBe("${{ steps.route.outputs.channel }}");
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  expect(manifest.scripts["versions:bump"]).toBe(manifest.scripts["delivery:preview"].replace(" start preview", " start"));
 });
 
 test("external workflow guards separate the two npm approvals from preview-only Worker authority", () => {

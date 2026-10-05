@@ -52,13 +52,23 @@ The earlier full-root check had two failures from unsynchronized bootstrap manif
 
 ## Immediate implementation tasks
 
+Local gate checks passed: 82 root regression tests, zero failures, plus syntax and diff checks.
+Network verification packed one development archive and checked it against release SDK 0.0.1 and preview SDK 2026.10.1-pre.
+Both SDK selections passed separate npm and Bun installs, Node/Bun runtime checks, declarations, shared schema identity, and native Worker checks with zero external fetches.
+The hosted network installer checks release assets, checksums, receipts, successful source CI and unchanged remote tags. Its new-stream live proof remains pending.
+Network and desktop deployment cards now have exact Release links in workflow configuration. Patch-2 CI must exercise those links.
+The final workflow change adds read-only Actions permissions and passes the GitHub token to dependency preparation; remote execution remains pending.
+The owner authorized committing all changes, including existing documentation edits. No new tag, publication, deployment or D1 write has run for this group.
+Next: commit the checked implementation, then exercise the authorized patch-2 delivery chain, starting with both SDK channels and the shared network archive.
+
 R57-NETWORK-SINGLE: one internal YYYY.M.Patch archive, without -pre or a future release path.
 The owner confirms monorepo-only use. A required SDK peer lets the Worker and crawler select their own SDK channel.
 Check one packed archive against both verified SDK distributions. Normal wildcard ranges exclude prereleases.
 R57-DEV-INSTALL: install current verified hosted archives rather than request an unpublished npm package.
 Keep preview SDK aliases and exact resolved versions/checksums. Do not link sibling sources or suppress dependency errors.
-The low-level versions:bump currently edits config only. The explicit delivery chain also commits, tags and atomically pushes.
-Reconcile that distinction with the owner's bump-means-queue requirement before patch 2.
+The root versions:bump command now selects the delivery chain: planning is read-only; --execute bumps, synchronizes, commits, tags and atomically pushes.
+A network bump updates both consumer archive URLs while preserving their runtime versions and SDK channels.
+The configured suffix-free network archive is not yet published. Do not claim fresh-clone installation or main sign-off before patch-2 live proofs pass.
 
 R57-RETENTION remains open: caches measured 0.97 GiB and CI artifacts 0.73 GiB, with most artifacts retained 90 days.
 Confirm budgets and cache caps before unattended branch delivery. No deletion, paid limit increase or retention change ran.

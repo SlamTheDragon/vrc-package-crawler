@@ -1,7 +1,7 @@
 {
   "name": "vrcp-web",
   "type": "module",
-  "version": "2026.10.0",
+  "version": "2026.10.0-pre",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -16,7 +16,7 @@
     "astro": "^7.3.5",
     "svelte": "^5.57.1",
     "typescript": "^6.0.3",
-    "vrc-packages-api": "0.0.0"
+    "vrc-packages-api": "npm:vrc-packages-api-preview@latest"
   },
   "allowScripts": {
     "esbuild": true
