@@ -27,14 +27,13 @@ Main ruleset 24553134 is active: default-branch PR requirement, zero required ap
 The owner merged lifecycle PR #2 into main at 9df1d19. These task branches are not the final responsibility-branch split.
 Each slice stays a local commit. A checked gate permits a task-branch push, not a direct main write or agent merge.
 Supply an owner comparison link if PR creation is unavailable. Do not expand permissions or disable protection.
-The checked logger branch is pushed at 00900a1. It requires owner promotion and tagged cross-platform proof, not another source implementation.
+The owner merged logger PR #3 into main at 6574094. Tagged cross-platform proof remains pending.
 Ruleset readback: immutable-delivery-tags 24553469 blocks all tag updates/deletions, with no bypass actors.
-Stable-release 24553551 has the correct stable/preview patterns, but only update/deletion rules and no bypass actors.
+Stable-release 24553551 has the correct stable/preview patterns and creation/update/deletion rules, but no bypass actors.
 The owner must replace those rules with creation restriction and an owner-admin bypass. Keep the immutable ruleset unchanged.
 No settings changed through this agent. No open PR or recorded preview initializer run was visible in the latest readback.
 Public unauthenticated environment readback succeeded on 2026-10-06. The connector's unsupported endpoint is not a GitHub access denial.
-cloudflare-preview allows only Tag cloudflare-worker/v*. Add Branch main for the guarded manual initializer, retaining the tag rule.
-Desktop preview and vrcp-network have no ref restrictions. Add their product tag rules before final sign-off.
+Owner corrections now permit Branch main and Worker tags in cloudflare-preview. Desktop preview and network have their product tag restrictions.
 SDK, crawler and desktop release environments require owner review. Existing SDK/crawler/Worker environments use their product v* tag rules.
 Select an existing product tag as the workflow ref for SDK OIDC diagnostics and desktop asset recovery. An input tag does not change that ref.
 These are metadata checks, not hosted recovery proof or permission to change settings. No screenshot is needed for this readback.
@@ -42,7 +41,10 @@ Lifecycle writing scores: agent procedure 1.07, Delivery 1.54 issues per 100 wor
 The repository-wide link/layout check failed on 10 existing findings outside the changed links. Do not record a full docs pass.
 Findings include stale recovery-skill references, upstream skill links, CONTRIBUTING.md and a removed node protocol path. Repair separately before final sign-off.
 This merge preserves the initializer, lifecycle and checked logger evidence. Its conflict repair changes only this checkpoint.
-Main sign-off remains open. Do not create final responsibility branches or start delivery from this repair.
+Main sign-off remains open. Delete temporary task branches only after sign-off and merged-work checks. Keep future responsibility branches.
+The root allocator delivered non-main crawler preview 2026.10.6-pre from synchronized codex/node-logger-output.
+Commit 2d27ce6 changed only preview-crawler and its manifest. Tag object: 08ac88eaafe73dc9e7637fa089e30f94751385ca.
+Run 37410193664 is active. Allocation/triggering passed; build, original bytes, GHCR, Release/link and announcement proof remain unverified.
 Active initialization slice: a root command uses the distributed preview SDK for explicit autoSeed false, then a catalog read.
 Plan by default. Execution requires the dedicated main-ref manual workflow and the existing cloudflare-preview secret scope.
 Use one fixed approved preview origin. Reject redirects and bound time/body size. Never print server errors or operator credentials.
