@@ -19,6 +19,11 @@ Plan by default. Execution requires the dedicated main-ref manual workflow and t
 Use one fixed approved preview origin. Reject redirects and bound time/body size. Never print server errors or operator credentials.
 No version allocation, rebuild, seeding, source approval or production action belongs to this command.
 The owner must permit Branch main in cloudflare-preview for this manual initialization workflow. Tag delivery rules remain.
+Implementation 6b95629 and the ESM repair passed 13 related tests / 142 assertions, syntax and whitespace checks.
+Published preview SDK 2026.10.5-pre passed explicit-false DTO, authenticated init, unauthenticated catalog and malformed-response checks with injected offline transport.
+The first distribution check caught require.resolve selecting unsupported CommonJS exports. Bun now resolves the ESM package.
+Both root and product planning commands passed without network calls. No initializer executed remotely.
+Use a promotion branch and manual PR merge for these changes. Do not push them directly to main during protection setup.
 
 Active release slice: prepare one config-derived metadata commit on a dedicated promotion branch, without a tag or main write.
 After manual review/merge, finalize only its exact merged main commit with a tag-only push and the same saved version.
