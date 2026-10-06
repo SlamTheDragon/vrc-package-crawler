@@ -27,14 +27,13 @@ Main ruleset 24553134 is active: default-branch PR requirement, zero required ap
 The owner merged lifecycle PR #2 into main at 9df1d19. These task branches are not the final responsibility-branch split.
 Each slice stays a local commit. A checked gate permits a task-branch push, not a direct main write or agent merge.
 Supply an owner comparison link if PR creation is unavailable. Do not expand permissions or disable protection.
-The checked logger branch is pushed at 00900a1. It requires owner promotion and tagged cross-platform proof, not another source implementation.
+The owner merged logger PR #3 into main at 6574094. Tagged cross-platform proof remains pending.
 Ruleset readback: immutable-delivery-tags 24553469 blocks all tag updates/deletions, with no bypass actors.
-Stable-release 24553551 has the correct stable/preview patterns, but only update/deletion rules and no bypass actors.
-The owner must replace those rules with creation restriction and an owner-admin bypass. Keep the immutable ruleset unchanged.
+Stable-release 24553551 now restricts creation only, with a RepositoryRole 5 admin bypass and all four preview exclusions.
+The owner applied the correction. Main and immutable-tag bypass lists remain separate and must stay empty.
 No settings changed through this agent. No open PR or recorded preview initializer run was visible in the latest readback.
 Public unauthenticated environment readback succeeded on 2026-10-06. The connector's unsupported endpoint is not a GitHub access denial.
-cloudflare-preview allows only Tag cloudflare-worker/v*. Add Branch main for the guarded manual initializer, retaining the tag rule.
-Desktop preview and vrcp-network have no ref restrictions. Add their product tag rules before final sign-off.
+Owner corrections now permit Branch main and Worker tags in cloudflare-preview. Desktop preview and network have their product tag restrictions.
 SDK, crawler and desktop release environments require owner review. Existing SDK/crawler/Worker environments use their product v* tag rules.
 Select an existing product tag as the workflow ref for SDK OIDC diagnostics and desktop asset recovery. An input tag does not change that ref.
 These are metadata checks, not hosted recovery proof or permission to change settings. No screenshot is needed for this readback.
@@ -42,7 +41,15 @@ Lifecycle writing scores: agent procedure 1.07, Delivery 1.54 issues per 100 wor
 The repository-wide link/layout check failed on 10 existing findings outside the changed links. Do not record a full docs pass.
 Findings include stale recovery-skill references, upstream skill links, CONTRIBUTING.md and a removed node protocol path. Repair separately before final sign-off.
 This merge preserves the initializer, lifecycle and checked logger evidence. Its conflict repair changes only this checkpoint.
-Main sign-off remains open. Do not create final responsibility branches or start delivery from this repair.
+Main sign-off remains open. Delete temporary task branches only after sign-off and merged-work checks. Keep future responsibility branches.
+The root allocator delivered non-main crawler preview 2026.10.6-pre from synchronized codex/node-logger-output.
+Commit 2d27ce6 changed only preview-crawler and its manifest. Tag object: 08ac88eaafe73dc9e7637fa089e30f94751385ca.
+Run 37410193664 passed Linux, Windows, container publication, Release attachment and its terminal Discord announcement job.
+Linux exercised the changed logger: 141 tests / 874 assertions. Root delivery:check returned release-artifacts-verified.
+Original CI bytes matched both binaries, receipts, checksums and changelog. Linux binary SHA-256: 750dbfa9f586b2c1cffefbfdcf8915e2148c9355ef1ee4e451a264c63e737988.
+Windows binary SHA-256: 86c2edae5dafac639e0a9bb0c9347b2b6c5ebe2438059838cd2dd24934174562.
+Release identity: https://github.com/SlamTheDragon/vrc-packages/releases/tag/vrcp-crawler/v2026.10.6-pre.
+This is non-main delivery proof, not Worker schema initialization, stable release promotion or full goal completion.
 Active initialization slice: a root command uses the distributed preview SDK for explicit autoSeed false, then a catalog read.
 Plan by default. Execution requires the dedicated main-ref manual workflow and the existing cloudflare-preview secret scope.
 Use one fixed approved preview origin. Reject redirects and bound time/body size. Never print server errors or operator credentials.
@@ -69,6 +76,22 @@ Working theory: print the paths, reject stale branches and pending ignored index
 Partial push recovery, path races and unrelated tags under push.followTags passed. Never unstage owner files or skip a patch.
 New CI ingress checks use the original run actor and exact reviewed metadata. Historical exceptions bind exact tag/object/commit pairs.
 Tag-selected code requires external main/tag/workflow protection. It cannot police old workflows. This remains a sign-off boundary.
+
+## Documentation and cleanup checkpoint — 2026-10-06
+
+Working theory: repair live references without recreating removed documents or changing architecture.
+Eight stale links now point to existing files or official documentation. CONTRIBUTING uses current root Bun delivery procedures.
+The owner approved root CONTRIBUTING.md and ignored docs/.obsidian as narrow layout exceptions.
+The checker permits only that root document and that exact ignored metadata directory. Other layout restrictions remain.
+CONTRIBUTING prose lint: 1.66 issues per 100 words. Whitespace checks passed.
+The full link/layout check passed for 374 documents. Whitespace checks passed.
+The supplied validator passed for both repaired skills through isolated uv with PyYAML. Project dependencies stayed unchanged.
+Workflow inventory found 13 files. Product delivery, reusable asset attachment, announcements, reconciliation, initialization and cache support have current roles.
+Website remains disabled. No obsolete workflow or remote run is yet proved safe to delete.
+Owner added workflow/run/code cleanup to sign-off. Inventory first, preserve delivery and security evidence, then assess exact deletion targets.
+Authenticated ruleset readback confirmed admin creation bypass only in stable-release. Immutable tags keep an empty bypass list.
+No version bump, publication, deployment or settings change belongs to this documentation gate.
+The owner logs marker remains untracked and untouched. Main sign-off and hosted initialization remain open.
 
 ## Current state and checked contract
 

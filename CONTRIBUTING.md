@@ -23,7 +23,7 @@ Preserve upstream identifiers and the accepted vrc-packages-* package names.
 ## Development sequence
 
 Use [DELEGATES.md](DELEGATES.md) for operational responsibilities and [delivery](docs/source/DELIVERY.md) for commands and CI setup.
-Agent-specific delivery checks are separate in [the agent procedure](docs/decisions/AGENT_DELIVERY.md).
+Agent-specific delivery checks are separate in [the agent procedure](docs/decisions/AGENT_DELIVERY_PROCEDURE.md).
 
 1. Read the canonical and unmerged ledgers in docs/scratch.
 2. Choose one capability gate or related gate group.
@@ -39,26 +39,30 @@ Put research in docs/research. Keep current capability descriptions in docs/sour
 
 ## Versions, branches and artifacts
 
-The two root version configs are authoritative. Do not substitute example tag versions.
-Local builds create development artifacts only. Do not create release installers or publish from this workspace.
+The two root version configs are authoritative. Only root scripts change them. Do not substitute example tag versions.
+Local builds create development artifacts only. Do not create release installers or publish directly from this workspace.
+The root delivery command queues CI publication through a version commit and tag.
 CI creates release artifacts from matching product tags. Website CI and hosting remain deferred.
 Worker deployment is currently preview-only. The preview database must remain separate from production.
 Publish the selected channel's SDK before consumer tags that require its registry version.
 The complete owner API route review still blocks SDK v0.1.0 and later, including prereleases.
 
 Use a focused development branch, normally with the codex/ prefix for agent changes.
-Review and merge its commit before tagging that commit for delivery.
-Branch automation starts after per-product patch-1 proof. The approved responsibility branches are website-preview, crawler-client-preview, api-package-preview and worker-preview.
-Main will own releases and require reviewed promotion PRs. Website CI remains disabled.
-API preview pushes will publish directly, with version patches allocated before commit. These branch triggers are not yet implemented.
+Preview delivery accepts synchronized task branches. Releases require main after the owner's manual promotion review and merge.
+The planned responsibility branches are website-preview, crawler-client-preview, api-package-preview and worker-preview.
+Keep those branches and separate evergreen tracking PRs. Never merge tracking PRs as promotions.
+Main requires promotion PRs. Do not push directly to main or bypass its protection. Website CI remains disabled.
+The preview App dispatcher calls the root allocator. Ordinary pushes do not allocate versions.
 Crawler CI defines standalone Windows and Linux artifacts as well as the container.
 The desktop shell's download, signature, update and supervision contracts remain future work.
 
-For a configured product, run `npm run delivery:preview -- <product>` to see the next patch and delivery blockers.
-Add `--execute` only after review to commit that config patch and atomically push the branch and product tag.
+For a configured product, run `bun run delivery:preview <product>` to see the next patch and delivery blockers.
+Inspect the pending paths before execution. The command commits all nonignored pending files in a separate checkpoint.
+Add `--execute` to commit the next configured patch and atomically push the branch and product tag.
 CI builds, publishes and attaches assets through existing workflows. Release npm staging needs the owner's npm approval.
 Preview npm publication uses its trusted publisher directly. Worker release tags build only, without production deployment or Release assets.
-Use `npm run delivery:status -- <tag>` for CI progress and `npm run delivery:check -- <tag>` for hosted artifact checks.
+Use `bun run delivery:status <tag>` for CI progress and `bun run delivery:check <tag>` for hosted artifact checks.
+For releases, use the metadata-PR and exact merged-main finalization procedure in the delivery manual.
 No command creates local release binaries. See the delivery manual for retries and disabled paths.
 
 ## Security and source access
