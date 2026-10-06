@@ -29,8 +29,8 @@ Each slice stays a local commit. A checked gate permits a task-branch push, not 
 Supply an owner comparison link if PR creation is unavailable. Do not expand permissions or disable protection.
 The owner merged logger PR #3 into main at 6574094. Tagged cross-platform proof remains pending.
 Ruleset readback: immutable-delivery-tags 24553469 blocks all tag updates/deletions, with no bypass actors.
-Stable-release 24553551 has the correct stable/preview patterns and creation/update/deletion rules, but no bypass actors.
-The owner must replace those rules with creation restriction and an owner-admin bypass. Keep the immutable ruleset unchanged.
+Stable-release 24553551 now restricts creation only, with a RepositoryRole 5 admin bypass and all four preview exclusions.
+The owner applied the correction. Main and immutable-tag bypass lists remain separate and must stay empty.
 No settings changed through this agent. No open PR or recorded preview initializer run was visible in the latest readback.
 Public unauthenticated environment readback succeeded on 2026-10-06. The connector's unsupported endpoint is not a GitHub access denial.
 Owner corrections now permit Branch main and Worker tags in cloudflare-preview. Desktop preview and network have their product tag restrictions.
@@ -44,7 +44,8 @@ This merge preserves the initializer, lifecycle and checked logger evidence. Its
 Main sign-off remains open. Delete temporary task branches only after sign-off and merged-work checks. Keep future responsibility branches.
 The root allocator delivered non-main crawler preview 2026.10.6-pre from synchronized codex/node-logger-output.
 Commit 2d27ce6 changed only preview-crawler and its manifest. Tag object: 08ac88eaafe73dc9e7637fa089e30f94751385ca.
-Run 37410193664 is active. Allocation/triggering passed; build, original bytes, GHCR, Release/link and announcement proof remain unverified.
+Run 37410193664 passed Linux, Windows and container publication. Linux exercised the changed logger: 141 tests / 874 assertions.
+Original-byte verification is running. Release/link and announcement proof remain unverified until their own readbacks pass.
 Active initialization slice: a root command uses the distributed preview SDK for explicit autoSeed false, then a catalog read.
 Plan by default. Execution requires the dedicated main-ref manual workflow and the existing cloudflare-preview secret scope.
 Use one fixed approved preview origin. Reject redirects and bound time/body size. Never print server errors or operator credentials.
