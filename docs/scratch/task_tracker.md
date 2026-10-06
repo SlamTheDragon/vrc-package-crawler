@@ -44,8 +44,12 @@ This merge preserves the initializer, lifecycle and checked logger evidence. Its
 Main sign-off remains open. Delete temporary task branches only after sign-off and merged-work checks. Keep future responsibility branches.
 The root allocator delivered non-main crawler preview 2026.10.6-pre from synchronized codex/node-logger-output.
 Commit 2d27ce6 changed only preview-crawler and its manifest. Tag object: 08ac88eaafe73dc9e7637fa089e30f94751385ca.
-Run 37410193664 passed Linux, Windows and container publication. Linux exercised the changed logger: 141 tests / 874 assertions.
-Original-byte verification is running. Release/link and announcement proof remain unverified until their own readbacks pass.
+Run 37410193664 passed Linux, Windows, container publication, Release attachment and its terminal Discord announcement job.
+Linux exercised the changed logger: 141 tests / 874 assertions. Root delivery:check returned release-artifacts-verified.
+Original CI bytes matched both binaries, receipts, checksums and changelog. Linux binary SHA-256: 750dbfa9f586b2c1cffefbfdcf8915e2148c9355ef1ee4e451a264c63e737988.
+Windows binary SHA-256: 86c2edae5dafac639e0a9bb0c9347b2b6c5ebe2438059838cd2dd24934174562.
+Release identity: https://github.com/SlamTheDragon/vrc-packages/releases/tag/vrcp-crawler/v2026.10.6-pre.
+This is non-main delivery proof, not Worker schema initialization, stable release promotion or full goal completion.
 Active initialization slice: a root command uses the distributed preview SDK for explicit autoSeed false, then a catalog read.
 Plan by default. Execution requires the dedicated main-ref manual workflow and the existing cloudflare-preview secret scope.
 Use one fixed approved preview origin. Reject redirects and bound time/body size. Never print server errors or operator credentials.
