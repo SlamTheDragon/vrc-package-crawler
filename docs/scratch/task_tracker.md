@@ -11,8 +11,13 @@
 - Saved dependency versions and product/config files remain tied to the tag. Receipts distinguish source and repair-tooling commits.
 - Release titles and changelog headings take the delivered package manifest name. The grouped attachment checks passed.
 - All 374 document link/layout checks and whitespace checks passed. DELIVERY prose score: 1.47 issues per 100 words.
-- Next: push the single test branch for owner promotion, then exercise real recovery from synchronized main.
-- Runtime proof is required. Tests alone do not pass this gate. No recovery dispatch, release approval or tag change ran yet.
+- Owner merged PR #10. Clean main synchronized to 0e1eaf9d43cccbe2ec6e8e11d3686539d20c3268 before recovery.
+- Environment readback passed: vrcp-crawler-release allows Branch main and its existing tag rule, with one required reviewer. Preview has no reviewer gate.
+- Explicit local PAT reads and Actions dispatch passed. No credential value entered output or source.
+- Root recovery plan passed. Approved execution dispatched run 37452937062: https://github.com/SlamTheDragon/vrc-packages/actions/runs/37452937062 .
+- Real route passed. Linux and Windows builds are in progress. Protected publication, artifact readback and terminal announcement remain unverified.
+- Next: inspect this exact run, obtain operator release approval after build checks, then run full unchanged-tag delivery proof. Do not redispatch.
+- No version bump, tag replacement or operator approval ran. Tests alone do not pass this gate.
 - Real local planning exposed an ESM entry-point cycle. The CLI fix now reaches remote source proof and reports the missing main promotion explicitly.
 - The first grouped run found stale workflow/SDK assertions and an in-flight test/module mismatch. The corrected full rerun passed.
 - Diagnosis now selects manual actions from observed failure phases. Only the reviewed, unpublished route-failure recipe can rebuild.
