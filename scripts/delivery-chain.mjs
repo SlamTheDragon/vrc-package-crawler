@@ -114,20 +114,15 @@ function rejectIgnoredPending(paths, workspace, git) {
   if (selected.length) throw new Error(`Indexed ignored pending files cannot be checkpointed: ${JSON.stringify(selected)}`);
 }
 
-function pendingPreviewState(workspace, git) {
-  const status = git(workspace, "status", "--porcelain=v1", "-z", "--untracked-files=all"), paths = pendingPaths(status);
+/** Checkpoint the owner's selected nonignored pending files before allocating a preview version. */
+function checkpointPendingPreview(plan, workspace, git) {
+  const args = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+  const status = git(workspace, ...args), paths = pendingPaths(status);
+  if (!paths.length) return;
   if (paths.some(path => ["config.versions.json", "config.preview.versions.json"].includes(path))) {
     throw new Error("Pending version-config edits cannot be checkpointed. Use the authoritative root allocator; no staging, commit or bump ran.");
   }
   rejectIgnoredPending(paths, workspace, git);
-  return { status, paths };
-}
-
-/** Checkpoint the owner's selected nonignored pending files before allocating a preview version. */
-function checkpointPendingPreview(plan, workspace, git) {
-  const args = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
-  const { status, paths } = pendingPreviewState(workspace, git);
-  if (!paths.length) return;
   console.log(JSON.stringify({ pendingFiles: paths }));
   if (git(workspace, "rev-parse", "HEAD") !== plan.head ||
       git(workspace, "symbolic-ref", "--short", "HEAD") !== plan.branch || git(workspace, ...args) !== status) {
