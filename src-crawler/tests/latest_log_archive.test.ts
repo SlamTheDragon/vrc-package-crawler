@@ -29,9 +29,10 @@ describe("Unified latest.log and Archiving Lifecycle", () => {
 
     const activePath = logger.getActiveLogPath();
     expect(activePath).toBe(path.join(testDir, "latest.log"));
-    expect(fs.existsSync(activePath)).toBe(true);
+    expect(fs.existsSync(activePath)).toBe(false);
 
     logger.info("Test message for latest log");
+    expect(fs.existsSync(activePath)).toBe(true);
     logger.warn("Test warning for latest log");
     logger.error("Test error for latest log", new Error("Sample test failure"));
     logger.rateLimit("booth", 5, "2026-10-01T15:00:00Z", 2000);

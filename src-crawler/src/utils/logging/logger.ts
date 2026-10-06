@@ -44,6 +44,7 @@ export class Logger {
   private hasExplicitInitialDate: boolean = false;
   private midnightTimer?: NodeJS.Timeout;
   private boundShutdown?: () => void;
+  private isInitialized: boolean = false;
 
   constructor(options: LoggerOptions = {}) {
     this.logsDir = options.logsDir || process.env.CRAWLER_LOGS_DIR || path.resolve(process.cwd(), "logs");
@@ -54,7 +55,12 @@ export class Logger {
     this.enableLatestLog = options.enableLatestLog ?? true;
     this.enableSessionLogs = options.enableSessionLogs ?? false;
     this.latestLogPath = path.join(this.logsDir, "latest.log");
+    this.setSessionPaths(this.currentDate);
+  }
 
+  private initialize(): void {
+    if (this.isInitialized || this.isClosed || (!this.enableLatestLog && !this.enableSessionLogs)) return;
+    this.isInitialized = true;
     if (!fs.existsSync(this.logsDir)) {
       try {
         fs.mkdirSync(this.logsDir, { recursive: true });
@@ -85,12 +91,16 @@ export class Logger {
     }
   }
 
-  private openStreamsForDate(dateStr: string) {
+  private setSessionPaths(dateStr: string): void {
     if (!this.enableSessionLogs) return;
     this.crawlerLogPath = path.join(this.logsDir, `session_${this.sessionId}_${dateStr}.log`);
     this.rateLimitLogPath = path.join(this.logsDir, `session_${this.sessionId}_${dateStr}_ratelimits.log`);
     this.errorLogPath = path.join(this.logsDir, `session_${this.sessionId}_${dateStr}_errors.log`);
+  }
 
+  private openStreamsForDate(dateStr: string) {
+    if (!this.enableSessionLogs) return;
+    this.setSessionPaths(dateStr);
     try {
       if (!fs.existsSync(this.crawlerLogPath)) fs.writeFileSync(this.crawlerLogPath, "");
       if (!fs.existsSync(this.rateLimitLogPath)) fs.writeFileSync(this.rateLimitLogPath, "");
@@ -250,6 +260,11 @@ export class Logger {
 
   public async rotate(newDate?: string): Promise<string[]> {
     if (this.isClosed || this.isRotating) return [];
+    if (!this.isInitialized) {
+      this.currentDate = newDate || new Date().toISOString().slice(0, 10);
+      this.setSessionPaths(this.currentDate);
+      return [];
+    }
     this.isRotating = true;
 
     const targetDate = newDate || new Date().toISOString().slice(0, 10);
@@ -308,6 +323,7 @@ export class Logger {
 
   private writeToLatest(line: string): void {
     if (this.isClosed) return;
+    this.initialize();
     try {
       if (!this.latestLogStream) {
         this.ensureLatestLogStream();
@@ -390,7 +406,7 @@ export class Logger {
     }
 
     // Archive and clear latest.log on shutdown (flushes write stream)
-    await this.archiveAndClearLatestLog(this.currentDate);
+    if (this.isInitialized) await this.archiveAndClearLatestLog(this.currentDate);
 
     const promises: Promise<unknown>[] = [];
     if (this.crawlerLogStream) {

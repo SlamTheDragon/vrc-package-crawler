@@ -14,6 +14,14 @@
 Working theory: one root allocator can serve local and App-triggered previews without duplicate version logic.
 The prior direct main commit/tag push could not satisfy reviewed-main protection.
 
+Active output slice: Logger construction currently creates files and exit hooks before CLI help/version handling.
+An unused logger can therefore archive existing latest.log at process exit. Default operational paths use cwd.
+Make construction side-effect free. Start files, timers and hooks at the first log write.
+Keep explicit configured directories and active rotation behavior. Runtime directory relocation remains a separate decision.
+Check construction/close preservation, help/version subprocesses, all severity streams and rotation/shutdown together at the gate.
+The initializer remains on codex/preview-worker-init awaiting an owner-created promotion PR. No open PR was visible.
+Main ruleset 24553134 is active: default-branch PR requirement, zero required approvals, deletion/force-push denial and no bypass actors.
+
 Active release slice: prepare one config-derived metadata commit on a dedicated promotion branch, without a tag or main write.
 After manual review/merge, finalize only its exact merged main commit with a tag-only push and the same saved version.
 Reuse versionFiles and immutable-tag checks. Independent proof helpers must bind the PR, review, base/head and merged config transition.
