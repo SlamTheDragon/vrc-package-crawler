@@ -34,6 +34,15 @@ Worker release run `37495038619` is building. Production deployment and Worker R
 Crawler preview `37494341172` passed Linux, Windows and container publication. Attachment is running. Desktop preview `37493901597` is still building.
 Next: check those exact runs and final artifact/dependency/notification proof. Prepare crawler release `0.0.8` and desktop release `0.0.5` through owner-reviewed metadata PRs.
 Owner reconfirmed deletion of all temporary agent branches after verification finishes. Keep cleanup deferred until their required evidence is retained.
+Worker release `0.0.6` passed build-only bundle proof: artifact `11426838283`, 1060529 bundle bytes, SHA-256 `a1cce461e8efb40080cbc5cafb0e1093ea87e529f8f03bba2173fb74988f4619`.
+Desktop preview `26.10.6-pre` passed all five public asset hashes. Discord check `112378441046` acknowledged message `1557065879794229450`.
+Crawler preview workflow completed successfully. Discord check `112377498070` acknowledged message `1557065353656533123`. Full new binary proof remains pending.
+Root prepared crawler release `0.0.8` at `383fcdc289ea0d96deed990f1ae847c0f8b4168b`, based on `1859b88b8ef5a0d44ed8f6188dbd98c888b2cd68`.
+Its two-file diff changes only `config.versions.json` and `src-crawler/package.json`. Checkout returned to main without merging or tagging.
+Owner review link: https://github.com/SlamTheDragon/vrc-packages/compare/main...codex%2Frelease%2Fcrawler%2Fv0.0.8?expand=1 .
+Notification gap: SDK release `0.0.6` has no Discord check on its original source. Reconciled attachment run `37493502851` passed.
+Recent announcement runs show no matching post-reconciliation run. Cause remains unverified. Do not fake acknowledgement or send an unchecked duplicate webhook.
+Next: inspect this terminal-notification gap before main sign-off, then finalize owner-merged crawler metadata and prepare desktop release `0.0.5`.
 Fresh root `delivery:check:all` completed: eight configured paths passed full artifact proof. SDK release `0.0.6` alone reports `proof-unavailable`.
 The command correctly returned exit 1. Both Worker paths passed their special no-Release proof. No local release artifacts were written.
 These checks renew baseline evidence. They do not complete the outstanding next-patch trials, deployment-link review or main sign-off.
