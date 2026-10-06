@@ -220,6 +220,22 @@ CI release provenance must enforce that boundary too. Missing App credentials fa
 
 ### Release source trust
 
+Repository rulesets (Settings → Rules → Rulesets):
+
+- Main: require a PR, block deletion and force pushes, and retain zero required approvals for owner-reviewed manual merges.
+- Never grant the preview App a main bypass. Agents push task branches and wait for owner promotion.
+- Tag ruleset `Immutable delivery tags`: target all tags. Enable Restrict updates and Restrict deletions, with no bypass actors.
+- Keep Restrict creations disabled in that ruleset so new preview tags remain possible.
+- Separate tag ruleset `Stable release creation`: include `vrcp-api/v*`, `vrcp-crawler/v*`, `vrcp-crawler-client/v*` and `cloudflare-worker/v*`.
+- Exclude the corresponding `v*-pre*` patterns for all four prefixes. Network has only a preview stream and stays outside this creation rule.
+- Enable only Restrict creations. Allow the release-authorized repository admin to bypass this creation rule, but never the preview App.
+- The immutable rule still blocks updates/deletion because its bypass list is empty. Check overlapping rules before saving.
+
+Main ruleset `main-guard` (24553134) was checked active on 2026-10-06, with no bypass actors.
+Tag protections remain owner setup work. These instructions do not prove that those settings exist.
+GitHub documents [rule controls](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
+and [tag-pattern matching](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository).
+
 - New releases bind the annotated tag to one owner-merged metadata PR and its exact merged main commit.
 - Tag routing, builds, publication and artifact recovery check that proof. They use the original Actions actor, not the rerun actor.
 - `.github/release-baseline.json` preserves only exact historical repository/tag/object/commit pairs. It grants no broad version or ancestry exception.

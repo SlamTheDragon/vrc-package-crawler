@@ -24,6 +24,19 @@ The compiled Windows logger fixture writes and closes successfully while cwd sta
 R58-ROOT-LOGS has local path proof, not tagged delivery proof. Existing owner logs remain untouched. No delivery bump ran.
 The owner merged initializer PR #1 into main at 4a89ca2. Hosted initialization remains unverified.
 Main ruleset 24553134 is active: default-branch PR requirement, zero required approvals, deletion/force-push denial and no bypass actors.
+The owner merged lifecycle PR #2 into main at 9df1d19. These task branches are not the final responsibility-branch split.
+Each slice stays a local commit. A checked gate permits a task-branch push, not a direct main write or agent merge.
+Supply an owner comparison link if PR creation is unavailable. Do not expand permissions or disable protection.
+The checked logger branch is pushed at 00900a1. It requires owner promotion and tagged cross-platform proof, not another source implementation.
+Ruleset readback: immutable-delivery-tags 24553469 blocks all tag updates/deletions, with no bypass actors.
+Stable-release 24553551 has the correct stable/preview patterns, but only update/deletion rules and no bypass actors.
+The owner must replace those rules with creation restriction and an owner-admin bypass. Keep the immutable ruleset unchanged.
+No settings changed through this agent. No open PR or recorded preview initializer run was visible in the latest readback.
+Lifecycle writing scores: agent procedure 1.07, Delivery 1.54 issues per 100 words.
+The repository-wide link/layout check failed on 10 existing findings outside the changed links. Do not record a full docs pass.
+Findings include stale recovery-skill references, upstream skill links, CONTRIBUTING.md and a removed node protocol path. Repair separately before final sign-off.
+This merge preserves the initializer, lifecycle and checked logger evidence. Its conflict repair changes only this checkpoint.
+Main sign-off remains open. Do not create final responsibility branches or start delivery from this repair.
 Active initialization slice: a root command uses the distributed preview SDK for explicit autoSeed false, then a catalog read.
 Plan by default. Execution requires the dedicated main-ref manual workflow and the existing cloudflare-preview secret scope.
 Use one fixed approved preview origin. Reject redirects and bound time/body size. Never print server errors or operator credentials.
@@ -149,7 +162,7 @@ Seven distributed-product deployment links passed. Worker links remain deferred 
 6. Complete main protection and owner fresh-clone proof before sign-off. Never bypass reviews.
 7. Keep the checked local logger path gate. Prove tagged crawler delivery when source/protection gates permit its next configured patch.
 
-Public metadata rechecked after the hosted diagnostic on 2026-10-06 still showed unprotected main and no rulesets.
+Earlier metadata showed unprotected main. Latest read on 2026-10-06 confirms active main-guard ruleset 24553134, without bypass actors.
 Desktop preview/network lacked selected-ref restrictions. No settings changed.
 The shell has no gh executable. Credential extraction was rejected and not retried.
 
