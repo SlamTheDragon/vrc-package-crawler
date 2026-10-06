@@ -173,7 +173,7 @@ If both configs have the same version for a product, routing fails. Fix that bef
 | `vrcp-crawler-client/v` | `node-client.yml` | `vrcp-crawler-client-preview` / `vrcp-crawler-client-release` |
 | `cloudflare-worker/v` | `cloudflare-worker.yml` | `cloudflare-preview` / none |
 | `vrcp-network/v` | `network.yml` | `vrcp-network` |
-| `web/v` | `web.yml` | disabled |
+| `web/v` | no workflow; website delivery deferred | disabled |
 
 `release-assets.yml` attaches checked CI outputs to the Release page. It does not rebuild.
 `release-announcements.yml` posts to Discord (`DISCORD_RELEASE_WEBHOOK`, `DISCORD_PREVIEW_WEBHOOK`) for package, crawler and crawler-client.
@@ -240,7 +240,9 @@ and [tag-pattern matching](https://docs.github.com/en/repositories/configuring-b
 - Tag routing, builds, publication and artifact recovery check that proof. They use the original Actions actor, not the rerun actor.
 - `.github/release-baseline.json` preserves only exact historical repository/tag/object/commit pairs. It grants no broad version or ancestry exception.
 - Repository protections must restrict main, release tags and workflow changes. A tag-selected checker cannot police an older workflow that omits it.
-- The preview App must not bypass those protections. Main protection and live source-policy checks remain sign-off requirements.
+- The preview App must not bypass those protections. Main protection remains a delivery sign-off requirement.
+- Preview D1 initialization, catalog reads and live source-policy checks belong to later runtime/ingestion gates, not delivery sign-off.
+- The owner creates responsibility branches and checks a fresh clone after delivery sign-off. That check is not a prerequisite.
 
 ### Local development
 

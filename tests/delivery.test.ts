@@ -171,7 +171,7 @@ test("Bun is pinned before every workflow install and owns all package-script fo
     }
   }
   for (const name of ["cache-maintenance", "cloudflare-worker", "network", "node-client", "node-docker",
-    "release-assets", "sdk-release-reconcile", "vrc-packages-api", "web"]) {
+    "release-assets", "sdk-release-reconcile", "vrc-packages-api"]) {
     const workflow: any = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
     for (const job of Object.values(workflow.jobs) as any[]) {
       let bunReady = false;
@@ -552,7 +552,7 @@ test("release proof readers receive history and read-only metadata scope in ever
       expect(permissions["pull-requests"]).toBe("read");
     }
   }
-  for (const name of ["node-client", "node-docker", "vrc-packages-api", "network", "web"]) {
+  for (const name of ["node-client", "node-docker", "vrc-packages-api", "network"]) {
     const workflow = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
     const caller = workflow.jobs["release-assets"];
     expect(caller.uses).toBe("./.github/workflows/release-assets.yml");
@@ -895,7 +895,7 @@ return Response.json({name:e.FIXTURE_NAME,version:e.FIXTURE_VERSION,dist:{integr
 });
 
 test("consumer workflows verify their own distributions without running the SDK producer", () => {
-  for (const name of ["cloudflare-worker", "node-docker", "node-client", "network", "web"]) {
+  for (const name of ["cloudflare-worker", "node-docker", "node-client", "network"]) {
     const source = readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8");
     expect(source).toContain("scripts/delivery.mjs prepare");
     expect(source).not.toContain("npm --prefix src-package test");
@@ -993,7 +993,7 @@ test("external workflow guards separate the two npm approvals from preview-only 
   expect(workflow("cloudflare-worker").jobs.deploy?.if).not.toContain("VRCP_WORKER_DEPLOY_APPROVED");
   expect(workflow("cloudflare-worker").jobs.deploy?.steps?.find(step => step.env?.OPERATOR_TOKEN)?.env?.OPERATOR_TOKEN)
     .toBe('${{ secrets.OPERATOR_TOKEN }}');
-  expect(workflow("web").jobs.build?.if).toBe(false);
+  expect(existsSync(new URL("../.github/workflows/web.yml", import.meta.url))).toBe(false);
   const clientArtifact = workflow("node-client").jobs.build?.steps?.find(step => step.with?.path)?.with?.path;
   expect(clientArtifact).toContain("/bundle/msi/*.msi");
   expect(clientArtifact).toContain("/bundle/nsis/*-setup.exe");
