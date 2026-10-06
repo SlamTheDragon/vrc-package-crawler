@@ -24,6 +24,9 @@ Published preview SDK 2026.10.5-pre passed explicit-false DTO, authenticated ini
 The first distribution check caught require.resolve selecting unsupported CommonJS exports. Bun now resolves the ESM package.
 Both root and product planning commands passed without network calls. No initializer executed remotely.
 Use a promotion branch and manual PR merge for these changes. Do not push them directly to main during protection setup.
+Checked branch codex/preview-worker-init is pushed at 275173e. The connector rejected PR creation with 403.
+Owner next action: open the branch comparison against main, inspect the changes, and create/merge the promotion PR manually.
+Do not expand the preview App's permissions to resolve this connector limitation. No main, tag or D1 write ran.
 
 Active release slice: prepare one config-derived metadata commit on a dedicated promotion branch, without a tag or main write.
 After manual review/merge, finalize only its exact merged main commit with a tag-only push and the same saved version.
