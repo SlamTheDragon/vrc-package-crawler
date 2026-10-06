@@ -7,9 +7,11 @@
 - CLI command `verify-predecessor <tag>` verifies predecessor release page and artifact checksums; skips placeholder initial versions (`0.0.0`, `2026.10.0-pre`, etc.).
 - Tracker-only base advancement guard in `delivery.mjs` allows owner PR merge when intermediate commits only modify `docs/scratch/task_tracker.md`.
 - `CHANGELOG.md` at repository root integrated: `milestoneNotes` in `release-assets.mjs` matches canonical `## vrcp-*` headings with fallback to legacy `## <product>`. File lookup defaults to root `CHANGELOG.md` with fallback to `docs/source/CHANGELOG.md` for historical commits.
-- Notification gap resolved: `release-announcements.yml` and `release-announcements.mjs` support `workflow_dispatch` with `run-id` to announce reconciled release runs (e.g. SDK 0.0.6 run `37493502851`).
-- Test suites: `delivery.test.ts` (46/46), `release-assets.test.ts` (17/17), `release-announcements.test.ts` (8/8), `release-provenance.test.ts` (10/10), `container-delivery.test.ts` (12/12), `delivery-recovery.test.ts` (12/12), `cache-maintenance.test.ts` (6/6), `preprod_layout.test.ts` (8/8), `delivery-chain.test.ts` (verifyPredecessor tests pass).
-- Next: commit clean changes to synchronized main, push, finalize crawler release 0.0.8, and dispatch missing SDK 0.0.6 Discord notification.
+- Added `scripts/changelog.mjs` and root script `bun run changelog:extract <channel> <product> <version>` for per-version changelog extraction into `docs/changelogs/<product>/<channel>/<version>.md`. Unit tests pass in `tests/changelog.test.ts`.
+- Notification gap resolved & verified: `release-announcements.yml` dispatched via `workflow_dispatch` (run `37515502430`) for SDK release 0.0.6. Discord check run `VRCP Discord release: vrcp-api/v0.0.6` completed with `external_id: discord:1557105015137501245`!
+- Prepared Desktop release 0.0.5: `codex/release/crawler-client/v0.0.5` at commit `4c6ac9951290799c115c38d03afb0afbc208a792`, based on `5a9c3d3a37dc20254448abc8cf41da5b27ec3bd7`. Pushed to origin awaiting owner review: https://github.com/SlamTheDragon/vrc-packages/compare/main...codex%2Frelease%2Fcrawler-client%2Fv0.0.5?expand=1 .
+- Test suites: all 13 test suites pass green.
+- Next: owner reviews and merges PR for desktop 0.0.5, then finalize desktop 0.0.5 release tag; decide crawler release 0.0.8 path.
 
 ## Owner handover — start here (2026-10-06)
 
