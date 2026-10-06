@@ -21,6 +21,9 @@ Supply an owner comparison link if PR creation is unavailable. Do not expand per
 The preview initializer is checked on codex/preview-worker-init at 31419a4, awaiting owner PR/merge and hosted setup.
 The independent lazy logger slice is saved locally at a25485a on codex/node-logger-output. It remains unverified and unpushed.
 Tag protections still need separate immutable-tag and stable-creation rulesets. No tag or repository setting changed in this slice.
+Lifecycle docs are pushed on codex/main-protection-rules. Writing scores: agent procedure 1.07, Delivery 1.54 issues per 100 words.
+The repository-wide link/layout check failed on 10 existing findings outside the changed links. Do not record a full docs pass.
+Findings include stale recovery-skill references, upstream skill links, CONTRIBUTING.md and a removed node protocol path. Repair separately before final sign-off.
 
 Active release slice: prepare one config-derived metadata commit on a dedicated promotion branch, without a tag or main write.
 After manual review/merge, finalize only its exact merged main commit with a tag-only push and the same saved version.
