@@ -42,7 +42,7 @@ const deltas = await client.index.syncDeltas({
 # Stable Release
 npm i vrc-packages-api
 
-# Nightly Builds
+# Unstable Nightly Builds
 npm i vrc-packages-api-preview
 ```
 
