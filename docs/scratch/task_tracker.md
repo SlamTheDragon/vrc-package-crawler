@@ -5,15 +5,19 @@
 - Owner approved the recovery attempt and real execution when ready. This supersedes the earlier refusal of reviewed recovery tooling.
 - Scope: crawler `0.0.6`, original run `37413527166`, fixed source `995db61` and tag object `41039d1f0020a95eda00cd898654d35c093bde25`.
 - Working theory: root manual dispatch can reuse the crawler chain on reviewed main while the product checkout stays at its original tag.
-- Implementation is unverified. Root `delivery:recover` plans by default. Execution requires clean synchronized main and explicit Actions write access.
+- Local gate passed 130 tests / 1986 assertions across seven grouped suites. Hosted recovery remains unverified.
+- Root `delivery:recover` plans by default. Execution requires clean synchronized main and explicit Actions write access.
 - The existing crawler workflow retains operator review, Linux/Windows checks, container publication, Release assets and terminal announcement.
 - Saved dependency versions and product/config files remain tied to the tag. Receipts distinguish source and repair-tooling commits.
-- Release titles and changelog headings now take the delivered package manifest name. This change remains unverified.
-- Next: run the grouped safeguard checks, inspect the diff, push the single test branch for owner promotion, then exercise real recovery.
+- Release titles and changelog headings take the delivered package manifest name. The grouped attachment checks passed.
+- All 374 document link/layout checks and whitespace checks passed. DELIVERY prose score: 1.47 issues per 100 words.
+- Next: push the single test branch for owner promotion, then exercise real recovery from synchronized main.
 - Runtime proof is required. Tests alone do not pass this gate. No recovery dispatch, release approval or tag change ran yet.
 - Real local planning exposed an ESM entry-point cycle. The CLI fix now reaches remote source proof and reports the missing main promotion explicitly.
-- The first grouped run found stale workflow/SDK assertions and an in-flight test/module mismatch. Corrected checks remain unverified until the full rerun.
+- The first grouped run found stale workflow/SDK assertions and an in-flight test/module mismatch. The corrected full rerun passed.
 - Diagnosis now selects manual actions from observed failure phases. Only the reviewed, unpublished route-failure recipe can rebuild.
+- Recovery setup: retain required operator review and add a Branch main rule to vrcp-crawler-release. The local credential needs Actions write.
+- No guarantee covers every future failure. Unknown states, changed provenance, truncated evidence and partial publication require manual inspection.
 
 ## Current exercise — root commands and nine chains (2026-10-06)
 
@@ -29,7 +33,7 @@
 - SDK product-scoped version check passed. The global preview check rejected mixed release/preview manifests. Do not synchronize all products to one channel to hide that result.
 - All four product preview forwarders returned root plans. Cleanup/reset commands returned dry-run paths and removed nothing.
 - Main declares crawler `0.0.7`, but its tag is absent. Failed `0.0.6` still blocks predecessor proof and finalization.
-- Owner wants local troubleshooting scripts that preserve remote operator approvals. This does not authorize different recovery tooling for the immutable failed tag.
+- Owner wants local troubleshooting scripts that preserve remote operator approvals. The latest recovery approval permits reviewed main tooling for the fixed failed tag.
 - Working theory: one test branch can serve preview exercises. Release preparation still creates a separate branch and verifies its exact name.
 - Next: finish SDK byte/link proof, exercise remaining product entry points, then repair the one-branch release contract and resolve crawler recovery manually.
 - Keep D1 initialization and the owner's later fresh-clone check outside delivery sign-off. The full pre-production goal remains open.
@@ -37,7 +41,7 @@
 ## Active gate — publication-proof advancement (2026-10-06)
 
 - Owner requires proof before another version advance, same-version publication retry, and root troubleshooting hooks.
-- Owner reserves broken tagged workflow recovery for manual resolution. Do not substitute main tooling or move tags.
+- Owner reserves broken tagged workflow recovery for manual resolution. Explicit approved recovery can use reviewed main tooling. Never move tags.
 - Registry readback: release versions are 0.0.0-stage, 0.0.0, 0.0.1, 0.0.3, 0.0.5. Preview patches are 0, 1, 3, 5. Historical gaps remain unchanged.
 - Working theory: root allocation and release finalization must check the configured predecessor with the existing strict publication/artifact verifier before writes.
 - Pending crawler 0.0.7 metadata does not authorize skipping failed 0.0.6. Its tag remains absent pending manual resolution and proof.
