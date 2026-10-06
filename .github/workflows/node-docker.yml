@@ -42,7 +42,7 @@ jobs:
         if: inputs.recovery-tag != ''
         run: |
           set -euo pipefail
-          git archive "$GITHUB_SHA" scripts tests package.json .github | tar -x
+          git restore --source="$GITHUB_SHA" --worktree --no-overlay -- scripts tests package.json .github
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -158,7 +158,7 @@ jobs:
         if: inputs.recovery-tag != ''
         run: |
           set -euo pipefail
-          git archive "$GITHUB_SHA" scripts tests package.json .github | tar -x
+          git restore --source="$GITHUB_SHA" --worktree --no-overlay -- scripts tests package.json .github
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -204,7 +204,7 @@ jobs:
         if: inputs.recovery-tag != ''
         run: |
           set -euo pipefail
-          git archive "$GITHUB_SHA" scripts tests package.json .github | tar -x
+          git restore --source="$GITHUB_SHA" --worktree --no-overlay -- scripts tests package.json .github
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -238,7 +238,7 @@ jobs:
         if: inputs.recovery-tag != ''
         run: |
           set -euo pipefail
-          git archive "$GITHUB_SHA" scripts tests package.json .github | tar -x
+          git restore --source="$GITHUB_SHA" --worktree --no-overlay -- scripts tests package.json .github
       - uses: actions/setup-node@v4
         with:
           node-version: '26'

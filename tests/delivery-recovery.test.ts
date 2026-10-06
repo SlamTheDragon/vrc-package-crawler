@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { recoveryIdentity, recoveryRunMatches, checkRecoveryRun, checkRecoveryReceipts, requireRecoveryCI, ciSourceCommit } from "../scripts/delivery-recovery.mjs";
+import { recoveryIdentity, recoveryRunMatches, checkRecoveryRun, checkRecoveryRetry, checkRecoveryReceipts, requireRecoveryCI, ciSourceCommit } from "../scripts/delivery-recovery.mjs";
 import { deliveryTroubleshooting } from "../scripts/delivery-chain.mjs";
 
 function fixture() {
@@ -68,6 +68,29 @@ test("recovery rejects changed authorization, missing ancestry, prior builds and
   }
 });
 
+test("manual recovery retry rejects active, unchanged-tooling and partial-output attempts", async () => {
+  const f = fixture();
+  const attempt = { ...f.run, status: "completed", conclusion: "failure" };
+  const jobsPath = `${f.prefix}/actions/runs/99/jobs?per_page=100`;
+  const artifactsPath = `${f.prefix}/actions/runs/99/artifacts?per_page=100`;
+  f.responses[jobsPath] = { total_count: 3, jobs: [
+    { name: "route", conclusion: "success" }, { name: "build-linux", conclusion: "failure" },
+    { name: "publish-container", conclusion: "skipped" }] };
+  f.responses[artifactsPath] = { total_count: 0, artifacts: [] };
+  expect(await checkRecoveryRetry([attempt], f.identity, "b".repeat(40), f.api)).toEqual([99]);
+  await expect(checkRecoveryRetry([], f.identity, "b".repeat(40), f.api)).rejects.toThrow();
+  await expect(checkRecoveryRetry([attempt], f.identity, f.toolingCommit, f.api)).rejects.toThrow("different reviewed tooling");
+  await expect(checkRecoveryRetry([{ ...attempt, status: "in_progress" }], f.identity, "b".repeat(40), f.api)).rejects.toThrow();
+  f.responses[artifactsPath] = { total_count: 1, artifacts: [{}] };
+  await expect(checkRecoveryRetry([attempt], f.identity, "b".repeat(40), f.api)).rejects.toThrow("outputs");
+  f.responses[artifactsPath] = { total_count: 0, artifacts: [] };
+  f.responses[jobsPath].jobs[2].conclusion = "failure";
+  await expect(checkRecoveryRetry([attempt], f.identity, "b".repeat(40), f.api)).rejects.toThrow("publication activity");
+  f.responses[jobsPath].jobs[2].conclusion = "skipped";
+  f.responses[jobsPath].total_count = 4;
+  await expect(checkRecoveryRetry([attempt], f.identity, "b".repeat(40), f.api)).rejects.toThrow("incomplete evidence");
+});
+
 test("a recovery environment variable cannot turn a local or non-main job into a release", async () => {
   const f = fixture();
   const env = { VRCP_RECOVERY_TAG: f.identity.tag, GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "workflow_dispatch",
@@ -94,7 +117,7 @@ test("crawler recovery stays in the existing chain and preserves publication app
     expect(steps.find((step: any) => step.uses === "actions/checkout@v4").with.ref).toBe("${{ inputs.recovery-tag || github.ref }}");
     const install = steps.find((step: any) => step.name === "Restore reviewed recovery tooling only");
     expect(install.if).toBe("inputs.recovery-tag != ''");
-    expect(install.run).toContain('git archive "$GITHUB_SHA" scripts tests package.json');
+    expect(install.run).toContain('git restore --source="$GITHUB_SHA" --worktree --no-overlay -- scripts tests package.json .github');
     expect(install.run).not.toContain("src-crawler");
   }
   expect(workflow.jobs["publish-container"].environment.name).toContain("vrcp-crawler-release");

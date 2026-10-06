@@ -11,8 +11,22 @@
 - Saved dependency versions and product/config files remain tied to the tag. Receipts distinguish source and repair-tooling commits.
 - Release titles and changelog headings take the delivered package manifest name. The grouped attachment checks passed.
 - All 374 document link/layout checks and whitespace checks passed. DELIVERY prose score: 1.47 issues per 100 words.
-- Next: push the single test branch for owner promotion, then exercise real recovery from synchronized main.
-- Runtime proof is required. Tests alone do not pass this gate. No recovery dispatch, release approval or tag change ran yet.
+- Owner merged PR #10. Clean main synchronized to 0e1eaf9d43cccbe2ec6e8e11d3686539d20c3268 before recovery.
+- Environment readback passed: vrcp-crawler-release allows Branch main and its existing tag rule, with one required reviewer. Preview has no reviewer gate.
+- Explicit local PAT reads and Actions dispatch passed. No credential value entered output or source.
+- Root recovery plan passed. Approved execution dispatched run 37452937062: https://github.com/SlamTheDragon/vrc-packages/actions/runs/37452937062 .
+- Recovery run failed on both runners before product builds. Routing passed. Container publication and Release attachment were skipped.
+- Observed cause: archive extraction retained the old tracked web.yml, although reviewed main deleted it. Two workflow-layout assertions failed.
+- Working theory: Git restore with no overlay can synchronize only delivery-owned paths, including deletions, while retaining tagged product/config files.
+- Next: repair tooling synchronization and add an explicit manual same-version retry that refuses active runs or existing outputs. Promote before hosted execution.
+- Owner reconfirmed real publication/deployment authority. Local tests cannot replace hosted chain proof. Existing operator protection remains intact.
+- Actual Git synchronization on a disposable checkout removed obsolete web.yml and retained the exact original product/config files and source HEAD.
+- Live API readback found zero artifacts and skipped publication/attachment jobs. The root retry checker rejected unchanged tooling as intended.
+- Repair adds explicit --retry planning/execution for completed failed, output-free attempts with different reviewed tooling. It never retries automatically.
+- Syntax, all 374 document links/layouts and whitespace checks passed. DELIVERY prose score: 1.44 issues per 100 words.
+- Regression assertions were updated, but no local unit-test result is claimed for this repair. Hosted publication remains the delivery exit.
+- Owner promotion PR #11 is open: https://github.com/SlamTheDragon/vrc-packages/pull/11 . Retain one test branch; do not merge for the owner.
+- No version bump, tag replacement or operator approval ran. Tests alone do not pass this gate.
 - Real local planning exposed an ESM entry-point cycle. The CLI fix now reaches remote source proof and reports the missing main promotion explicitly.
 - The first grouped run found stale workflow/SDK assertions and an in-flight test/module mismatch. The corrected full rerun passed.
 - Diagnosis now selects manual actions from observed failure phases. Only the reviewed, unpublished route-failure recipe can rebuild.
