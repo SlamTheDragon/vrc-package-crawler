@@ -23,6 +23,7 @@
     "verify:package": "node scripts/delivery.mjs verify",
     "release:tag": "node scripts/delivery.mjs tag",
     "release:announce": "bun scripts/release-announcements.mjs",
+    "changelog:extract": "node scripts/changelog.mjs extract",
     "versions:sync:release": "node scripts/versioning.mjs sync release",
     "versions:sync:preview": "node scripts/versioning.mjs sync preview",
     "versions:check:release": "node scripts/versioning.mjs check release",

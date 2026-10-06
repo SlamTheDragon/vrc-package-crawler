@@ -36,7 +36,15 @@ const deltas = await client.index.syncDeltas({
 });
 ```
 
-The example environment variable is a backend convention, not an SDK requirement. The Worker accepts queryOrigin but does not record or apply search attribution. Do not treat that field as implemented attribution or auditing.
+Install API package with npm or with your favorite package manager
+
+```shell
+# 
+npm i vrc-packages-api
+
+# 
+npm i vrc-packages-api-preview
+```
 
 ### 2. Contribute to our Discovery Crawler Network via Docker or Crawler Client
 
