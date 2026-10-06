@@ -29,6 +29,17 @@ This specification distinguishes between two operational deployment models:
 - **Not implemented:** Bundled node binary, child-process supervision, node setup, telemetry panels or coordinator token provisioning.
 - **Owner intent:** A Windows GUI shell that bundles and controls the crawler node. Initialization alone does not deliver this integration.
 
+### 1.3 Node log files
+
+- Logger construction computes paths but creates no files, timers or exit hooks. The first log write starts those resources.
+- An unused logger leaves existing logs unchanged when it rotates or closes. Help and version commands create no node state.
+- Active logs use `LoggerOptions.logsDir`, then `CRAWLER_LOGS_DIR`, then `logs` beneath the current working directory.
+- Session-only logging does not archive or clear an existing `latest.log`. Active latest-log rotation and shutdown retain their archive behavior.
+- The 2026-10-06 crawler gate passed 140 tests and 860 assertions, type checks and a development binary build.
+- Compiled help and version checks created no outputs in an isolated fixture. This does not prove active runtime output placement.
+- The default runtime path still needs a source, installed-binary and Docker review before repository-root output sign-off.
+- Concurrent writes during rotation, disk failures and synchronous exit flushing remain separate reliability risks.
+
 ---
 
 ## 2. Core Execution Lifecycle

@@ -14,11 +14,13 @@
 Working theory: one root allocator can serve local and App-triggered previews without duplicate version logic.
 The prior direct main commit/tag push could not satisfy reviewed-main protection.
 
-Active output slice: Logger construction currently creates files and exit hooks before CLI help/version handling.
-An unused logger can therefore archive existing latest.log at process exit. Default operational paths use cwd.
-Make construction side-effect free. Start files, timers and hooks at the first log write.
-Keep explicit configured directories and active rotation behavior. Runtime directory relocation remains a separate decision.
-Check construction/close preservation, help/version subprocesses, all severity streams and rotation/shutdown together at the gate.
+Active output gate: lazy logger construction and idle CLI preservation are checked on codex/node-logger-output.
+Construction now computes paths only. The first write starts files, timers and hooks. Unused close/rotation preserves existing logs.
+Session-only logging preserves an existing latest.log. Active severity streams, rotation and shutdown fixtures passed.
+Grouped checks passed 140 tests / 860 assertions, types and a development binary build. Compiled help/version created no fixture outputs.
+Runtime default paths still use cwd. R58-ROOT-LOGS remains open for source, installed-binary and Docker path review.
+Do not choose the executable directory alone: system installations can be read-only, and Docker persists runtime state in /app/data.
+No delivery bump ran while this output boundary remains unresolved. Existing owner logs remain untouched.
 The owner merged initializer PR #1 into main at 4a89ca2. Hosted initialization remains unverified.
 Main ruleset 24553134 is active: default-branch PR requirement, zero required approvals, deletion/force-push denial and no bypass actors.
 Active initialization slice: a root command uses the distributed preview SDK for explicit autoSeed false, then a catalog read.
