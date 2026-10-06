@@ -26,6 +26,14 @@ Root Worker execution pushed `2026.10.8-pre`, source `ef741a8c2977aff115ede62349
 Worker run `37494407523` is building for `cloudflare-preview`. Production stays disabled, with no Worker Release assets.
 Latest configured previews supersede the older handover table: network `2026.10.5`, crawler `2026.10.7-pre`, desktop `26.10.6-pre`, Worker `2026.10.8-pre`.
 Next: monitor these exact consumer runs, check all bytes and channel identities, then prepare the remaining main-only release metadata PRs.
+Worker preview `2026.10.8-pre` passed deployed/bundle proof. Artifact `11426194631` contains 1060537 checked bundle bytes.
+Bundle SHA-256: `211379507ac3e2e82449700941077ac57915e050568419d87799b0944bc9bd4d`.
+Owner merged Worker metadata PR #14. Main synchronized to `2f2d2731f42621c5bd53ca749fff4a85bc6f4a95` before finalization.
+Root finalization pushed `cloudflare-worker/v0.0.6`, tag object `8d47b64ac600f0e3e7a00c19264d932b46c65490`, at that exact merged source.
+Worker release run `37495038619` is building. Production deployment and Worker Release assets remain disabled.
+Crawler preview `37494341172` passed Linux, Windows and container publication. Attachment is running. Desktop preview `37493901597` is still building.
+Next: check those exact runs and final artifact/dependency/notification proof. Prepare crawler release `0.0.8` and desktop release `0.0.5` through owner-reviewed metadata PRs.
+Owner reconfirmed deletion of all temporary agent branches after verification finishes. Keep cleanup deferred until their required evidence is retained.
 Fresh root `delivery:check:all` completed: eight configured paths passed full artifact proof. SDK release `0.0.6` alone reports `proof-unavailable`.
 The command correctly returned exit 1. Both Worker paths passed their special no-Release proof. No local release artifacts were written.
 These checks renew baseline evidence. They do not complete the outstanding next-patch trials, deployment-link review or main sign-off.
