@@ -18,6 +18,8 @@
 - Diagnosis now selects manual actions from observed failure phases. Only the reviewed, unpublished route-failure recipe can rebuild.
 - Recovery setup: retain required operator review and add a Branch main rule to vrcp-crawler-release. The local credential needs Actions write.
 - No guarantee covers every future failure. Unknown states, changed provenance, truncated evidence and partial publication require manual inspection.
+- Checked commits through 18c752d were pushed to codex/delivery-proof. The GitHub connector refused PR creation with HTTP 403.
+- Owner promotion link: https://github.com/SlamTheDragon/vrc-packages/compare/main...codex%2Fdelivery-proof?expand=1 . No credential expansion or main bypass ran.
 
 ## Current exercise — root commands and nine chains (2026-10-06)
 
