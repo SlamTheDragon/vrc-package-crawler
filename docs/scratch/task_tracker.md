@@ -13,7 +13,11 @@ Latest readback: all applicable jobs in run `37492006796` completed successfully
 SDK `0.0.6` subsequently became public on npm. Reconciliation run `37493465506` passed on main without republishing or moving the tag.
 Root `delivery:check vrcp-api/v0.0.6` passed all five public asset hashes and source/tag/registry proof.
 SDK tarball SHA-256: `8df6aa373d7a12a67b21cb943552f785a9b445a2ebd0158e6d2945303d03ca17`.
-Network plan now selects `2026.10.5` without blockers. Next: execute the root chain, then check its actual hosted distribution before consumer allocation.
+Root network execution allocated and pushed `2026.10.5`, source `3913fbf6f36b10c292f1c9584dcffaea1f1b217e`, tag object `5ede792e24e2aa1fc57cfb0a72b894f12137d9b1`.
+Run `37493750784` passed build and Release attachment. Its deployment-record job still waits. Pending-deployment readback returned no approval entries.
+Independent desktop preview execution allocated and pushed `26.10.6-pre`, source `2ec947ac478f4d6f5b0ba2f4db112d6ffe6a1c8b`, tag object `dbbebeed3fc1b98315e3cfd20fc8ab52031f4834`.
+Desktop run `37493901597` is building. Both roots retained the configured predecessor proof and generated ordinary immutable tags.
+Next: monitor these exact runs. Check network publication, deployment URL and archive consumer proof before allocating crawler/Worker updates.
 Fresh root `delivery:check:all` completed: eight configured paths passed full artifact proof. SDK release `0.0.6` alone reports `proof-unavailable`.
 The command correctly returned exit 1. Both Worker paths passed their special no-Release proof. No local release artifacts were written.
 These checks renew baseline evidence. They do not complete the outstanding next-patch trials, deployment-link review or main sign-off.
