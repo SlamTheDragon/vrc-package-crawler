@@ -5,6 +5,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
+import { ciSourceCommit, requireRecoveryCI } from "./delivery-recovery.mjs";
 import { bumpVersion, distributedArtifact, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, sdkChannelForProduct, versionFiles } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -431,6 +432,12 @@ export function selectTag(tag, configs, historical = false) {
 }
 
 export async function requireCI(product, channel, env = process.env, workspace = root, api = readGitHubAPI(env), git = readGit) {
+  if (env.VRCP_RECOVERY_TAG) {
+    await requireRecoveryCI(product, channel, env, workspace, api, git);
+    const selected = await resolveTag(env.VRCP_RECOVERY_TAG, workspace);
+    if (selected.product !== product || selected.channel !== channel) throw new Error("Recovery selects another product/channel.");
+    return selected;
+  }
   if (env.GITHUB_ACTIONS !== "true" || env.GITHUB_EVENT_NAME !== "push" ||
       !env.GITHUB_REF?.startsWith(`refs/tags/${productTagPrefixes[product]}/v`) || !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? "")) {
     throw new Error("Release artifacts and remote actions require a matching GitHub tag-push job. Local output is development-only.");
@@ -645,7 +652,8 @@ function packRegistrySDK(project, channel, configuredVersion) {
   const name = sdkPackageNames[channel];
   const version = configuredVersion ?? JSON.parse(readFileSync(join(project, "package.json"), "utf8")).version;
   const registry = "https://registry.npmjs.org";
-  const spec = `${name}@latest`;
+  // Recovery must use the tag's saved dependency, not a newer moving registry alias.
+  const spec = process.env.VRCP_RECOVERY_TAG ? `${name}@${version}` : `${name}@latest`;
   const metadata = JSON.parse(packageCommand(["view", spec, "--json", `--registry=${registry}`], root, true));
   if (metadata.name !== sdkPackageNames[channel] || metadata.version !== version) {
     throw new Error("Registry SDK channel resolves outside the authoritative version config");
@@ -688,13 +696,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       if (product || flag || extra.length) throw new Error("Tag command takes exactly one tag");
       const selected = await resolveTag(channel);
       if (selected.channel === "release" && (process.env.GITHUB_ACTIONS === "true" || process.env.GITHUB_OUTPUT)) {
-        if (process.env.GITHUB_REF !== `refs/tags/${channel}`) throw new Error("CI routing tag differs from the original push ref");
+        if (!process.env.VRCP_RECOVERY_TAG && process.env.GITHUB_REF !== `refs/tags/${channel}`) throw new Error("CI routing tag differs from the original push ref");
         await requireCI(selected.product, selected.channel);
       }
       console.log(JSON.stringify(selected));
       if (process.env.GITHUB_OUTPUT) {
         const { appendFileSync } = await import("node:fs");
         appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(selected).map(([key, value]) => `${key}=${value}`).join("\n") + "\n");
+        appendFileSync(process.env.GITHUB_OUTPUT, `commit=${ciSourceCommit()}\n`);
       }
     } else {
       if (extra.length || (flag && flag !== "--ci")) throw new Error("Only --ci is accepted after the product");

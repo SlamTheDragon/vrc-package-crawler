@@ -2,6 +2,11 @@ name: Attach checked release assets
 
 on:
   workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: false
+        default: ''
   workflow_dispatch:
     inputs:
       tag:

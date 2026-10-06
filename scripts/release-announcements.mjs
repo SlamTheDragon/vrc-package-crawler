@@ -6,6 +6,7 @@ import { unzipSync } from "fflate";
 import semver from "semver";
 import { checkRemoteTag, checkSourceRun, sameSourceRunLink } from "./release-assets.mjs";
 import { downloadActionsArchive } from "./worker-artifacts.mjs";
+import { checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
 
 const products = { package: { prefix: "vrcp-api", title: "VRC Packages API" },
   crawler: { prefix: "vrcp-crawler", title: "VRCP Crawler" },
@@ -104,7 +105,9 @@ export async function announceRelease(event, repository, api, download, send) {
   const receipt = readAnnouncementReceipt(await download(matching[0]), matching[0]);
   if (receipt.draft) return { status: "draft-skipped" };
   const source = await api("GET", `/repos/${repository}/actions/runs/${receipt.sourceRun}`);
-  if (source.status !== "completed" || source.conclusion !== "success" || source.head_sha !== receipt.commit ||
+  const recovery = source.event === "workflow_dispatch" && source.path === ".github/workflows/node-docker.yml"
+    ? await checkRecoveryRun(source, recoveryIdentity(receipt.tag), path => api("GET", path)) : null;
+  if (source.status !== "completed" || source.conclusion !== "success" || (recovery?.commit ?? source.head_sha) !== receipt.commit ||
       (notified.path !== ".github/workflows/release-assets.yml" && notified.id !== receipt.sourceRun)) throw new Error("Original release workflow is not green");
   const jobs = await api("GET", `/repos/${repository}/actions/runs/${receipt.sourceRun}/jobs?per_page=100`);
   if (!Array.isArray(jobs.jobs) || jobs.total_count !== jobs.jobs.length || jobs.total_count >= 100) throw new Error("Incomplete release jobs");

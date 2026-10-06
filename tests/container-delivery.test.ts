@@ -197,7 +197,7 @@ test("Docker workflow has one read-only image build and a protected, channel-gat
   expect(publish.if).toContain("VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED");
   expect(publish.environment.name).toContain("vrcp-crawler-preview");
   expect(publish.environment.name).toContain("vrcp-crawler-release");
-  expect(publish.environment.url).toBe("https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}");
+  expect(publish.environment.url).toBe("https://github.com/${{ github.repository }}/releases/tag/${{ inputs.recovery-tag || github.ref_name }}");
   expect(publish.steps.some((step: any) => step.uses?.startsWith("docker/build-push-action@"))).toBe(false);
   const load = publish.steps.findIndex((step: any) => step.run?.includes("container-delivery.mjs load"));
   const login = publish.steps.findIndex((step: any) => step.uses?.startsWith("docker/login-action@"));

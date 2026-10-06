@@ -1,6 +1,13 @@
 name: Build & Publish Crawler Node Container
+run-name: ${{ inputs.recovery-tag && format('Recover crawler {0}', inputs.recovery-tag) || github.ref_name }}
 
 on:
+  workflow_dispatch:
+    inputs:
+      recovery-tag:
+        description: Exact owner-reviewed failed crawler tag. Recovery runs only from main and never changes its source or version.
+        type: string
+        required: true
   push:
     tags:
       - 'vrcp-crawler/v*'
@@ -16,6 +23,7 @@ concurrency:
   queue: max
 env:
   GH_TOKEN: ${{ github.token }}
+  VRCP_RECOVERY_TAG: ${{ inputs.recovery-tag || '' }}
 jobs:
   build-linux:
     runs-on: ubuntu-latest
@@ -28,8 +36,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.recovery-tag || github.ref }}
           fetch-depth: 0
+      - name: Restore reviewed recovery tooling only
+        if: inputs.recovery-tag != ''
+        run: |
+          set -euo pipefail
+          git archive "$GITHUB_SHA" scripts tests package.json .github | tar -x
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -42,6 +55,8 @@ jobs:
       - run: bun install --no-save --ignore-scripts
       - run: node scripts/versioning.mjs sync '${{ needs.route.outputs.channel }}'
       - run: bun test ./tests
+        env:
+          VRCP_RECOVERY_TAG: ''
       - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,14 +99,14 @@ jobs:
           platforms: linux/amd64
           load: true
           provenance: false
-          tags: vrcp-node-check:${{ github.sha }}
+          tags: vrcp-node-check:${{ needs.route.outputs.commit }}
           build-args: |
             VRCP_BUILD_CHANNEL=${{ needs.route.outputs.channel }}
             VRCP_SDK_VERSION=${{ steps.dependencies.outputs.sdk-version }}
             VRCP_NETWORK_VERSION=${{ steps.dependencies.outputs.network-version }}
           labels: |
             org.opencontainers.image.version=${{ needs.route.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.route.outputs.commit }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             io.vrcp.channel=${{ needs.route.outputs.channel }}
             io.vrcp.sdk.name=${{ steps.dependencies.outputs.sdk-name }}
@@ -99,7 +114,7 @@ jobs:
             io.vrcp.network.version=${{ steps.dependencies.outputs.network-version }}
       - name: Check Linux runtime, restart persistence and missing-token failure without network access
         run: |
-          image="vrcp-node-check:$GITHUB_SHA"
+          image="vrcp-node-check:$VRCP_SOURCE_COMMIT"
           volume="vrcp-check-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           container="vrcp-no-token-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           docker volume create "$volume"
@@ -116,6 +131,7 @@ jobs:
           test "$status" -eq 1
         env:
           VRCP_EXPECTED_VERSION: ${{ needs.route.outputs.version }}
+          VRCP_SOURCE_COMMIT: ${{ needs.route.outputs.commit }}
       - name: Save the checked image without a second build
         run: node scripts/container-delivery.mjs seal '${{ needs.route.outputs.channel }}'
       - uses: actions/upload-artifact@v4
@@ -136,8 +152,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.recovery-tag || github.ref }}
           fetch-depth: 0
+      - name: Restore reviewed recovery tooling only
+        if: inputs.recovery-tag != ''
+        run: |
+          set -euo pipefail
+          git archive "$GITHUB_SHA" scripts tests package.json .github | tar -x
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -150,6 +171,8 @@ jobs:
       - run: bun install --no-save --ignore-scripts
       - run: node scripts/versioning.mjs sync '${{ needs.route.outputs.channel }}'
       - run: bun test ./tests
+        env:
+          VRCP_RECOVERY_TAG: ''
       - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -171,11 +194,17 @@ jobs:
       channel: ${{ steps.route.outputs.channel }}
       environment: ${{ steps.route.outputs.environment }}
       version: ${{ steps.route.outputs.version }}
+      commit: ${{ steps.route.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.recovery-tag || github.ref }}
           fetch-depth: 0
+      - name: Restore reviewed recovery tooling only
+        if: inputs.recovery-tag != ''
+        run: |
+          set -euo pipefail
+          git archive "$GITHUB_SHA" scripts tests package.json .github | tar -x
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -187,14 +216,14 @@ jobs:
           project: root
       - run: bun install --no-save --ignore-scripts
       - id: route
-        run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
+        run: node scripts/delivery.mjs tag "${VRCP_RECOVERY_TAG:-$GITHUB_REF_NAME}"
   publish-container:
     needs: [route, build-linux, standalone-windows]
     if: needs.route.outputs.channel == 'preview' || (needs.route.outputs.channel == 'release' && vars.VRCP_CONTAINER_PUBLISH_APPROVED == 'true' && vars.VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED == 'true')
     runs-on: ubuntu-latest
     environment:
       name: ${{ needs.route.outputs.channel == 'preview' && 'vrcp-crawler-preview' || 'vrcp-crawler-release' }}
-      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.recovery-tag || github.ref_name }}
     permissions:
       contents: read
       actions: read
@@ -203,8 +232,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.recovery-tag || github.ref }}
           fetch-depth: 0
+      - name: Restore reviewed recovery tooling only
+        if: inputs.recovery-tag != ''
+        run: |
+          set -euo pipefail
+          git archive "$GITHUB_SHA" scripts tests package.json .github | tar -x
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -246,3 +280,5 @@ jobs:
       actions: read
       pull-requests: read
     uses: ./.github/workflows/release-assets.yml
+    with:
+      tag: ${{ inputs.recovery-tag || '' }}
