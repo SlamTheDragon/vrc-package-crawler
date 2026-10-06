@@ -110,6 +110,20 @@ Both channels use the release SDK. Preview format is `YY.M.Patch-pre`. Release u
    CI deploys `vrc-package-crawler-preview` with preview D1. Its checked bundle stays in Actions, not GitHub Release assets.
 2. Release tags build only. Production deployment is disabled.
 
+For first-time preview schema setup:
+
+1. In Settings → Environments → `cloudflare-preview`, retain the existing Worker Tag rule.
+2. Add a **Branch** rule for `main` so the manual initializer can access its existing `OPERATOR_TOKEN` secret.
+3. Open Actions → **Initialize preview Worker schema without seeding**.
+4. Select `main`, then run the workflow. It uses the published preview SDK and explicitly disables seeding.
+5. Check that initialization and the catalog read pass. A failure does not prove that no schema statements ran.
+
+The root command is `bun run worker:preview:init`. It plans without credentials or network calls.
+Its `--execute` mode requires the dedicated main-ref manual workflow and preview environment scope.
+The product command `bun run preview:init` forwards to root.
+This operation neither bumps a version nor builds, deploys, seeds jobs or grants source access.
+It does not reset data or migrate an existing schema. Keep main and workflow protections active.
+
 ## 6. Network archive and web
 
 - `network`: preview only. It is one `YYYY.M.Patch` stream used by crawler and Worker. It has a Release page with a tarball and is not published to npm.

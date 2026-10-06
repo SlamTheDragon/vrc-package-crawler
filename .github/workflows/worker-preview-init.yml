@@ -1,0 +1,38 @@
+name: Initialize preview Worker schema without seeding
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: worker-preview-initialization
+  cancel-in-progress: false
+jobs:
+  initialize:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: cloudflare-preview
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: ./.github/actions/dependency-cache
+        with:
+          project: worker
+      - run: bun run setup
+      - name: Prepare checked distributed preview dependencies
+        run: bun run prepare:dev preview worker
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Initialize preview only and check catalog read
+        run: bun run worker:preview:init --execute
+        env:
+          OPERATOR_TOKEN: ${{ secrets.OPERATOR_TOKEN }}
+          VRCP_WORKER_OPERATION_ENV: cloudflare-preview
