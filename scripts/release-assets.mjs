@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import semver from "semver";
 import { checkReleaseSource, requireCI, resolveTag, validateCIArtifact } from "./delivery.mjs";
 import { productDirectories, sdkPackageNames } from "./versioning.mjs";
-import { checkRecoveryRun, ciSourceCommit, recoveryIdentity, recoveryRunMatches } from "./delivery-recovery.mjs";
+import { checkRecoveryReceipts, checkRecoveryRun, ciSourceCommit, recoveryIdentity, recoveryRunMatches } from "./delivery-recovery.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -418,6 +418,7 @@ async function main(directory) {
   const manifest = JSON.parse(gitFile(`${productDirectories[selected.product]}/package.json`));
   // Package builds sync channel identities after checkout. Other manifest names stay fixed.
   const assets = checkedAssets(filesIn(artifactDirectory), selected, sourceCommit, manifest);
+  if (recovery) checkRecoveryReceipts(assets, recovery);
   let status = "checked artifacts only";
   let draft = false;
   if (selected.product === "package") {
@@ -455,6 +456,7 @@ async function main(directory) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  (async () => {
   const [action, ...args] = process.argv.slice(2);
   try {
     if (action === "stamp" && args.length >= 3 && args.length <= 4) await stamp(...args);
@@ -462,4 +464,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     else if (action === "reconcile" && args.length === 0) await reconcile();
     else throw new Error("Use release-assets.mjs stamp <channel> <product> <directory> [platform], or attach <runner-directory>");
   } catch (error) { console.error(error instanceof Error ? error.message : "Release attachment failed"); process.exitCode = 1; }
+  })();
 }

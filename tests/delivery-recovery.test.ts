@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { recoveryIdentity, recoveryRunMatches, checkRecoveryRun, requireRecoveryCI, ciSourceCommit } from "../scripts/delivery-recovery.mjs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { recoveryIdentity, recoveryRunMatches, checkRecoveryRun, checkRecoveryReceipts, requireRecoveryCI, ciSourceCommit } from "../scripts/delivery-recovery.mjs";
+import { deliveryTroubleshooting } from "../scripts/delivery-chain.mjs";
 
 function fixture() {
   const identity = recoveryIdentity("vrcp-crawler/v0.0.6");
@@ -98,4 +102,50 @@ test("crawler recovery stays in the existing chain and preserves publication app
   expect(workflow.jobs["release-assets"].with.tag).toBe("${{ inputs.recovery-tag || '' }}");
   const rootScripts = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).scripts;
   expect(rootScripts["delivery:recover"]).toBe("node scripts/delivery-recovery.mjs");
+});
+
+test("the real recovery CLI reaches metadata reads without an unsettled ESM entry point", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vrcp-recovery-cli-"));
+  try {
+    const preload = join(directory, "offline-metadata.mjs");
+    writeFileSync(preload, 'globalThis.fetch = async () => new Response("{}", {status: 503});\n');
+    const result = spawnSync(process.execPath, ["--import", preload, "scripts/delivery-recovery.mjs", "vrcp-crawler/v0.0.6"],
+      { encoding: "utf8", timeout: 20_000, env: { ...process.env, GH_TOKEN: "", GITHUB_TOKEN: "" } });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("503");
+    expect(result.stderr).not.toContain("unsettled top-level await");
+  } finally { rmSync(directory, { recursive: true }); }
+});
+
+test("troubleshooting adapts to observed phases without authorizing blind retries", () => {
+  for (const [status, job, stage] of [
+    ["ci-failed", "route", "routing"], ["ci-failed", "build-linux", "build-or-runtime-check"],
+    ["ci-failed", "publish-container", "publication"], ["ci-failed", "release-assets / attach", "release-attachment"],
+    ["ci-active-or-awaiting-environment", "publish-container", "execution-or-review-pending"],
+    ["awaiting-npm-owner-approval", "publish", "npm-staging"], ["ci-not-observed", "", "tag-trigger"] ]) {
+    const result = deliveryTroubleshooting({ tag: "vrcp-crawler/v0.0.6", status,
+      jobs: job ? [{ name: job, conclusion: "failure" }] : [] });
+    expect(result.stage).toBe(stage);
+    expect(result.readOnly).toBe(true);
+    expect(result.automaticRetry).toBe(false);
+    expect(result.next.every((command: string) => !command.includes("--execute"))).toBe(true);
+  }
+  const unknown = deliveryTroubleshooting({ tag: "vrcp-crawler/v0.0.8", status: "ci-failed", jobs: [] });
+  expect(unknown.next.join("\n")).not.toContain("delivery:recover");
+});
+
+test("public recovery receipts bind both binaries to source, reviewed tooling and the exact attempt", async () => {
+  const f = fixture(), proof = await checkRecoveryRun(f.run, f.identity, f.api);
+  const recovery = { toolingCommit: f.toolingCommit, sourceRun: 99, failedRun: f.identity.failedRun };
+  const files = () => new Map(["crawler-linux.receipt.json", "crawler-windows.receipt.json"].map(name =>
+    [name, Buffer.from(JSON.stringify({ commit: f.identity.commit, recovery }))]));
+  expect(() => checkRecoveryReceipts(files(), proof)).not.toThrow();
+  for (const changes of [{ toolingCommit: f.identity.commit }, { sourceRun: 100 }, { failedRun: 1 }, { unexpected: true }]) {
+    const altered = files();
+    altered.set("crawler-linux.receipt.json", Buffer.from(JSON.stringify({ commit: f.identity.commit, recovery: { ...recovery, ...changes } })));
+    expect(() => checkRecoveryReceipts(altered, proof)).toThrow("Recovery receipt differs");
+  }
+  const absent = files(); absent.delete("crawler-windows.receipt.json");
+  expect(() => checkRecoveryReceipts(absent, proof)).toThrow("missing");
 });

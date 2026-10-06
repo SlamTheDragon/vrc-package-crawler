@@ -7,7 +7,7 @@ import { bumpVersion, networkArchiveURL, nextVersion, productDirectories, produc
 import { checkReleaseMetadata, checkReviewedRelease, checkSDKPublicationVersion, readGitHubAPI, readReleaseTagProof, selectTag } from "./delivery.mjs";
 import { allowedBinary, checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink, sourceRunID } from "./release-assets.mjs";
 import { checkWorkerArtifacts, downloadActionsArchive } from "./worker-artifacts.mjs";
-import { checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
+import { checkRecoveryReceipts, checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const workflows = { package: "vrc-packages-api", network: "network", crawler: "node-docker",
@@ -350,6 +350,28 @@ export async function inspectConfiguredDeliveries(check = false, workspace = roo
   return { readOnly: true, fullProofRequested: check, verified: check && results.every(result => result.artifactsVerified), results };
 }
 
+/** Suggest manual actions from observed state, not from an assumed failure cause. */
+export function deliveryTroubleshooting(result) {
+  const failedJobs = (result.jobs ?? []).filter(job => ["failure", "cancelled", "timed_out", "action_required", "startup_failure"].includes(job.conclusion))
+    .map(job => job.name);
+  const next = [`bun run delivery:check ${result.tag}`];
+  let stage = "proof-readback";
+  if (result.status === "ci-not-observed") { stage = "tag-trigger"; next.unshift(`bun run delivery:retry ${result.tag}`); }
+  else if (result.status === "ci-active-or-awaiting-environment") {
+    stage = "execution-or-review-pending"; next.unshift("Inspect the existing run and its required operator review. Do not allocate or dispatch another version.");
+  } else if (result.status === "awaiting-npm-owner-approval") {
+    stage = "npm-staging"; next.unshift("Approve the exact staged npm version, then inspect Release reconciliation.");
+  } else if (result.status === "ci-failed") {
+    stage = failedJobs.includes("route") ? "routing" : failedJobs.some(name => name.includes("attach")) ? "release-attachment"
+      : failedJobs.some(name => name.includes("publish")) ? "publication" : "build-or-runtime-check";
+    next.unshift("Inspect the exact failed jobs. CI reruns remain manual. Resolve partial publication before rebuilding.");
+    try { recoveryIdentity(result.tag); next.unshift(`bun run delivery:recover ${result.tag}`); }
+    catch { /* Unknown failures have no approved rebuild recipe. */ }
+  }
+  return { readOnly: true, automaticRetry: false, stage, failedJobs, next,
+    limits: "Unknown auth, dependency, provenance or partial-publication failures require manual inspection. Never move tags or skip versions." };
+}
+
 export function summarizeRun(run, jobs, release, product, channel = "preview") {
   if (run.status !== "completed") return "ci-active-or-awaiting-environment";
   if (run.conclusion !== "success") return "ci-failed";
@@ -493,11 +515,12 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
   if (!Array.isArray(jobs.jobs) || jobs.total_count >= 100) throw new Error("CI job lookup exceeded its bound");
   const release = selected.product === "worker" ? null : await api(`${base}/releases/tags/${encodeURIComponent(tag)}`, true);
   const attachedRun = /\[Checked CI run\]\(([^)]+)\)/.exec(release?.body ?? "")?.[1];
+  let recoveryProof;
   if (selected.product === "crawler" && attachedRun && sourceRunID(attachedRun, repository) !== String(run.id)) {
     const recovered = await api(`${base}/actions/runs/${sourceRunID(attachedRun, repository)}`);
     const identity = recoveryIdentity(tag, workspace);
     if (identity.commit !== selected.commit || identity.tagObject !== selected.tagObject) throw new Error("Recovery source differs from the checked tag.");
-    await checkRecoveryRun(recovered, identity, api);
+    recoveryProof = await checkRecoveryRun(recovered, identity, api);
     run = recovered;
     jobs = await api(`${base}/actions/runs/${run.id}/jobs?per_page=100`);
     if (!Array.isArray(jobs.jobs) || jobs.total_count >= 100) throw new Error("Recovery job lookup exceeded its bound.");
@@ -558,6 +581,7 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
   }
   const manifest = JSON.parse(git(workspace, "show", `${selected.commit}:${productDirectories[selected.product]}/package.json`));
   checkedAssetBytes(new Map([...files].filter(([name]) => !["CHANGELOG.md", "CHECKSUMS.sha256"].includes(name))), selected, selected.commit, manifest, binaryDigests);
+  if (recoveryProof) checkRecoveryReceipts(files, recoveryProof);
   if (selected.product === "package") {
     const name = sdkPackageNames[selected.channel];
     const metadata = await fetch(`https://registry.npmjs.org/${name}/${selected.version}`, {
@@ -589,8 +613,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       result = await retryReleasePreparation(first);
     } else if (["status", "check", "diagnose", "retry"].includes(action) && !second && !extra.length) {
       result = action === "retry" ? await retryDelivery(first) : await inspectDelivery(first, action === "check");
-      if (action === "diagnose") result = { ...result, readOnly: true,
-        next: [`bun run delivery:check ${first}`, "Inspect the exact run before any retry. Broken tagged workflows require manual resolution."] };
+      if (action === "diagnose") result = { ...result, ...deliveryTroubleshooting(result) };
     } else throw new Error("Use start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, or status|check|diagnose|retry <tag>");
     console.log(JSON.stringify(result, null, 2));
     if (result.status === "ci-failed") process.exitCode = 1;

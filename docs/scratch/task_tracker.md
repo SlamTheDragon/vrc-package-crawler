@@ -11,6 +11,9 @@
 - Release titles and changelog headings now take the delivered package manifest name. This change remains unverified.
 - Next: run the grouped safeguard checks, inspect the diff, push the single test branch for owner promotion, then exercise real recovery.
 - Runtime proof is required. Tests alone do not pass this gate. No recovery dispatch, release approval or tag change ran yet.
+- Real local planning exposed an ESM entry-point cycle. The CLI fix now reaches remote source proof and reports the missing main promotion explicitly.
+- The first grouped run found stale workflow/SDK assertions and an in-flight test/module mismatch. Corrected checks remain unverified until the full rerun.
+- Diagnosis now selects manual actions from observed failure phases. Only the reviewed, unpublished route-failure recipe can rebuild.
 
 ## Current exercise — root commands and nine chains (2026-10-06)
 

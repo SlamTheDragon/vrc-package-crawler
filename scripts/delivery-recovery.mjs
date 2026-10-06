@@ -65,6 +65,18 @@ export function ciSourceCommit(env = process.env, workspace = root) {
   return env.VRCP_RECOVERY_TAG ? recoveryIdentity(env.VRCP_RECOVERY_TAG, workspace).commit : env.GITHUB_SHA;
 }
 
+export function checkRecoveryReceipts(files, proof) {
+  for (const name of ["crawler-linux.receipt.json", "crawler-windows.receipt.json"]) {
+    const bytes = files.get(name);
+    if (!bytes) throw new Error("Recovery binary receipt is missing.");
+    const receipt = JSON.parse(bytes.toString("utf8"));
+    const recovery = receipt.recovery;
+    if (receipt.commit !== proof.commit || !recovery || Object.keys(recovery).length !== 3 ||
+        recovery.toolingCommit !== proof.toolingCommit || recovery.sourceRun !== proof.recoveryRun ||
+        recovery.failedRun !== proof.failedRun) throw new Error("Recovery receipt differs from checked source, tooling or run identity.");
+  }
+}
+
 export async function requireRecoveryCI(product, channel, env, workspace, api, readGit = git) {
   const identity = recoveryIdentity(env.VRCP_RECOVERY_TAG, workspace);
   if (product !== "crawler" || channel !== "release" || env.GITHUB_ACTIONS !== "true" ||
@@ -91,6 +103,14 @@ export async function recoverDelivery(tag, execute = false, workspace = root, ap
   const selected = selectTag(tag, configs);
   await checkReleaseSource(selected, identity, api, git, workspace);
   const toolingCommit = git(workspace, "rev-parse", "HEAD").trim();
+  let promoted = false;
+  try { git(workspace, "merge-base", "--is-ancestor", toolingCommit, "origin/main"); promoted = true; }
+  catch { /* An unpublished local commit cannot supply reviewed recovery tooling. */ }
+  if (!promoted) {
+    if (execute) throw new Error("Recovery tooling must be owner-promoted to main before dispatch. No remote write ran.");
+    return { ...identity, toolingCommit, status: "tooling-promotion-required", readOnly: true,
+      next: "Push the checked test branch, obtain owner review and merge, then synchronize main and repeat the root recovery command." };
+  }
   const run = { event: "workflow_dispatch", head_branch: "main", head_sha: toolingCommit,
     head_repository: { full_name: identity.repository }, path: workflow,
     display_title: `Recover crawler ${tag}`, actor: { login: identity.repository.split("/")[0], type: "User" } };
@@ -128,9 +148,13 @@ async function dispatchRecovery(repository, tag) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  (async () => {
   const [tag, flag, ...extra] = process.argv.slice(2);
   try {
     if (!tag || extra.length || flag && flag !== "--execute") throw new Error("Use delivery:recover <exact-tag> [--execute].");
-    console.log(JSON.stringify(await recoverDelivery(tag, flag === "--execute"), null, 2));
+    const result = await recoverDelivery(tag, flag === "--execute");
+    console.log(JSON.stringify(result, null, 2));
+    if (result.status === "tooling-promotion-required") process.exitCode = 1;
   } catch (error) { console.error(error.message); process.exitCode = 1; }
+  })();
 }

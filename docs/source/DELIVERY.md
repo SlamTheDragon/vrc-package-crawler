@@ -88,6 +88,9 @@ The root command refuses a second dispatch when it finds an existing recovery at
 Inspect a failed attempt before a manual CI rerun. Partial publication can block a rebuild with different bytes.
 Recovery cannot overwrite published assets, update a tag, bypass main review or approve an environment.
 Other failures need a separate, reviewed authorization. Local release builds remain prohibited.
+`delivery:diagnose` reports the observed failure phase and manual next actions for every configured product.
+It distinguishes routing, builds/runtime checks, publication, attachments, npm staging and pending execution or review.
+Unknown failures stop for inspection. The script never guesses that a failed job is safe to rebuild.
 
 For remote preview allocation, start `preview-delivery.yml` with a synchronized branch and product.
 The preview App calls the same root executor. It does not allocate versions on every ordinary push.

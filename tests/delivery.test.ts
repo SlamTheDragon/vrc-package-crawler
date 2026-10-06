@@ -342,7 +342,7 @@ test("distributed identity parsing accepts only exact SDK aliases and config-che
 test("each SDK identity stages latest and Worker registry selection still checks its configured version", () => {
   const source = readFileSync(new URL("../scripts/delivery.mjs", import.meta.url), "utf8");
   expect(source).toContain('run(["stage", "publish", artifact, "--access", "public", "--tag", "latest",');
-  expect(source).toContain('const spec = `${name}@latest`');
+  expect(source).toContain('const spec = process.env.VRCP_RECOVERY_TAG ? `${name}@${version}` : `${name}@latest`');
   expect(source).toContain('metadata.name !== sdkPackageNames[channel] || metadata.version !== version');
 });
 
@@ -563,7 +563,8 @@ test("release proof readers receive history and read-only metadata scope in ever
   const main = source.slice(source.indexOf("async function main("));
   const proof = main.indexOf("await checkReleaseSource(selected");
   expect(proof).toBeGreaterThan(-1);
-  expect(main).toContain("actor: run.actor, context: run");
+  expect(main).toContain("actor: run.actor, ...(recovery ? {} : { context: run })");
+  expect(main.indexOf("await checkRecoveryRun(run")).toBeLessThan(proof);
   expect(proof).toBeLessThan(main.indexOf("await attachRelease("));
 });
 
