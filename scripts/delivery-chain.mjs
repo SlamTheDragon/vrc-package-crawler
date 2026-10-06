@@ -176,7 +176,7 @@ export async function startDelivery(channel, product, execute = false, workspace
   git(workspace, "commit", "--only", "-m", `${channel === "release" ? "Prepare" : "Deliver"} ${product} ${channel} ${plan.version}`,
     ...(channel === "release" ? ["-m", `VRCP-Release-Product: ${product}\nVRCP-Release-Version: ${plan.version}\nVRCP-Release-Base: ${plan.head}`] : []), "--", ...paths);
   if (channel === "release") return retryReleasePreparation(plan.releaseBranch, workspace, git);
-  git(workspace, "tag", "-a", plan.tag, "-m", `VRC Packages ${product} ${channel} ${plan.version}`);
+  git(workspace, "tag", "-a", plan.tag, "-m", `VRC Packages ${product} ${channel} ${plan.version}\n\nVRCP-Previous-Version: ${plan.previous}`);
   return { ...retryDelivery(plan.tag, workspace, git), ...(pendingCheckpoint ? { pendingCheckpoint } : {}) };
 }
 
@@ -268,7 +268,7 @@ export async function finalizeRelease(product, prNumber, commit, execute = false
       !git(workspace, "ls-remote", "origin", "refs/heads/main").split("\n").includes(`${main}\trefs/heads/main`)) {
     throw new Error("Main changed after release proof; no tag push ran");
   }
-  if (!local) git(workspace, "tag", "-a", tag, commit, "-m", `VRC Packages ${product} release ${version}\n\nVRCP-Release-PR: ${prNumber}\nVRCP-Release-Head: ${proof.head}\nVRCP-Release-Base: ${proof.base}`);
+  if (!local) git(workspace, "tag", "-a", tag, commit, "-m", `VRC Packages ${product} release ${version}\n\nVRCP-Release-PR: ${prNumber}\nVRCP-Release-Head: ${proof.head}\nVRCP-Release-Base: ${proof.base}\nVRCP-Previous-Version: ${previous}`);
   tagObject = git(workspace, "rev-parse", `refs/tags/${tag}`);
   git(workspace, "push", "--no-follow-tags", "origin", `refs/tags/${tag}`);
   return { ...result, tagObject };
@@ -326,6 +326,28 @@ export async function requirePublicationProof(channel, product, version, workspa
     throw new Error(`Configured delivery ${tag} lacks publication/artifact proof (${current.status}). No version or tag write ran. Use bun run delivery:diagnose ${tag}.`);
   }
   return current;
+}
+
+/**
+ * Read the VRCP-Previous-Version trailer from the local tag annotation and verify that the
+ * predecessor has a confirmed GitHub Release page with checked artifacts before CI proceeds.
+ * Skips silently when the predecessor is the initial placeholder version (0.0.0 or *-pre initial).
+ * Never pushes, writes, or allocates anything.
+ */
+export async function verifyPredecessor(tag, workspace = root, git = runGit, publicationProof = inspectDelivery) {
+  const annotation = git(workspace, "cat-file", "-p", `refs/tags/${tag}`);
+  const match = /^VRCP-Previous-Version: (.+)$/m.exec(annotation);
+  if (!match) throw new Error(`Tag annotation for ${tag} is missing VRCP-Previous-Version. Re-run delivery from the root allocator.`);
+  const previousVersion = match[1].trim();
+  const selected = sourceTag(tag, workspace, git);
+  const previousTag = `${productTagPrefixes[selected.product]}/v${previousVersion}`;
+  // Initial placeholder versions have no published release; skip the check.
+  if (previousVersion === "0.0.0" || previousVersion === "0.0.0-pre" ||
+      /^26\.10\.0-pre$/.test(previousVersion) || /^2026\.10\.0(-pre)?$/.test(previousVersion)) {
+    return { readOnly: true, skipped: true, reason: "initial-placeholder", tag, previousTag };
+  }
+  await requirePublicationProof(selected.channel, selected.product, previousVersion, workspace, publicationProof);
+  return { readOnly: true, skipped: false, tag, previousTag, channel: selected.channel, product: selected.product };
 }
 
 /** Read every enabled configured channel without allocating, publishing or approving anything. */
@@ -631,10 +653,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       result = await finalizeRelease(first, Number(second), extra[0], extra[1] === "--execute");
     } else if (action === "retry-preparation" && !second && !extra.length) {
       result = await retryReleasePreparation(first);
+    } else if (action === "verify-predecessor" && !second && !extra.length) {
+      result = await verifyPredecessor(first);
     } else if (["status", "check", "diagnose", "retry"].includes(action) && !second && !extra.length) {
       result = action === "retry" ? await retryDelivery(first) : await inspectDelivery(first, action === "check");
       if (action === "diagnose") result = { ...result, ...deliveryTroubleshooting(result) };
-    } else throw new Error("Use start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, or status|check|diagnose|retry <tag>");
+    } else throw new Error("Use start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, verify-predecessor <tag>, or status|check|diagnose|retry <tag>");
     console.log(JSON.stringify(result, null, 2));
     if (result.status === "ci-failed") process.exitCode = 1;
   } catch (error) {

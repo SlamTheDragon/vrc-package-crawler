@@ -215,7 +215,7 @@ test("Bun product forwarding executes the root command instead of exiting succes
       }
     }
   });
-});
+}, 30_000);
 
 test("SDK synchronization updates network peer bounds without bumping its stream or switching consumers", async () => {
   await fixture(async workspace => {

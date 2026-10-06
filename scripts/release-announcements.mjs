@@ -8,36 +8,40 @@ import { checkRemoteTag, checkSourceRun, sameSourceRunLink } from "./release-ass
 import { downloadActionsArchive } from "./worker-artifacts.mjs";
 import { checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
 
-const products = { package: { prefix: "vrcp-api", title: "VRC Packages API" },
+const products = {
+  package: { prefix: "vrcp-api", title: "VRC Packages API" },
   crawler: { prefix: "vrcp-crawler", title: "VRCP Crawler" },
-  "crawler-client": { prefix: "vrcp-crawler-client", title: "VRCP Crawler Client" } };
+  "crawler-client": { prefix: "vrcp-crawler-client", title: "VRCP Crawler Client" }
+};
 const sourcePaths = ["vrc-packages-api", "node-docker", "node-client", "release-assets"].map(name => `.github/workflows/${name}.yml`);
 
 /** Receipt data is never executed. Check its size and exact shape before use. */
 export function readAnnouncementReceipt(bytes, artifact) {
   if (!(bytes instanceof Uint8Array) || bytes.length > 256 * 1024 || !bytes.length ||
-      artifact.digest !== `sha256:${createHash("sha256").update(bytes).digest("hex")}`) throw new Error("Announcement archive differs");
+    artifact.digest !== `sha256:${createHash("sha256").update(bytes).digest("hex")}`) throw new Error("Announcement archive differs");
   let entries = 0;
-  const files = unzipSync(bytes, { filter(entry) {
-    if (entry.name !== "vrcp-release-announcement.json" || entry.originalSize > 8192 || ++entries > 1) {
-      throw new Error("Unexpected announcement archive entry");
+  const files = unzipSync(bytes, {
+    filter(entry) {
+      if (entry.name !== "vrcp-release-announcement.json" || entry.originalSize > 8192 || ++entries > 1) {
+        throw new Error("Unexpected announcement archive entry");
+      }
+      return true;
     }
-    return true;
-  } });
+  });
   if (entries !== 1) throw new Error("Announcement receipt missing");
   const receipt = JSON.parse(new TextDecoder().decode(files["vrcp-release-announcement.json"]));
   const keys = ["schemaVersion", "product", "channel", "tag", "sourceRun", "commit", "releaseId", "draft"];
   if (!receipt || Object.keys(receipt).length !== keys.length || keys.some(key => !Object.hasOwn(receipt, key)) ||
-      receipt.schemaVersion !== 1 || !Object.hasOwn(products, receipt.product) ||
-      !["release", "preview"].includes(receipt.channel) || typeof receipt.tag !== "string" || receipt.tag.length > 160 ||
-      !Number.isSafeInteger(receipt.sourceRun) || receipt.sourceRun < 1 || typeof receipt.commit !== "string" || !/^[a-f0-9]{40}$/.test(receipt.commit) ||
-      !Number.isSafeInteger(receipt.releaseId) || receipt.releaseId < 1 || typeof receipt.draft !== "boolean") {
+    receipt.schemaVersion !== 1 || !Object.hasOwn(products, receipt.product) ||
+    !["release", "preview"].includes(receipt.channel) || typeof receipt.tag !== "string" || receipt.tag.length > 160 ||
+    !Number.isSafeInteger(receipt.sourceRun) || receipt.sourceRun < 1 || typeof receipt.commit !== "string" || !/^[a-f0-9]{40}$/.test(receipt.commit) ||
+    !Number.isSafeInteger(receipt.releaseId) || receipt.releaseId < 1 || typeof receipt.draft !== "boolean") {
     throw new Error("Invalid announcement receipt");
   }
   const prefix = `${products[receipt.product].prefix}/v`;
   const version = receipt.tag.slice(prefix.length);
   if (!receipt.tag.startsWith(prefix) || semver.valid(version) !== version ||
-      (semver.prerelease(version) === null) !== (receipt.channel === "release")) throw new Error("Announcement channel differs");
+    (semver.prerelease(version) === null) !== (receipt.channel === "release")) throw new Error("Announcement channel differs");
   return receipt;
 }
 
@@ -46,20 +50,22 @@ export function releaseEmbed(release, receipt, repository) {
   const suffix = "\n\nFull notes are on the release page.";
   const body = release.body.trim();
   const description = body.length > 3900 ? body.slice(0, 3900 - suffix.length) + suffix : body;
-  return { allowed_mentions: { parse: [] }, embeds: [{
-    title: `${products[receipt.product].title} ${receipt.tag.split("/v")[1]}`.slice(0, 256),
-    url, description, color: receipt.channel === "preview" ? 0x5865f2 : 0x2ecc71,
-    fields: [{ name: "Build", value: `[Successful CI run](https://github.com/${repository}/actions/runs/${receipt.sourceRun})`, inline: true },
+  return {
+    allowed_mentions: { parse: [] }, embeds: [{
+      title: `${products[receipt.product].title} ${receipt.tag.split("/v")[1]}`.slice(0, 256),
+      url, description, color: receipt.channel === "preview" ? 0x5865f2 : 0x2ecc71,
+      fields: [{ name: "Build", value: `[Successful CI run](https://github.com/${repository}/actions/runs/${receipt.sourceRun})`, inline: true },
       { name: "Assets", value: release.assets.map(asset => asset.name).join("\n").slice(0, 1024), inline: true }],
-    footer: { text: `${receipt.channel === "preview" ? "Preview" : "Release"} verified · ${receipt.commit.slice(0, 12)}` }
-  }], components: [{ type: 1, components: [{ type: 2, style: 5, label: "View release", url }] }] };
+      footer: { text: `${receipt.channel === "preview" ? "Preview" : "Release"} verified · ${receipt.commit.slice(0, 12)}` }
+    }], components: [{ type: 1, components: [{ type: 2, style: 5, label: "View release", url }] }]
+  };
 }
 
 function webhookURL(webhook) {
   let url;
   try { url = new URL(webhook); } catch { throw new Error("Discord release secret is missing or invalid"); }
   if (url.origin !== "https://discord.com" || url.username || url.password || url.search || url.hash ||
-      !/^\/api\/webhooks\/[1-9]\d*\/[A-Za-z0-9_-]+$/.test(url.pathname)) throw new Error("Invalid Discord webhook destination");
+    !/^\/api\/webhooks\/[1-9]\d*\/[A-Za-z0-9_-]+$/.test(url.pathname)) throw new Error("Invalid Discord webhook destination");
   url.searchParams.set("wait", "true");
   url.searchParams.set("with_components", "true");
   return url;
@@ -70,14 +76,16 @@ export async function sendDiscordRelease(webhook, payload, request = fetch) {
   const url = webhookURL(webhook);
   let reader;
   try {
-    const response = await request(url, { method: "POST", redirect: "error", signal: AbortSignal.timeout(30_000),
-      headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+    const response = await request(url, {
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(30_000),
+      headers: { "content-type": "application/json" }, body: JSON.stringify(payload)
+    });
     if (!response.ok) { await response.body?.cancel(); throw new Error("Webhook rejected"); }
     if (!response.body) throw new Error("Missing webhook receipt");
     reader = response.body.getReader();
     const parts = [];
     let size = 0;
-    for (;;) {
+    for (; ;) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
@@ -94,8 +102,8 @@ export async function sendDiscordRelease(webhook, payload, request = fetch) {
 export async function announceRelease(event, repository, api, download, send) {
   const notified = event.workflow_run;
   if (!notified || notified.status !== "completed" || notified.conclusion !== "success" ||
-      notified.head_repository?.full_name !== repository || !sourcePaths.includes(notified.path) ||
-      !Number.isSafeInteger(notified.id)) throw new Error("Announcement requires a successful trusted workflow");
+    notified.head_repository?.full_name !== repository || !sourcePaths.includes(notified.path) ||
+    !Number.isSafeInteger(notified.id)) throw new Error("Announcement requires a successful trusted workflow");
   const listing = await api("GET", `/repos/${repository}/actions/runs/${notified.id}/artifacts?per_page=100`);
   if (!Array.isArray(listing.artifacts) || listing.total_count !== listing.artifacts.length || listing.total_count >= 100) {
     throw new Error("Incomplete announcement artifact listing");
@@ -108,7 +116,7 @@ export async function announceRelease(event, repository, api, download, send) {
   const recovery = source.event === "workflow_dispatch"
     ? await checkRecoveryRun(source, recoveryIdentity(receipt.tag), path => api("GET", path)) : null;
   if (source.status !== "completed" || source.conclusion !== "success" || (recovery?.commit ?? source.head_sha) !== receipt.commit ||
-      (notified.path !== ".github/workflows/release-assets.yml" && notified.id !== receipt.sourceRun)) throw new Error("Original release workflow is not green");
+    (notified.path !== ".github/workflows/release-assets.yml" && notified.id !== receipt.sourceRun)) throw new Error("Original release workflow is not green");
   const jobs = await api("GET", `/repos/${repository}/actions/runs/${receipt.sourceRun}/jobs?per_page=100`);
   if (!Array.isArray(jobs.jobs) || jobs.total_count !== jobs.jobs.length || jobs.total_count >= 100) throw new Error("Incomplete release jobs");
   checkSourceRun(source, jobs.jobs, receipt.tag, repository, receipt.product);
@@ -118,14 +126,14 @@ export async function announceRelease(event, repository, api, download, send) {
   await checkRemoteTag(api, repository, receipt.tag, receipt.commit);
   const release = await api("GET", `/repos/${repository}/releases/${receipt.releaseId}`);
   if (release.id !== receipt.releaseId || release.tag_name !== receipt.tag || release.draft !== false || release.prerelease !== (receipt.channel === "preview") ||
-      release.html_url !== `https://github.com/${repository}/releases/tag/${receipt.tag}` || typeof release.body !== "string" ||
-      release.body.length > 16_384 || !release.body.includes(`Commit: ${receipt.commit}.\n`) ||
-      !sameSourceRunLink(release.body, `https://github.com/${repository}/actions/runs/${receipt.sourceRun}`, repository) ||
-      !Array.isArray(release.assets) || !release.assets.length || release.assets.length > 20 ||
-      release.assets.some(asset => asset.state !== "uploaded" || !/^[a-f0-9]{64}$/.test(asset.digest?.slice(7) ?? "") ||
-        !asset.digest.startsWith("sha256:") || typeof asset.name !== "string" || asset.name.length > 200) ||
-      !["CHANGELOG.md", "CHECKSUMS.sha256"].every(name => release.assets.some(asset => asset.name === name)) ||
-      (receipt.product === "package" && !release.body.includes("Current delivery status: npm publication checked."))) {
+    release.html_url !== `https://github.com/${repository}/releases/tag/${receipt.tag}` || typeof release.body !== "string" ||
+    release.body.length > 16_384 || !release.body.includes(`Commit: ${receipt.commit}.\n`) ||
+    !sameSourceRunLink(release.body, `https://github.com/${repository}/actions/runs/${receipt.sourceRun}`, repository) ||
+    !Array.isArray(release.assets) || !release.assets.length || release.assets.length > 20 ||
+    release.assets.some(asset => asset.state !== "uploaded" || !/^[a-f0-9]{64}$/.test(asset.digest?.slice(7) ?? "") ||
+      !asset.digest.startsWith("sha256:") || typeof asset.name !== "string" || asset.name.length > 200) ||
+    !["CHANGELOG.md", "CHECKSUMS.sha256"].every(name => release.assets.some(asset => asset.name === name)) ||
+    (receipt.product === "package" && !release.body.includes("Current delivery status: npm publication checked."))) {
     throw new Error("Public release does not match checked delivery");
   }
   const name = `VRCP Discord release: ${receipt.tag}`;
@@ -134,35 +142,50 @@ export async function announceRelease(event, repository, api, download, send) {
   if (checks.check_runs.length) {
     const previous = checks.check_runs[0];
     if (checks.check_runs.length === 1 && previous.name === name && previous.head_sha === receipt.commit &&
-        previous.conclusion === "success" && /^discord:[1-9]\d*$/.test(previous.external_id ?? "")) {
+      previous.conclusion === "success" && /^discord:[1-9]\d*$/.test(previous.external_id ?? "")) {
       return { status: "already-announced", tag: receipt.tag };
     }
     throw new Error("Prior announcement is unresolved; inspect before retrying");
   }
-  const check = await api("POST", `/repos/${repository}/check-runs`, { name, head_sha: receipt.commit, status: "in_progress",
-    details_url: release.html_url, external_id: `release:${receipt.releaseId}` });
+  const check = await api("POST", `/repos/${repository}/check-runs`, {
+    name, head_sha: receipt.commit, status: "in_progress",
+    details_url: release.html_url, external_id: `release:${receipt.releaseId}`
+  });
   if (!Number.isSafeInteger(check.id) || check.id < 1) throw new Error("Invalid announcement check");
   const messageId = await send(releaseEmbed(release, receipt, repository), receipt.channel);
-  await api("PATCH", `/repos/${repository}/check-runs/${check.id}`, { status: "completed", conclusion: "success",
-    external_id: `discord:${messageId}`, output: { title: "Release announcement delivered", summary: `[View release](${release.html_url})` } });
+  await api("PATCH", `/repos/${repository}/check-runs/${check.id}`, {
+    status: "completed", conclusion: "success",
+    external_id: `discord:${messageId}`, output: { title: "Release announcement delivered", summary: `[View release](${release.html_url})` }
+  });
   return { status: "announced", tag: receipt.tag, release: release.html_url };
 }
 
 async function main() {
   const env = process.env;
-  if (env.GITHUB_ACTIONS !== "true" || env.GITHUB_EVENT_NAME !== "workflow_run" ||
-      env.GITHUB_REPOSITORY !== "SlamTheDragon/vrc-packages" || !env.GITHUB_TOKEN) throw new Error("Announcement is CI-only");
-  const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
+  if (env.GITHUB_ACTIONS !== "true" || !["workflow_run", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME) ||
+    env.GITHUB_REPOSITORY !== "SlamTheDragon/vrc-packages" || !env.GITHUB_TOKEN) throw new Error("Announcement is CI-only");
+  const rawEvent = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
   const webhooks = { release: env.DISCORD_RELEASE_WEBHOOK, preview: env.DISCORD_PREVIEW_WEBHOOK };
   for (const webhook of Object.values(webhooks)) webhookURL(webhook);
   const api = async (method, path, body) => {
-    const response = await fetch(`https://api.github.com${path}`, { method, redirect: "error", signal: AbortSignal.timeout(30_000),
-      headers: { accept: "application/vnd.github+json", "user-agent": "VRCPReleaseAnnouncement",
-        authorization: `Bearer ${env.GITHUB_TOKEN}`, "content-type": "application/json" },
-      ...(body ? { body: JSON.stringify(body) } : {}) });
+    const response = await fetch(`https://api.github.com${path}`, {
+      method, redirect: "error", signal: AbortSignal.timeout(30_000),
+      headers: {
+        accept: "application/vnd.github+json", "user-agent": "VRCPReleaseAnnouncement",
+        authorization: `Bearer ${env.GITHUB_TOKEN}`, "content-type": "application/json"
+      },
+      ...(body ? { body: JSON.stringify(body) } : {})
+    });
     if (!response.ok) { await response.body?.cancel(); throw new Error("GitHub announcement metadata request failed"); }
     return response.json();
   };
+  let event = rawEvent;
+  if (env.GITHUB_EVENT_NAME === "workflow_dispatch") {
+    const runId = rawEvent.inputs?.["run-id"];
+    if (!runId || !/^[1-9][0-9]*$/.test(String(runId))) throw new Error("Expected a numeric run-id input for workflow_dispatch announcement");
+    const run = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/actions/runs/${runId}`);
+    event = { workflow_run: run };
+  }
   const result = await announceRelease(event, env.GITHUB_REPOSITORY, api,
     artifact => downloadActionsArchive(env.GITHUB_REPOSITORY, artifact.id, env.GITHUB_TOKEN),
     (payload, channel) => sendDiscordRelease(webhooks[channel], payload));

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
+import { finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun, verifyPredecessor } from "../scripts/delivery-chain.mjs";
 import { networkArchiveURL, productDirectories, productTagPrefixes } from "../scripts/versioning.mjs";
 import { checkReleaseMetadata } from "../scripts/delivery.mjs";
 import { createHash } from "node:crypto";
@@ -194,8 +194,15 @@ async function reviewedFixture(workspace: string, git: (cwd: string, ...args: st
   expect(git(workspace, "ls-remote", "origin", `refs/tags/${preparation.tag}`)).toBe("");
   expect(git(workspace, "ls-remote", "origin", "refs/heads/main")).toBe(`${preparation.base}\trefs/heads/main`);
   git(workspace, "checkout", "main");
+  let trackerParent: string | undefined;
+  if (method === "tracker") {
+    await writeFile(resolve(workspace, "docs/scratch/task_tracker.md"), "Synthetic owner tracker checkpoint\n");
+    git(workspace, "add", "--", "docs/scratch/task_tracker.md");
+    git(workspace, "commit", "-m", "Synthetic tracker-only main advancement");
+    trackerParent = git(workspace, "rev-parse", "HEAD");
+  }
   // Only the fixture simulates the owner's manual merge. The executor never merges or pushes main.
-  if (method === "merge") git(workspace, "merge", "--no-ff", preparation.branch, "-m", "Synthetic owner-reviewed promotion");
+  if (method === "merge" || method === "tracker") git(workspace, "merge", "--no-ff", preparation.branch, "-m", "Synthetic owner-reviewed promotion");
   else if (method === "squash") {
     git(workspace, "merge", "--squash", preparation.branch);
     git(workspace, "commit", "-m", "Synthetic owner-reviewed squash promotion");
@@ -218,6 +225,13 @@ async function reviewedFixture(workspace: string, git: (cwd: string, ...args: st
     [`${pull}/reviews?per_page=100`]: [],
   };
   if (commit !== preparation.commit) responses[`${prefix}/commits/${commit}`] = { sha: commit, parents: parentShas(commit) };
+  if (trackerParent) {
+    responses[`${prefix}/compare/${preparation.base}...${trackerParent}`] = { status: "ahead",
+      base_commit: { sha: preparation.base }, merge_base_commit: { sha: preparation.base }, total_commits: 1,
+      commits: [{ sha: trackerParent }] };
+    responses[`${prefix}/commits/${trackerParent}`] = { sha: trackerParent,
+      files: [{ filename: "docs/scratch/task_tracker.md", status: "modified" }] };
+  }
   const calls: string[] = [];
   const api = async (path: string) => {
     calls.push(path);
@@ -226,8 +240,34 @@ async function reviewedFixture(workspace: string, git: (cwd: string, ...args: st
     if (file) return { type: "file", path: file[1], encoding: "base64", content: Buffer.from(git(workspace, "show", `${file[2]}:${file[1]}`)).toString("base64") };
     throw new Error("Unexpected synthetic release proof read");
   };
-  return { preparation, commit, api, responses, calls };
+  return { preparation, commit, api, responses, calls, trackerParent };
 }
+
+test("tracker-only owner merge finalizes exact metadata but rejects any additional merged-tree changes", async () => {
+  await fixture(async (workspace, git) => {
+    await mkdir(resolve(workspace, "docs/scratch"), { recursive: true });
+    await writeFile(resolve(workspace, "docs/scratch/task_tracker.md"), "Synthetic original tracker\n");
+    git(workspace, "add", "--", "docs/scratch/task_tracker.md");
+    git(workspace, "commit", "-m", "Synthetic tracker baseline");
+    git(workspace, "push", "origin", "main");
+    const reviewed = await reviewedFixture(workspace, git, "worker", "tracker");
+    const plan = await finalizeRelease("worker", 7, reviewed.commit, false, workspace, git, reviewed.api);
+    expect(plan.commit).toBe(reviewed.commit);
+    expect(plan.status).toBe("finalization-plan-only");
+    const proof = { ...reviewed.preparation, head: reviewed.preparation.commit,
+      commit: reviewed.commit, trackerParent: reviewed.trackerParent };
+    const result = await checkReleaseMetadata({ channel: "release", product: "worker", version: "0.0.1" }, proof, workspace, git);
+    expect(result.version).toBe("0.0.1");
+    await expect(checkReleaseMetadata({ channel: "release", product: "worker", version: "0.0.1" },
+      { ...proof, trackerParent: undefined }, workspace, git)).rejects.toThrow("Merged release tree differs");
+    await writeFile(resolve(workspace, "extra-runtime.txt"), "Synthetic runtime tamper\n");
+    git(workspace, "add", "--", "extra-runtime.txt");
+    git(workspace, "commit", "-m", "Synthetic extra merged-tree change");
+    await expect(checkReleaseMetadata({ channel: "release", product: "worker", version: "0.0.1" },
+      { ...proof, commit: git(workspace, "rev-parse", "HEAD") }, workspace, git)).rejects.toThrow("Merged release tree differs");
+    expect(git(workspace, "tag", "--list")).toBe("");
+  });
+}, 60_000);
 
 test("a previously prepared release cannot bypass predecessor publication proof at finalization", async () => {
   await fixture(async (workspace, git) => {
@@ -973,5 +1013,39 @@ test("crawler delivery checks bind streamed binaries to both receipts and hosted
       await expect(inspectDelivery(result.tag, true, workspace, api)).rejects.toThrow("Binary bytes");
       expect(git(workspace, "status", "--porcelain")).toBe("");
     } finally { globalThis.fetch = previousFetch; }
+  });
+}, 60_000);
+
+test("verifyPredecessor enforces verified predecessor publication before CI build", async () => {
+  await fixture(async (workspace, git) => {
+    const preview = await startDelivery("preview", "crawler", true, workspace, now, git);
+    const annotation = git(workspace, "cat-file", "-p", `refs/tags/${preview.tag}`);
+    expect(annotation).toContain("VRCP-Previous-Version: 2026.10.0-pre");
+
+    // Initial placeholder version skips without publication fetch
+    const skipped = await verifyPredecessor(preview.tag, workspace, git);
+    expect(skipped.skipped).toBe(true);
+    expect(skipped.reason).toBe("initial-placeholder");
+
+    // Missing trailer fails closed
+    git(workspace, "tag", "-a", "-f", preview.tag, preview.commit, "-m", "Untrailed manual tag");
+    await expect(verifyPredecessor(preview.tag, workspace, git)).rejects.toThrow("missing VRCP-Previous-Version");
+
+    // Non-placeholder trailer verifies predecessor
+    git(workspace, "tag", "-a", "-f", preview.tag, preview.commit, "-m", `Trailed tag\n\nVRCP-Previous-Version: 2026.10.6-pre`);
+    let checkedTag = "";
+    const mockProof = async (tag: string) => {
+      checkedTag = tag;
+      return { tag, product: "crawler", version: "2026.10.6-pre", channel: "preview", artifactsVerified: true, status: "release-artifacts-verified" };
+    };
+    const verified = await verifyPredecessor(preview.tag, workspace, git, mockProof as any);
+    expect(verified.skipped).toBe(false);
+    expect(checkedTag).toBe("vrcp-crawler/v2026.10.6-pre");
+
+    // Failed predecessor halts verification
+    const failingProof = async (tag: string) => {
+      return { tag, product: "crawler", version: "2026.10.6-pre", channel: "preview", artifactsVerified: false, status: "ci-failed" };
+    };
+    await expect(verifyPredecessor(preview.tag, workspace, git, failingProof as any)).rejects.toThrow("publication/artifact proof");
   });
 }, 60_000);

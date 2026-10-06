@@ -90,6 +90,10 @@ jobs:
       - run: bun install --no-save --ignore-scripts
       - id: route
         run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
+      - name: Verify predecessor publication before build
+        run: node scripts/delivery-chain.mjs verify-predecessor "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
       - run: bun test ./tests
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' package --ci

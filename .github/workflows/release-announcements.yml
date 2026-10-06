@@ -1,6 +1,12 @@
 name: Announce verified product releases
 
 on:
+  workflow_dispatch:
+    inputs:
+      run-id:
+        description: Exact run ID of the completed release workflow run containing the announcement artifact.
+        required: true
+        type: string
   workflow_run:
     workflows:
       - SDK tagged artifact and channel npm publication
@@ -21,7 +27,7 @@ concurrency:
 
 jobs:
   announce:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -217,6 +217,11 @@ jobs:
       - run: bun install --no-save --ignore-scripts
       - id: route
         run: node scripts/delivery.mjs tag "${VRCP_RECOVERY_TAG:-$GITHUB_REF_NAME}"
+      - name: Verify predecessor publication before build
+        if: inputs.recovery-tag == ''
+        run: node scripts/delivery-chain.mjs verify-predecessor "${GITHUB_REF_NAME}"
+        env:
+          GH_TOKEN: ${{ github.token }}
   publish-container:
     needs: [route, build-linux, standalone-windows]
     if: needs.route.outputs.channel == 'preview' || (needs.route.outputs.channel == 'release' && vars.VRCP_CONTAINER_PUBLISH_APPROVED == 'true' && vars.VRCP_CRAWLER_RELEASE_PUBLISH_APPROVED == 'true')

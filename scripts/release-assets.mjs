@@ -130,10 +130,20 @@ export function releaseSummary(repository, tag, draft) {
   return `\n[${draft ? "Draft GitHub Release (publication pending)" : "GitHub Release"}](https://github.com/${repository}/releases/tag/${encodeURIComponent(tag)})\n`;
 }
 
+const changelogHeadings = {
+  crawler: "vrcp-crawler-node",
+  "crawler-client": "vrcp-crawler-client",
+  package: "vrcp-packages-api",
+  network: "vrcp-packages-network",
+  worker: "vrcp-worker",
+  web: "vrcp-web",
+};
+
 export function milestoneNotes(markdown, product, selected, commit, runURL, status, packageName) {
   checkedPackageName(packageName);
+  const heading = changelogHeadings[product] ?? product;
   const lines = markdown.replace(/\r/g, "").split("\n");
-  const start = lines.findIndex(line => line === `## ${product}`);
+  const start = lines.findIndex(line => line === `## ${heading}` || line === `## ${product}`);
   if (start < 0) throw new Error("Missing product milestone changelog");
   let end = lines.findIndex((line, index) => index > start && line.startsWith("## "));
   if (end < 0) end = lines.length;
@@ -438,7 +448,11 @@ async function main(directory) {
     }
   }
   const packageName = selected.product === "package" ? sdkPackageNames[selected.channel] : manifest.name;
-  const notes = milestoneNotes(gitFile("docs/source/CHANGELOG.md"), selected.product, selected,
+  const changelogMarkdown = (() => {
+    try { return gitFile("CHANGELOG.md"); }
+    catch { return gitFile("docs/source/CHANGELOG.md"); }
+  })();
+  const notes = milestoneNotes(changelogMarkdown, selected.product, selected,
     sourceCommit, `https://github.com/${env.GITHUB_REPOSITORY}/actions/runs/${runId}`, "checked artifacts. See the release description for publication/deployment status", packageName) +
     (recovery ? `\nRecovery tooling commit: ${recovery.toolingCommit}.\nOriginal failed run: ${recovery.failedRun}.\nProduct source and tag remain unchanged.\n` : "");
   assets.set("CHANGELOG.md", Buffer.from(notes));

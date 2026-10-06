@@ -1,5 +1,16 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
+## Active checkpoint — Predecessor Verification & CI Tamper Protection (2026-10-07)
+
+- `R58-CONFIG-TAMPER`: Root delivery tags now embed `VRCP-Previous-Version: <version>` in annotations (`startDelivery` & `finalizeRelease`).
+- Five CI workflows (`node-docker.yml`, `vrc-packages-api.yml`, `node-client.yml`, `cloudflare-worker.yml`, `network.yml`) enforce `verify-predecessor` in route/build jobs before build/publish.
+- CLI command `verify-predecessor <tag>` verifies predecessor release page and artifact checksums; skips placeholder initial versions (`0.0.0`, `2026.10.0-pre`, etc.).
+- Tracker-only base advancement guard in `delivery.mjs` allows owner PR merge when intermediate commits only modify `docs/scratch/task_tracker.md`.
+- `CHANGELOG.md` at repository root integrated: `milestoneNotes` in `release-assets.mjs` matches canonical `## vrcp-*` headings with fallback to legacy `## <product>`. File lookup defaults to root `CHANGELOG.md` with fallback to `docs/source/CHANGELOG.md` for historical commits.
+- Notification gap resolved: `release-announcements.yml` and `release-announcements.mjs` support `workflow_dispatch` with `run-id` to announce reconciled release runs (e.g. SDK 0.0.6 run `37493502851`).
+- Test suites: `delivery.test.ts` (46/46), `release-assets.test.ts` (17/17), `release-announcements.test.ts` (8/8), `release-provenance.test.ts` (10/10), `container-delivery.test.ts` (12/12), `delivery-recovery.test.ts` (12/12), `cache-maintenance.test.ts` (6/6), `preprod_layout.test.ts` (8/8), `delivery-chain.test.ts` (verifyPredecessor tests pass).
+- Next: commit clean changes to synchronized main, push, finalize crawler release 0.0.8, and dispatch missing SDK 0.0.6 Discord notification.
+
 ## Owner handover — start here (2026-10-06)
 
 Owner resumed job execution after this handover. SDK release finalization plan passed on synchronized main.

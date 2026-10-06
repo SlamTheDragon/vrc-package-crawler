@@ -98,8 +98,30 @@ export async function checkReviewedRelease(selected, proof, api = readGitHubAPI(
   if (pr.head.ref !== `codex/release/${selected.product}/v${selected.version}`) throw new Error("Unexpected version preparation branch");
   const merged = await api(`${prefix}/commits/${commit}`);
   if (merged?.sha !== commit || !Array.isArray(merged.parents) || ![1, 2].includes(merged.parents.length) ||
-      merged.parents[0]?.sha !== base || (merged.parents.length === 2 && merged.parents[1]?.sha !== head)) {
+      !sha(merged.parents[0]?.sha) || (merged.parents.length === 2 && merged.parents[1]?.sha !== head)) {
     throw new Error("Main advanced beyond the reviewed preparation base");
+  }
+  let trackerParent;
+  if (merged.parents[0].sha !== base) {
+    trackerParent = merged.parents[0].sha;
+    const advancement = await api(`${prefix}/compare/${base}...${trackerParent}`);
+    if (advancement?.status !== "ahead" || advancement.base_commit?.sha !== base ||
+        advancement.merge_base_commit?.sha !== base || !Number.isSafeInteger(advancement.total_commits) ||
+        advancement.total_commits < 1 || advancement.total_commits > 20 ||
+        !Array.isArray(advancement.commits) || advancement.commits.length !== advancement.total_commits ||
+        advancement.commits.at(-1)?.sha !== trackerParent ||
+        new Set(advancement.commits.map(value => value.sha)).size !== advancement.total_commits) {
+      throw new Error("Incomplete tracker-only main advancement evidence");
+    }
+    // Check each commit, not only the net diff: reverted runtime changes are not exempt.
+    for (const entry of advancement.commits) {
+      if (!sha(entry?.sha)) throw new Error("Invalid tracker advancement commit");
+      const changed = await api(`${prefix}/commits/${entry.sha}`);
+      if (changed?.sha !== entry.sha || !Array.isArray(changed.files) || changed.files.length !== 1 ||
+          changed.files[0]?.filename !== "docs/scratch/task_tracker.md" || changed.files[0]?.status !== "modified") {
+        throw new Error("Main advancement changed more than the approved task tracker");
+      }
+    }
   }
   const ancestry = await api(`${prefix}/compare/${commit}...main`);
   if (!["ahead", "identical"].includes(ancestry?.status) || ancestry.base_commit?.sha !== commit ||
@@ -157,7 +179,7 @@ export async function checkReviewedRelease(selected, proof, api = readGitHubAPI(
       prepared.files.some(file => typeof file?.filename !== "string" || file.status !== "modified") ||
       new Set(prepared.files.map(file => file.filename)).size !== prepared.files.length) throw new Error("Invalid prepared metadata file evidence");
   return { repository, commit, tag, prNumber, head, base, previous, version: selected.version,
-    preparedFiles: prepared.files.map(file => file.filename) };
+    preparedFiles: prepared.files.map(file => file.filename), ...(trackerParent ? { trackerParent } : {}) };
 }
 
 /** Reproduce metadata with the existing allocator. Never run code from the reviewed tree. */
@@ -199,7 +221,12 @@ export async function checkReleaseMetadata(selected, proof, workspace = root, gi
       if (text(head, path) !== expected.get(path)) throw new Error("Release preparation differs from generated metadata");
     }
     if (git(workspace, "rev-parse", `${head}^{tree}`).trim() !== git(workspace, "rev-parse", `${commit}^{tree}`).trim()) {
-      throw new Error("Merged release tree differs from the reviewed preparation");
+      const tracker = "docs/scratch/task_tracker.md";
+      if (!/^[a-f0-9]{40}$/.test(proof.trackerParent ?? "") ||
+          git(workspace, "diff", "--name-status", "--no-renames", head, commit, "--").trim() !== `M\t${tracker}` ||
+          text(proof.trackerParent, tracker) !== text(commit, tracker)) {
+        throw new Error("Merged release tree differs from the reviewed preparation");
+      }
     }
     return { changed, previous: bumped.previous, version: bumped.version };
   } finally {

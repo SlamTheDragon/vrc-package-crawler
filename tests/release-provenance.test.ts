@@ -82,6 +82,42 @@ test("malformed release identities and App actors stop before GitHub reads", asy
   }
 });
 
+test("owner-approved main advancement accepts only bounded tracker-only commits", async () => {
+  const f = fixture(), parent = "d".repeat(40);
+  f.responses[`${f.prefix}/commits/${f.commit}`].parents[0].sha = parent;
+  const comparison = `${f.prefix}/compare/${f.base}...${parent}`;
+  f.responses[comparison] = { status: "ahead", base_commit: { sha: f.base }, merge_base_commit: { sha: f.base },
+    total_commits: 1, commits: [{ sha: parent }] };
+  f.responses[`${f.prefix}/commits/${parent}`] = { sha: parent,
+    files: [{ filename: "docs/scratch/task_tracker.md", status: "modified" }] };
+  expect((await checkReviewedRelease(f.selected, f.proof, f.api)).trackerParent).toBe(parent);
+  for (const filename of ["config.versions.json", "scripts/delivery.mjs", ".github/workflows/node-docker.yml",
+    "src-worker/src/worker_entry.ts", "docs/source/DELIVERY.md"]) {
+    f.responses[`${f.prefix}/commits/${parent}`].files[0].filename = filename;
+    await expect(checkReviewedRelease(f.selected, f.proof, f.api)).rejects.toThrow("approved task tracker");
+  }
+  f.responses[`${f.prefix}/commits/${parent}`].files[0].filename = "docs/scratch/task_tracker.md";
+  for (const status of ["added", "removed", "renamed"]) {
+    f.responses[`${f.prefix}/commits/${parent}`].files[0].status = status;
+    await expect(checkReviewedRelease(f.selected, f.proof, f.api)).rejects.toThrow("approved task tracker");
+  }
+  f.responses[`${f.prefix}/commits/${parent}`].files[0].status = "modified";
+  for (const patch of [{ status: "diverged" }, { total_commits: 21 }, { total_commits: 2 }, { commits: [] },
+    { merge_base_commit: { sha: parent } }, { base_commit: { sha: parent } }]) {
+    const original = structuredClone(f.responses[comparison]);
+    Object.assign(f.responses[comparison], patch);
+    await expect(checkReviewedRelease(f.selected, f.proof, f.api)).rejects.toThrow("tracker-only");
+    f.responses[comparison] = original;
+  }
+  const earlier = "e".repeat(40);
+  f.responses[comparison].total_commits = 2;
+  f.responses[comparison].commits.unshift({ sha: earlier });
+  f.responses[`${f.prefix}/commits/${earlier}`] = { sha: earlier,
+    files: [{ filename: "scripts/delivery.mjs", status: "modified" }] };
+  // A later tracker-only net diff must not hide an earlier runtime change.
+  await expect(checkReviewedRelease(f.selected, f.proof, f.api)).rejects.toThrow("approved task tracker");
+});
+
 test("foreign, unmerged, changed-head and test-merge PR evidence cannot finalize", async () => {
   for (const mutate of [
     (pr: any) => { pr.base.repo.full_name = "foreign/repo"; },
