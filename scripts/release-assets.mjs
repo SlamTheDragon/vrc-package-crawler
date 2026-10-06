@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
-import { requireCI, resolveTag, validateCIArtifact } from "./delivery.mjs";
+import { checkReleaseSource, requireCI, resolveTag, validateCIArtifact } from "./delivery.mjs";
 import { productDirectories, sdkPackageNames } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -395,6 +395,9 @@ async function main(directory) {
   if (jobs.total_count >= 100) throw new Error("Unexpected job count");
   checkSourceRun(run, jobs.jobs, tag, env.GITHUB_REPOSITORY, selected.product);
   const { tagObject } = await checkRemoteTag(api, env.GITHUB_REPOSITORY, tag, run.head_sha);
+  if (selected.channel === "release") await checkReleaseSource(selected, {
+    repository: env.GITHUB_REPOSITORY, tag, tagObject, commit: run.head_sha, actor: run.actor, context: run
+  }, path => api("GET", path));
   const manifest = JSON.parse(gitFile(`${productDirectories[selected.product]}/package.json`));
   // Package builds sync channel identities after checkout. Other manifest names stay fixed.
   const assets = checkedAssets(filesIn(artifactDirectory), selected, run.head_sha, manifest);

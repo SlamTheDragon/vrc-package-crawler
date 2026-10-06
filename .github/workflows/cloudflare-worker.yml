@@ -5,10 +5,13 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 concurrency:
   group: worker-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}
   cancel-in-progress: false
   queue: max
+env:
+  GH_TOKEN: ${{ github.token }}
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,6 +20,8 @@ jobs:
       environment: ${{ steps.route.outputs.environment }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -59,6 +64,8 @@ jobs:
     environment: ${{ needs.build.outputs.environment }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '26'

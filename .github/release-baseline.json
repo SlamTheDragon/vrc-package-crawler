@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "repository": "SlamTheDragon/vrc-packages",
+  "tags": {
+    "package/v0.0.0": { "tagObject": "0632985b758105e0f503957ede5d7d078ffe2a67", "commit": "8907ef2cfbade56e4686713076d13dd49f39c709" },
+    "vrcp-api/v0.0.1": { "tagObject": "48080f06312224993c45ee83c288edf437a3937d", "commit": "7c7e252e5360dca453dfc0c3b52df9a9cc97dcb3" },
+    "vrcp-api/v0.0.2": { "tagObject": "301783d8e165eb4c84a5a94e1e1de465d8955c58", "commit": "a066d0f6ef49660b6a259bea1dfbc29db1a4c27b" },
+    "vrcp-api/v0.0.3": { "tagObject": "02c4ab1a614081b071464e963cdc1a48178204ed", "commit": "a46ef6419b4899e96eddca4eec2f43cff0ba5034" },
+    "vrcp-api/v0.0.4": { "tagObject": "3d16d354a748047c4fc77c85a4633a368c71f05e", "commit": "437d74d8fb453c76ef111232ce27b2c6c2d0be57" },
+    "vrcp-api/v0.0.5": { "tagObject": "57effc2fea1cf4c51f9fd12a567bd929c242487e", "commit": "3d7cd9e3af80bba521b7504c1fc006fa9e21fa24" },
+    "cloudflare-worker/v0.0.1": { "tagObject": "4cf168cb8c3cc38f5fe967eeabc83c09bc7763dc", "commit": "e36332d79bda59f90a7541f2c844cbb3dacc9995" },
+    "cloudflare-worker/v0.0.2": { "tagObject": "4765803ad204d9f4bd7b3992c47d05ca814e41f1", "commit": "b761bced40f05526e7c286b254c1b1e477a22328" },
+    "cloudflare-worker/v0.0.3": { "tagObject": "7d5328d936ca56f5cd219df22baff7db227fd470", "commit": "18e697b92b70220f4b4ee4b83b81ee9af53dae64" },
+    "cloudflare-worker/v0.0.4": { "tagObject": "d63d9e877e1985f72c06799409187d93e6afeff7", "commit": "76682ee813286b336303269aa8356d0f95f64645" },
+    "cloudflare-worker/v0.0.5": { "tagObject": "069997c3a69a5a98570454a006d8f6d8a996e558", "commit": "ec6c9cddbe5ca654dca72e0cce76f8e8541210a9" },
+    "vrcp-crawler/v0.0.0": { "tagObject": "13ac91a5620398cebd89eeadb07091f58d7da2e3", "commit": "fb9edf66ce1b9954bd672826a3090c735b60632d" },
+    "vrcp-crawler/v0.0.1": { "tagObject": "3078228c77b68240716a21c9228fd34ba1b351e6", "commit": "deccb1f6fd96b5ccca5655e816ca58406188860a" },
+    "vrcp-crawler/v0.0.2": { "tagObject": "aaa62148f3f441aec36ac1f627fa4c26081a7127", "commit": "497fbeac3dc9a1c9d89d26d54c4a1672bf0850c2" },
+    "vrcp-crawler/v0.0.3": { "tagObject": "51f2bad1892da7499f959383d037836aad4aff18", "commit": "ea09ade856463d443fcaa5860acc4c9c2add8677" },
+    "vrcp-crawler/v0.0.4": { "tagObject": "9ef11cd1e916b4ee7e4e1c740a3f1e009da7bf2b", "commit": "c9d15491b67cec95ae70787d8dae953d79639d75" },
+    "vrcp-crawler/v0.0.5": { "tagObject": "e626c5a0a024dd71ad58a358f461564446cf04b9", "commit": "2ef4017a4f21d75e5a5f43fa4c907c5f4f27cdbc" },
+    "vrcp-crawler-client/v0.0.0": { "tagObject": "aa9662a762e33348f46eb4c99518e8ed109ea4f2", "commit": "d0a9119b1a0056de22373a491d7c3f08e4e51a84" },
+    "vrcp-crawler-client/v0.0.1": { "tagObject": "92bc4d0083a54f6093b9138e643661d8c60b5f45", "commit": "120819946c199a2f3000ac89d0cf1ce6322f89b3" },
+    "vrcp-crawler-client/v0.0.2": { "tagObject": "1c44d936b1f3b28ca7f3c948395330df78da238a", "commit": "75f32c5cd6a7e7d1c40e3d452f8a020367ec489a" },
+    "vrcp-crawler-client/v0.0.3": { "tagObject": "0c965d4fcc3f1787e47afb88376006048d64acfc", "commit": "7ecdc5f8ef2e97bd748843973b30fbd38227aa62" },
+    "vrcp-crawler-client/v0.0.4": { "tagObject": "950a3eacb683b8e2d95beab3018a7311c832954f", "commit": "198cfa63a20767f23b4ac9c9e7fe35b1a28bce94" }
+  }
+}

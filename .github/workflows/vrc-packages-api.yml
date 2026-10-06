@@ -14,10 +14,14 @@ on:
         default: false
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 concurrency:
   group: sdk-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}
   cancel-in-progress: false
   queue: max
+env:
+  GH_TOKEN: ${{ github.token }}
 jobs:
   # trust check is no longer being ran, should we clean this up?
   preview-trust-check:
@@ -71,6 +75,8 @@ jobs:
       environment: ${{ steps.route.outputs.environment }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -102,11 +108,14 @@ jobs:
     permissions:
       contents: write
       actions: read
+      pull-requests: read
     uses: ./.github/workflows/release-assets.yml
   publish:
     needs: build
     permissions:
       contents: read
+      actions: read
+      pull-requests: read
       id-token: write
     # Separate package identities and environments. Release v0.1 remains held in delivery.mjs.
     if: needs.build.outputs.channel == 'preview' || (needs.build.outputs.channel == 'release' && vars.VRCP_SDK_PUBLISH_APPROVED == 'true')
@@ -117,6 +126,8 @@ jobs:
       url: https://www.npmjs.com/package/${{ needs.build.outputs.channel == 'preview' && 'vrc-packages-api-preview' || 'vrc-packages-api' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '26'

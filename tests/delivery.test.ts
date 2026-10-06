@@ -483,7 +483,7 @@ test("CI artifact generation requires a commit as well as a matching tag push", 
   for (const commit of [undefined, "", "short", "g".repeat(40)]) {
     await expect(requireCI("worker", "release", { ...env, GITHUB_SHA: commit })).rejects.toThrow("tag-push");
   }
-  expect((await requireCI("worker", "release", { ...env, GITHUB_SHA: "a".repeat(40) })).product).toBe("worker");
+  await expect(requireCI("worker", "release", { ...env, GITHUB_SHA: "a".repeat(40) })).rejects.toThrow("original Actions run identity");
 });
 
 test("npm stages bind checked SDK identity, explicit latest, UUID and artifact checksum", () => {
@@ -535,6 +535,35 @@ test("SDK staging retains checked tarballs, verifies pending bytes and never app
   expect(preview.env).toEqual({ NODE_AUTH_TOKEN: '', NPM_TOKEN: '' });
   const release = definition.jobs.publish.steps.find((step: any) => step.name?.startsWith('Stage checked release'));
   expect(release.if).toBe("needs.build.outputs.channel == 'release'");
+});
+
+test("release proof readers receive history and read-only metadata scope in every tagged caller", () => {
+  for (const name of ["cloudflare-worker", "node-client", "node-docker", "vrc-packages-api"]) {
+    const workflow = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
+    expect(workflow.env.GH_TOKEN).toBe("${{ github.token }}");
+    for (const job of Object.values(workflow.jobs) as any[]) {
+      if (!job.steps?.some((step: any) => step.uses === "actions/checkout@v4")) continue;
+      for (const step of job.steps.filter((step: any) => step.uses === "actions/checkout@v4")) {
+        expect(step.with["fetch-depth"]).toBe(0);
+      }
+      const permissions = job.permissions ?? workflow.permissions;
+      expect(permissions.contents).toBe("read");
+      expect(permissions.actions).toBe("read");
+      expect(permissions["pull-requests"]).toBe("read");
+    }
+  }
+  for (const name of ["node-client", "node-docker", "vrc-packages-api", "network", "web"]) {
+    const workflow = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
+    const caller = workflow.jobs["release-assets"];
+    expect(caller.uses).toBe("./.github/workflows/release-assets.yml");
+    expect(caller.permissions["pull-requests"]).toBe("read");
+  }
+  const source = readFileSync(new URL("../scripts/release-assets.mjs", import.meta.url), "utf8");
+  const main = source.slice(source.indexOf("async function main("));
+  const proof = main.indexOf("await checkReleaseSource(selected");
+  expect(proof).toBeGreaterThan(-1);
+  expect(main).toContain("actor: run.actor, context: run");
+  expect(proof).toBeLessThan(main.indexOf("await attachRelease("));
 });
 
 test("direct preview publication checks bytes before writes and recovers a lost ACK without republishing", async () => {
@@ -717,6 +746,8 @@ test("every CI consumer installs the published SDK while local preparation and t
       let source = await readFile(new URL(`../scripts/${file}`, import.meta.url), "utf8");
       // Mock the external Bun process only. The real CLI still selects the product's SDK channel.
       if (file === "delivery.mjs") source = source.replace('execFileSync("bun", args,', 'execFileSync(process.execPath, [process.env.npm_execpath, ...args],');
+      // This fixture isolates dependency selection. Real Git/PR source admission has separate ingress fixtures.
+      if (file === "delivery.mjs") source = source.replace('if (ci) await requireCI(product, channel);', 'if (ci && channel !== "release") await requireCI(product, channel);');
       await writeFile(resolve(workspace, "scripts", file), source);
     }
     await writeFile(resolve(workspace, "package.json"), JSON.stringify({ type: "module" }));
@@ -804,7 +835,10 @@ test("real publication CLI routes preview publish and release stage through the 
     await mkdir(resolve(workspace, "node_modules"));
     await cp(new URL("../node_modules/semver", import.meta.url), resolve(workspace, "node_modules/semver"), { recursive: true });
     for (const file of ["delivery.mjs", "versioning.mjs"]) {
-      await cp(new URL(`../scripts/${file}`, import.meta.url), resolve(workspace, "scripts", file));
+      let source = await readFile(new URL(`../scripts/${file}`, import.meta.url), "utf8");
+      // This fixture isolates registry commands. It does not pretend its synthetic SHA proves a reviewed release.
+      if (file === "delivery.mjs") source = source.replace('if (ci) await requireCI(product, channel);', 'if (ci && channel !== "release") await requireCI(product, channel);');
+      await writeFile(resolve(workspace, "scripts", file), source);
     }
     await writeFile(resolve(workspace, "package.json"), '{"type":"module"}');
     const cli = resolve(workspace, "npm-cli.js"), preload = resolve(workspace, "registry-fixture.mjs");

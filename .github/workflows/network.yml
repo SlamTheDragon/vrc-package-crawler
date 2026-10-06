@@ -40,6 +40,7 @@ jobs:
     permissions:
       contents: write
       actions: read
+      pull-requests: read
     uses: ./.github/workflows/release-assets.yml
   deployment-record:
     needs: release-assets

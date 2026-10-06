@@ -1,14 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
-import { distributedArtifact, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, sdkChannelForProduct, versionFiles } from "./versioning.mjs";
+import { bumpVersion, distributedArtifact, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, sdkChannelForProduct, versionFiles } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const artifacts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
+const releaseWorkflows = { package: "vrc-packages-api", crawler: "node-docker", "crawler-client": "node-client", worker: "cloudflare-worker" };
+const readGit = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8", timeout: 30_000, stdio: "pipe" });
 
 export function checkSDKPublicationVersion(version, channel = "release", name = sdkPackageNames.release) {
   const parsed = semver.parse(version);
@@ -16,6 +18,267 @@ export function checkSDKPublicationVersion(version, channel = "release", name = 
   if (channel !== "release" || name !== sdkPackageNames.release || !parsed || parsed.major !== 0 || parsed.minor !== 0 || parsed.prerelease.length) {
     throw new Error("SDK publication requires a pre-0.1 version. The owner API review hold includes v0.1 prereleases.");
   }
+}
+
+/** Read GitHub metadata only; never consult local credential storage. */
+export function readGitHubAPI(env = process.env, request = fetch) {
+  const token = env.GH_TOKEN || env.GITHUB_TOKEN;
+  return async path => {
+    if (typeof path !== "string" || !/^\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\//.test(path) ||
+        /[\r\n#\\]/.test(path)) throw new Error("Expected a repository GitHub API path");
+    const url = new URL(path, "https://api.github.com");
+    if (url.origin !== "https://api.github.com" || !url.pathname.startsWith("/repos/")) throw new Error("Unexpected GitHub API origin");
+    const response = await request(url.href, { redirect: "error", signal: AbortSignal.timeout(30_000),
+      headers: { accept: "application/vnd.github+json", "cache-control": "no-cache", "user-agent": "VRCPDelivery",
+        ...(token ? { authorization: `Bearer ${token}` } : {}) } });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`Release proof metadata unavailable (${response.status}); an explicit read credential may be required`);
+    }
+    if (!response.body) throw new Error("Missing release proof metadata");
+    const reader = response.body.getReader(), chunks = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > 1_048_576) throw new Error("Release proof metadata exceeds its limit");
+        chunks.push(Buffer.from(value));
+      }
+    } finally { await reader.cancel(); }
+    try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+    catch { throw new Error("Invalid release proof metadata JSON"); }
+  };
+}
+
+/** Prove a single reviewed version commit. This does not authorize or perform a remote write. */
+export async function checkReviewedRelease(selected, proof, api = readGitHubAPI()) {
+  const { repository, commit, tag, prNumber, head, base, actor } = proof;
+  const sha = value => typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
+  const human = value => value?.type === "User" && /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(value.login ?? "");
+  const timestamp = value => typeof value === "string" && Number.isFinite(Date.parse(value));
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository ?? "") ||
+      ![commit, head, base].every(sha) || head === base || !Number.isSafeInteger(prNumber) || prNumber < 1 ||
+      selected?.channel !== "release" || !Object.hasOwn(productTagPrefixes, selected?.product ?? "") ||
+      ["network", "web"].includes(selected.product) ||
+      tag !== `${productTagPrefixes[selected.product]}/v${selected.version}` || semver.valid(selected.version) !== selected.version ||
+      semver.prerelease(selected.version) !== null || (actor !== undefined && !human(actor))) {
+    throw new Error("Invalid reviewed release identity or non-human release actor");
+  }
+  if (selected.product === "package") checkSDKPublicationVersion(selected.version);
+  const prefix = `/repos/${repository}`, pull = `${prefix}/pulls/${prNumber}`;
+  const pr = await api(pull);
+  if (pr?.number !== prNumber || pr.state !== "closed" || pr.merged !== true || pr.draft !== false ||
+      pr.base?.ref !== "main" || pr.base?.repo?.full_name !== repository || pr.head?.repo?.full_name !== repository ||
+      pr.head?.sha !== head || pr.merge_commit_sha !== commit || pr.commits !== 1 || !human(pr.merged_by) ||
+      pr.merged_by.login.toLowerCase() !== repository.split("/")[0].toLowerCase() ||
+      !human(pr.user) || pr.auto_merge != null || !timestamp(pr.merged_at)) throw new Error("Release requires the exact merged main version PR");
+  const commits = await api(`${pull}/commits?per_page=2`);
+  if (!Array.isArray(commits) || commits.length !== 1 || commits[0]?.sha !== head ||
+      commits[0].parents?.length !== 1 || commits[0].parents[0]?.sha !== base) {
+    throw new Error("Version PR must contain one preparation commit based on the prepared main commit");
+  }
+  const prepared = await api(`${prefix}/commits/${head}`);
+  const message = prepared?.commit?.message;
+  if (prepared?.sha !== head || prepared.parents?.length !== 1 || prepared.parents[0]?.sha !== base || typeof message !== "string") {
+    throw new Error("Invalid version preparation commit");
+  }
+  for (const [key, value] of Object.entries({ "VRCP-Release-Product": selected.product,
+    "VRCP-Release-Version": selected.version, "VRCP-Release-Base": base })) {
+    const lines = message.split(/\r?\n/).filter(line => line.startsWith(`${key}:`));
+    if (lines.length !== 1 || lines[0] !== `${key}: ${value}`) throw new Error("Version preparation trailers differ from the selected release");
+  }
+  if (pr.head.ref !== `codex/release/${selected.product}/v${selected.version}`) throw new Error("Unexpected version preparation branch");
+  const merged = await api(`${prefix}/commits/${commit}`);
+  if (merged?.sha !== commit || !Array.isArray(merged.parents) || ![1, 2].includes(merged.parents.length) ||
+      merged.parents[0]?.sha !== base || (merged.parents.length === 2 && merged.parents[1]?.sha !== head)) {
+    throw new Error("Main advanced beyond the reviewed preparation base");
+  }
+  const ancestry = await api(`${prefix}/compare/${commit}...main`);
+  if (!["ahead", "identical"].includes(ancestry?.status) || ancestry.base_commit?.sha !== commit ||
+      ancestry.merge_base_commit?.sha !== commit) throw new Error("Reviewed release commit is not reachable from main");
+  const configs = {};
+  for (const revision of [base, head, commit]) {
+    configs[revision] = {};
+    for (const channel of ["release", "preview"]) {
+      const path = channel === "release" ? "config.versions.json" : "config.preview.versions.json";
+      const file = await api(`${prefix}/contents/${path}?ref=${revision}`);
+      if (file?.type !== "file" || file.path !== path || file.encoding !== "base64" ||
+          typeof file.content !== "string" || file.content.length > 32_768 ||
+          !/^[A-Za-z0-9+/=\r\n]*$/.test(file.content)) throw new Error("Invalid version config evidence");
+      const config = JSON.parse(Buffer.from(file.content, "base64").toString("utf8"));
+      const keys = Object.keys(productDirectories).filter(product => channel !== "release" || product !== "network")
+        .map(product => `${channel}-${product}`);
+      if (!config || typeof config !== "object" || Array.isArray(config) || Object.keys(config).length !== keys.length ||
+          keys.some(key => !Object.hasOwn(config, key) || semver.valid(config[key]) !== config[key] ||
+            (channel === "release" && semver.prerelease(config[key]) !== null))) {
+        throw new Error("Version config evidence has invalid keys or versions");
+      }
+      configs[revision][channel] = config;
+    }
+  }
+  const key = `release-${selected.product}`, previous = configs[base].release[key];
+  if (semver.inc(previous, "patch") !== selected.version ||
+      Object.keys(configs[base].release).some(name => configs[head].release[name] !== (name === key ? selected.version : configs[base].release[name])) ||
+      Object.keys(configs[base].preview).some(name => configs[head].preview[name] !== configs[base].preview[name]) ||
+      ["release", "preview"].some(channel => Object.keys(configs[head][channel]).some(name => configs[commit][channel][name] !== configs[head][channel][name]))) {
+    throw new Error("Reviewed version PR must change only the selected release config patch");
+  }
+  for (const revision of [head, commit]) {
+    const routed = selectTag(tag, configs[revision]);
+    if (routed.product !== selected.product || routed.channel !== "release" || routed.version !== selected.version) {
+      throw new Error("Reviewed release tag differs from its configs");
+    }
+  }
+  const reviews = await api(`${pull}/reviews?per_page=100`);
+  if (!Array.isArray(reviews) || reviews.length >= 100) throw new Error("Review evidence is missing or exceeds its limit");
+  const latest = new Map(), ids = new Set();
+  for (const review of reviews) {
+    if (!Number.isSafeInteger(review?.id) || review.id < 1 || ids.has(review.id) || !review.user?.login ||
+        !["APPROVED", "CHANGES_REQUESTED", "DISMISSED", "COMMENTED", "PENDING"].includes(review.state)) throw new Error("Malformed release review evidence");
+    ids.add(review.id);
+    if (["COMMENTED", "PENDING"].includes(review.state)) continue;
+    if (!timestamp(review.submitted_at)) throw new Error("Invalid release review timestamp");
+    const old = latest.get(review.user.login.toLowerCase());
+    if (!old || Date.parse(old.submitted_at) < Date.parse(review.submitted_at) ||
+        (Date.parse(old.submitted_at) === Date.parse(review.submitted_at) && old.id < review.id)) latest.set(review.user.login.toLowerCase(), review);
+  }
+  if ([...latest.values()].some(review => review.state === "CHANGES_REQUESTED")) throw new Error("Release PR has unresolved requested changes");
+  // Owner-selected policy: manual owner inspection and merge replaces a second-person approval.
+  // The API proves merge identity, not the human inspection process. Never merge through this executor.
+  if (!Array.isArray(prepared.files) || !prepared.files.length || prepared.files.length > 8 ||
+      prepared.files.some(file => typeof file?.filename !== "string" || file.status !== "modified") ||
+      new Set(prepared.files.map(file => file.filename)).size !== prepared.files.length) throw new Error("Invalid prepared metadata file evidence");
+  return { repository, commit, tag, prNumber, head, base, previous, version: selected.version,
+    preparedFiles: prepared.files.map(file => file.filename) };
+}
+
+/** Reproduce metadata with the existing allocator. Never run code from the reviewed tree. */
+export async function checkReleaseMetadata(selected, proof, workspace = root, git = (cwd, ...args) =>
+  execFileSync("git", args, { cwd, encoding: "utf8", timeout: 30_000, stdio: "pipe" })) {
+  const { base, head, commit = head } = proof;
+  if (selected?.channel !== "release" || !["package", "crawler", "crawler-client", "worker"].includes(selected.product) ||
+      ![base, head, commit].every(value => /^[a-f0-9]{40}$/.test(value ?? ""))) throw new Error("Invalid release metadata identity");
+  const paths = ["config.versions.json", "config.preview.versions.json", `${productDirectories[selected.product]}/package.json`,
+    ...(selected.product === "package" ? [`${productDirectories.network}/package.json`] : []),
+    ...(selected.product === "crawler-client" ? ["src-crawler-client/src-tauri/Cargo.toml", "src-crawler-client/src-tauri/tauri.conf.json"] : [])];
+  const text = (revision, path) => {
+    const entry = git(workspace, "ls-tree", revision, "--", path).trim();
+    if (!/^100644 blob [a-f0-9]{40}\t/.test(entry) || entry.split("\t")[1] !== path) throw new Error("Release metadata must be regular tracked files");
+    const value = git(workspace, "show", `${revision}:${path}`);
+    if (Buffer.byteLength(value) > 524_288) throw new Error("Release metadata exceeds its size limit");
+    return value.replace(/\r\n/g, "\n").trimEnd() + "\n";
+  };
+  const parent = realpathSync(tmpdir()), directory = mkdtempSync(join(parent, "vrcp-release-metadata-"));
+  if (!realpathSync(directory).startsWith(parent + sep)) throw new Error("Unsafe release metadata fixture");
+  try {
+    const prior = new Map();
+    for (const path of paths) {
+      const value = text(base, path);
+      prior.set(path, value);
+      const target = join(directory, path);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, value);
+    }
+    const bumped = await bumpVersion("release", selected.product, "patch", directory);
+    if (bumped.version !== selected.version) throw new Error("Release metadata skips the next configured patch");
+    await versionFiles("sync", "release", selected.product, directory);
+    const expected = new Map(paths.map(path => [path, readFileSync(join(directory, path), "utf8").replace(/\r\n/g, "\n").trimEnd() + "\n"]));
+    const changed = paths.filter(path => expected.get(path) !== prior.get(path)).sort();
+    const actual = git(workspace, "diff", "--name-only", "--no-renames", base, head, "--").trim().split("\n").filter(Boolean).sort();
+    if (JSON.stringify(actual) !== JSON.stringify(changed) || (proof.preparedFiles &&
+        JSON.stringify([...proof.preparedFiles].sort()) !== JSON.stringify(changed))) throw new Error("Release preparation changes files outside generated metadata");
+    for (const path of paths) {
+      if (text(head, path) !== expected.get(path)) throw new Error("Release preparation differs from generated metadata");
+    }
+    if (git(workspace, "rev-parse", `${head}^{tree}`).trim() !== git(workspace, "rev-parse", `${commit}^{tree}`).trim()) {
+      throw new Error("Merged release tree differs from the reviewed preparation");
+    }
+    return { changed, previous: bumped.previous, version: bumped.version };
+  } finally {
+    if (!lstatSync(directory).isDirectory() || lstatSync(directory).isSymbolicLink() ||
+        !realpathSync(directory).startsWith(parent + sep)) throw new Error("Unsafe release metadata cleanup");
+    rmSync(directory, { recursive: true });
+  }
+}
+
+export function readReleaseTagProof(annotation, expected) {
+  const boundary = typeof annotation === "string" ? annotation.indexOf("\n\n") : -1;
+  if (boundary < 0) throw new Error("Invalid release tag annotation");
+  const headers = annotation.slice(0, boundary).split("\n");
+  if (!expected || !/^[a-f0-9]{40}$/.test(expected.commit ?? "") || typeof expected.tag !== "string") {
+    throw new Error("Missing expected release tag identity");
+  }
+  for (const [key, value] of Object.entries({ object: expected.commit, type: "commit", tag: expected.tag })) {
+    const values = headers.filter(line => line.startsWith(`${key} `));
+    if (values.length !== 1 || values[0] !== `${key} ${value}`) throw new Error("Release annotation header differs from the expected tag identity");
+  }
+  const message = annotation.slice(boundary + 2);
+  const trailer = key => {
+    const lines = message.split(/\r?\n/).filter(line => line.startsWith(`${key}:`));
+    if (lines.length !== 1 || !lines[0].startsWith(`${key}: `)) throw new Error("Missing or duplicated release tag proof trailer");
+    return lines[0].slice(key.length + 2);
+  };
+  const pr = trailer("VRCP-Release-PR"), head = trailer("VRCP-Release-Head"), base = trailer("VRCP-Release-Base");
+  if (!/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr)) || ![head, base].every(value => /^[a-f0-9]{40}$/.test(value))) {
+    throw new Error("Invalid release PR locator");
+  }
+  return { prNumber: Number(pr), head, base };
+}
+
+/** Bind an immutable tag to reviewed main metadata, or one exact historical identity. */
+export async function checkReleaseSource(selected, source, api = readGitHubAPI(), git = readGit, workspace = root) {
+  const { repository, commit, tag, tagObject: expectedTagObject, actor, context } = source;
+  const sha = value => typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
+  const human = value => value?.type === "User" && /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(value.login ?? "");
+  if (selected?.channel !== "release" || !Object.hasOwn(releaseWorkflows, selected?.product ?? "") ||
+      !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository ?? "") || !sha(commit) ||
+      (expectedTagObject !== undefined && !sha(expectedTagObject)) || (actor !== undefined && !human(actor)) ||
+      semver.valid(selected.version) !== selected.version || semver.prerelease(selected.version) !== null ||
+      ![`${productTagPrefixes[selected.product]}/v${selected.version}`, `${selected.product}/v${selected.version}`].includes(tag)) {
+    throw new Error("Invalid release source identity or non-human release actor");
+  }
+  if (selected.product === "package") checkSDKPublicationVersion(selected.version);
+  if (context && (context.event !== "push" || context.head_branch !== tag || context.head_sha !== commit ||
+      context.head_repository?.full_name !== repository || context.path !== `.github/workflows/${releaseWorkflows[selected.product]}.yml` ||
+      !human(context.actor) || (actor !== undefined && (context.actor.login !== actor.login || context.actor.type !== actor.type)))) {
+    throw new Error("Release source differs from the original product tag-push run");
+  }
+  const ref = `refs/tags/${tag}`;
+  const tagObject = git(workspace, "rev-parse", "--verify", ref).trim();
+  if (!sha(tagObject) || (expectedTagObject && expectedTagObject !== tagObject) ||
+      git(workspace, "cat-file", "-t", tagObject).trim() !== "tag" ||
+      git(workspace, "rev-parse", "--verify", `${ref}^{commit}`).trim() !== commit) {
+    throw new Error("Release requires the exact local annotated tag and source commit");
+  }
+  const { checkRemoteTag } = await import("./release-assets.mjs");
+  let remoteAnnotation;
+  await checkRemoteTag(async (method, path) => {
+    if (method !== "GET") throw new Error("Release proof permits only metadata reads");
+    const value = await api(path);
+    if (path.includes("/git/ref/tags/") && value?.object?.type !== "tag") throw new Error("Release requires an annotated remote tag");
+    if (path === `/repos/${repository}/git/tags/${tagObject}`) remoteAnnotation = value;
+    return value;
+  }, repository, tag, commit, tagObject);
+  const baselinePath = join(workspace, ".github/release-baseline.json");
+  if (existsSync(baselinePath)) {
+    const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
+    if (baseline?.schemaVersion !== 1 || typeof baseline.repository !== "string" ||
+        !baseline.tags || typeof baseline.tags !== "object" || Array.isArray(baseline.tags)) throw new Error("Invalid immutable release baseline");
+    const identity = Object.hasOwn(baseline.tags, tag) ? baseline.tags[tag] : undefined;
+    if (baseline.repository === repository && identity?.tagObject === tagObject && identity.commit === commit) {
+      return { repository, commit, tag, tagObject, baseline: true };
+    }
+  }
+  if (tag !== `${productTagPrefixes[selected.product]}/v${selected.version}`) throw new Error("Historical release tag has no exact baseline identity");
+  const annotation = git(workspace, "cat-file", "-p", tagObject);
+  const tagProof = readReleaseTagProof(annotation, { tag, commit });
+  if (remoteAnnotation?.object?.type !== "commit" ||
+      remoteAnnotation.object.sha !== commit || remoteAnnotation.tag !== tag) throw new Error("Invalid release tag annotation");
+  const proof = await checkReviewedRelease(selected, { repository, commit, tag, ...tagProof, actor: actor ?? context?.actor }, api);
+  const metadata = await checkReleaseMetadata(selected, proof, workspace, git);
+  return { ...proof, tagObject, metadata, baseline: false };
 }
 
 export function workerSecretBindings(env) {
@@ -162,15 +425,24 @@ export function selectTag(tag, configs, historical = false) {
   return { product, version, channel, environment };
 }
 
-export async function requireCI(product, channel, env = process.env) {
+export async function requireCI(product, channel, env = process.env, workspace = root, api = readGitHubAPI(env), git = readGit) {
   if (env.GITHUB_ACTIONS !== "true" || env.GITHUB_EVENT_NAME !== "push" ||
       !env.GITHUB_REF?.startsWith(`refs/tags/${productTagPrefixes[product]}/v`) || !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? "")) {
     throw new Error("Release artifacts and remote actions require a matching GitHub tag-push job. Local output is development-only.");
   }
-  return resolveTag(env.GITHUB_REF.slice("refs/tags/".length)).then(tag => {
-    if (tag.product !== product || tag.channel !== channel) throw new Error("CI tag selects another product/channel");
-    return tag;
-  });
+  const tag = env.GITHUB_REF.slice("refs/tags/".length);
+  const selected = await resolveTag(tag, workspace);
+  if (selected.product !== product || selected.channel !== channel) throw new Error("CI tag selects another product/channel");
+  if (channel === "release") {
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.GITHUB_REPOSITORY ?? "") || !/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID ?? "")) {
+      throw new Error("Release CI requires repository and original Actions run identity");
+    }
+    const run = await api(`/repos/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`);
+    if (String(run?.id) !== env.GITHUB_RUN_ID) throw new Error("Release source Actions run identity differs");
+    await checkReleaseSource(selected, { repository: env.GITHUB_REPOSITORY, commit: env.GITHUB_SHA, tag,
+      actor: run.actor, context: run }, api, git, workspace);
+  }
+  return selected;
 }
 
 /** Keep npm's auth diagnostics useful without forwarding raw logs or credentials. */
@@ -410,6 +682,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (action === "tag") {
       if (product || flag || extra.length) throw new Error("Tag command takes exactly one tag");
       const selected = await resolveTag(channel);
+      if (selected.channel === "release" && (process.env.GITHUB_ACTIONS === "true" || process.env.GITHUB_OUTPUT)) {
+        if (process.env.GITHUB_REF !== `refs/tags/${channel}`) throw new Error("CI routing tag differs from the original push ref");
+        await requireCI(selected.product, selected.channel);
+      }
       console.log(JSON.stringify(selected));
       if (process.env.GITHUB_OUTPUT) {
         const { appendFileSync } = await import("node:fs");
