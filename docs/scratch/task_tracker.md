@@ -82,7 +82,8 @@ If a preparation head is missing locally, fetch `refs/pull/<PR-number>/head`. Ne
 
 ### Blockers and failure procedures
 
-- Handover documentation check reports `Unexpected docs/ entry: changelogs`. Resolve the authoritative layout before claiming documentation checks pass.
+- Owner approved `docs/changelogs/` and instructed agents to leave it untouched. Do not move, remove or rewrite its contents.
+- Handover documentation check reports `Unexpected docs/ entry: changelogs`. The checker needs a narrow allowance for this approved folder, not a folder migration.
 - Handover prose lint: 1.13 issues per 100 words. Whitespace checks passed. No product checks ran for this documentation checkpoint.
 - SDK `0.0.6` finalization and hosted publication remain pending. A handover diagnostic failed at Git rev-parse before remote proof.
 - That diagnostic failure does not prove a publication failure. The tag is not yet locally resolved. Use the finalization plan first.
