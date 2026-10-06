@@ -18,6 +18,14 @@ Run `37493750784` passed build and Release attachment. Its deployment-record job
 Independent desktop preview execution allocated and pushed `26.10.6-pre`, source `2ec947ac478f4d6f5b0ba2f4db112d6ffe6a1c8b`, tag object `dbbebeed3fc1b98315e3cfd20fc8ab52031f4834`.
 Desktop run `37493901597` is building. Both roots retained the configured predecessor proof and generated ordinary immutable tags.
 Next: monitor these exact runs. Check network publication, deployment URL and archive consumer proof before allocating crawler/Worker updates.
+Network `2026.10.5` subsequently passed all four public artifact hashes. Deployment `6889154932` succeeded and links to its exact tagged Release.
+Archive SHA-256: `01e9e39105dc78c06facffec0a2dea42504a3363f2288d55df072b55557e7b4d`. Its SDK peer bounds are `0.0.6 || 2026.10.7-pre`.
+Root crawler execution pushed `2026.10.7-pre`, source `46698267f492f3a7d697aa2f6875d6cc866dd701`, tag object `8348c4e8c4c5caa82003c9311aab7524d93be0a7`.
+Crawler run `37494341172` passed routing. Linux/container and Windows build jobs are running.
+Root Worker execution pushed `2026.10.8-pre`, source `ef741a8c2977aff115ede623497bc843dd890a5a`, tag object `f06ac27eaf83e7dd03f77ca162e37f1c1b3add95`.
+Worker run `37494407523` is building for `cloudflare-preview`. Production stays disabled, with no Worker Release assets.
+Latest configured previews supersede the older handover table: network `2026.10.5`, crawler `2026.10.7-pre`, desktop `26.10.6-pre`, Worker `2026.10.8-pre`.
+Next: monitor these exact consumer runs, check all bytes and channel identities, then prepare the remaining main-only release metadata PRs.
 Fresh root `delivery:check:all` completed: eight configured paths passed full artifact proof. SDK release `0.0.6` alone reports `proof-unavailable`.
 The command correctly returned exit 1. Both Worker paths passed their special no-Release proof. No local release artifacts were written.
 These checks renew baseline evidence. They do not complete the outstanding next-patch trials, deployment-link review or main sign-off.
