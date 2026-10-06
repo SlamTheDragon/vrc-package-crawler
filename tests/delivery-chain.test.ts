@@ -778,6 +778,32 @@ test("hosted readback streams binary hashes and rejects oversized, truncated, co
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("binary ranges hash every byte and reject shifted, truncated or ignored later ranges", async () => {
+  const bytes = Buffer.alloc(8 * 1024 ** 2 + 7, 42);
+  const asset = { name: "node", size: bytes.length, digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+    browser_download_url: "https://github.com/example/fixture/releases/download/test/node" };
+  const originalFetch = globalThis.fetch;
+  let mode = "valid", calls: string[] = [];
+  globalThis.fetch = (async (_input: unknown, init: RequestInit) => {
+    const range = new Headers(init.headers).get("range")!;
+    calls.push(range);
+    const [, start, end] = /^bytes=(\d+)-(\d+)$/.exec(range)!;
+    const first = Number(start), last = Number(end);
+    if (mode === "ignore-later" && first > 0) return new Response(bytes);
+    const part = bytes.subarray(first, last + 1 - (mode === "truncated" ? 1 : 0));
+    return new Response(part, { status: 206, headers: {
+      "content-range": `bytes ${first + (mode === "shifted" ? 1 : 0)}-${last}/${bytes.length}` } });
+  }) as typeof fetch;
+  try {
+    expect(await readHostedAsset(asset, true)).toEqual({ size: bytes.length, sha256: asset.digest.slice(7) });
+    expect(calls).toEqual(["bytes=0-8388607", "bytes=8388608-8388614"]);
+    for (mode of ["shifted", "truncated", "ignore-later"]) {
+      calls = [];
+      await expect(readHostedAsset(asset, true)).rejects.toThrow("range");
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("hosted network resolution checks the whole delivery and refuses source, tag and checksum substitution", async () => {
   const version = "2026.10.2", tag = `vrcp-network/v${version}`, commit = "a".repeat(40), object = "b".repeat(40);
   const archive = `vrc-packages-network-${version}.tgz`, repository = "SlamTheDragon/vrc-packages";

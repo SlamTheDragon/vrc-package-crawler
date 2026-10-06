@@ -409,23 +409,39 @@ export async function readHostedAsset(asset, binary = false) {
   if (!Number.isSafeInteger(asset.size) || asset.size < 1 || asset.size > limit || !/^sha256:[a-f0-9]{64}$/.test(asset.digest ?? "")) {
     throw new Error("Hosted artifact is missing, oversized or lacks a digest");
   }
-  const response = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(binary ? 1_800_000 : 180_000) });
-  if (!response.ok || !response.body) {
-    await response.body?.cancel();
-    throw new Error("Hosted artifact is unavailable");
-  }
-  const reader = response.body.getReader(), chunks = [], digest = createHash("sha256");
+  const signal = AbortSignal.timeout(binary ? 1_800_000 : 180_000);
+  const chunks = [], digest = createHash("sha256"), rangeSize = 8 * 1024 ** 2;
+  const report = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
   let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.length;
-      if (size > asset.size) throw new Error("Hosted artifact exceeds its declared size");
-      digest.update(value);
-      if (!binary) chunks.push(value);
+  do {
+    const start = size, end = Math.min(start + rangeSize, asset.size) - 1;
+    if (binary && report) console.error(JSON.stringify({ readbackAsset: String(asset.name).slice(0, 214), bytesRead: size, totalBytes: asset.size }));
+    const response = await fetch(asset.browser_download_url, { signal,
+      ...(binary ? { headers: { range: `bytes=${start}-${end}`, "accept-encoding": "identity" } } : {}) });
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
+      throw new Error("Hosted artifact is unavailable");
     }
-  } finally { await reader.cancel(); }
+    const ranged = response.status === 206;
+    if ((ranged && (!binary || response.headers.get("content-range") !== `bytes ${start}-${end}/${asset.size}`)) ||
+        (!ranged && (response.status !== 200 || start !== 0))) {
+      await response.body.cancel();
+      throw new Error("Hosted artifact range differs from the requested bytes");
+    }
+    const reader = response.body.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > asset.size || (ranged && size > end + 1)) throw new Error("Hosted artifact exceeds its declared size");
+        digest.update(value);
+        if (!binary) chunks.push(value);
+      }
+    } finally { await reader.cancel(); }
+    if (!ranged) break; // A server can ignore the first range and supply the full file.
+    if (size !== end + 1) throw new Error("Hosted artifact range size differs");
+  } while (size < asset.size);
   const sha256 = digest.digest("hex");
   if (size !== asset.size || asset.digest !== `sha256:${sha256}`) throw new Error("Hosted artifact digest or size differs");
   return { size, sha256, ...(binary ? {} : { bytes: Buffer.concat(chunks) }) };

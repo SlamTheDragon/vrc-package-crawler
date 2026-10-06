@@ -28,6 +28,10 @@
 - Desktop recovery 37460312551 passed Windows build, attachment and terminal Discord acknowledgment. Its root proof exposed a GitHub jobs-list sidecar.
 - GitHub appends the commit-level Discord check to the original failed run. Verify its exact app/name/source/acknowledgment before separating it from workflow jobs.
 - Published outputs remain fixed. This repair changes evidence interpretation only. Real publication jobs and artifact-count guards stay intact.
+- Desktop root proof now passed all five public hashes after the sidecar repair. Discord check acknowledged delivery. Its recovery half is checked.
+- Large predecessor reads delayed crawler finalization. The local pre-write attempt was stopped again. A 1 MB live probe returned HTTP 206 with the exact requested range.
+- Working theory: read binary assets in bounded 8 MB ranges, hash every byte, retain the whole-file digest/size guard, and show CLI progress.
+- Range reads never retry CI, cache trust, save local release artifacts or authorize another patch. Whole-file fallback is allowed only for the first response.
 - Recovery counts as half a pass. Each enabled path then needs a root patch bump and a green real chain with applicable artifacts and approvals.
 - Do not mark main signed off from recovered snapshots alone. Website remains disabled and Worker release remains build-only.
 
