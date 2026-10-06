@@ -23,9 +23,14 @@
 - Its 31 unchanged chain cases passed, but its mixed-state recovery failure is not a clean gate result. The final-source recovery rerun passed.
 - All 374 document-link checks, syntax and whitespace checks passed. DELIVERY prose score: 1.47 issues per 100 words.
 - Checked tooling c6f317f reached main by normal push. The actual root plan passed, then --execute dispatched recovery 37466559953.
-- Recovery routing passed. Linux passed pinned SDK preparation and reached Docker checks. Windows root checks are active. Publication remains unverified.
+- Recovery 37466559953 passed routing, Linux binary/container checks and Windows binary checks. Publication waits at vrcp-crawler-release.
+- Owner granted standing release approvals for these production distribution trials. This does not remove protection rules or authorize automatic CI retries.
+- The exact-run approval attempt returned HTTP 403 despite current_user_can_approve=true. GitHub requires repository Deployments: write for review requests.
+- Question hook offers a scoped token permission update or UI approval of this run. No approval, publication or protection change succeeded.
 - Tag status retains the original failure until a recovered Release exists. The root recovery command shows the separate attempt and run link.
-- Next: inspect both platform checks, request protected release approval when ready, then check artifacts, GHCR, deployment link and terminal acknowledgment.
+- Live cache monitoring returned 2262603737 bytes across 86 caches. Account capacity remains unmeasured and eviction remains GitHub-managed.
+- Root clean all and reset all produced safe dry-run target plans. No build output, dependency, database, credential or cache was deleted.
+- Next: apply the authorized gate when credential access or UI approval is available. Then check artifacts, GHCR, deployment link and terminal acknowledgment.
 - Then advance SDK preview/release, network and consumers in that order. Network peer bounds change when SDK metadata synchronizes.
 - Each of the nine enabled paths needs next-patch chain proof, applicable bytes, dependency identities, deployment links and terminal notifications.
 - Check GHCR independently for crawler delivery. Worker release is build-only without production deployment or Release assets. Website remains disabled.

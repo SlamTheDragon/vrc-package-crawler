@@ -3,6 +3,9 @@
 Owner update, 2026-10-06: normal source and preview pushes can use synchronized main without a PR or temporary preview branch.
 Main-guard readback contains only deletion and non-fast-forward protection. Release metadata review, publication approvals and immutable tags remain required.
 Recover failed configured versions before any advancement. Recovery is half a pass. Each enabled path also needs a subsequent patch-advance chain proof.
+Owner trial update, 2026-10-06: release deployment approvals are granted for production distribution pipeline exercises.
+Apply them only after exact-run and prerequisite checks. Keep protection settings, immutable identities and manual CI retry boundaries unchanged.
+This trial grant does not approve unrelated feature work, SDK v0.1.0 or removal of release protection.
 
 Owner correction, 2026-10-06: delivery sign-off does not require preview D1 initialization or catalog reads. Those remain runtime/ingestion work.
 The owner checks a fresh clone after sign-off, not before. Older rows that imply either prerequisite are superseded.

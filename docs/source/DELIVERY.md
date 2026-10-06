@@ -78,6 +78,7 @@ Do not move, delete or force-push a published tag.
 - Authorized crawler releases: `0.0.6` for routing failure and `0.0.7` for dependency-preparation failure.
 - In `vrcp-crawler-release`, add a **Branch** deployment rule for `main`. Retain its tag rule and required operator review.
 - Supply a local GitHub credential with repository **Actions: write**, **Contents: read**, and **Pull requests: read** permissions.
+- An explicitly delegated deployment review also needs repository **Deployments: write**. Keep review protection active and restrict approvals to authorized runs.
 - Start from clean main that matches origin. Load the ignored local `.env` explicitly.
 - Run `bun --env-file=.env run delivery:recover <exact-tag>` to inspect the plan.
 - Add `--execute` to dispatch that product's workflow on main. This does not bump a version or push a tag.
