@@ -181,7 +181,7 @@ export class Logger {
   }
 
   public archiveAndClearLatestLogSync(dateStr?: string): string | null {
-    if (this.isRotating) return null;
+    if (this.isRotating || !this.enableLatestLog) return null;
     this.isRotating = true;
     try {
       if (!fs.existsSync(this.latestLogPath)) {
