@@ -20,6 +20,11 @@ This is the current entry point for agents working in this repository. `DELEGATE
 
 ## Delivery discipline
 
+- Main is protected. Work on a task branch and commit each slice locally. Push a checked gate to that branch, not main.
+- Open a promotion PR and wait for the owner's manual review and merge. If PR creation is unavailable, give the owner a comparison link.
+- Do not disable protection, add a bypass, force-push main, or merge a PR on the owner's behalf. A gate pass is not merge approval.
+- After promotion, fetch and inspect merged main before release preparation or finalization. Keep the preview App outside main bypass and release allocation.
+
 - Canonical brand: **VRC Packages**, abbreviated **VRCP**. P means Packages. Use `VRCP*`, `vrcp-`, `vrcp_`, or `vrc-packages*`/`vrc_packages*` for project-owned names. Do not use bare VRC/Vrc component names. Preserve actual upstream names and repository URLs. Exact SDK names are `VRCPackageClient`, `VRCPackageClientOptions`, and `VRCPApiError`, not doubled-P variants. The approved bot target is `VRCPDiscoveryBot/{version}`. Coordinate its robots matching and snapshot transition before claiming that rename complete.
 
 - Treat each `src-*` folder as an independent project. Never import sibling source or tests through relative paths, aliases or symlinks. Consume reused code only as declared, distributed package dependencies. A `file:../src-*` link does not prove that boundary.

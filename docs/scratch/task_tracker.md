@@ -14,6 +14,14 @@
 Working theory: one root allocator can serve local and App-triggered previews without duplicate version logic.
 The prior direct main commit/tag push could not satisfy reviewed-main protection.
 
+Active owner-requested slice: propagate protected-main behavior into AGENTS, lifecycle rule 01 and agent/human delivery procedures.
+Main ruleset 24553134 now requires PRs and blocks deletion/force pushes, with zero required approvals and no bypass actors.
+Each slice stays a local commit. A checked gate permits a task-branch push, not a direct main write or agent merge.
+Supply an owner comparison link if PR creation is unavailable. Do not expand permissions or disable protection.
+The preview initializer is checked on codex/preview-worker-init at 31419a4, awaiting owner PR/merge and hosted setup.
+The independent lazy logger slice is saved locally at a25485a on codex/node-logger-output. It remains unverified and unpushed.
+Tag protections still need separate immutable-tag and stable-creation rulesets. No tag or repository setting changed in this slice.
+
 Active release slice: prepare one config-derived metadata commit on a dedicated promotion branch, without a tag or main write.
 After manual review/merge, finalize only its exact merged main commit with a tag-only push and the same saved version.
 Reuse versionFiles and immutable-tag checks. Independent proof helpers must bind the PR, review, base/head and merged config transition.
@@ -125,7 +133,7 @@ Seven distributed-product deployment links passed. Worker links remain deferred 
 6. Complete main protection and owner fresh-clone proof before sign-off. Never bypass reviews.
 7. Fix the default node logger path before root-output sign-off. Existing root logs predate this gate and remain untouched.
 
-Public metadata rechecked after the hosted diagnostic on 2026-10-06 still showed unprotected main and no rulesets.
+Earlier metadata showed unprotected main. Latest read on 2026-10-06 confirms active main-guard ruleset 24553134, without bypass actors.
 Desktop preview/network lacked selected-ref restrictions. No settings changed.
 The shell has no gh executable. Credential extraction was rejected and not retried.
 
