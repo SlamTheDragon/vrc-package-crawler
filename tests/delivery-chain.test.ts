@@ -4,13 +4,50 @@ import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { finalizeRelease, inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, retryDelivery, retryReleasePreparation, startDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
+import { finalizeRelease as checkedFinalizeRelease, inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
 import { networkArchiveURL, productDirectories, productTagPrefixes } from "../scripts/versioning.mjs";
 import { checkReleaseMetadata } from "../scripts/delivery.mjs";
 import { createHash } from "node:crypto";
 import { zipSync } from "fflate";
 
 const now = new Date("2026-10-05T00:00:00Z");
+
+// Existing fixtures model a previously verified delivery. Dedicated cases below reject absent/false proof.
+async function fixturePublication(tag: string) {
+  const [prefix, value] = tag.split("/v");
+  const product = Object.entries(productTagPrefixes).find(([, name]) => name === prefix)?.[0];
+  const channel = product === "network" || value.includes("-pre") ? "preview" : "release";
+  return { tag, product, version: value, channel, artifactsVerified: true, status: product === "worker"
+    ? channel === "preview" ? "preview-deployed-no-release-assets" : "release-build-only-no-production-deployment" : "release-artifacts-verified" };
+}
+const startDelivery = (...args: any[]) => checkedStartDelivery(...args, fixturePublication);
+const finalizeRelease = (...args: any[]) => checkedFinalizeRelease(...args, fixturePublication);
+
+test("advancement requires exact publication and artifact proof, not a tag or green-looking status", async () => {
+  const base = { tag: "vrcp-api/v0.0.5", product: "package", channel: "release", version: "0.0.5", artifactsVerified: true, status: "release-artifacts-verified" };
+  expect(await requirePublicationProof("release", "package", "0.0.5", "unused", async () => base)).toEqual(base);
+  for (const patch of [{ artifactsVerified: false, status: "ci-failed" }, { artifactsVerified: false, status: "awaiting-npm-owner-approval" },
+      { artifactsVerified: "true" }, { status: "ci-failed" }, { version: "0.0.3" }, { tag: "vrcp-api/v0.0.3" }, { channel: "preview" }, { product: "crawler" }]) {
+    await expect(requirePublicationProof("release", "package", "0.0.5", "unused", async () => ({ ...base, ...patch })))
+      .rejects.toThrow("proof");
+  }
+  await expect(requirePublicationProof("release", "package", "0.0.5", "unused", async () => { throw new Error("read unavailable"); }))
+    .rejects.toThrow("read unavailable");
+});
+
+test("unpublished predecessor stops allocation before pending checkpoints or version writes", async () => {
+  await fixture(async (workspace, git) => {
+    const config = await readFile(resolve(workspace, "config.preview.versions.json"), "utf8");
+    await writeFile(resolve(workspace, "pending.txt"), "Owner pending input");
+    const writes: string[] = [];
+    const observed = (cwd: string, ...args: string[]) => { if (["add", "commit", "checkout", "tag", "push"].includes(args[0])) writes.push(args[0]); return git(cwd, ...args); };
+    await expect(checkedStartDelivery("preview", "network", true, workspace, now, observed,
+      async tag => ({ ...(await fixturePublication(tag)), artifactsVerified: false, status: "ci-failed" }))).rejects.toThrow("No version or tag write ran");
+    expect(writes).toEqual([]);
+    expect(await readFile(resolve(workspace, "config.preview.versions.json"), "utf8")).toBe(config);
+    expect(git(workspace, "status", "--porcelain")).toBe("?? pending.txt");
+  });
+});
 
 test("Worker root checks archive bytes and exact config without querying or creating a Release", async () => {
   await fixture(async (workspace, git) => {
@@ -155,6 +192,18 @@ async function reviewedFixture(workspace: string, git: (cwd: string, ...args: st
   };
   return { preparation, commit, api, responses, calls };
 }
+
+test("a previously prepared release cannot bypass predecessor publication proof at finalization", async () => {
+  await fixture(async (workspace, git) => {
+    const reviewed = await reviewedFixture(workspace, git);
+    const writes: string[] = [];
+    const observed = (cwd: string, ...args: string[]) => { if (["tag", "push"].includes(args[0])) writes.push(args[0]); return git(cwd, ...args); };
+    await expect(checkedFinalizeRelease("worker", 7, reviewed.commit, true, workspace, observed, reviewed.api,
+      async tag => ({ ...(await fixturePublication(tag)), artifactsVerified: false, status: "ci-failed" }))).rejects.toThrow("publication/artifact proof");
+    expect(writes).toEqual([]);
+    expect(git(workspace, "ls-remote", "origin", `refs/tags/${reviewed.preparation.tag}`)).toBe("");
+  });
+});
 
 test("release preparation pushes one version branch, then owner-reviewed main finalization pushes only a tag", async () => {
   for (const product of ["package", "crawler", "crawler-client", "worker"]) {

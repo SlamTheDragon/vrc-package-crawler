@@ -143,11 +143,13 @@ function checkpointPendingPreview(plan, workspace, git) {
 }
 
 /** Keep failed local commit/tag state so an exact retry cannot allocate another version. */
-export async function startDelivery(channel, product, execute = false, workspace = root, now = new Date(), git = runGit) {
+export async function startDelivery(channel, product, execute = false, workspace = root, now = new Date(), git = runGit,
+    publicationProof = inspectDelivery) {
   let plan = await planDelivery(channel, product, workspace, now, git);
   if (!execute) return plan;
   const blockers = plan.blockers.filter(blocker => channel !== "preview" || blocker !== "Worktree or index is dirty");
   if (blockers.length) throw new Error(`Delivery blocked: ${blockers.join("; ")}`);
+  await requirePublicationProof(channel, product, plan.previous, workspace, publicationProof);
   if (git(workspace, "rev-parse", "HEAD") !== plan.head || git(workspace, "symbolic-ref", "--short", "HEAD") !== plan.branch) {
     throw new Error("Repository changed after planning");
   }
@@ -218,7 +220,8 @@ function releaseTagProof(tag, workspace, git) {
 }
 
 /** Read-only proof or tag-only push. Never bump again, push main, merge a PR or approve a release. */
-export async function finalizeRelease(product, prNumber, commit, execute = false, workspace = root, git = runGit, api = readGitHubAPI()) {
+export async function finalizeRelease(product, prNumber, commit, execute = false, workspace = root, git = runGit, api = readGitHubAPI(),
+    publicationProof = inspectDelivery) {
   if (!["package", "crawler", "crawler-client", "worker"].includes(product) || !Number.isSafeInteger(prNumber) ||
       prNumber < 1 || !/^[a-f0-9]{40}$/.test(commit ?? "")) throw new Error("Use finalize <product> <merged-pr-number> <merged-main-commit> [--execute]");
   if (git(workspace, "symbolic-ref", "--short", "HEAD") !== "main" || git(workspace, "status", "--porcelain")) {
@@ -255,6 +258,8 @@ export async function finalizeRelease(product, prNumber, commit, execute = false
   const result = { ...selected, repository, tag, commit, prNumber, head: proof.head, base: proof.base, changed: metadata.changed,
     status: remote ? "already-pushed" : execute ? "pushed" : "finalization-plan-only", next: [`bun run delivery:status ${tag}`, `bun run delivery:check ${tag}`] };
   if (!execute || remote) return { ...result, ...(tagObject ? { tagObject } : {}) };
+  const previous = JSON.parse(git(workspace, "show", `${proof.base}:config.versions.json`))[`release-${product}`];
+  await requirePublicationProof("release", product, previous, workspace, publicationProof);
   if (git(workspace, "status", "--porcelain") || git(workspace, "rev-parse", "HEAD") !== main ||
       !git(workspace, "ls-remote", "origin", "refs/heads/main").split("\n").includes(`${main}\trefs/heads/main`)) {
     throw new Error("Main changed after release proof; no tag push ran");
@@ -303,6 +308,20 @@ export function retryDelivery(tag, workspace = root, git = runGit) {
   }
   return { ...selected, repository, status: remote ? "already-pushed" : "pushed",
     next: [`bun run delivery:status ${tag}`, `bun run delivery:check ${tag}`] };
+}
+
+export async function requirePublicationProof(channel, product, version, workspace = root, inspect = inspectDelivery) {
+  const tag = `${productTagPrefixes[product]}/v${version}`;
+  const current = await inspect(tag, true, workspace);
+  if (current.tag !== tag || current.product !== product || current.channel !== channel || current.version !== version) {
+    throw new Error("Publication proof differs from the configured product/channel/version; no version or tag write ran");
+  }
+  const status = product === "worker" ? channel === "preview" ? "preview-deployed-no-release-assets"
+    : "release-build-only-no-production-deployment" : "release-artifacts-verified";
+  if (current.artifactsVerified !== true || current.status !== status) {
+    throw new Error(`Configured delivery ${tag} lacks publication/artifact proof (${current.status}). No version or tag write ran. Use bun run delivery:diagnose ${tag}.`);
+  }
+  return current;
 }
 
 export function summarizeRun(run, jobs, release, product, channel = "preview") {
@@ -529,9 +548,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       result = await finalizeRelease(first, Number(second), extra[0], extra[1] === "--execute");
     } else if (action === "retry-preparation" && !second && !extra.length) {
       result = await retryReleasePreparation(first);
-    } else if (["status", "check", "retry"].includes(action) && !second && !extra.length) {
+    } else if (["status", "check", "diagnose", "retry"].includes(action) && !second && !extra.length) {
       result = action === "retry" ? await retryDelivery(first) : await inspectDelivery(first, action === "check");
-    } else throw new Error("Use start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, or status|check|retry <tag>");
+      if (action === "diagnose") result = { ...result, readOnly: true,
+        next: [`bun run delivery:check ${first}`, "Inspect the exact run before any retry. Broken tagged workflows require manual resolution."] };
+    } else throw new Error("Use start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, or status|check|diagnose|retry <tag>");
     console.log(JSON.stringify(result, null, 2));
     if (result.status === "ci-failed") process.exitCode = 1;
   } catch (error) {

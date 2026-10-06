@@ -1,5 +1,15 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
+## Active gate — publication-proof advancement (2026-10-06)
+
+- Owner requires proof before another version advance, same-version publication retry, and root troubleshooting hooks.
+- Owner reserves broken tagged workflow recovery for manual resolution. Do not substitute main tooling or move tags.
+- Registry readback: release versions are 0.0.0-stage, 0.0.0, 0.0.1, 0.0.3, 0.0.5. Preview patches are 0, 1, 3, 5. Historical gaps remain unchanged.
+- Working theory: root allocation and release finalization must check the configured predecessor with the existing strict publication/artifact verifier before writes.
+- Pending crawler 0.0.7 metadata does not authorize skipping failed 0.0.6. Its tag remains absent pending manual resolution and proof.
+- Read-only diagnosis and guards are implemented, unverified. Automatic CI POST retries were rejected by safety review because they could rerun manual-only broken workflows. No rerun was sent.
+- Automatic retry needs a separate permitted-transient versus manual-only failure policy. Keep stage/release approvals and immutable artifacts unchanged.
+
 ## Active repair — annotated release checkout (2026-10-06)
 
 - The owner's ignored root `.env` supplies a read credential. Explicit `bun --env-file=.env run` passed authenticated PR reads and finalization.
