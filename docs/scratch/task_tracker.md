@@ -10,7 +10,10 @@ The GitHub gate subsequently cleared externally. Publication job `112367290717` 
 Owner action: approve `vrc-packages-api@0.0.6` in npm Staged Packages, stage `fb038069-2792-45c9-9698-a787692b7cb2`.
 CI reports `awaiting-npm-approval`. Do not treat successful staging as public npm publication or completed advancement proof.
 Latest readback: all applicable jobs in run `37492006796` completed successfully. Root status reports `publication-not-proved`.
-Public npm metadata for `vrc-packages-api/0.0.6` returns HTTP 404. Owner is waiting for npm checks before stage approval.
+SDK `0.0.6` subsequently became public on npm. Reconciliation run `37493465506` passed on main without republishing or moving the tag.
+Root `delivery:check vrcp-api/v0.0.6` passed all five public asset hashes and source/tag/registry proof.
+SDK tarball SHA-256: `8df6aa373d7a12a67b21cb943552f785a9b445a2ebd0158e6d2945303d03ca17`.
+Network plan now selects `2026.10.5` without blockers. Next: execute the root chain, then check its actual hosted distribution before consumer allocation.
 Fresh root `delivery:check:all` completed: eight configured paths passed full artifact proof. SDK release `0.0.6` alone reports `proof-unavailable`.
 The command correctly returned exit 1. Both Worker paths passed their special no-Release proof. No local release artifacts were written.
 These checks renew baseline evidence. They do not complete the outstanding next-patch trials, deployment-link review or main sign-off.
