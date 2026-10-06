@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
@@ -176,7 +176,7 @@ export async function checkReviewedRelease(selected, proof, api = readGitHubAPI(
   // Owner-selected policy: manual owner inspection and merge replaces a second-person approval.
   // The API proves merge identity, not the human inspection process. Never merge through this executor.
   if (!Array.isArray(prepared.files) || !prepared.files.length || prepared.files.length > 8 ||
-      prepared.files.some(file => typeof file?.filename !== "string" || file.status !== "modified") ||
+      prepared.files.some(file => typeof file?.filename !== "string" || !["modified", "added"].includes(file.status)) ||
       new Set(prepared.files.map(file => file.filename)).size !== prepared.files.length) throw new Error("Invalid prepared metadata file evidence");
   return { repository, commit, tag, prNumber, head, base, previous, version: selected.version,
     preparedFiles: prepared.files.map(file => file.filename), ...(trackerParent ? { trackerParent } : {}) };
@@ -201,6 +201,16 @@ export async function checkReleaseMetadata(selected, proof, workspace = root, gi
   const parent = realpathSync(tmpdir()), directory = mkdtempSync(join(parent, "vrcp-release-metadata-"));
   if (!realpathSync(directory).startsWith(parent + sep)) throw new Error("Unsafe release metadata fixture");
   try {
+    const hasChangelog = (() => {
+      try {
+        const entry = git(workspace, "ls-tree", base, "--", "CHANGELOG.md").trim();
+        return /^100644 blob [a-f0-9]{40}\t/.test(entry);
+      } catch { return false; }
+    })();
+    if (hasChangelog) {
+      const target = join(directory, "CHANGELOG.md");
+      writeFileSync(target, text(base, "CHANGELOG.md"));
+    }
     const prior = new Map();
     for (const path of paths) {
       const value = text(base, path);
@@ -212,6 +222,14 @@ export async function checkReleaseMetadata(selected, proof, workspace = root, gi
     const bumped = await bumpVersion("release", selected.product, "patch", directory);
     if (bumped.version !== selected.version) throw new Error("Release metadata skips the next configured patch");
     await versionFiles("sync", "release", selected.product, directory);
+    if (hasChangelog) {
+      const { extractProductChangelog } = await import("./changelog.mjs");
+      const changelogResult = extractProductChangelog("release", selected.product, bumped.version, directory);
+      if (changelogResult?.file) {
+        const rel = relative(directory, changelogResult.file).replace(/\\/g, "/");
+        paths.push(rel);
+      }
+    }
     const expected = new Map(paths.map(path => [path, readFileSync(join(directory, path), "utf8").replace(/\r\n/g, "\n").trimEnd() + "\n"]));
     const changed = paths.filter(path => expected.get(path) !== prior.get(path)).sort();
     const actual = git(workspace, "diff", "--name-only", "--no-renames", base, head, "--").trim().split("\n").filter(Boolean).sort();

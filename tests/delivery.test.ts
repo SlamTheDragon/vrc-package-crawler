@@ -744,7 +744,7 @@ test("every CI consumer installs the published SDK while local preparation and t
     await mkdir(resolve(workspace, "scripts"));
     await mkdir(resolve(workspace, "node_modules"));
     await cp(new URL("../node_modules/semver", import.meta.url), resolve(workspace, "node_modules/semver"), { recursive: true });
-    for (const file of ["delivery.mjs", "versioning.mjs", "delivery-recovery.mjs", "release-assets.mjs"]) {
+    for (const file of ["delivery.mjs", "versioning.mjs", "delivery-recovery.mjs", "release-assets.mjs", "changelog.mjs"]) {
       let source = await readFile(new URL(`../scripts/${file}`, import.meta.url), "utf8");
       // Mock the external Bun process only. The real CLI still selects the product's SDK channel.
       if (file === "delivery.mjs") source = source.replace('execFileSync("bun", args,', 'execFileSync(process.execPath, [process.env.npm_execpath, ...args],');
@@ -836,7 +836,7 @@ test("real publication CLI routes preview publish and release stage through the 
     await mkdir(resolve(workspace, "scripts"));
     await mkdir(resolve(workspace, "node_modules"));
     await cp(new URL("../node_modules/semver", import.meta.url), resolve(workspace, "node_modules/semver"), { recursive: true });
-    for (const file of ["delivery.mjs", "versioning.mjs", "delivery-recovery.mjs", "release-assets.mjs"]) {
+    for (const file of ["delivery.mjs", "versioning.mjs", "delivery-recovery.mjs", "release-assets.mjs", "changelog.mjs"]) {
       let source = await readFile(new URL(`../scripts/${file}`, import.meta.url), "utf8");
       // This fixture isolates registry commands. It does not pretend its synthetic SHA proves a reviewed release.
       if (file === "delivery.mjs") source = source.replace('if (ci) await requireCI(product, channel);', 'if (ci && channel !== "release") await requireCI(product, channel);');

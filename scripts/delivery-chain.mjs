@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
 import { bumpVersion, networkArchiveURL, nextVersion, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, versionFiles } from "./versioning.mjs";
@@ -8,6 +8,7 @@ import { checkReleaseMetadata, checkReviewedRelease, checkSDKPublicationVersion,
 import { allowedBinary, checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink, sourceRunID } from "./release-assets.mjs";
 import { checkWorkerArtifacts, downloadActionsArchive } from "./worker-artifacts.mjs";
 import { checkRecoveryReceipts, checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
+import { extractProductChangelog } from "./changelog.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const workflows = { package: "vrc-packages-api", network: "network", crawler: "node-docker",
@@ -171,10 +172,14 @@ export async function startDelivery(channel, product, execute = false, workspace
   const result = await bumpVersion(channel, product, "patch", workspace, now);
   if (result.version !== plan.version) throw new Error("Config changed after planning. Inspect it before retrying.");
   const metadata = await versionFiles("sync", channel, product, workspace);
-  const paths = [plan.configPath, ...metadata.changed];
+  const changelogResult = extractProductChangelog(channel, product, plan.version, workspace);
+  const changelogPaths = changelogResult?.file ? [relative(workspace, changelogResult.file).replace(/\\/g, "/")] : [];
+  const paths = [plan.configPath, ...metadata.changed, ...changelogPaths];
   git(workspace, "add", "--", ...paths);
-  git(workspace, "commit", "--only", "-m", `${channel === "release" ? "Prepare" : "Deliver"} ${product} ${channel} ${plan.version}`,
-    ...(channel === "release" ? ["-m", `VRCP-Release-Product: ${product}\nVRCP-Release-Version: ${plan.version}\nVRCP-Release-Base: ${plan.head}`] : []), "--", ...paths);
+  const commitMessages = [`${channel === "release" ? "Prepare" : "Deliver"} ${product} ${channel} ${plan.version}`];
+  if (changelogResult?.section && changelogResult.section !== "- none currently") commitMessages.push(changelogResult.section);
+  if (channel === "release") commitMessages.push(`VRCP-Release-Product: ${product}\nVRCP-Release-Version: ${plan.version}\nVRCP-Release-Base: ${plan.head}`);
+  git(workspace, "commit", "--only", ...commitMessages.flatMap(m => ["-m", m]), "--", ...paths);
   if (channel === "release") return retryReleasePreparation(plan.releaseBranch, workspace, git);
   git(workspace, "tag", "-a", plan.tag, "-m", `VRC Packages ${product} ${channel} ${plan.version}\n\nVRCP-Previous-Version: ${plan.previous}`);
   return { ...retryDelivery(plan.tag, workspace, git), ...(pendingCheckpoint ? { pendingCheckpoint } : {}) };

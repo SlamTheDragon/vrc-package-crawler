@@ -16,7 +16,6 @@ export const changelogFolders = {
 /**
  * Extract the product notes from root CHANGELOG.md and write to docs/changelogs/<folder>/<channel>/<version>.md
  * (or docs/changelogs/<folder>/<version>.md for single-stream products like network).
- * Resets the extracted section in root CHANGELOG.md to "- none currently".
  */
 export function extractProductChangelog(channel, product, version, workspace = root) {
   const folder = changelogFolders[product] ?? product;
@@ -40,24 +39,15 @@ export function extractProductChangelog(channel, product, version, workspace = r
   const content = `# ${folder} ${version}\n\nChannel: ${channel}.\n\n${section || "- none currently"}\n`;
   writeFileSync(targetFile, content);
 
-  // Reset the product section in CHANGELOG.md to "- none currently"
-  const newLines = [
-    ...lines.slice(0, start + 1),
-    "",
-    "- none currently",
-    "",
-    ...lines.slice(end)
-  ];
-  writeFileSync(changelogPath, newLines.join("\n"));
-  return targetFile;
+  return { file: targetFile, section: section || "- none currently" };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [action, channel, product, version] = process.argv.slice(2);
   try {
     if (action === "extract" && channel && product && version) {
-      const file = extractProductChangelog(channel, product, version);
-      console.log(JSON.stringify({ extracted: true, file }));
+      const result = extractProductChangelog(channel, product, version);
+      console.log(JSON.stringify({ extracted: true, file: result?.file }));
     } else {
       throw new Error("Usage: node scripts/changelog.mjs extract <channel> <product> <version>");
     }
