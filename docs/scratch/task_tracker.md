@@ -11,6 +11,9 @@ Owner action: approve `vrc-packages-api@0.0.6` in npm Staged Packages, stage `fb
 CI reports `awaiting-npm-approval`. Do not treat successful staging as public npm publication or completed advancement proof.
 Latest readback: all applicable jobs in run `37492006796` completed successfully. Root status reports `publication-not-proved`.
 Public npm metadata for `vrc-packages-api/0.0.6` returns HTTP 404. Owner is waiting for npm checks before stage approval.
+Fresh root `delivery:check:all` completed: eight configured paths passed full artifact proof. SDK release `0.0.6` alone reports `proof-unavailable`.
+The command correctly returned exit 1. Both Worker paths passed their special no-Release proof. No local release artifacts were written.
+These checks renew baseline evidence. They do not complete the outstanding next-patch trials, deployment-link review or main sign-off.
 Next: inspect that same run, complete its protected publication gate and owner npm stage approval, then check public artifact proof.
 Do not repeat finalization or allocate another SDK release. Network advancement still waits for this producer proof.
 
