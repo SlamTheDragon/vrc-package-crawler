@@ -14,6 +14,12 @@
 Working theory: one root allocator can serve local and App-triggered previews without duplicate version logic.
 The prior direct main commit/tag push could not satisfy reviewed-main protection.
 
+Active initialization slice: a root command uses the distributed preview SDK for explicit autoSeed false, then a catalog read.
+Plan by default. Execution requires the dedicated main-ref manual workflow and the existing cloudflare-preview secret scope.
+Use one fixed approved preview origin. Reject redirects and bound time/body size. Never print server errors or operator credentials.
+No version allocation, rebuild, seeding, source approval or production action belongs to this command.
+The owner must permit Branch main in cloudflare-preview for this manual initialization workflow. Tag delivery rules remain.
+
 Active release slice: prepare one config-derived metadata commit on a dedicated promotion branch, without a tag or main write.
 After manual review/merge, finalize only its exact merged main commit with a tag-only push and the same saved version.
 Reuse versionFiles and immutable-tag checks. Independent proof helpers must bind the PR, review, base/head and merged config transition.
