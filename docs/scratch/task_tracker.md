@@ -43,6 +43,13 @@ Owner review link: https://github.com/SlamTheDragon/vrc-packages/compare/main...
 Notification gap: SDK release `0.0.6` has no Discord check on its original source. Reconciled attachment run `37493502851` passed.
 Recent announcement runs show no matching post-reconciliation run. Cause remains unverified. Do not fake acknowledgement or send an unchecked duplicate webhook.
 Next: inspect this terminal-notification gap before main sign-off, then finalize owner-merged crawler metadata and prepare desktop release `0.0.5`.
+Crawler preview `2026.10.7-pre` passed all six public hashes. Linux SHA-256: `6c92c308f7ab705264592dbf3cce1bfc82e0592dcde22443a000589b8e4c0b58`.
+Windows SHA-256: `552f9e12130afd57d9eb8ec2ac84d4f86994502561571d5c8e3b0ae5b0a7fd94`. Independent preview GHCR readback remains open.
+Owner merged crawler metadata PR #15 at `69387f5944a18819be763d80201c0cc7197cc717`. Main synchronized by fast-forward.
+Finalization stopped with `Main advanced beyond the reviewed preparation base`. No `0.0.8` tag was pushed and no version was skipped.
+The preparation base is `1859b88b8ef5a0d44ed8f6188dbd98c888b2cd68`. Merge first parent is `c23aa8320e19b7f4264f10bb2ffef48582fcf067`.
+Git diff between those commits contains only `docs/scratch/task_tracker.md`. A narrow tracker-only exception is awaiting owner approval.
+The guard lives in `scripts/delivery.mjs:102`. Do not bypass it or force a tag. Preserve exact owner-merged source and predecessor publication checks.
 Fresh root `delivery:check:all` completed: eight configured paths passed full artifact proof. SDK release `0.0.6` alone reports `proof-unavailable`.
 The command correctly returned exit 1. Both Worker paths passed their special no-Release proof. No local release artifacts were written.
 These checks renew baseline evidence. They do not complete the outstanding next-patch trials, deployment-link review or main sign-off.
