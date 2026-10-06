@@ -931,6 +931,8 @@ test("preview App dispatcher is branch-only, serializes allocation and calls the
   expect(workflow.on.pull_request_target).toBeUndefined();
   expect(workflow.on.workflow_dispatch.inputs.product.options).toEqual(["package", "network", "crawler", "crawler-client", "worker"]);
   expect(workflow.permissions).toEqual({ contents: "read" });
+  expect(workflow.jobs.allocate.permissions).toEqual({ contents: "read", actions: "read" });
+  expect(workflow.jobs.allocate.env.GH_TOKEN).toBe("${{ github.token }}");
   expect(workflow.jobs.allocate.if).toBe("github.ref_type == 'branch'");
   expect(workflow.concurrency.cancel_in_progress).not.toBe(true);
   expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
