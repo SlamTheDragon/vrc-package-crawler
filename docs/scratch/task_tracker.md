@@ -25,6 +25,9 @@
 - The separate consumer resolver exposed its old changelog heading check. Repair it to accept the exact package-name heading and retained historical heading.
 - Desktop retry 37460312551 passed root checks and reached its actual Windows build. Hosted final artifact/announcement proof remains open.
 - Crawler 0.0.7 finalization planning passed. The local execute attempt waited on predecessor bytes and was stopped before edits. Remote tag readback confirms no tag.
+- Desktop recovery 37460312551 passed Windows build, attachment and terminal Discord acknowledgment. Its root proof exposed a GitHub jobs-list sidecar.
+- GitHub appends the commit-level Discord check to the original failed run. Verify its exact app/name/source/acknowledgment before separating it from workflow jobs.
+- Published outputs remain fixed. This repair changes evidence interpretation only. Real publication jobs and artifact-count guards stay intact.
 - Recovery counts as half a pass. Each enabled path then needs a root patch bump and a green real chain with applicable artifacts and approvals.
 - Do not mark main signed off from recovered snapshots alone. Website remains disabled and Worker release remains build-only.
 

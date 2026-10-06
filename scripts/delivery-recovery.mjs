@@ -53,12 +53,29 @@ export async function checkRecoveryRun(run, identity, api = readGitHubAPI()) {
   const failed = await api(`${base}/actions/runs/${identity.failedRun}`);
   const jobs = await api(`${base}/actions/runs/${identity.failedRun}/jobs?per_page=100`);
   const artifacts = await api(`${base}/actions/runs/${identity.failedRun}/artifacts?per_page=100`);
+  // GitHub adds commit-level terminal checks to an earlier run's jobs listing.
+  // Exclude only the independently checked acknowledgment, never a workflow job.
+  const workflowJobs = [];
+  let acknowledgments = 0;
+  for (const job of jobs.jobs ?? []) {
+    if (job.name !== `VRCP Discord release: ${identity.tag}`) { workflowJobs.push(job); continue; }
+    if (++acknowledgments > 1 || !Number.isSafeInteger(job.id) || job.runner_id !== null ||
+        !Array.isArray(job.labels) || job.labels.length || job.status !== "completed" || job.conclusion !== "success") {
+      throw new Error("Unverified terminal check in failed-run evidence.");
+    }
+    const check = await api(`${base}/check-runs/${job.id}`);
+    if (check.id !== job.id || check.name !== job.name || check.app?.slug !== "github-actions" ||
+        check.head_sha !== identity.commit || check.status !== "completed" || check.conclusion !== "success" ||
+        !/^discord:[1-9][0-9]*$/.test(check.external_id ?? "")) {
+      throw new Error("Terminal check identity differs from its acknowledgment.");
+    }
+  }
   if (failed.event !== "push" || failed.head_branch !== identity.tag || failed.head_sha !== identity.commit ||
       failed.path !== workflowFor(identity) || failed.head_repository?.full_name !== identity.repository ||
       failed.status !== "completed" || failed.conclusion !== "failure" ||
       !Array.isArray(jobs.jobs) || jobs.total_count !== jobs.jobs.length || jobs.total_count >= 100 ||
-      !jobs.jobs.some(job => job.name === (identity.product === "crawler" ? "route" : "build") && job.conclusion === "failure") ||
-      jobs.jobs.some(job => job.name !== (identity.product === "crawler" ? "route" : "build") && job.conclusion !== "skipped") ||
+      !workflowJobs.some(job => job.name === (identity.product === "crawler" ? "route" : "build") && job.conclusion === "failure") ||
+      workflowJobs.some(job => job.name !== (identity.product === "crawler" ? "route" : "build") && job.conclusion !== "skipped") ||
       artifacts.total_count !== 0 || !Array.isArray(artifacts.artifacts) || artifacts.artifacts.length !== 0) {
     throw new Error("Recovery requires the authorized failed job with no publication or artifact output.");
   }

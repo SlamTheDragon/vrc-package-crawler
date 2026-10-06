@@ -75,6 +75,29 @@ test("exact preview recoveries retain failed source and reject changed stages or
   }
 });
 
+test("GitHub's terminal acknowledgment record does not become a prior publication job", async () => {
+  const f = fixture("vrcp-crawler-client/v26.10.5-pre");
+  const jobs = f.responses[`${f.prefix}/actions/runs/${f.identity.failedRun}/jobs?per_page=100`];
+  const job = { id: 123, name: `VRCP Discord release: ${f.identity.tag}`, runner_id: null,
+    labels: [], status: "completed", conclusion: "success" };
+  jobs.jobs.push(job); jobs.total_count++;
+  const check = { id: job.id, name: job.name, head_sha: f.identity.commit, status: "completed", conclusion: "success",
+    external_id: "discord:123456", app: { slug: "github-actions" } };
+  f.responses[`${f.prefix}/check-runs/123`] = check;
+  expect((await checkRecoveryRun(f.run, f.identity, f.api)).commit).toBe(f.identity.commit);
+  for (const change of [{ head_sha: "b".repeat(40) }, { external_id: "release:123" },
+    { app: { slug: "other" } }, { conclusion: "failure" }, { name: "another check" }]) {
+    f.responses[`${f.prefix}/check-runs/123`] = { ...check, ...change };
+    await expect(checkRecoveryRun(f.run, f.identity, f.api)).rejects.toThrow("Terminal check identity");
+  }
+  f.responses[`${f.prefix}/check-runs/123`] = check;
+  job.runner_id = 1 as any;
+  await expect(checkRecoveryRun(f.run, f.identity, f.api)).rejects.toThrow("Unverified terminal");
+  job.runner_id = null;
+  jobs.jobs.push({ name: "publish", conclusion: "success" }); jobs.total_count++;
+  await expect(checkRecoveryRun(f.run, f.identity, f.api)).rejects.toThrow("no publication");
+});
+
 test("recovery rejects changed authorization, missing ancestry, prior builds and partial artifacts", async () => {
   const mutations: Array<(f: ReturnType<typeof fixture>) => void> = [
     f => { f.responses[`${f.prefix}/compare/${f.toolingCommit}...main`].status = "diverged"; },
