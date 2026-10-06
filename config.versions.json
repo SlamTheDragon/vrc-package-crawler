@@ -1,7 +1,7 @@
 {
   "release-crawler": "0.0.7",
   "release-crawler-client": "0.0.4",
-  "release-package": "0.0.5",
+  "release-package": "0.0.6",
   "release-web": "2026.10.0",
   "release-worker": "0.0.5"
 }
