@@ -153,7 +153,7 @@ export function checkSourceRun(run, jobs, tag, repository, product) {
   if (product === "worker") throw new Error("Worker bundles are CI-only, not GitHub Release assets");
   const workflow = workflowNames[product];
   const required = product === "crawler" ? [tag.startsWith("crawler/v") ? "build-and-push" : "build-linux", "standalone-windows"] : ["build"];
-  const recovery = product === "crawler" && run.event === "workflow_dispatch" &&
+  const recovery = run.event === "workflow_dispatch" &&
     recoveryRunMatches(run, recoveryIdentity(tag)) && repository === "SlamTheDragon/vrc-packages";
   if ((!recovery && (run.event !== "push" || run.head_branch !== tag)) || !/^[a-f0-9]{40}$/.test(run.head_sha ?? "") ||
       run.head_repository?.full_name !== repository || run.path !== `.github/workflows/${workflow}.yml` ||
@@ -395,7 +395,7 @@ async function main(directory) {
   const runId = env.RELEASE_SOURCE_RUN || env.GITHUB_RUN_ID;
   const run = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/actions/runs/${runId}`);
   const tag = env.RELEASE_TAG || env.GITHUB_REF_NAME;
-  const recovery = run.event === "workflow_dispatch" && run.path === ".github/workflows/node-docker.yml"
+  const recovery = run.event === "workflow_dispatch"
     ? await checkRecoveryRun(run, recoveryIdentity(tag), path => api("GET", path)) : null;
   const sourceCommit = recovery?.commit ?? run.head_sha;
   // Load the source commit's configs, not moving main-branch versions, for a historical attachment retry.

@@ -5,7 +5,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
-import { ciSourceCommit, requireRecoveryCI } from "./delivery-recovery.mjs";
+import { ciSourceCommit, recoveryIdentity, requireRecoveryCI } from "./delivery-recovery.mjs";
 import { bumpVersion, distributedArtifact, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, sdkChannelForProduct, versionFiles } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -683,7 +683,9 @@ function pack(project, ci) {
   const artifact = join(destination, result.filename);
   writeFileSync(`${artifact}.json`, JSON.stringify({ name: result.name, version: result.version,
     integrity: result.integrity, sha256: createHash("sha256").update(readFileSync(artifact)).digest("hex"),
-    purpose: ci ? "ci-release" : "development", commit: ci ? process.env.GITHUB_SHA : null }, null, 2) + "\n");
+    purpose: ci ? "ci-release" : "development", commit: ci ? ciSourceCommit() : null,
+    ...(ci && process.env.VRCP_RECOVERY_TAG ? { recovery: { toolingCommit: process.env.GITHUB_SHA,
+      sourceRun: Number(process.env.GITHUB_RUN_ID), failedRun: recoveryIdentity(process.env.VRCP_RECOVERY_TAG).failedRun } } : {}) }, null, 2) + "\n");
   return artifact;
 }
 

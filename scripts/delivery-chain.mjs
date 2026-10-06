@@ -477,7 +477,9 @@ export async function readNetworkDistribution(version, workspace = root, api = g
   const runId = sourceRunID(link, repository);
   const run = await api(`${base}/actions/runs/${runId}`);
   const jobs = await api(`${base}/actions/runs/${runId}/jobs?per_page=100`);
-  if (!Array.isArray(jobs.jobs) || jobs.total_count >= 100 || run.head_sha !== receipt.commit ||
+  const recovery = run.event === "workflow_dispatch" ? await checkRecoveryRun(run, recoveryIdentity(tag, workspace), api) : null;
+  if (recovery) checkRecoveryReceipts(files, recovery);
+  if (!Array.isArray(jobs.jobs) || jobs.total_count >= 100 || (recovery?.commit ?? run.head_sha) !== receipt.commit ||
       run.status !== "completed" || run.conclusion !== "success") {
     throw new Error("Network CI source or jobs differ from its receipt");
   }
@@ -516,7 +518,7 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
   const release = selected.product === "worker" ? null : await api(`${base}/releases/tags/${encodeURIComponent(tag)}`, true);
   const attachedRun = /\[Checked CI run\]\(([^)]+)\)/.exec(release?.body ?? "")?.[1];
   let recoveryProof;
-  if (selected.product === "crawler" && attachedRun && sourceRunID(attachedRun, repository) !== String(run.id)) {
+  if (attachedRun && sourceRunID(attachedRun, repository) !== String(run.id)) {
     const recovered = await api(`${base}/actions/runs/${sourceRunID(attachedRun, repository)}`);
     const identity = recoveryIdentity(tag, workspace);
     if (identity.commit !== selected.commit || identity.tagObject !== selected.tagObject) throw new Error("Recovery source differs from the checked tag.");

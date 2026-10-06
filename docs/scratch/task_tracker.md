@@ -11,6 +11,11 @@
 - The CLI fixture now supplies only its historical config reads and runs Node directly. It no longer requires old Git objects in shallow CI.
 - Full configured readback passed six paths. Network 2026.10.4, desktop preview 26.10.5-pre and crawler release 0.0.7 lack publication proof.
 - Syntax and whitespace checks passed. DELIVERY prose score: 1.40 issues per 100 words. Allocation/recovery grouped checks are running.
+- Allocation checks passed 30 cases. The first recovery run exposed a Windows preload-path error. The corrected recovery suite passed 10 cases / 119 assertions.
+- Live API readback confirms both failed preview runs completed with zero artifacts and skipped release jobs.
+- Recovery now permits only the two exact preview identities in the manifest, plus the existing crawler identity. Receipts bind source, main tooling and run IDs.
+- Existing network and desktop workflows gain explicit main-only recovery dispatches. Restore delivery tooling only, not product source or version configs.
+- Hosted recovery remains unverified. Next: check attachment/notification boundaries, push checked tooling to main, then exercise both root recovery commands.
 - Recovery counts as half a pass. Each enabled path then needs a root patch bump and a green real chain with applicable artifacts and approvals.
 - Do not mark main signed off from recovered snapshots alone. Website remains disabled and Worker release remains build-only.
 

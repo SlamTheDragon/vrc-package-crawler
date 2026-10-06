@@ -3,15 +3,17 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { recoveryIdentity, recoveryRunMatches, checkRecoveryRun, checkRecoveryRetry, checkRecoveryReceipts, requireRecoveryCI, ciSourceCommit } from "../scripts/delivery-recovery.mjs";
 import { deliveryTroubleshooting } from "../scripts/delivery-chain.mjs";
 
-function fixture() {
-  const identity = recoveryIdentity("vrcp-crawler/v0.0.6");
+function fixture(tag = "vrcp-crawler/v0.0.6") {
+  const identity = recoveryIdentity(tag);
+  const workflow = { crawler: "node-docker", network: "network", "crawler-client": "node-client" }[identity.product];
   const toolingCommit = "a".repeat(40);
   const run = { id: 99, event: "workflow_dispatch", head_branch: "main", head_sha: toolingCommit,
-    head_repository: { full_name: identity.repository }, path: ".github/workflows/node-docker.yml",
-    display_title: `Recover crawler ${identity.tag}`, actor: { type: "User", login: "SlamTheDragon" } };
+    head_repository: { full_name: identity.repository }, path: `.github/workflows/${workflow}.yml`,
+    display_title: `Recover ${identity.product} ${identity.tag}`, actor: { type: "User", login: "SlamTheDragon" } };
   const prefix = `/repos/${identity.repository}`;
   const responses: Record<string, any> = {
     [`${prefix}/compare/${toolingCommit}...main`]: { status: "identical", base_commit: { sha: toolingCommit }, merge_base_commit: { sha: toolingCommit } },
@@ -21,7 +23,8 @@ function fixture() {
     [`${prefix}/actions/runs/${identity.failedRun}`]: { event: "push", head_branch: identity.tag, head_sha: identity.commit,
       path: run.path, head_repository: run.head_repository, status: "completed", conclusion: "failure" },
     [`${prefix}/actions/runs/${identity.failedRun}/jobs?per_page=100`]: { total_count: 2,
-      jobs: [{ name: "route", conclusion: "failure" }, { name: "build-linux", conclusion: "skipped" }] },
+      jobs: [{ name: identity.product === "crawler" ? "route" : "build", conclusion: "failure" },
+        { name: "release-assets", conclusion: "skipped" }] },
     [`${prefix}/actions/runs/${identity.failedRun}/artifacts?per_page=100`]: { total_count: 0, artifacts: [] },
   };
   const api = async (path: string) => {
@@ -50,6 +53,25 @@ test("recovery binds an owner-dispatched main attempt to reviewed tooling and th
     { actor: { type: "User", login: "other" } }, { head_repository: { full_name: "fork/repo" } } ]) {
     expect(recoveryRunMatches({ ...f.run, ...changes }, f.identity)).toBe(false);
     await expect(checkRecoveryRun({ ...f.run, ...changes }, f.identity, f.api)).rejects.toThrow("owner on reviewed main");
+  }
+});
+
+test("exact preview recoveries retain failed source and reject changed stages or outputs", async () => {
+  for (const tag of ["vrcp-network/v2026.10.4", "vrcp-crawler-client/v26.10.5-pre"]) {
+    const f = fixture(tag);
+    const proof = await checkRecoveryRun(f.run, f.identity, f.api);
+    expect(proof.commit).toBe(f.identity.commit);
+    expect(proof.tagObject).toBe(f.identity.tagObject);
+    const name = f.identity.product === "network" ? `vrc-packages-network-${f.identity.version}.tgz.json` : "crawler-client.receipt.json";
+    const receipt = { commit: proof.commit, recovery: { toolingCommit: proof.toolingCommit,
+      sourceRun: proof.recoveryRun, failedRun: proof.failedRun } };
+    const files = new Map([[name, Buffer.from(JSON.stringify(receipt))]]);
+    expect(() => checkRecoveryReceipts(files, proof)).not.toThrow();
+    receipt.recovery.toolingCommit = "b".repeat(40);
+    expect(() => checkRecoveryReceipts(new Map([[name, Buffer.from(JSON.stringify(receipt))]]), proof)).toThrow();
+    f.responses[`${f.prefix}/actions/runs/${f.identity.failedRun}/jobs?per_page=100`].jobs[1].conclusion = "success";
+    await expect(checkRecoveryRun(f.run, f.identity, f.api)).rejects.toThrow("no publication");
+    expect(recoveryRunMatches({ ...f.run, head_branch: "preview" }, f.identity)).toBe(false);
   }
 });
 
@@ -150,7 +172,7 @@ childProcess.execFileSync = function(file, args, options) {
 syncBuiltinESMExports();
 globalThis.fetch = async () => new Response("{}", {status: 503});
 `);
-    const result = spawnSync("node", ["--import", preload, "scripts/delivery-recovery.mjs", "vrcp-crawler/v0.0.6"],
+    const result = spawnSync("node", ["--import", pathToFileURL(preload).href, "scripts/delivery-recovery.mjs", "vrcp-crawler/v0.0.6"],
       { encoding: "utf8", timeout: 20_000, env: { ...process.env, GH_TOKEN: "", GITHUB_TOKEN: "" } });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(1);

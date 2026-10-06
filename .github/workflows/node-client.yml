@@ -1,8 +1,15 @@
 name: Build & Publish Crawler Client
+run-name: ${{ inputs.recovery-tag && format('Recover crawler-client {0}', inputs.recovery-tag) || github.ref_name }}
 
 # Independent Windows shell build. No bundled crawler or updater contract is implied.
 
 on:
+  workflow_dispatch:
+    inputs:
+      recovery-tag:
+        description: Exact authorized failed tag. Preserve its product source and version.
+        type: string
+        required: true
   push:
     tags: ['vrcp-crawler-client/v*']
 permissions:
@@ -11,6 +18,7 @@ permissions:
   pull-requests: read
 env:
   GH_TOKEN: ${{ github.token }}
+  VRCP_RECOVERY_TAG: ${{ inputs.recovery-tag || '' }}
 jobs:
   build:
     runs-on: windows-latest
@@ -22,8 +30,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.recovery-tag || github.ref }}
           fetch-depth: 0
+      - name: Restore reviewed recovery tooling only
+        if: inputs.recovery-tag != ''
+        run: git restore --source="$GITHUB_SHA" --worktree --no-overlay -- scripts tests package.json .github
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -36,9 +47,11 @@ jobs:
           project: crawler-client
       - run: bun install --no-save --ignore-scripts
       - id: route
-        run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
+        run: node scripts/delivery.mjs tag "${VRCP_RECOVERY_TAG:-$GITHUB_REF_NAME}"
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
       - run: bun test ./tests
+        env:
+          VRCP_RECOVERY_TAG: ''
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' crawler-client --ci
       - run: bun run --cwd src-crawler-client check
       - run: node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' crawler-client --ci
@@ -58,4 +71,6 @@ jobs:
       actions: read
       pull-requests: read
     uses: ./.github/workflows/release-assets.yml
+    with:
+      tag: ${{ inputs.recovery-tag || '' }}
 # ensure output only expose msi installer or exe installer if ever defined, if not, set up build configs in related source code

@@ -1,14 +1,32 @@
 name: Internal network tagged artifact
+run-name: ${{ inputs.recovery-tag && format('Recover network {0}', inputs.recovery-tag) || github.ref_name }}
 on:
+  workflow_dispatch:
+    inputs:
+      recovery-tag:
+        description: Exact authorized failed tag. Preserve its product source and version.
+        type: string
+        required: true
   push:
     tags: ['vrcp-network/v*']
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
+env:
+  GH_TOKEN: ${{ github.token }}
+  VRCP_RECOVERY_TAG: ${{ inputs.recovery-tag || '' }}
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.recovery-tag || github.ref }}
+          fetch-depth: 0
+      - name: Restore reviewed recovery tooling only
+        if: inputs.recovery-tag != ''
+        run: git restore --source="$GITHUB_SHA" --worktree --no-overlay -- scripts tests package.json .github
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -20,9 +38,11 @@ jobs:
           project: network
       - run: bun install --no-save --ignore-scripts
       - id: route
-        run: node scripts/delivery.mjs tag "$GITHUB_REF_NAME"
+        run: node scripts/delivery.mjs tag "${VRCP_RECOVERY_TAG:-$GITHUB_REF_NAME}"
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
       - run: bun test ./tests
+        env:
+          VRCP_RECOVERY_TAG: ''
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' network --ci
       - run: node scripts/delivery.mjs verify '${{ steps.route.outputs.channel }}' network --ci
       - run: node scripts/delivery.mjs pack '${{ steps.route.outputs.channel }}' network --ci
@@ -42,11 +62,13 @@ jobs:
       actions: read
       pull-requests: read
     uses: ./.github/workflows/release-assets.yml
+    with:
+      tag: ${{ inputs.recovery-tag || '' }}
   deployment-record:
     needs: release-assets
     runs-on: ubuntu-latest
     environment:
       name: vrcp-network
-      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.recovery-tag || github.ref_name }}
     steps:
       - run: echo 'Release assets passed the attachment checks.'

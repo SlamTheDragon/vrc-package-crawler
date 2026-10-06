@@ -105,7 +105,7 @@ export async function announceRelease(event, repository, api, download, send) {
   const receipt = readAnnouncementReceipt(await download(matching[0]), matching[0]);
   if (receipt.draft) return { status: "draft-skipped" };
   const source = await api("GET", `/repos/${repository}/actions/runs/${receipt.sourceRun}`);
-  const recovery = source.event === "workflow_dispatch" && source.path === ".github/workflows/node-docker.yml"
+  const recovery = source.event === "workflow_dispatch"
     ? await checkRecoveryRun(source, recoveryIdentity(receipt.tag), path => api("GET", path)) : null;
   if (source.status !== "completed" || source.conclusion !== "success" || (recovery?.commit ?? source.head_sha) !== receipt.commit ||
       (notified.path !== ".github/workflows/release-assets.yml" && notified.id !== receipt.sourceRun)) throw new Error("Original release workflow is not green");
