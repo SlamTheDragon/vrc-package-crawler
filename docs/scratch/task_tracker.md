@@ -4,7 +4,9 @@
 
 Owner resumed job execution after this handover. SDK release finalization plan passed on synchronized main.
 Execution pushed `vrcp-api/v0.0.6` at PR #13's exact merged commit `2b3c4175f29247721d17f06ef5df917c521f1da6`.
-Tag object: `c4375001a753b6f9f2ab2f05d5baa3674b1580d0`. Hosted run `37492006796` reports build in progress.
+Tag object: `c4375001a753b6f9f2ab2f05d5baa3674b1580d0`. Hosted run `37492006796` passed its build and awaits `vrcp-api-release` approval.
+The exact-run approval attempt returned HTTP 403: `Resource not accessible by personal access token`. No protection setting changed.
+Owner action: approve that environment on https://github.com/SlamTheDragon/vrc-packages/actions/runs/37492006796 . npm staging approval follows separately.
 Next: inspect that same run, complete its protected publication gate and owner npm stage approval, then check public artifact proof.
 Do not repeat finalization or allocate another SDK release. Network advancement still waits for this producer proof.
 
