@@ -14,6 +14,18 @@
 Working theory: one root allocator can serve local and App-triggered previews without duplicate version logic.
 The prior direct main commit/tag push could not satisfy reviewed-main protection.
 
+Active owner-requested slice: propagate protected-main behavior into AGENTS, lifecycle rule 01 and agent/human delivery procedures.
+Main ruleset 24553134 now requires PRs and blocks deletion/force pushes, with zero required approvals and no bypass actors.
+Each slice stays a local commit. A checked gate permits a task-branch push, not a direct main write or agent merge.
+Supply an owner comparison link if PR creation is unavailable. Do not expand permissions or disable protection.
+The owner merged initializer PR #1 into main at 4a89ca2. Hosted initialization remains unverified.
+The independent lazy logger branch remains local and unpushed. Its grouped checks passed 140 tests / 860 assertions, types and the development binary; root runtime-path sign-off remains open.
+Tag protections still need separate immutable-tag and stable-creation rulesets. No tag or repository setting changed in this slice.
+Lifecycle docs are pushed on codex/main-protection-rules. Writing scores: agent procedure 1.07, Delivery 1.54 issues per 100 words.
+The repository-wide link/layout check failed on 10 existing findings outside the changed links. Do not record a full docs pass.
+Findings include stale recovery-skill references, upstream skill links, CONTRIBUTING.md and a removed node protocol path. Repair separately before final sign-off.
+PR #2 conflict repair retains the lifecycle and initializer checkpoints. Its diff against merged main remains documentation-only.
+Whitespace and unresolved-conflict checks passed. No runtime, version, tag, deployment or protection setting changed.
 Active initialization slice: a root command uses the distributed preview SDK for explicit autoSeed false, then a catalog read.
 Plan by default. Execution requires the dedicated main-ref manual workflow and the existing cloudflare-preview secret scope.
 Use one fixed approved preview origin. Reject redirects and bound time/body size. Never print server errors or operator credentials.
@@ -24,8 +36,8 @@ Published preview SDK 2026.10.5-pre passed explicit-false DTO, authenticated ini
 The first distribution check caught require.resolve selecting unsupported CommonJS exports. Bun now resolves the ESM package.
 Both root and product planning commands passed without network calls. No initializer executed remotely.
 Use a promotion branch and manual PR merge for these changes. Do not push them directly to main during protection setup.
-Checked branch codex/preview-worker-init is pushed at 275173e. The connector rejected PR creation with 403.
-Owner next action: open the branch comparison against main, inspect the changes, and create/merge the promotion PR manually.
+The owner created and merged initializer PR #1 after the connector rejected PR creation with 403.
+Owner next action: allow the manual initializer's main ref in cloudflare-preview, then run the guarded initializer.
 Do not expand the preview App's permissions to resolve this connector limitation. No main, tag or D1 write ran.
 
 Active release slice: prepare one config-derived metadata commit on a dedicated promotion branch, without a tag or main write.
@@ -139,7 +151,7 @@ Seven distributed-product deployment links passed. Worker links remain deferred 
 6. Complete main protection and owner fresh-clone proof before sign-off. Never bypass reviews.
 7. Fix the default node logger path before root-output sign-off. Existing root logs predate this gate and remain untouched.
 
-Public metadata rechecked after the hosted diagnostic on 2026-10-06 still showed unprotected main and no rulesets.
+Earlier metadata showed unprotected main. Latest read on 2026-10-06 confirms active main-guard ruleset 24553134, without bypass actors.
 Desktop preview/network lacked selected-ref restrictions. No settings changed.
 The shell has no gh executable. Credential extraction was rejected and not retried.
 

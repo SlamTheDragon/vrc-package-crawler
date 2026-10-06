@@ -38,7 +38,11 @@ Every task must strictly adhere to the following sequence of rules:
    - Preserve unrelated owner edits. Commit only the slice's files unless the owner explicitly requests a combined checkpoint.
    - Implement the capability gate or related gate group before running its checks and checkpoint write-ups.
    - Keep incomplete changes marked unverified. Run the relevant tests, typechecks and runtime/build checks together at that checkpoint.
-   - When the gate passes, commit its evidence and push the checked commits through the authorized branch or reviewed promotion path.
+   - When the gate passes, commit its evidence and push the checked commits to the task branch.
+   - Main requires a promotion PR and the owner's manual review and merge. Do not push source or evidence commits directly to main.
+   - If a connector cannot create the PR, supply a comparison link. Do not expand credentials or bypass protection to finish the gate.
+   - Never disable rulesets, add a bypass, force-push main or merge for the owner. A gate pass authorizes a branch push, not a merge.
+   - After promotion, fetch and inspect the merged main commit before release preparation or tag-only finalization.
    - A slice commit alone does not authorize a tag, publication or deployment. Preserve protected-main and product release approvals.
 
 6. **Practice delivery at capability milestones (R57-C57B)**:
