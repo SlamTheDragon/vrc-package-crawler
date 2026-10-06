@@ -18,7 +18,11 @@
 - Cause: the tagged SDK config selects 2026.10.5-pre, but registry latest selects 2026.10.6-pre. The config guard correctly refused it.
 - Working theory: authorize that exact preparation-only failure for manual recovery. Existing recovery tooling pins the tagged SDK version.
 - The new recipe checks both failed preparation steps and skipped later steps. It retains original source, version, tag and release approvals.
-- Next: check the complete recovery gate, push tooling to main and execute the root recovery command. Publication remains unverified.
+- Independent review tightened cleanup names, ordered step numbers and preparation-only retry checks. The final review found no remaining blocker.
+- Final recovery/attachment/announcement checks passed 37 tests / 500 assertions. The earlier long run mixed superseded code with newer fixtures.
+- Its 31 unchanged chain cases passed, but its mixed-state recovery failure is not a clean gate result. The final-source recovery rerun passed.
+- All 374 document-link checks, syntax and whitespace checks passed. DELIVERY prose score: 1.47 issues per 100 words.
+- Next: push checked tooling to main and execute the root recovery command. Hosted publication remains unverified.
 - Then advance SDK preview/release, network and consumers in that order. Network peer bounds change when SDK metadata synchronizes.
 - Each of the nine enabled paths needs next-patch chain proof, applicable bytes, dependency identities, deployment links and terminal notifications.
 - Check GHCR independently for crawler delivery. Worker release is build-only without production deployment or Release assets. Website remains disabled.

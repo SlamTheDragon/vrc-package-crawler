@@ -14,6 +14,27 @@ const sha = value => /^[a-f0-9]{40}$/.test(value ?? "");
 const git = (workspace, ...args) => execFileSync("git", args, {
   cwd: workspace, encoding: "utf8", timeout: 30_000, stdio: "pipe" });
 
+function dependencyPreparationFailed(jobs) {
+  const expected = new Map([["route", "success"], ["build-linux", "failure"],
+    ["standalone-windows", "failure"], ["publish-container", "skipped"], ["release-assets", "skipped"]]);
+  return jobs.length === expected.size && jobs.every(job => {
+    if (expected.get(job.name) !== job.conclusion || !expected.delete(job.name)) return false;
+    if (!["build-linux", "standalone-windows"].includes(job.name)) return true;
+    const steps = job.steps;
+    if (!Array.isArray(steps) || !steps.length || steps.some((step, index) =>
+      !Number.isSafeInteger(step.number) || step.number < 1 || index > 0 && step.number <= steps[index - 1].number)) return false;
+    const prepareName = "Run node scripts/delivery.mjs prepare 'release' crawler --ci";
+    const failures = steps.filter(step => step.conclusion === "failure");
+    const prepare = failures[0];
+    const cleanup = job.name === "build-linux" ? "Post Checkout repository" : "Post Run actions/checkout@v4";
+    return failures.length === 1 && prepare.name === prepareName && prepare.number > 1 &&
+      steps.filter(step => step.name === prepareName).length === 1 &&
+      steps.every(step => step.status === "completed" &&
+        (step.number < prepare.number ? step.conclusion === "success" : step.number === prepare.number ? step === prepare :
+          [cleanup, "Complete job"].includes(step.name) ? step.conclusion === "success" : step.conclusion === "skipped"));
+  });
+}
+
 export function recoveryIdentity(tag, workspace = root) {
   const manifest = JSON.parse(readFileSync(resolve(workspace, manifestPath), "utf8"));
   const identity = Object.hasOwn(manifest.tags ?? {}, tag ?? "") ? manifest.tags[tag] : undefined;
@@ -76,20 +97,7 @@ export async function checkRecoveryRun(run, identity, api = readGitHubAPI()) {
   }
   let failedStageMatches;
   if (identity.failedStage === "dependency-prepare") {
-    const expected = new Map([["route", "success"], ["build-linux", "failure"],
-      ["standalone-windows", "failure"], ["publish-container", "skipped"], ["release-assets", "skipped"]]);
-    failedStageMatches = workflowJobs.length === expected.size && workflowJobs.every(job => {
-      if (expected.get(job.name) !== job.conclusion || !expected.delete(job.name)) return false;
-      if (!["build-linux", "standalone-windows"].includes(job.name)) return true;
-      const steps = job.steps;
-      const failures = Array.isArray(steps) ? steps.filter(step => step.conclusion === "failure") : [];
-      const prepare = failures[0];
-      return failures.length === 1 && prepare.name === "Run node scripts/delivery.mjs prepare 'release' crawler --ci" &&
-        Number.isSafeInteger(prepare.number) && prepare.number > 1 &&
-        steps.every(step => step.status === "completed" && Number.isSafeInteger(step.number) &&
-          (step.number < prepare.number ? step.conclusion === "success" : step.number === prepare.number ? step === prepare :
-            /^(?:Post |Complete job$)/.test(step.name) ? ["success", "skipped"].includes(step.conclusion) : step.conclusion === "skipped"));
-    });
+    failedStageMatches = dependencyPreparationFailed(workflowJobs);
   } else {
     const failedJob = identity.product === "crawler" ? "route" : "build";
     failedStageMatches = workflowJobs.some(job => job.name === failedJob && job.conclusion === "failure") &&
@@ -157,7 +165,8 @@ export async function checkRecoveryRetry(attempts, identity, toolingCommit, api 
         !jobs.jobs.some(job => job.conclusion === "failure") ||
         jobs.jobs.some(job => !["success", "failure", "skipped"].includes(job.conclusion)) ||
         jobs.jobs.some(job => /publish|release-assets|attach|announce/i.test(job.name) && job.conclusion !== "skipped") ||
-        artifacts.total_count !== 0 || !Array.isArray(artifacts.artifacts) || artifacts.artifacts.length !== 0) {
+        artifacts.total_count !== 0 || !Array.isArray(artifacts.artifacts) || artifacts.artifacts.length !== 0 ||
+        identity.failedStage === "dependency-prepare" && !dependencyPreparationFailed(jobs.jobs)) {
       throw new Error("Retry cannot rebuild an attempt with outputs, publication activity or incomplete evidence.");
     }
   }

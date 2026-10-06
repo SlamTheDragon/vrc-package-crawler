@@ -108,7 +108,11 @@ test("crawler dependency recovery permits only the exact output-free preparation
     { name: "Post Checkout repository", number: 20, status: "completed", conclusion: "success" }
   ];
   const jobs = [ { name: "route", conclusion: "success" },
-    ...["build-linux", "standalone-windows"].map(name => ({ name, conclusion: "failure", steps: structuredClone(steps) })),
+    ...["build-linux", "standalone-windows"].map(name => {
+      const cloned = structuredClone(steps);
+      if (name === "standalone-windows") cloned[3].name = "Post Run actions/checkout@v4";
+      return { name, conclusion: "failure", steps: cloned };
+    }),
     { name: "publish-container", conclusion: "skipped" }, { name: "release-assets", conclusion: "skipped" } ];
   f.responses[path] = { total_count: jobs.length, jobs };
   expect((await checkRecoveryRun(f.run, f.identity, f.api)).failedStage).toBe("dependency-prepare");
@@ -119,12 +123,25 @@ test("crawler dependency recovery permits only the exact output-free preparation
     (j: any[]) => { j[1].steps = undefined; },
     (j: any[]) => { j[4].conclusion = "success"; },
     (j: any[]) => { j[0].conclusion = "failure"; },
-    (j: any[]) => { j[2].name = "build-linux"; }
+    (j: any[]) => { j[2].name = "build-linux"; },
+    (j: any[]) => { j[1].steps[3].name = "Post Build product"; },
+    (j: any[]) => { j[1].steps[2].number = 8; },
+    (j: any[]) => { j[1].steps[0].number = 0; },
+    (j: any[]) => { j[1].steps.reverse(); },
+    (j: any[]) => { j[1].steps[2].name = steps[1].name; }
   ]) {
     const changed = structuredClone(jobs); mutate(changed);
     f.responses[path] = { total_count: changed.length, jobs: changed };
     await expect(checkRecoveryRun(f.run, f.identity, f.api)).rejects.toThrow("no publication");
   }
+  f.responses[path] = { total_count: jobs.length, jobs };
+  const retryJobsPath = `${f.prefix}/actions/runs/99/jobs?per_page=100`;
+  f.responses[retryJobsPath] = structuredClone(f.responses[path]);
+  f.responses[`${f.prefix}/actions/runs/99/artifacts?per_page=100`] = { total_count: 0, artifacts: [] };
+  const attempt = { ...f.run, status: "completed", conclusion: "failure" };
+  expect(await checkRecoveryRetry([attempt], f.identity, "b".repeat(40), f.api)).toEqual([99]);
+  f.responses[retryJobsPath].jobs[1].steps[1].name = "Build product";
+  await expect(checkRecoveryRetry([attempt], f.identity, "b".repeat(40), f.api)).rejects.toThrow("publication activity");
 });
 
 test("recovery rejects changed authorization, missing ancestry, prior builds and partial artifacts", async () => {

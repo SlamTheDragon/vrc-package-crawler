@@ -204,7 +204,7 @@ It does not reset data or migrate an existing schema. Keep main and workflow pro
 | Preview approval switches | Removed. Release switches, reviews and byte checks remain. Local root checks passed 118 tests and 1869 assertions. | Automatic preview publication after successful checks. No preview approval switch. |
 | Branches | Metadata PR preparation, tag-only finalization and CI source fixtures passed locally. Hosted transition remains open. | Any synchronized preview branch. Main-only gated releases after owner-reviewed promotion. |
 | Preview GitHub App | Hosted diagnostic 37406552782 passed without allocation. Worker preview 2026.10.7-pre passed App allocation, tag CI and original byte checks on main. | Check a synchronized non-main branch and reviewed release promotion. No merge or release-approval bypass. |
-| `--execute` | Required; without it the command only plans | Unchanged unless the owner decides otherwise |
+| `--execute` | Required. Without it the command only plans | Unchanged unless the owner decides otherwise |
 
 ---
 
@@ -231,7 +231,7 @@ If both configs have the same version for a product, routing fails. Fix that bef
 | `vrcp-crawler-client/v` | `node-client.yml` | `vrcp-crawler-client-preview` / `vrcp-crawler-client-release` |
 | `cloudflare-worker/v` | `cloudflare-worker.yml` | `cloudflare-preview` / none |
 | `vrcp-network/v` | `network.yml` | `vrcp-network` |
-| `web/v` | no workflow; website delivery deferred | disabled |
+| `web/v` | no workflow. Website delivery deferred | disabled |
 
 `release-assets.yml` attaches checked CI outputs to the Release page. It does not rebuild.
 `release-announcements.yml` posts to Discord (`DISCORD_RELEASE_WEBHOOK`, `DISCORD_PREVIEW_WEBHOOK`) for package, crawler and crawler-client.
@@ -256,7 +256,7 @@ Preview SDK uses OIDC with no npm token. GHCR uses `GITHUB_TOKEN`.
 Generate `OPERATOR_TOKEN` locally (64 hex chars) and do not print it:
 `node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))" | Set-Clipboard`
 
-Worker IDs: production `vrc-package-crawler` / D1 `722bdd0d-92ca-445b-9319-da0b27adf7b2`;
+Worker IDs: production `vrc-package-crawler` / D1 `722bdd0d-92ca-445b-9319-da0b27adf7b2`.
 preview `vrc-package-crawler-preview` / D1 `vrcp-preview-d1` `fbef6ce1-4145-45ae-ae91-5d617a1f2672`.
 
 ### Preview App setup
