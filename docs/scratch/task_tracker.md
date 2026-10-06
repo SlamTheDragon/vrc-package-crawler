@@ -1,5 +1,119 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
+## Owner handover — start here (2026-10-06)
+
+Main delivery sign-off remains open. No new publication or allocation ran during this handover.
+The sections below this handover retain earlier evidence. Their older next steps are not current instructions.
+
+### Current checkout and approvals
+
+- Main is at `2b3c4175f29247721d17f06ef5df917c521f1da6`, the owner-merged SDK release PR #13.
+- PR #13 changes only the release config, SDK manifest and network manifest. SDK release now declares `0.0.6`.
+- Untracked `docs/changelogs/` files belong to the owner. They were not staged, read or removed for this checkpoint.
+- Preview execution commits all nonignored pending files. Inspect that list before execution, especially the new changelog files.
+- Preview can run on synchronized main or another synchronized branch. Release allocation and finalization remain main-only.
+- Release metadata still needs owner inspection and manual merge. Standing trial approval does not authorize an agent to merge PRs.
+- CI reruns remain manual. Keep tag immutability, protected release environments and owner-approved npm release staging.
+
+### Nine-path evidence and remaining advancement
+
+These are recorded runtime proofs, not nine new checks during this handover. A recovery is half-pass until its next patch passes.
+
+| Path | Configured version | Last checked runtime evidence | Next required trial |
+| --- | --- | --- | --- |
+| API preview | `2026.10.7-pre` | Run `37468577502`: new patch passed after manual failed-job retry. Full root artifact proof passed. | Advancement checked. Retain the readback failure and retry evidence. |
+| API release | `0.0.6` | Public predecessor `0.0.5` checked. Owner merged preparation PR #13. | Finalize merged `0.0.6`, complete npm staging approval, then check public bytes and Release. |
+| Network, single stream | `2026.10.4` | Recovery `37460124422` passed. Four public hashes and archive consumer resolution checked. | Allocate `2026.10.5` after both SDK channels pass. |
+| Crawler preview | `2026.10.6-pre` | Tagged run `37410193664` passed, including binaries, image and attachment. | Allocate `2026.10.7-pre` after the new network archive passes. |
+| Crawler release | `0.0.7` | Recovery `37466559953` passed. Six asset hashes, GHCR, deployment link and Discord checked. | Prepare and owner-merge `0.0.8`, then finalize and check the complete chain. |
+| Crawler Client preview | `26.10.5-pre` | Recovery `37460312551` passed. Five asset hashes and Discord checked. | Allocate `26.10.6-pre` after release SDK `0.0.6` passes. |
+| Crawler Client release | `0.0.4` | Run `37357012826` and protected attachment replay `37454682979` passed. | Prepare and owner-merge `0.0.5`, then finalize and check the complete chain. |
+| Worker preview | `2026.10.7-pre` | Run `37406393578` passed deployment and bundle proof with preview-only D1. | Allocate `2026.10.8-pre` after the new network archive passes. |
+| Worker release build | `0.0.5` | Run `37357069065` passed build-only checks. Production deployment skipped. | Prepare and owner-merge `0.0.6`, then finalize and check build-only proof. |
+
+Website delivery stays disabled. Worker environments get no GitHub Release or downloadable Release assets.
+Crawler and Worker consume preview SDK plus the distributed network archive. Desktop and Web consume release SDK.
+Targets assume the current UTC month remains October 2026. The root allocator determines the actual calendar version.
+
+### Execute the remaining jobs
+
+Use the repository root. Bun loads the ignored root credential file with `--env-file=.env`.
+Do not print credentials or paste them into a command, log, fixture or issue.
+
+1. Inspect `git status --short` and PR #13. Do not prepare API release `0.0.6` a second time.
+2. Check the existing release-finalization plan:
+
+   ```sh
+   bun --env-file=.env run delivery:finalize package 13 2b3c4175f29247721d17f06ef5df917c521f1da6
+   ```
+
+3. Resolve any reported blocker without editing the version configs. Finalization requires a clean checkout that matches origin/main.
+4. If the plan passes, repeat that exact command with `--execute`. It pushes the tag, not another version.
+5. Follow the returned CI link. Complete the protected GitHub approval and approve the exact npm stage when requested.
+6. Check `vrcp-api/v0.0.6` with the command below. A draft Release can await the existing SDK reconciliation workflow.
+7. After SDK release proof passes, plan and execute the network preview delivery:
+
+   ```sh
+   bun --env-file=.env run delivery:check vrcp-api/v0.0.6
+   bun --env-file=.env run delivery:preview network
+   bun --env-file=.env run delivery:preview network --execute
+   ```
+
+8. Check the resulting network tag before dependent builds. Do not assume a successful tag push proves publication.
+9. Allocate consumer previews with `delivery:preview crawler`, `crawler-client` and `worker`. Inspect each plan before adding `--execute`.
+10. Prepare consumer releases with `delivery:release crawler`, `crawler-client` and `worker`, then add `--execute` after each plan passes.
+11. Inspect and manually merge each returned metadata PR. Synchronize main before its matching finalization.
+12. Finalize each release with `delivery:finalize <product> <PR-number> <exact-merged-main-SHA>`, then add `--execute` after its plan passes.
+13. Run `delivery:check <returned-tag>` for every chain. Check image identities, artifacts, dependency versions, deployment URLs and applicable Discord acknowledgements.
+14. Run the all-path commands below. Record failures, not just successful paths.
+
+   ```sh
+   bun --env-file=.env run delivery:diagnose:all
+   bun --env-file=.env run delivery:check:all
+   bun --env-file=.env run cache:check
+   bun run clean all
+   bun run reset all
+   ```
+
+The last two commands are dry-run plans without execution flags. Do not add deletion flags during delivery proof.
+Allocate sequentially in this checkout. Hosted builds can run in parallel after their required producer proofs pass.
+Do not run standalone version-sync commands as a substitute for root delivery. They can leave an incomplete metadata transition.
+If a preparation head is missing locally, fetch `refs/pull/<PR-number>/head`. Never finalize a PR test-merge SHA.
+
+### Blockers and failure procedures
+
+- SDK `0.0.6` finalization and hosted publication remain pending. A handover diagnostic failed at Git rev-parse before remote proof.
+- That diagnostic failure does not prove a publication failure. The tag is not yet locally resolved. Use the finalization plan first.
+- The GitHub connector previously refused PR creation with HTTP 403. Open the root executor's comparison link manually if necessary.
+- An exact protected-deployment approval request returned HTTP 403. Read/write Actions access does not imply Deployments: write access.
+- The owner subsequently approved the crawler gate externally. Check the next gate rather than assuming the local PAT permission changed.
+- `delivery:retry <tag>` retries Git delivery only. It does not rerun CI or allocate another version.
+- For a CI failure, inspect the failed step and existing outputs first. A manual failed-job rerun must retain the same source and version.
+- Stop on different bytes, unknown partial publication, auth, provenance or broken tagged tooling. Do not bump past the failed version.
+- `delivery:recover` accepts only exact reviewed identities in `.github/delivery-recoveries.json`. Do not invent a recovery recipe during a retry.
+- Never move a published tag, replace published bytes, disable immutability or add a retry suffix to bypass the advancement guard.
+- Independent CI config-transition enforcement remains open under critical `R58-CONFIG-TAMPER`. Local allocator guards are not tamper-proof security.
+- Non-main preview execution remains a separate runtime proof. Do not claim every-branch delivery solely from a successful main run.
+- Preserve provenance and reconciliation inputs during cleanup. Remote workflow-run deletion still needs exact safe targets.
+- Final sign-off still needs the nine-path advancement matrix, root entry-point checks and reviewed delivery documentation.
+- The owner's fresh clone follows sign-off. Preview D1 initialization and product runtime defects are outside this delivery gate.
+- Delete temporary agent branches only after sign-off. Keep responsibility branches and their evergreen tracking PRs.
+
+### Latest retry and retention evidence
+
+- SDK preview `2026.10.7-pre` initially published, but its bounded registry-readback window failed. No automatic publication retry ran.
+- Before a manual retry, the public tarball matched the original CI archive: 22633 bytes, SHA-256 `bf9ee3e29aa1c7f53129e29e87ed659025093e5ea43b2b2203e3f7aa116e1d97`.
+- Manual rerun of failed job `112286091548` returned HTTP 201. This was not `delivery:recover` or an automatic CI rerun.
+- The retry checked the existing package. It changed no source, version, tag or published bytes. Root full proof then passed.
+- Deployment `6884970200` succeeded. Discord check `112289622295` acknowledged message `1557019077367832631`.
+- Crawler recovery `37466559953` retained tag object `d9788177f481e7317c250e790dd5204ba67c95f0` and source `2e1c6011d1d21c7e7bb3b2a24de9d99575f88030`.
+- GHCR `0.0.7` and `latest` matched manifest `sha256:738d07f45716f8a986b2abccfe641eb4dcd4b17ad83b7d4ce0c1726e4380b814`.
+- Its historical SDK `2026.10.5-pre` and network `2026.10.3` labels are intentional recovery inputs, not current consumer targets.
+- Cache readback measured 2262603737 bytes across 86 caches. Account capacity remains unmeasured. GitHub manages eviction.
+- Cleanup and reset dry runs passed. No database, credential, dependency, build output or cache was deleted.
+- Sanitized security intake is already in the ledgers. Intake completion does not mean security remediation passed.
+- No claim guarantees every future build or publication will pass without failures. Manual diagnosis and immutable evidence remain required.
+
 ## Active gate — same-version recovery, then patch-advance proof (2026-10-06)
 
 - Main permits normal source and preview pushes. Release metadata review, operator approvals and immutable tags remain required.
