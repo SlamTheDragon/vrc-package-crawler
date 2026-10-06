@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import { extractProductChangelog } from "../scripts/changelog.mjs";
 
 test("extractProductChangelog extracts product notes and resets root CHANGELOG", () => {
@@ -53,7 +53,7 @@ test("extractProductChangelog handles network single stream layout", () => {
 
     const result = extractProductChangelog("preview", "network", "2026.10.6", dir);
     expect(result).toBeDefined();
-    expect(result).toContain("docs\\changelogs\\vrcp-packages-network\\2026.10.6.md");
+    expect(normalize(result!)).toContain(normalize("docs/changelogs/vrcp-packages-network/2026.10.6.md"));
 
     const perVersion = readFileSync(result!, "utf8");
     expect(perVersion).toContain("Sync network peer bounds.");
