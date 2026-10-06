@@ -20,8 +20,8 @@ This is the current entry point for agents working in this repository. `DELEGATE
 
 ## Delivery discipline
 
-- Main is protected. Work on a task branch and commit each slice locally. Push a checked gate to that branch, not main.
-- Open a promotion PR and wait for the owner's manual review and merge. If PR creation is unavailable, give the owner a comparison link.
+- Owner update, 2026-10-06: main permits normal source and preview pushes. Commit each slice locally and push checked gates. Preview allocation stays on its current synchronized branch, including main; do not create a branch or require a PR just for preview delivery.
+- Release preparation and finalization remain main-only and require the owner's manually reviewed metadata PR and protected publication approvals. Do not merge or approve for the owner.
 - Do not disable protection, add a bypass, force-push main, or merge a PR on the owner's behalf. A gate pass is not merge approval.
 - After promotion, fetch and inspect merged main before release preparation or finalization. Keep the preview App outside main bypass and release allocation.
 

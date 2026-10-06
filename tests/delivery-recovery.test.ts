@@ -131,8 +131,26 @@ test("the real recovery CLI reaches metadata reads without an unsettled ESM entr
   const directory = mkdtempSync(join(tmpdir(), "vrcp-recovery-cli-"));
   try {
     const preload = join(directory, "offline-metadata.mjs");
-    writeFileSync(preload, 'globalThis.fetch = async () => new Response("{}", {status: 503});\n');
-    const result = spawnSync(process.execPath, ["--import", preload, "scripts/delivery-recovery.mjs", "vrcp-crawler/v0.0.6"],
+    // This entry-point test must not depend on historical objects in a shallow checkout.
+    // Supply only its historical config reads. The production Git reader stays unchanged.
+    const identity = recoveryIdentity("vrcp-crawler/v0.0.6");
+    const configs = Object.fromEntries(["config.versions.json", "config.preview.versions.json"].map(path => {
+      const config = JSON.parse(readFileSync(new URL(`../${path}`, import.meta.url), "utf8"));
+      if (path === "config.versions.json") config["release-crawler"] = "0.0.6";
+      return [`${identity.commit}:${path}`, JSON.stringify(config)];
+    }));
+    writeFileSync(preload, `import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+const original = childProcess.execFileSync;
+const configs = ${JSON.stringify(configs)};
+childProcess.execFileSync = function(file, args, options) {
+  if (file === "git" && args[0] === "show" && Object.hasOwn(configs, args[1])) return configs[args[1]];
+  return original(file, args, options);
+};
+syncBuiltinESMExports();
+globalThis.fetch = async () => new Response("{}", {status: 503});
+`);
+    const result = spawnSync("node", ["--import", preload, "scripts/delivery-recovery.mjs", "vrcp-crawler/v0.0.6"],
       { encoding: "utf8", timeout: 20_000, env: { ...process.env, GH_TOKEN: "", GITHUB_TOKEN: "" } });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(1);

@@ -389,15 +389,13 @@ test("root chain dry-run is read-only; execute atomically commits one config and
     const release = await readFile(resolve(workspace, "config.versions.json"), "utf8");
     const plan = await startDelivery("preview", "network", false, workspace, now, git);
     expect(plan.tag).toBe("vrcp-network/v2026.10.1"); expect(plan.blockers).toEqual([]);
-    expect(plan.previewBranch).toBe("codex/preview/network/v2026.10.1");
+    expect(plan.previewBranch).toBeUndefined();
     expect(git(workspace, "rev-parse", "HEAD")).toBe(before);
     expect(git(workspace, "status", "--porcelain")).toBe("");
     const result = await startDelivery("preview", "network", true, workspace, now, git);
     expect(result.status).toBe("pushed"); expect(result.commit).not.toBe(before);
-    expect(result.branch).toBe(plan.previewBranch);
-    expect(result.mainPromotionRequired).toBe(true);
-    expect(git(workspace, "rev-parse", "main")).toBe(before);
-    expect(git(workspace, "ls-remote", "origin", "refs/heads/main")).toBe(`${before}\trefs/heads/main`);
+    expect(git(workspace, "symbolic-ref", "--short", "HEAD")).toBe("main");
+    expect(git(workspace, "ls-remote", "origin", "refs/heads/main")).toBe(`${result.commit}\trefs/heads/main`);
     expect(git(workspace, "diff", "--name-only", before, result.commit).split("\n")).toEqual([
       "config.preview.versions.json", "src-crawler/package.json", "src-worker/package.json", "src-worker/packages/network/package.json"]);
     const crawler = JSON.parse(await readFile(resolve(workspace, productDirectories.crawler, "package.json"), "utf8"));
@@ -472,7 +470,7 @@ test("preview checkpoints all nonignored pending paths including spaces and rena
     const result = await startDelivery("preview", "network", true, workspace, now, observed);
     expect(result.pendingCheckpoint.paths).toEqual(["new folder/new input.txt", "owner changes.txt", "rename from.txt", "rename to.txt"]);
     const checkpoint = result.pendingCheckpoint.commit;
-    expect(result.pendingCheckpoint.branch).toBe("codex/preview/network/v2026.10.1");
+    expect(result.pendingCheckpoint.branch).toBe("main");
     expect(git(workspace, "rev-parse", `${checkpoint}^`)).toBe(base);
     expect(git(workspace, "rev-parse", `${result.commit}^`)).toBe(checkpoint);
     expect(git(workspace, "show", `${checkpoint}:config.preview.versions.json`)).toBe(previous.trim());
@@ -483,8 +481,8 @@ test("preview checkpoints all nonignored pending paths including spaces and rena
     expect(await readFile(resolve(workspace, "ignored-secret.txt"), "utf8")).toBe("PRIVATE_IGNORED_TEST_VALUE");
     expect(git(workspace, "show", `${result.commit}:unchanged lock.txt`)).toBe("Unchanged tracked input");
     expect(commands.filter(args => args[0] === "push")).toEqual([
-      ["push", "--no-follow-tags", "origin", "HEAD:refs/heads/codex/preview/network/v2026.10.1"],
-      ["push", "--atomic", "--no-follow-tags", "origin", "HEAD:refs/heads/codex/preview/network/v2026.10.1", `refs/tags/${result.tag}`]
+      ["push", "--no-follow-tags", "origin", "HEAD:refs/heads/main"],
+      ["push", "--atomic", "--no-follow-tags", "origin", "HEAD:refs/heads/main", `refs/tags/${result.tag}`]
     ]);
     expect(git(workspace, "ls-remote", "origin", "refs/tags/unrelated-preview-tag")).toBe("");
     expect(commands.filter(args => args[0] === "commit")).toHaveLength(2);
@@ -619,7 +617,7 @@ test("preview rechecks remote freshness after pushing pending files and stops be
     await expect(startDelivery("preview", "network", true, workspace, now, race)).rejects.toThrow("Pending checkpoint pushed; delivery blocked");
     expect(await readFile(resolve(workspace, "config.preview.versions.json"), "utf8")).toBe(versions);
     expect(commands.filter(args => args[0] === "commit")).toHaveLength(1);
-    expect(commands.filter(args => args[0] === "push")).toEqual([["push", "--no-follow-tags", "origin", "HEAD:refs/heads/codex/preview/network/v2026.10.1"]]);
+    expect(commands.filter(args => args[0] === "push")).toEqual([["push", "--no-follow-tags", "origin", "HEAD:refs/heads/main"]]);
     expect(git(workspace, "tag", "--list")).toBe("");
     expect(git(workspace, "status", "--porcelain")).toBe("");
   });

@@ -1,8 +1,22 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
-## Active gate — main-safe preview allocation (2026-10-06)
+## Active gate — same-version recovery, then patch-advance proof (2026-10-06)
 
-- Owner permits preview publication from main through a new delivery branch. Main protection and release approvals remain intact.
+- Owner removed the main PR requirement. API readback returned HTTP 200 with active deletion and non_fast_forward rules only.
+- Normal source and preview pushes can use main. Remove the temporary-preview-branch workaround. Release review and approvals remain required.
+- Owner keeps the advancement guard. Recover network 2026.10.4, desktop preview 26.10.5-pre and prepared crawler release 0.0.7 before advancing.
+- Network run 37456412509 and desktop run 37456518411 failed root checks before publication. Their immutable tags and configured versions remain fixed.
+- Working theory: remove superseded branch logic to fix two fixture failures. The recovery CLI fixture also depends on history missing from shallow CI.
+- Current slice removes the branch workaround and aligns agent instructions. Source and assertions changed, but the grouped gate remains unverified.
+- The CLI fixture now supplies only its historical config reads and runs Node directly. It no longer requires old Git objects in shallow CI.
+- Full configured readback passed six paths. Network 2026.10.4, desktop preview 26.10.5-pre and crawler release 0.0.7 lack publication proof.
+- Syntax and whitespace checks passed. DELIVERY prose score: 1.40 issues per 100 words. Allocation/recovery grouped checks are running.
+- Recovery counts as half a pass. Each enabled path then needs a root patch bump and a green real chain with applicable artifacts and approvals.
+- Do not mark main signed off from recovered snapshots alone. Website remains disabled and Worker release remains build-only.
+
+## Superseded checkpoint — temporary main preview branch
+
+- The owner superseded this temporary branch policy. The following lines describe the earlier exercise, not the current procedure.
 - Working theory: check the configured predecessor's remote publication and artifacts before creating a preview branch or changing version metadata.
 - A main invocation will checkpoint pending source on that branch, allocate one patch and push its tag. No direct main push occurs.
 - Source/config promotion back to main remains owner-reviewed. A stale main config must stop at remote tag checks, not allocate a skipped patch.

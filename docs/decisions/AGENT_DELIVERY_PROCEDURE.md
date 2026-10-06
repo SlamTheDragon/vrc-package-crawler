@@ -3,10 +3,10 @@
 Human steps are in [DELIVERY.md](../source/DELIVERY.md). This file adds only the agent rules.
 
 1. Start every delivery from the root `package.json` scripts. Do not edit `config*.versions.json` by hand.
-   Main is protected. Commit each slice on a task branch. Push only checked gate commits to that branch.
-   Open a promotion PR and wait for the owner's manual inspection and merge.
-   If PR creation fails, supply a comparison link. Do not expand permissions, bypass rules or merge for the owner.
-   Fetch and inspect merged main before a release operation. A gate pass is not permission to write directly to main.
+   Commit each slice locally. Push checked gates to the current synchronized branch, including main.
+   Preview delivery does not create a branch or require a PR. Main retains deletion and force-push protection.
+   Release preparation still requires main and an owner-reviewed metadata PR. Never merge or approve for the owner.
+   Fetch and inspect merged main before release finalization. Do not expand permissions or bypass rules.
 2. Deliver only products whose behavior changed after a capability gate passes. Do not do ceremonial bumps.
 3. Publish producers first: SDK, then network if peer bounds changed, then consumers.
 4. Preview: use `delivery:preview <product> --execute` for crawler, crawler-client, worker, package and network on a synchronized branch.
@@ -17,7 +17,7 @@ Human steps are in [DELIVERY.md](../source/DELIVERY.md). This file adds only the
    A failed pending push retains its commit. Use its exact same-branch recovery command before retrying allocation.
 5. Release: prepare a version PR with `delivery:release <product> --execute` from clean main after reviewed product promotion.
    The owner inspects and merges it. Finalize its exact merged commit with `delivery:finalize <product> <PR> <SHA> --execute`.
-   Do not bypass main protection, merge PRs, write directly to main or allocate releases with the preview App.
+   Do not bypass main protection, merge PRs or allocate releases with the preview App.
    Owner review can use the owner's manual merge. Do not invent a second-reviewer requirement.
    CI and artifact recovery check the original tag-push actor and exact PR metadata. They do not prove human inspection.
    Protect main, release tags and workflow changes. Tag-selected code alone cannot enforce those repository controls.

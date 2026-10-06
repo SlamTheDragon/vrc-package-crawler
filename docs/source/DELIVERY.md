@@ -27,10 +27,9 @@ bun run delivery:check <tag>                   # check published bytes, receipts
 From a product folder, `bun run delivery:preview --execute` does the same thing.
 
 Preview execution prints and commits all nonignored pending files, then pushes that checkpoint before the version commit.
-When started on main, it first creates `codex/preview/<product>/v<version>` after predecessor publication checks pass.
-The command stays on that delivery branch. It never pushes preview source or metadata directly to protected main.
-Preview publication needs no promotion approval. Merge its source and version metadata into main through an owner-reviewed PR later.
-Before another main allocation, synchronize that promotion. A newer remote tag blocks a stale config, even if publication failed.
+The command stays on the current synchronized branch, including main. Preview delivery does not create a branch or require a PR.
+Main permits normal commits. Deletion, force-push and immutable-tag protections remain active.
+A newer remote tag blocks a stale config, even if publication failed.
 The next bump also requires verified remote publication and artifacts for the current configured version. A tag alone is insufficient.
 It rejects stale versions before staging. It rejects pending indexed files that match ignore rules, including force-added files.
 Ignore rules are not a secret scanner. Check the printed paths and maintain the ignore rules before delivery.
@@ -277,7 +276,7 @@ CI release provenance must enforce that boundary too. Missing App credentials fa
 Repository rulesets (Settings → Rules → Rulesets):
 
 - Main: require a PR, block deletion and force pushes, and retain zero required approvals for owner-reviewed manual merges.
-- Never grant the preview App a main bypass. Agents push task branches and wait for owner promotion.
+- Never grant the preview App a ruleset bypass or release authority. Normal source and preview pushes can use synchronized main.
 - Tag ruleset `Immutable delivery tags`: target all tags. Enable Restrict updates and Restrict deletions, with no bypass actors.
 - Keep Restrict creations disabled in that ruleset so new preview tags remain possible.
 - Separate tag ruleset `Stable release creation`: include `vrcp-api/v*`, `vrcp-crawler/v*`, `vrcp-crawler-client/v*` and `cloudflare-worker/v*`.
