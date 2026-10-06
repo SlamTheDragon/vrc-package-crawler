@@ -30,7 +30,7 @@ That smoke was not repeated here. It does not prove arbitrary-host permission, f
 
 Historical bounds were 100 packages, 100 versions per package, 100 diagnostics and 240 KB serialized. Recheck current schemas before using those numbers as an API guarantee. Larger listings need explicit overflow/chunking semantics and lease-safe commits.
 
-The [parity audit](../audits/PROTOTYPE_PARITY.md) owns current code evidence. The [vrc-get note](VRC_GET_ECOSYSTEM_RESEARCH.md) extends format research beyond listings.
+The [parity audit](PROTOTYPE_PARITY.md) owns current code evidence. The [vrc-get note](VRC_GET_ECOSYSTEM_RESEARCH.md) extends format research beyond listings.
 
 ## VPM Catalog discovery lead
 

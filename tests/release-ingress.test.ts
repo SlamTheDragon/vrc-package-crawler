@@ -35,26 +35,30 @@ function fixture(baseline = false) {
   const annotation = `Finalize worker 0.0.2\n\nVRCP-Release-PR: 7\nVRCP-Release-Head: ${head}\nVRCP-Release-Base: ${base}\n`;
   const local = { tagObject, tagType: "tag", peeled: commit, annotation,
     diff: "config.versions.json\nsrc-worker/package.json\n", mergedTree: "e".repeat(40) };
-  const git = (_cwd: string, ...args: string[]) => {
+  const git = (_cwd: string, ...args: string[]) =\u003e {
     if (args[0] === "rev-parse" && args[1] === "--verify") return args[2].endsWith("^{commit}") ? local.peeled : local.tagObject;
     if (args[0] === "cat-file") return args[1] === "-t" ? local.tagType :
       `object ${commit}\ntype commit\ntag ${tag}\ntagger example <synthetic@example.invalid> 0 +0000\n\n${local.annotation}`;
     if (args[0] === "ls-tree") return `100644 blob ${base}\t${args[3]}\n`;
     if (args[0] === "show") {
       const [revision, path] = args[1].split(":");
-      return (revision === base ? before : after)[path];
+      if (Object.hasOwn(revision === base ? before : after, path)) return (revision === base ? before : after)[path];
+      // Per-version changelog files do not exist at the base revision; return empty string to let checkReleaseMetadata skip them cleanly.
+      if (path.startsWith("docs/changelogs/")) return "";
+      return undefined as any;
     }
     if (args[0] === "diff") return local.diff;
     if (args[0] === "rev-parse" && args[1].endsWith("^{tree}")) return args[1].startsWith(commit) ? local.mergedTree : "e".repeat(40);
     throw new Error(`Unexpected Git read: ${args.join(" ")}`);
   };
+
   const responses: Record<string, any> = {
     [`${prefix}/actions/runs/123`]: run,
     [`${prefix}/git/ref/tags/${encodeURIComponent(tag)}`]: { ref: `refs/tags/${tag}`, object: { type: "tag", sha: tagObject } },
     [`${prefix}/git/tags/${tagObject}`]: { sha: tagObject, tag, message: annotation, object: { type: "commit", sha: commit } },
     [pull]: { number: 7, state: "closed", merged: true, draft: false, commits: 1,
       base: { ref: "main", repo: { full_name: repository } },
-      head: { sha: head, ref: "codex/release/worker/v0.0.2", repo: { full_name: repository } },
+      head: { sha: head, ref: "release/candidate/worker/v0.0.2", repo: { full_name: repository } },
       merge_commit_sha: commit, merged_by: actor, user: actor, merged_at: "2026-10-06T12:00:00Z", auto_merge: null },
     [`${pull}/commits?per_page=2`]: [{ sha: head, parents: [{ sha: base }] }],
     [`${prefix}/commits/${head}`]: { sha: head, parents: [{ sha: base }],

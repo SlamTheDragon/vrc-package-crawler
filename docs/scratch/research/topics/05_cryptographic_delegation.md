@@ -1,6 +1,6 @@
 # Cryptographic delegation resource library
 
-Reviewed 2026-10-04; owner direction reconciled 2026-10-06 under R54-C38/G15. Research is not protocol approval. Downstream apps check storefront challenges. The Worker accepts authenticated requests from admitted verifiers for manual operator/staff review, without storefront access or crawler-fleet work. See [the API audit and trust-boundary diagram](../audits/API_CONTRACT_REVIEW.md#delegated-creator-removal--g15-proposal-2026-10-04) and [the decision queue](../../scratch/UNMERGED_IMPLEMENTATION_PLAN.md). Earlier immediate-removal proposals are superseded.
+Reviewed 2026-10-04; owner direction reconciled 2026-10-06 under R54-C38/G15. Research is not protocol approval. Downstream apps check storefront challenges. The Worker accepts authenticated requests from admitted verifiers for manual operator/staff review, without storefront access or crawler-fleet work. See [the API audit and trust-boundary diagram](API_CONTRACT_REVIEW.md#delegated-creator-removal--g15-proposal-2026-10-04) and [the decision queue](UNMERGED_IMPLEMENTATION_PLAN.md). Earlier immediate-removal proposals are superseded.
 
 ## Separate three claims
 

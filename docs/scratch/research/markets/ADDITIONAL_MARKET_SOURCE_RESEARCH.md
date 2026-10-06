@@ -26,7 +26,7 @@ The [merchant terms](https://jellycube.co/pages/terms) concern purchased content
 
 ## Protocol versus coverage
 
-Current source has typed creator_profile, publisher_site and storefront_product leads, plus item anchoring and bounded Shopify product-sitemap parsing. This preserves leads, not verified publisher control or complete traversal. See the [current parity audit](../audits/PROTOTYPE_PARITY.md) rather than older seven/eight-driver counts or “not implemented” statements.
+Current source has typed creator_profile, publisher_site and storefront_product leads, plus item anchoring and bounded Shopify product-sitemap parsing. This preserves leads, not verified publisher control or complete traversal. See the [current parity audit](PROTOTYPE_PARITY.md) rather than older seven/eight-driver counts or “not implemented” statements.
 
 Keep discovery host, avatar, credited author, publisher site, storefront and canonical item separate. A Payhip/Gumroad pair needs explicit equivalence evidence. A merchant's vendor field need not identify the original creator.
 
@@ -38,4 +38,4 @@ Keep discovery host, avatar, credited author, publisher site, storefront and can
 4. Add destination lead-to-job mappings only through coordinator policy. A newly discovered URL is not permission.
 5. Run a metadata-only live smoke only after approved profiles, real robots and lease atomicity work. Record its narrow scope in the task tracker.
 
-Use the [source matrix](PLATFORM-MATRIX.md) and [legal procedure](../topics/03_legal_jurisprudence_and_governance.md). No binary download, private endpoint probing or copied community catalog is part of this intake.
+Use the [source matrix](PLATFORM-MATRIX.md) and [legal procedure](03_legal_jurisprudence_and_governance.md). No binary download, private endpoint probing or copied community catalog is part of this intake.

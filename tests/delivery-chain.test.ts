@@ -351,7 +351,7 @@ test("release preparation lost acknowledgments recover without main writes, tags
       if (args[0] === "push" && lost) { lost = false; throw new Error("Synthetic lost preparation acknowledgment"); }
       return result;
     };
-    const main = git(workspace, "rev-parse", "HEAD"), branch = "codex/release/worker/v0.0.1";
+    const main = git(workspace, "rev-parse", "HEAD"), branch = "release/candidate/worker/v0.0.1";
     await expect(startDelivery("release", "worker", true, workspace, now, flaky)).rejects.toThrow("lost preparation");
     const retained = git(workspace, "rev-parse", "HEAD");
     const retry = await retryReleasePreparation(branch, workspace, git);

@@ -1,6 +1,6 @@
 # Asset indexing safeguards
 
-Reviewed 2026-10-03. This note replaces a historical essay that mixed project safeguards with unsupported legal conclusions. Use the [legal library](topics/03_legal_jurisprudence_and_governance.md) and [platform matrix](markets/PLATFORM-MATRIX.md) for source-specific review. No permission follows from this note.
+Reviewed 2026-10-03. This note replaces a historical essay that mixed project safeguards with unsupported legal conclusions. Use the [legal library](03_legal_jurisprudence_and_governance.md) and [platform matrix](PLATFORM-MATRIX.md) for source-specific review. No permission follows from this note.
 
 | Operation | Project boundary | Check before publishing a promise |
 | --- | --- | --- |
@@ -27,4 +27,4 @@ The previous blanket BOOTH ban, blanket Gumroad ban, token requirement for all G
 
 Retained intent: metadata discovery, canonical outbound attribution, no product binaries, bounded retention, source objections and creator-controlled removal. These remain requirements to verify, not proof that current code enforces them.
 
-For prototype versus current paths, use the [parity audit](audits/PROTOTYPE_PARITY.md). Current implementation risks and ambiguous media/removal decisions are in the [critical ledger](../scratch/IMPLEMENTATION_PLAN.md).
+For prototype versus current paths, use the [parity audit](PROTOTYPE_PARITY.md). Current implementation risks and ambiguous media/removal decisions are in the [critical ledger](IMPLEMENTATION_PLAN.md).

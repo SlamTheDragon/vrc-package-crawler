@@ -62,7 +62,7 @@ export async function planDelivery(channel, product, workspace = root, now = new
   const branch = git(workspace, "symbolic-ref", "--short", "HEAD");
   const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
   const tag = `${productTagPrefixes[product]}/v${version}`;
-  const releaseBranch = channel === "release" ? `codex/release/${product}/v${version}` : undefined;
+  const releaseBranch = channel === "release" ? `release/candidate/${product}/v${version}` : undefined;
   const blockers = [];
   if (channel === "release" && branch !== "main") blockers.push("Release delivery requires main after reviewed promotion");
   if (git(workspace, "status", "--porcelain")) blockers.push("Worktree or index is dirty");
@@ -187,7 +187,7 @@ export async function startDelivery(channel, product, execute = false, workspace
 
 /** Preparation pushes only its version PR branch. It never writes main or a delivery tag. */
 export async function retryReleasePreparation(branch, workspace = root, git = runGit) {
-  const match = /^codex\/release\/(package|crawler|crawler-client|worker)\/v([0-9][0-9A-Za-z.+-]*)$/.exec(branch ?? "");
+  const match = /^release\/candidate\/(package|crawler|crawler-client|worker)\/v([0-9][0-9A-Za-z.+-]*)$/.exec(branch ?? "");
   if (!match || semver.valid(match[2]) !== match[2] || semver.prerelease(match[2])) throw new Error("Expected an exact release preparation branch");
   if (git(workspace, "symbolic-ref", "--short", "HEAD") !== branch || git(workspace, "status", "--porcelain")) {
     throw new Error("Release preparation retry requires its clean local branch");

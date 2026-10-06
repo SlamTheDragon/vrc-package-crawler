@@ -29,7 +29,7 @@ Do not infer statutory requirements from project preferences. A 24–48 hour ser
 | Payhip | [Terms](https://payhip.com/terms), introduction — retrieved | The reviewed introduction describes a creator business relationship. It does not itself grant this index access or reuse rights. Identify applicable visitor and merchant terms. |
 | Sellfy | [Terms](https://sellfy.com/terms/), user obligations — retrieved | Merchant obligations and public visibility do not establish crawler permission. Per-front terms and field reuse remain open. |
 
-Other platform findings are dated candidates in the [platform matrix](../markets/PLATFORM-MATRIX.md). Research retrieval is not operational approval, even if bootstrap code currently creates a profile.
+Other platform findings are dated candidates in the [platform matrix](PLATFORM-MATRIX.md). Research retrieval is not operational approval, even if bootstrap code currently creates a profile.
 
 ## Procedure: code operation to defensible draft
 
@@ -53,4 +53,4 @@ Other platform findings are dated candidates in the [platform matrix](../markets
 | Anonymous demand | Threshold aggregation is not differential privacy; raw input may identify a person | Review data collection and disclosure separately; remove unsupported privacy labels. |
 | Default source clearance | Bootstrap invents allow snapshots and long-lived grants | Replace bootstrap assumptions with reviewed evidence and real preflight. |
 
-The [critical ledger](../../scratch/IMPLEMENTATION_PLAN.md) owns implementation decisions. Legal findings here do not authorize bypassing authentication, CAPTCHA, blocks, private APIs or product licenses.
+The [critical ledger](IMPLEMENTATION_PLAN.md) owns implementation decisions. Legal findings here do not authorize bypassing authentication, CAPTCHA, blocks, private APIs or product licenses.

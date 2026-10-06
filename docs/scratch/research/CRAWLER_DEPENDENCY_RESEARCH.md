@@ -10,7 +10,7 @@ Review checkpoint: 2026-10-03. The owner supplied [awesome-crawler](https://gith
 | [Crawlee](https://github.com/apify/crawlee) | Historical README/quick-start review | Research only if a narrow component removes code. Its queues, retries, storage and automatic link traversal must not compete with coordinator authority. Node/Bun compatibility and bundle impact need tests. |
 | [node-crawler](https://github.com/bda-research/node-crawler) | Historical README review | Do not adopt its scheduler for network-wide orchestration. Local pacing cannot enforce a fleet-wide budget; HTML parsing overlaps Cheerio. |
 | [Supercrawler](https://github.com/brendonboshell/supercrawler) | Historical README review | Research only. Check maintenance, license, runtime support, transport control and code removed before adoption. |
-| Native Workers/D1 and runtime HTTP APIs | [Infrastructure library](topics/01_crawler_systems_and_infrastructure.md) | Prefer supported runtime capabilities to custom coordinator binaries or compatibility wrappers. Prove storage atomicity separately. |
+| Native Workers/D1 and runtime HTTP APIs | [Infrastructure library](01_crawler_systems_and_infrastructure.md) | Prefer supported runtime capabilities to custom coordinator binaries or compatibility wrappers. Prove storage atomicity separately. |
 
 ## Adoption test
 
@@ -48,7 +48,7 @@ R49 public index parity passes through the real handler and installed SDK. Other
 
 The prior local bundle contained three physical Zod installations and top-level JSON-schema conversion. New ownership edits remain unverified. Measure size and startup separately from runtime correctness at the gate. Do not distribute the whole crawler merely to satisfy Worker imports.
 
-See [capacity and authentication research](topics/01_crawler_systems_and_infrastructure.md#d1-capacity-and-authentication-research) for the owner's four-database scenario. Account-wide quotas, paid allowances and cache consistency require separate review from package distribution.
+See [capacity and authentication research](01_crawler_systems_and_infrastructure.md#d1-capacity-and-authentication-research) for the owner's four-database scenario. Account-wide quotas, paid allowances and cache consistency require separate review from package distribution.
 
 ## Cloudflare panel setup checklist
 

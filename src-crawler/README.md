@@ -1,25 +1,35 @@
 <!-- LOCKED DOCUMENTATION - DO NOT CHANGE -->
 
-# VRCP Crawler Client
+# VRCP Crawler Node
 
-This application provides a client GUI shell to run [crawler nodes](../src-crawler/README.md) on a windows PC. VRC Packages (VRCP) is an open-source discovery and indexing network engine for public VRChat creator packages (Tools, Assets, & Avatars).
+This is a docker image for the VRC Packages Network to run nodes on headless linux machines. VRC Packages (VRCP) is an open-source discovery and indexing network engine for public VRChat creator packages (Tools, Assets, & Avatars).
 
 ---
 
 ## Contributing to our Discovery Crawler Network
 
-Download & Install the latest release found at [Deployments](https://github.com/SlamTheDragon/vrc-packages/deployments)
+This is a Dockerfile with fleet configuration. Image publication, restart recovery and automatic updates are pending.
+
+```bash
+# See latest version at https://github.com/SlamTheDragon/vrc-packages/pkgs/container/vrcp-crawler-node
+docker pull ghcr.io/slamthedragon/vrcp-crawler-node:<VERSION>
+
+# For preview builds, go to https://github.com/SlamTheDragon/vrc-packages/pkgs/container/vrcp-crawler-node-preview
+docker pull ghcr.io/slamthedragon/vrcp-crawler-node-preview:<VERSION>-pre
+```
+
+Review the [Docker runbook](../DELEGATES.md#3-crawler-node-operation--fleet-management) before starting containers. The compose file grants Watchtower access to the host Docker socket.
 
 ---
 
-To read further, see repository documentation at [docs/applications](../docs/applications/VRCP%20Crawler%20Client/).
+To read further, see repository documentation at [docs/applications](../docs/applications/VRCP%20Crawler/).
 
 ---
 
 ## Changelogs
 
 Current changelog lies [here](https://github.com/SlamTheDragon/vrc-packages/blob/main/CHANGELOG.md) <br/>
-Read the full changelog history [here](https://github.com/SlamTheDragon/vrc-packages/tree/main/docs/changelogs/vrcp-crawler-client)
+Read the full changelog history [here](https://github.com/SlamTheDragon/vrc-packages/tree/main/docs/changelogs/vrcp-crawler-node)
 
 ---
 

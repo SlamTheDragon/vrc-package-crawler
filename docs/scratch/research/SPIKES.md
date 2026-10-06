@@ -1,6 +1,6 @@
 # Historical experiments and required revalidation
 
-Reviewed 2026-10-03. These experiments informed the earlier architecture; they do not prove the current Worker/D1 runtime. See the [parity audit](audits/PROTOTYPE_PARITY.md) for current source and reproduced failures.
+Reviewed 2026-10-03. These experiments informed the earlier architecture; they do not prove the current Worker/D1 runtime. See the [parity audit](PROTOTYPE_PARITY.md) for current source and reproduced failures.
 
 | Experiment | Historical evidence | Current interpretation | Next falsifiable check |
 | --- | --- | --- | --- |

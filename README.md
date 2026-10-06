@@ -1,3 +1,5 @@
+<!-- LOCKED DOCUMENTATION - DO NOT CHANGE -->
+
 # VRC Packages (WIP⚠️)
 
 VRC Packages (VRCP) is an open-source discovery and indexing network engine for public VRChat creator packages (Tools, Assets, & Avatars).
@@ -64,6 +66,18 @@ Review the [Docker runbook](DELEGATES.md#3-crawler-node-operation--fleet-managem
 
 ---
 
+## Documentation
+
+### Users
+
+User-guide documentations are outlined on [docs/applications](docs/applications).
+
+### Contributors
+
+See repository documentation at [docs/source](docs/source).
+
+---
+
 ## Prerequisites & Development
 
 Use [the delivery guide](docs/source/DELIVERY.md) for config-driven builds, packed development dependencies and tagged CI paths.
@@ -120,12 +134,6 @@ bun run test:runtime
 
 ---
 
-## Documentation
-
-To read further, see repository documentation at [docs/source](docs/source).
-
----
-
 ## Legal & Compliance
 
 The Project operates under strict technical and legal covenants to safeguard creator rights and target infrastructure:
@@ -142,4 +150,4 @@ Review [LEGAL.md](LEGAL.md) for full operational covenants, governing law, and p
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0) — see [`LICENSE.md`](LICENSE.md) for details.
+This project is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0) - see [`LICENSE.md`](LICENSE.md) for details.

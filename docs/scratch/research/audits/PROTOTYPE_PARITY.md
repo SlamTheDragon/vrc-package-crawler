@@ -93,4 +93,4 @@ These facts supersede broad previous gate-completion claims. Each fix needs a re
 | Assets/avatars alongside tools, scoped source profiles, zero archive downloads | Authorized discovery depth for GitHub/storefronts and author leads | Preserve uncertainty in prices/dates/classification. Do not convert matching labels into verified facts. |
 
 Moving folders alone will not fix these defects. Migration must preserve the tested lease, provenance and policy boundaries.
-Use the [critical ledger](../../scratch/IMPLEMENTATION_PLAN.md) for decisions and the [resource library](../topics/04_curriculum_and_core_philosophies.md) for external evidence.
+Use the [critical ledger](IMPLEMENTATION_PLAN.md) for decisions and the [resource library](04_curriculum_and_core_philosophies.md) for external evidence.

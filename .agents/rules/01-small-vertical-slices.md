@@ -25,7 +25,7 @@ Every task must strictly adhere to the following sequence of rules:
      *(The author comments column must be left blank for user input).*
    - **Scratch constraint**: Keep exactly the three canonical files in `docs/scratch/`. This constraint does not limit source or test files.
    - Select one capability gate or related gate group. Keep source changes within its complete dependency boundary.
-   - **Minimal Scratch Footprint**: The `docs/scratch/` directory must maintain a minimal footprint of only 2–3 files at a time (e.g., `UNMERGED_IMPLEMENTATION_PLAN.md`, `IMPLEMENTATION_PLAN.md` and `task_tracker.md`), merging historical items and conformance evidence into the true canonical ledger and pruning legacy docs.
+   - **Minimal Scratch Footprint**: The `docs/scratch/` directory must maintain a minimal footprint of only 2–3 files at a time and one folder (e.g., `UNMERGED_IMPLEMENTATION_PLAN.md`, `IMPLEMENTATION_PLAN.md` and `task_tracker.md`), merging historical items and conformance evidence into the true canonical ledger and pruning legacy docs.
 
 4. **Pause for author review**:
    - Defer routine review pauses within the owner's granted lifecycle authority. Preserve explicit owner holds and critical undecided contracts.

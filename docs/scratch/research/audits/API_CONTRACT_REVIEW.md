@@ -120,7 +120,7 @@ The owner permits checked pre-0.1 SDK releases. Release 0.0.5 and preview 2026.1
 
 ## Delegated creator removal — G15 proposal, 2026-10-04
 
-Current owner direction, reconciled 2026-10-06: downstream apps check creator challenges. Only trusted, reviewed apps may submit verified takedown requests for manual operator/staff review. This supersedes the earlier immediate-removal proposal. Neither the Worker nor the crawler fleet probes storefronts for this flow. Shared-secret authentication and SDK utilities remain design candidates. [Unmerged slices R54-C38A through C](../../scratch/UNMERGED_IMPLEMENTATION_PLAN.md) retain the remaining decisions.
+Current owner direction, reconciled 2026-10-06: downstream apps check creator challenges. Only trusted, reviewed apps may submit verified takedown requests for manual operator/staff review. This supersedes the earlier immediate-removal proposal. Neither the Worker nor the crawler fleet probes storefronts for this flow. Shared-secret authentication and SDK utilities remain design candidates. [Unmerged slices R54-C38A through C](UNMERGED_IMPLEMENTATION_PLAN.md) retain the remaining decisions.
 
 | Question | Current evidence | Proposed boundary |
 | --- | --- | --- |
@@ -132,7 +132,7 @@ Current owner direction, reconciled 2026-10-06: downstream apps check creator ch
 
 ### Delegated responsibilities
 
-See [the separate cryptographic delegation shelf](../topics/05_cryptographic_delegation.md) for authenticator codes, merchant-style events, scoped authorization and existing services. This audit retains the code-specific gaps.
+See [the separate cryptographic delegation shelf](05_cryptographic_delegation.md) for authenticator codes, merchant-style events, scoped authorization and existing services. This audit retains the code-specific gaps.
 
 | Party | Responsibility | Must not imply |
 | --- | --- | --- |

@@ -6,21 +6,21 @@ Reviewed 2026-10-03. Start with the question under review, not a full curriculum
 
 | Need | Document | Scope |
 | --- | --- | --- |
-| Historical capability versus current runtime | [Prototype parity audit](../audits/PROTOTYPE_PARITY.md) | Source-backed comparison of 09e9dc8 and 3b9d203, reproduced defects, keep/research/change decisions. |
+| Historical capability versus current runtime | [Prototype parity audit](PROTOTYPE_PARITY.md) | Source-backed comparison of 09e9dc8 and 3b9d203, reproduced defects, keep/research/change decisions. |
 | Worker/D1, pacing, recovery and npm | [Infrastructure](01_crawler_systems_and_infrastructure.md) | Primary references, architecture checks and falsifiable tests. |
 | Cryptographic delegation and creator removal | [Delegation patterns](05_cryptographic_delegation.md) | Authenticator codes, payment-webhook checks, app attestations, scoped grants and service/package boundaries. Research, not protocol approval. |
 | Canonical identity, VPM and classification | [Identity](02_entity_resolution_and_ecosystem.md) | Evidence layers, false-merge corpus and field semantics. |
 | Platform terms, statutes and legal drafting | [Legal procedure](03_legal_jurisprudence_and_governance.md) | Authorities, limitations, retrieval procedure and code-to-draft gaps. |
-| Candidate storefront access | [Platform matrix](../markets/PLATFORM-MATRIX.md) | Per-source questions; no blanket or bootstrap approval. |
-| Nexyy, avtr.zip, Payhip, Shopify and custom domains | [Additional market leads](../markets/ADDITIONAL_MARKET_SOURCE_RESEARCH.md) | Publisher/lead boundaries and dated intake. |
-| Apps outside Unity/VPM | [Desktop tools](../markets/DESKTOP_TOOL_DISCOVERY_RESEARCH.md) | Particular VRChat targeting, app/module distinctions and candidate corpus. |
-| Listing builders | [VPM template](../markets/VPM_TEMPLATE_RESEARCH.md) | Recipe versus listing/release evidence and bounded historical smoke. |
-| Client ecosystem | [vrc-get and ALCOM](../markets/VRC_GET_ECOSYSTEM_RESEARCH.md) | Listings versus local project state; no installer/resolver scope. |
-| Asset indexing safeguards | [Asset standards](../ASSET_INDEXING_STANDARDS_RESEARCH.md) | Distilled retention, attribution and removal questions. |
-| Package selection | [Dependency review](../CRAWLER_DEPENDENCY_RESEARCH.md) | Existing packages, candidate overlap and lease-safe integration. |
-| Earlier experiments | [Spikes](../SPIKES.md) | Historical results and what must be revalidated. |
+| Candidate storefront access | [Platform matrix](PLATFORM-MATRIX.md) | Per-source questions; no blanket or bootstrap approval. |
+| Nexyy, avtr.zip, Payhip, Shopify and custom domains | [Additional market leads](ADDITIONAL_MARKET_SOURCE_RESEARCH.md) | Publisher/lead boundaries and dated intake. |
+| Apps outside Unity/VPM | [Desktop tools](DESKTOP_TOOL_DISCOVERY_RESEARCH.md) | Particular VRChat targeting, app/module distinctions and candidate corpus. |
+| Listing builders | [VPM template](VPM_TEMPLATE_RESEARCH.md) | Recipe versus listing/release evidence and bounded historical smoke. |
+| Client ecosystem | [vrc-get and ALCOM](VRC_GET_ECOSYSTEM_RESEARCH.md) | Listings versus local project state; no installer/resolver scope. |
+| Asset indexing safeguards | [Asset standards](ASSET_INDEXING_STANDARDS_RESEARCH.md) | Distilled retention, attribution and removal questions. |
+| Package selection | [Dependency review](CRAWLER_DEPENDENCY_RESEARCH.md) | Existing packages, candidate overlap and lease-safe integration. |
+| Earlier experiments | [Spikes](SPIKES.md) | Historical results and what must be revalidated. |
 
-These shelves are an external-resource library. The [implementation ledger](../../scratch/IMPLEMENTATION_PLAN.md) owns current decisions; [task tracker](../../scratch/task_tracker.md) owns the active slice. Neither a source draft nor a historical research statement can silently override a later owner instruction.
+These shelves are an external-resource library. The [implementation ledger](IMPLEMENTATION_PLAN.md) owns current decisions; [task tracker](task_tracker.md) owns the active slice. Neither a source draft nor a historical research statement can silently override a later owner instruction.
 
 ## Evidence labels
 

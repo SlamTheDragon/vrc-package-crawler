@@ -19,7 +19,7 @@ Owner direction: add a category tag within Tools for desktop/runtime software pa
 
 The September 27 prototype classifier probes found VRCX classified as an OSC companion, VRCFaceTracking under avatar frameworks, ADVOSC as a Unity extension, and a generic SteamVR mount as an OSC app. Their high scores came from keywords, not measured accuracy.
 
-These are historical diagnostic examples, not current classifier results. Retain them as positive, adjacent and negative corpus cases. The [parity audit](../audits/PROTOTYPE_PARITY.md) explains why standalone GitHub ingestion is not yet complete canonical desktop-tool coverage.
+These are historical diagnostic examples, not current classifier results. Retain them as positive, adjacent and negative corpus cases. The [parity audit](PROTOTYPE_PARITY.md) explains why standalone GitHub ingestion is not yet complete canonical desktop-tool coverage.
 
 ## Required evidence
 
@@ -29,4 +29,4 @@ Test app/module pairs, hardware boundaries, forks, generic utilities and unrelat
 
 Before a live adapter, complete host/API/terms/robots and retention/publication review. A default-enabled GitHub capability does not establish desktop-app relevance, safety, installability or source clearance.
 
-Next artifact: a small labeled corpus with provenance and keep/research/defer decisions in the [implementation ledger](../../scratch/IMPLEMENTATION_PLAN.md).
+Next artifact: a small labeled corpus with provenance and keep/research/defer decisions in the [implementation ledger](IMPLEMENTATION_PLAN.md).

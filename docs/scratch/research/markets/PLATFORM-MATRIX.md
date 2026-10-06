@@ -37,6 +37,6 @@ Robots is an independent operational check, not a rights grant. Retrieve actual 
 4. Decide resumption, narrower permission or exclusion with an auditable verdict.
 5. Propagate approved suppression and downstream removal. Test the result.
 
-An unverified complaint must not directly hide another creator's catalog item. The current code violates that separation, as the [audit](../audits/PROTOTYPE_PARITY.md) records.
+An unverified complaint must not directly hide another creator's catalog item. The current code violates that separation, as the [audit](PROTOTYPE_PARITY.md) records.
 
-See the [legal research procedure](../topics/03_legal_jurisprudence_and_governance.md) before drafting assurances. Fixed historical pacing numbers and bootstrap expiry dates do not establish source clearance.
+See the [legal research procedure](03_legal_jurisprudence_and_governance.md) before drafting assurances. Fixed historical pacing numbers and bootstrap expiry dates do not establish source clearance.

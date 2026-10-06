@@ -20,4 +20,4 @@ Repository ID/URL conflicts, yanked status, prerelease selection, redirects, >10
 
 A download URL and checksum are listing claims, not proof that the binary remains reachable, safe or licensed. No private repositories, local Unity projects, client settings or user folders are crawl scope.
 
-Use the [template note](VPM_TEMPLATE_RESEARCH.md) for builder versus listing distinctions and the [parity audit](../audits/PROTOTYPE_PARITY.md) for current runtime evidence. Old implementation paths, TODO task numbers and local smoke counts do not describe current deployment.
+Use the [template note](VPM_TEMPLATE_RESEARCH.md) for builder versus listing distinctions and the [parity audit](PROTOTYPE_PARITY.md) for current runtime evidence. Old implementation paths, TODO task numbers and local smoke counts do not describe current deployment.
