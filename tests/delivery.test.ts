@@ -544,7 +544,7 @@ test("release proof readers receive history and read-only metadata scope in ever
     for (const job of Object.values(workflow.jobs) as any[]) {
       if (!job.steps?.some((step: any) => step.uses === "actions/checkout@v4")) continue;
       for (const step of job.steps.filter((step: any) => step.uses === "actions/checkout@v4")) {
-        expect(step.with.ref).toBe("${{ github.ref }}");
+        expect(step.with.ref).toBe(name === "node-docker" ? "${{ inputs.recovery-tag || github.ref }}" : "${{ github.ref }}");
         expect(step.with["fetch-depth"]).toBe(0);
       }
       const permissions = job.permissions ?? workflow.permissions;
@@ -743,7 +743,7 @@ test("every CI consumer installs the published SDK while local preparation and t
     await mkdir(resolve(workspace, "scripts"));
     await mkdir(resolve(workspace, "node_modules"));
     await cp(new URL("../node_modules/semver", import.meta.url), resolve(workspace, "node_modules/semver"), { recursive: true });
-    for (const file of ["delivery.mjs", "versioning.mjs"]) {
+    for (const file of ["delivery.mjs", "versioning.mjs", "delivery-recovery.mjs"]) {
       let source = await readFile(new URL(`../scripts/${file}`, import.meta.url), "utf8");
       // Mock the external Bun process only. The real CLI still selects the product's SDK channel.
       if (file === "delivery.mjs") source = source.replace('execFileSync("bun", args,', 'execFileSync(process.execPath, [process.env.npm_execpath, ...args],');
@@ -835,7 +835,7 @@ test("real publication CLI routes preview publish and release stage through the 
     await mkdir(resolve(workspace, "scripts"));
     await mkdir(resolve(workspace, "node_modules"));
     await cp(new URL("../node_modules/semver", import.meta.url), resolve(workspace, "node_modules/semver"), { recursive: true });
-    for (const file of ["delivery.mjs", "versioning.mjs"]) {
+    for (const file of ["delivery.mjs", "versioning.mjs", "delivery-recovery.mjs"]) {
       let source = await readFile(new URL(`../scripts/${file}`, import.meta.url), "utf8");
       // This fixture isolates registry commands. It does not pretend its synthetic SHA proves a reviewed release.
       if (file === "delivery.mjs") source = source.replace('if (ci) await requireCI(product, channel);', 'if (ci && channel !== "release") await requireCI(product, channel);');

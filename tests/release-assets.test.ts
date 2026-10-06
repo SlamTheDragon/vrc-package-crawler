@@ -4,12 +4,15 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { allowedBinary, attachRelease, checkedAssets, checkedAssetBytes, checkSourceRun, checkRemoteTag, sourceRunID, sameSourceRunLink, milestoneNotes, reconcileSDKDrafts, releaseSummary } from "../scripts/release-assets.mjs";
+import { allowedBinary, attachRelease as attachNamedRelease, checkedAssets, checkedAssetBytes, checkSourceRun, checkRemoteTag, sourceRunID, sameSourceRunLink, milestoneNotes, reconcileSDKDrafts, releaseSummary } from "../scripts/release-assets.mjs";
 import { readVersionConfig } from "../scripts/versioning.mjs";
 
 const commit = "a".repeat(40);
 const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const selected = { product: "package", version: "2026.10.0-pre", channel: "preview" };
+const attachRelease = (api: any, repository: string, tag: string, sourceCommit: string, notes: string,
+  files: Map<string, Buffer>, draft: boolean, prerelease: boolean) =>
+  attachNamedRelease(api, repository, tag, sourceCommit, notes, files, draft, prerelease, "vrc-packages-api");
 
 test("repository rename retains original run links but never accepts another owner, run or redirect target", () => {
   const repository = "SlamTheDragon/vrc-packages", current = `https://github.com/${repository}/actions/runs/123`;
@@ -181,12 +184,14 @@ test("installer stamping normalizes names before receipts and rejects collisions
 
 test("Release notes select one bounded product milestone, not every commit or another product", () => {
   const markdown = "# Milestones\n\n## package\n\n- SDK change.\n\n## worker\n\n- Worker-only change.\n";
-  const notes = milestoneNotes(markdown, "package", selected, commit, "https://github.com/example/repo/actions/runs/1", "checked");
+  const notes = milestoneNotes(markdown, "package", selected, commit, "https://github.com/example/repo/actions/runs/1", "checked", "vrc-packages-api-preview");
+  expect(notes).toStartWith("# vrc-packages-api-preview 2026.10.0-pre\n");
   expect(notes).toContain("SDK change");
   expect(notes).not.toContain("Worker-only");
   expect(notes).toContain(selected.version);
-  expect(() => milestoneNotes(markdown, "crawler", selected, commit, "url", "checked")).toThrow("Missing");
-  expect(() => milestoneNotes("## package\n" + "x".repeat(6001), "package", selected, commit, "url", "checked")).toThrow("bounded");
+  expect(() => milestoneNotes(markdown, "crawler", selected, commit, "url", "checked", "vrcp-crawler-node")).toThrow("Missing");
+  expect(() => milestoneNotes("## package\n" + "x".repeat(6001), "package", selected, commit, "url", "checked", "vrc-packages-api")).toThrow("bounded");
+  expect(() => milestoneNotes(markdown, "package", selected, commit, "url", "checked", "Injected\nTitle")).toThrow("package.json name");
 });
 
 test("A release attachment source must be the same repository, tag, workflow and passed capability jobs", () => {
@@ -246,6 +251,7 @@ test("Release upload retries retain exact bytes, never clobber assets and publis
   };
   await expect(attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "pending", files, true, false)).rejects.toThrow("lost ACK");
   expect(release.draft).toBe(true);
+  expect(release.name).toBe("vrc-packages-api 0.0.0");
   expect(actions).not.toContain("PATCH");
   await attachRelease(api, "owner/repo", "vrcp-api/v0.0.0", commit, "pending", files, true, false);
   expect(release.draft).toBe(true);

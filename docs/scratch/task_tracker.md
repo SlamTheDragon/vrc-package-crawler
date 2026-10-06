@@ -1,5 +1,17 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
+## Active gate — immutable-source crawler recovery (2026-10-06)
+
+- Owner approved the recovery attempt and real execution when ready. This supersedes the earlier refusal of reviewed recovery tooling.
+- Scope: crawler `0.0.6`, original run `37413527166`, fixed source `995db61` and tag object `41039d1f0020a95eda00cd898654d35c093bde25`.
+- Working theory: root manual dispatch can reuse the crawler chain on reviewed main while the product checkout stays at its original tag.
+- Implementation is unverified. Root `delivery:recover` plans by default. Execution requires clean synchronized main and explicit Actions write access.
+- The existing crawler workflow retains operator review, Linux/Windows checks, container publication, Release assets and terminal announcement.
+- Saved dependency versions and product/config files remain tied to the tag. Receipts distinguish source and repair-tooling commits.
+- Release titles and changelog headings now take the delivered package manifest name. This change remains unverified.
+- Next: run the grouped safeguard checks, inspect the diff, push the single test branch for owner promotion, then exercise real recovery.
+- Runtime proof is required. Tests alone do not pass this gate. No recovery dispatch, release approval or tag change ran yet.
+
 ## Current exercise — root commands and nine chains (2026-10-06)
 
 - Owner requires real command and chain exercises before delivery sign-off. Historical green runs do not satisfy this exit alone.

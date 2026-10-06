@@ -3,6 +3,7 @@
 Owner correction, 2026-10-06: delivery sign-off does not require preview D1 initialization or catalog reads. Those remain runtime/ingestion work.
 The owner checks a fresh clone after sign-off, not before. Older rows that imply either prerequisite are superseded.
 Delivery sign-off still requires protected release-promotion proof and the scoped workflow cleanup review.
+Owner update, 2026-10-06: permit explicit immutable-source recovery attempts with reviewed main tooling and real hosted execution. Preserve operator release approval.
 
 Latest owner goal and comments govern this two-table ledger. API coordinator: `src-worker`. Node: `src-crawler`. SDK: `src-package`. Web: `src-web`. Windows client: `src-crawler-client`. See [the tracker](task_tracker.md) for checkpoint evidence and [prototype parity](../research/audits/PROTOTYPE_PARITY.md) for the capability inventory.
 

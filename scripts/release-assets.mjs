@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import semver from "semver";
 import { checkReleaseSource, requireCI, resolveTag, validateCIArtifact } from "./delivery.mjs";
 import { productDirectories, sdkPackageNames } from "./versioning.mjs";
+import { checkRecoveryRun, ciSourceCommit, recoveryIdentity, recoveryRunMatches } from "./delivery-recovery.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -129,7 +130,8 @@ export function releaseSummary(repository, tag, draft) {
   return `\n[${draft ? "Draft GitHub Release (publication pending)" : "GitHub Release"}](https://github.com/${repository}/releases/tag/${encodeURIComponent(tag)})\n`;
 }
 
-export function milestoneNotes(markdown, product, selected, commit, runURL, status) {
+export function milestoneNotes(markdown, product, selected, commit, runURL, status, packageName) {
+  checkedPackageName(packageName);
   const lines = markdown.replace(/\r/g, "").split("\n");
   const start = lines.findIndex(line => line === `## ${product}`);
   if (start < 0) throw new Error("Missing product milestone changelog");
@@ -137,14 +139,23 @@ export function milestoneNotes(markdown, product, selected, commit, runURL, stat
   if (end < 0) end = lines.length;
   const section = lines.slice(start + 1, end).join("\n").trim();
   if (!section || section.length > 6000) throw new Error("Product milestone notes must be nonempty and bounded");
-  return `# VRC Packages - ${product} ${selected.version}\n\nChannel: ${selected.channel}. Delivery: ${status}.\nCommit: ${commit}.\n[Checked CI run](${runURL})\n\n${section}\n\nAssets include checked build outputs and SHA-256 checksums.\n`;
+  return `# ${packageName} ${selected.version}\n\nChannel: ${selected.channel}. Delivery: ${status}.\nCommit: ${commit}.\n[Checked CI run](${runURL})\n\n${section}\n\nAssets include checked build outputs and SHA-256 checksums.\n`;
+}
+
+function checkedPackageName(name) {
+  if (typeof name !== "string" || name.length > 214 || !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(name)) {
+    throw new Error("Release title requires the delivered package.json name.");
+  }
+  return name;
 }
 
 export function checkSourceRun(run, jobs, tag, repository, product) {
   if (product === "worker") throw new Error("Worker bundles are CI-only, not GitHub Release assets");
   const workflow = workflowNames[product];
   const required = product === "crawler" ? [tag.startsWith("crawler/v") ? "build-and-push" : "build-linux", "standalone-windows"] : ["build"];
-  if (run.event !== "push" || run.head_branch !== tag || !/^[a-f0-9]{40}$/.test(run.head_sha ?? "") ||
+  const recovery = product === "crawler" && run.event === "workflow_dispatch" &&
+    recoveryRunMatches(run, recoveryIdentity(tag)) && repository === "SlamTheDragon/vrc-packages";
+  if ((!recovery && (run.event !== "push" || run.head_branch !== tag)) || !/^[a-f0-9]{40}$/.test(run.head_sha ?? "") ||
       run.head_repository?.full_name !== repository || run.path !== `.github/workflows/${workflow}.yml` ||
       required.some(name => !jobs.some(job => job.name === name && job.status === "completed" && job.conclusion === "success")) ||
       (product === "crawler" && !tag.startsWith("crawler/v") && !jobs.some(job => job.name === "publish-container" &&
@@ -181,7 +192,8 @@ function sdkDraftTag(release) {
 }
 
 /** Published assets are immutable here. Retry only missing uploads or an unfinished draft. */
-export async function attachRelease(api, repository, tag, commit, notes, files, draft, prerelease) {
+export async function attachRelease(api, repository, tag, commit, notes, files, draft, prerelease, packageName) {
+  const title = `${checkedPackageName(packageName)} ${tag.slice(tag.lastIndexOf("/v") + 2)}`;
   const base = `/repos/${repository}/releases`;
   let release = await api("GET", `${base}/tags/${encodeURIComponent(tag)}`, undefined, true);
   // Some tag lookups omit drafts. Find an unfinished draft before creating another one.
@@ -198,7 +210,7 @@ export async function attachRelease(api, repository, tag, commit, notes, files, 
   }
   // The caller already checked the existing tag. Do not create or retarget a tag through this endpoint.
   if (!release) release = await api("POST", base, { tag_name: tag,
-    name: `VRC Packages - ${tag}`, body: notes, draft: true, prerelease, make_latest: "false" });
+    name: title, body: notes, draft: true, prerelease, make_latest: "false" });
   const orphan = release.tag_name !== tag && sdkDraftTag(release) === tag;
   if ((!orphan && release.tag_name !== tag) || (release.prerelease !== prerelease)) throw new Error("Existing release channel differs");
   if (orphan) {
@@ -263,7 +275,7 @@ export async function attachRelease(api, repository, tag, commit, notes, files, 
     if (draft) throw new Error("Publication state regressed. Existing release remains unchanged");
     return release;
   }
-  const updated = await api("PATCH", `${base}/${release.id}`, { tag_name: tag, body: notes, draft, prerelease, make_latest: "false" });
+  const updated = await api("PATCH", `${base}/${release.id}`, { tag_name: tag, name: title, body: notes, draft, prerelease, make_latest: "false" });
   if (updated.tag_name !== tag) throw new Error("Release update lost its checked tag association");
   return updated;
 }
@@ -283,7 +295,9 @@ async function stamp(channel, product, directory, platform) {
     if (targets[index] !== path) renameSync(path, targets[index]);
     return targets[index];
   });
-  const receipt = { ...selected, purpose: "ci-release", commit: process.env.GITHUB_SHA,
+  const receipt = { ...selected, purpose: "ci-release", commit: ciSourceCommit(),
+    ...(process.env.VRCP_RECOVERY_TAG ? { recovery: { toolingCommit: process.env.GITHUB_SHA,
+      sourceRun: Number(process.env.GITHUB_RUN_ID), failedRun: recoveryIdentity(process.env.VRCP_RECOVERY_TAG).failedRun } } : {}),
     files: paths.map(path => { const bytes = readFileSync(path); return { name: basename(path), size: bytes.length, sha256: hash(bytes) }; }) };
   writeFileSync(join(directory, product === "crawler" ? `crawler-${platform}.receipt.json` : `${product}.receipt.json`), JSON.stringify(receipt, null, 2) + "\n");
 }
@@ -381,8 +395,11 @@ async function main(directory) {
   const runId = env.RELEASE_SOURCE_RUN || env.GITHUB_RUN_ID;
   const run = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/actions/runs/${runId}`);
   const tag = env.RELEASE_TAG || env.GITHUB_REF_NAME;
+  const recovery = run.event === "workflow_dispatch" && run.path === ".github/workflows/node-docker.yml"
+    ? await checkRecoveryRun(run, recoveryIdentity(tag), path => api("GET", path)) : null;
+  const sourceCommit = recovery?.commit ?? run.head_sha;
   // Load the source commit's configs, not moving main-branch versions, for a historical attachment retry.
-  const gitFile = path => execFileSync("git", ["show", `${run.head_sha}:${path}`], { cwd: root, encoding: "utf8" });
+  const gitFile = path => execFileSync("git", ["show", `${sourceCommit}:${path}`], { cwd: root, encoding: "utf8" });
   if (!/^[a-f0-9]{40}$/.test(run.head_sha ?? "")) throw new Error("Invalid source commit");
   const metadataDirectory = mkdtempSync(join(tmpdir(), "vrcp-release-metadata-"));
   let selected;
@@ -394,13 +411,13 @@ async function main(directory) {
   const jobs = await api("GET", `/repos/${env.GITHUB_REPOSITORY}/actions/runs/${runId}/jobs?per_page=100`);
   if (jobs.total_count >= 100) throw new Error("Unexpected job count");
   checkSourceRun(run, jobs.jobs, tag, env.GITHUB_REPOSITORY, selected.product);
-  const { tagObject } = await checkRemoteTag(api, env.GITHUB_REPOSITORY, tag, run.head_sha);
+  const { tagObject } = await checkRemoteTag(api, env.GITHUB_REPOSITORY, tag, sourceCommit, recovery?.tagObject);
   if (selected.channel === "release") await checkReleaseSource(selected, {
-    repository: env.GITHUB_REPOSITORY, tag, tagObject, commit: run.head_sha, actor: run.actor, context: run
+    repository: env.GITHUB_REPOSITORY, tag, tagObject, commit: sourceCommit, actor: run.actor, ...(recovery ? {} : { context: run })
   }, path => api("GET", path));
   const manifest = JSON.parse(gitFile(`${productDirectories[selected.product]}/package.json`));
   // Package builds sync channel identities after checkout. Other manifest names stay fixed.
-  const assets = checkedAssets(filesIn(artifactDirectory), selected, run.head_sha, manifest);
+  const assets = checkedAssets(filesIn(artifactDirectory), selected, sourceCommit, manifest);
   let status = "checked artifacts only";
   let draft = false;
   if (selected.product === "package") {
@@ -419,17 +436,19 @@ async function main(directory) {
       status = "npm publication checked";
     }
   }
-  const notes = milestoneNotes(readFileSync(join(root, "docs/source/CHANGELOG.md"), "utf8"), selected.product, selected,
-    run.head_sha, `https://github.com/${env.GITHUB_REPOSITORY}/actions/runs/${runId}`, "checked artifacts. See the release description for publication/deployment status");
+  const packageName = selected.product === "package" ? sdkPackageNames[selected.channel] : manifest.name;
+  const notes = milestoneNotes(gitFile("docs/source/CHANGELOG.md"), selected.product, selected,
+    sourceCommit, `https://github.com/${env.GITHUB_REPOSITORY}/actions/runs/${runId}`, "checked artifacts. See the release description for publication/deployment status", packageName) +
+    (recovery ? `\nRecovery tooling commit: ${recovery.toolingCommit}.\nOriginal failed run: ${recovery.failedRun}.\nProduct source and tag remain unchanged.\n` : "");
   assets.set("CHANGELOG.md", Buffer.from(notes));
   assets.set("CHECKSUMS.sha256", Buffer.from([...assets].map(([name, bytes]) => `${hash(bytes)}  ${name}`).join("\n") + "\n"));
-  await checkRemoteTag(api, env.GITHUB_REPOSITORY, tag, run.head_sha, tagObject);
-  const release = await attachRelease(api, env.GITHUB_REPOSITORY, tag, run.head_sha,
-    `${notes}\nCurrent delivery status: ${status}.\n`, assets, draft, selected.channel === "preview");
+  await checkRemoteTag(api, env.GITHUB_REPOSITORY, tag, sourceCommit, tagObject);
+  const release = await attachRelease(api, env.GITHUB_REPOSITORY, tag, sourceCommit,
+    `${notes}\nCurrent delivery status: ${status}.\n`, assets, draft, selected.channel === "preview", packageName);
   // A separate workflow reads this receipt only after the whole parent run succeeds.
   writeFileSync(join(env.RUNNER_TEMP, "vrcp-release-announcement.json"), JSON.stringify({
     schemaVersion: 1, product: selected.product, channel: selected.channel, tag,
-    sourceRun: Number(runId), commit: run.head_sha, releaseId: release.id, draft: release.draft
+    sourceRun: Number(runId), commit: sourceCommit, releaseId: release.id, draft: release.draft
   }) + "\n");
   if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, releaseSummary(env.GITHUB_REPOSITORY, tag, release.draft));
   console.log(JSON.stringify({ tag, sourceRun: runId, status, draft: release.draft, url: release.html_url, assets: [...assets.keys()] }));

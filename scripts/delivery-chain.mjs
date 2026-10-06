@@ -7,6 +7,7 @@ import { bumpVersion, networkArchiveURL, nextVersion, productDirectories, produc
 import { checkReleaseMetadata, checkReviewedRelease, checkSDKPublicationVersion, readGitHubAPI, readReleaseTagProof, selectTag } from "./delivery.mjs";
 import { allowedBinary, checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink, sourceRunID } from "./release-assets.mjs";
 import { checkWorkerArtifacts, downloadActionsArchive } from "./worker-artifacts.mjs";
+import { checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const workflows = { package: "vrc-packages-api", network: "network", crawler: "node-docker",
@@ -487,10 +488,20 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
     run.path === `.github/workflows/${workflows[selected.product]}.yml`);
   if (runs.length > 1) throw new Error("Multiple runs match this tag. Inspect exact run IDs before proceeding.");
   if (!runs.length) return { ...selected, status: "ci-not-observed", artifactsVerified: false };
-  const run = runs[0];
-  const jobs = await api(`${base}/actions/runs/${run.id}/jobs?per_page=100`);
+  let run = runs[0];
+  let jobs = await api(`${base}/actions/runs/${run.id}/jobs?per_page=100`);
   if (!Array.isArray(jobs.jobs) || jobs.total_count >= 100) throw new Error("CI job lookup exceeded its bound");
   const release = selected.product === "worker" ? null : await api(`${base}/releases/tags/${encodeURIComponent(tag)}`, true);
+  const attachedRun = /\[Checked CI run\]\(([^)]+)\)/.exec(release?.body ?? "")?.[1];
+  if (selected.product === "crawler" && attachedRun && sourceRunID(attachedRun, repository) !== String(run.id)) {
+    const recovered = await api(`${base}/actions/runs/${sourceRunID(attachedRun, repository)}`);
+    const identity = recoveryIdentity(tag, workspace);
+    if (identity.commit !== selected.commit || identity.tagObject !== selected.tagObject) throw new Error("Recovery source differs from the checked tag.");
+    await checkRecoveryRun(recovered, identity, api);
+    run = recovered;
+    jobs = await api(`${base}/actions/runs/${run.id}/jobs?per_page=100`);
+    if (!Array.isArray(jobs.jobs) || jobs.total_count >= 100) throw new Error("Recovery job lookup exceeded its bound.");
+  }
   const status = summarizeRun(run, jobs.jobs, release, selected.product, selected.channel);
   const result = { ...selected, run: run.id, url: run.html_url, status, artifactsVerified: false,
     jobs: jobs.jobs.map(job => ({ name: job.name, status: job.status, conclusion: job.conclusion })) };

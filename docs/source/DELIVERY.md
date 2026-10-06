@@ -66,6 +66,29 @@ The existing `delivery:retry` retries Git delivery only. All CI reruns remain ma
 Broken tagged workflows require manual resolution. Never move their tags or allocate another patch to hide a failed delivery.
 Do not move, delete or force-push a published tag.
 
+### Recover the approved crawler failure
+
+- Recovery authorization currently covers only `vrcp-crawler/v0.0.6`, failed run `37413527166`.
+- Promote recovery tooling through an owner-reviewed PR. Keep the existing tag and product commit fixed.
+- In `vrcp-crawler-release`, add a **Branch** deployment rule for `main`. Retain its tag rule and required operator review.
+- Supply a local GitHub credential with repository **Actions: write**, **Contents: read**, and **Pull requests: read** permissions.
+- Start from clean main that matches origin. Load the ignored local `.env` explicitly.
+- Run `bun --env-file=.env run delivery:recover vrcp-crawler/v0.0.6` to inspect the plan.
+- Add `--execute` to dispatch the existing crawler workflow on main. This does not bump a version or push a tag.
+- Inspect the Linux, Windows and container jobs. Approve the protected release environment after those jobs pass.
+- Run `bun --env-file=.env run delivery:check vrcp-crawler/v0.0.6` after Release attachment.
+- Inspect the terminal announcement and deployment link. A successful build alone does not pass delivery sign-off.
+
+The recovery manifest binds the exact tag object, product commit and original failed run.
+Recovery builds use the tag's saved SDK/network versions, not today's moving SDK alias.
+Binary and container receipts record the source commit, tooling commit and recovery run.
+The Release notes link the recovery run and retain the original product commit.
+Release titles and changelog headings use the delivered `package.json` name.
+The root command refuses a second dispatch when it finds an existing recovery attempt.
+Inspect a failed attempt before a manual CI rerun. Partial publication can block a rebuild with different bytes.
+Recovery cannot overwrite published assets, update a tag, bypass main review or approve an environment.
+Other failures need a separate, reviewed authorization. Local release builds remain prohibited.
+
 For remote preview allocation, start `preview-delivery.yml` with a synchronized branch and product.
 The preview App calls the same root executor. It does not allocate versions on every ordinary push.
 Configure the App first with [these steps](#preview-app-setup).

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import semver from "semver";
 import { requireCI } from "./delivery.mjs";
+import { ciSourceCommit, recoveryIdentity } from "./delivery-recovery.mjs";
 import { readVersionConfig, sdkPackageNames, sdkChannelForProduct } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -128,7 +129,7 @@ async function main(action, channel) {
   const { config: networkConfig } = await readVersionConfig("preview");
   const repository = process.env.GITHUB_REPOSITORY;
   assert(/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repository ?? ""), "Container receipt needs the source repository");
-  const expected = { product: "crawler", channel, version: selected.version, commit: process.env.GITHUB_SHA, repository,
+  const expected = { product: "crawler", channel, version: selected.version, commit: ciSourceCommit(), repository,
     sdkName: sdkPackageNames[sdkChannel], sdkVersion: config[`${sdkChannel}-package`], networkVersion: networkConfig["preview-network"] };
   const checkTag = `vrcp-node-check:${expected.commit}`;
   const archive = join(directory, "container.tar");
@@ -144,6 +145,8 @@ async function main(action, channel) {
     mkdirSync(directory, { recursive: true });
     docker(["save", "--output", archive, checkTag]);
     writeFileSync(receiptPath, JSON.stringify({ ...expected, purpose: "ci-container", archive: "container.tar", imageId,
+      ...(process.env.VRCP_RECOVERY_TAG ? { recovery: { toolingCommit: process.env.GITHUB_SHA,
+        sourceRun: Number(process.env.GITHUB_RUN_ID), failedRun: recoveryIdentity(process.env.VRCP_RECOVERY_TAG).failedRun } } : {}),
       ...await archiveDigest(archive) }, null, 2) + "\n", { flag: "wx" });
     return;
   }
