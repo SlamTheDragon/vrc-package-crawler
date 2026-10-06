@@ -164,7 +164,7 @@ export async function recoverDelivery(tag, execute = false, workspace = root, ap
   }
   await dispatch(identity.repository, tag);
   return { ...plan, status: "recovery-dispatched", readOnly: false,
-    next: "Inspect the owner-dispatched crawler workflow, approve its release environment, then run delivery:check for this unchanged tag." };
+    next: "Inspect the owner-dispatched product workflow, retain applicable release approvals, then run delivery:check for this unchanged tag." };
 }
 
 async function dispatchRecovery(repository, tag) {

@@ -16,6 +16,11 @@
 - Recovery now permits only the two exact preview identities in the manifest, plus the existing crawler identity. Receipts bind source, main tooling and run IDs.
 - Existing network and desktop workflows gain explicit main-only recovery dispatches. Restore delivery tooling only, not product source or version configs.
 - Hosted recovery remains unverified. Next: check attachment/notification boundaries, push checked tooling to main, then exercise both root recovery commands.
+- Tooling a657295 was pushed by normal fast-forward to main. Both root recovery plans and dispatches passed against live evidence.
+- Network recovery 37459739140 failed root checks before publication: stale routing/link expectations and incomplete temporary CLI module copies.
+- Desktop recovery 37459764559 is also subject to those fixtures. No advancement or tag replacement is allowed. Repair fixtures, then use explicit --retry.
+- The repaired delivery/recovery/attachment/announcement gate passed 81 tests / 1458 assertions. No check was disabled.
+- Network recovery will use an explicit --retry with different main tooling. Desktop retry must wait until its first attempt completes without outputs.
 - Recovery counts as half a pass. Each enabled path then needs a root patch bump and a green real chain with applicable artifacts and approvals.
 - Do not mark main signed off from recovered snapshots alone. Website remains disabled and Worker release remains build-only.
 
