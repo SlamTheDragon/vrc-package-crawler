@@ -7,16 +7,6 @@
 </script>
 
 <main class="space-y-4">
-    <h1>Oh ma gaouwhh</h1>
-    <Alert.Root class="max-w-md">
-      <CircleCheckIcon />
-      <Alert.Title>Account updated successfully</Alert.Title>
-      <Alert.Description>
-        Your profile information has been saved. Changes will be reflected
-        immediately.
-      </Alert.Description>
-    </Alert.Root>
-
     <Card.Root>
       <Card.Header>
         <Card.Title>Card Title</Card.Title>

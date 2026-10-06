@@ -4,6 +4,7 @@ This is the current entry point for agents working in this repository. `DELEGATE
 
 ## Read before changing code
 
+0. Read [`docs/decisions/VISION.md`](docs/decisions/VISION.md) for the owner's terminology (Crawler Node, Crawler Client, Coordinator, SDK, Web), responsibilities and target layout.
 1. Read [`docs/scratch/IMPLEMENTATION_PLAN.md`](docs/scratch/IMPLEMENTATION_PLAN.md) for core architectural covenants, gate orders, delivered baselines, and recovered canonical decisions; read [`LEGAL.md`](LEGAL.md) for legal covenants and platform access boundaries.
 2. Read [`docs/scratch/UNMERGED_IMPLEMENTATION_PLAN.md`](docs/scratch/UNMERGED_IMPLEMENTATION_PLAN.md) for proposed iterations, milestone gates, and accepted owner decisions.
 3. Read [`docs/scratch/task_tracker.md`](docs/scratch/task_tracker.md) for the active bounded vertical slice before making edits.
