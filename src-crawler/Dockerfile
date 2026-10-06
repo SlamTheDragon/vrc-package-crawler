@@ -36,6 +36,7 @@ RUN chmod +x /app/vrcp-crawler-node && chown -R vrcpuser:vrcpgroup /app
 RUN mkdir -p /app/data && chown -R vrcpuser:vrcpgroup /app/data
 VOLUME ["/app/data"]
 WORKDIR /app/data
+ENV CRAWLER_LOGS_DIR=/app/data/logs
 
 USER vrcpuser
 

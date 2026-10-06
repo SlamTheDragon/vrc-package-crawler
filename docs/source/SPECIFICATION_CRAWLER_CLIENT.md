@@ -29,6 +29,21 @@ This specification distinguishes between two operational deployment models:
 - **Not implemented:** Bundled node binary, child-process supervision, node setup, telemetry panels or coordinator token provisioning.
 - **Owner intent:** A Windows GUI shell that bundles and controls the crawler node. Initialization alone does not deliver this integration.
 
+### 1.3 Node log files
+
+- Logger construction computes paths but creates no files, timers or exit hooks. The first log write starts those resources.
+- An unused logger leaves existing logs unchanged when it rotates or closes. Help and version commands create no node state.
+- Active logs use `LoggerOptions.logsDir`, then `CRAWLER_LOGS_DIR`, then the runtime default. Explicit relative overrides still use the launch directory.
+- Source runs default to `src-crawler/logs`, independent of the launch directory.
+- Installed binaries default to `vrcp-crawler/logs` beneath Windows `LOCALAPPDATA`, macOS `~/Library/Logs`, or Linux `XDG_STATE_HOME`.
+- Windows falls back to `~/AppData/Local`. Linux falls back to `~/.local/state`. Relative platform state variables use these absolute fallbacks.
+- Docker sets `CRAWLER_LOGS_DIR=/app/data/logs` within its persistent volume. The executable directory is not a writable-state default.
+- Session-only logging does not archive or clear an existing `latest.log`. Active latest-log rotation and shutdown retain their archive behavior.
+- The 2026-10-06 crawler gate passed 141 tests and 874 assertions, type checks and a development binary build.
+- Source and Windows compiled fixtures checked defaults, writes, overrides and relative state-variable rejection without launch-directory outputs.
+- Docker configuration passed a static check. Linux/macOS binaries and the container did not run in this local gate.
+- Concurrent writes during rotation, disk failures and synchronous exit flushing remain separate reliability risks.
+
 ---
 
 ## 2. Core Execution Lifecycle

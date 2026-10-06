@@ -8,6 +8,50 @@ const outputPath = path.resolve(import.meta.dir, "../dist/tests");
 fs.mkdirSync(outputPath, { recursive: true });
 const tempRoot = fs.realpathSync(outputPath);
 
+it("unused construction, rotation and close do not create files or change existing logs", async () => {
+  const fixture = fs.mkdtempSync(path.join(tempRoot, "unused_logger_"));
+  try {
+    const missing = path.join(fixture, "missing");
+    const beforeExit = process.listenerCount("beforeExit"), exit = process.listenerCount("exit");
+    const unused = new Logger({ logsDir: missing, enableSessionLogs: true });
+    expect(unused.getSessionLogPath()).toContain("session_");
+    expect(fs.existsSync(missing)).toBe(false);
+    expect(process.listenerCount("beforeExit")).toBe(beforeExit);
+    expect(process.listenerCount("exit")).toBe(exit);
+    expect(await unused.rotate("2026-10-07")).toEqual([]);
+    await unused.close();
+    expect(fs.existsSync(missing)).toBe(false);
+
+    const sentinel = path.join(fixture, "latest.log");
+    fs.writeFileSync(sentinel, "existing fixture log\n");
+    const existing = new Logger({ logsDir: fixture });
+    await existing.close();
+    expect(fs.readFileSync(sentinel, "utf8")).toBe("existing fixture log\n");
+    expect(fs.readdirSync(fixture)).toEqual(["latest.log"]);
+  } finally {
+    if (!fs.realpathSync(fixture).startsWith(tempRoot + path.sep)) throw new Error("Unexpected fixture path");
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+it("session-only logging leaves an existing latest.log untouched", async () => {
+  const fixture = fs.mkdtempSync(path.join(tempRoot, "session_only_"));
+  const sentinel = path.join(fixture, "latest.log");
+  fs.writeFileSync(sentinel, "existing fixture log\n");
+  const logger = new Logger({ logsDir: fixture, enableLatestLog: false, enableSessionLogs: true });
+  try {
+    logger.info("session-only message");
+    expect(logger.archiveAndClearLatestLogSync()).toBeNull();
+    await logger.close();
+    expect(fs.readFileSync(sentinel, "utf8")).toBe("existing fixture log\n");
+    expect(fs.readFileSync(logger.getSessionLogPath(), "utf8")).toContain("session-only message");
+  } finally {
+    await logger.close();
+    if (!fs.realpathSync(fixture).startsWith(tempRoot + path.sep)) throw new Error("Unexpected fixture path");
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
 describe("Unified latest.log and Archiving Lifecycle", () => {
   const testDir = fs.mkdtempSync(path.join(tempRoot, "test_latest_log_"));
   let logger: Logger;
@@ -29,9 +73,10 @@ describe("Unified latest.log and Archiving Lifecycle", () => {
 
     const activePath = logger.getActiveLogPath();
     expect(activePath).toBe(path.join(testDir, "latest.log"));
-    expect(fs.existsSync(activePath)).toBe(true);
+    expect(fs.existsSync(activePath)).toBe(false);
 
     logger.info("Test message for latest log");
+    expect(fs.existsSync(activePath)).toBe(true);
     logger.warn("Test warning for latest log");
     logger.error("Test error for latest log", new Error("Sample test failure"));
     logger.rateLimit("booth", 5, "2026-10-01T15:00:00Z", 2000);

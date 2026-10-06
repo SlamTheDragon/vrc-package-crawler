@@ -14,18 +14,35 @@
 Working theory: one root allocator can serve local and App-triggered previews without duplicate version logic.
 The prior direct main commit/tag push could not satisfy reviewed-main protection.
 
-Active owner-requested slice: propagate protected-main behavior into AGENTS, lifecycle rule 01 and agent/human delivery procedures.
-Main ruleset 24553134 now requires PRs and blocks deletion/force pushes, with zero required approvals and no bypass actors.
+Active output gate: lazy logger construction and idle CLI preservation are checked on codex/node-logger-output.
+Construction now computes paths only. The first write starts files, timers and hooks. Unused close/rotation preserves existing logs.
+Session-only logging preserves an existing latest.log. Active severity streams, rotation and shutdown fixtures passed.
+Grouped path checks passed 141 tests / 874 assertions, types and a development binary build on 2026-10-06.
+Source defaults use src-crawler/logs. Bun standalone mode selects absolute per-user storage, never the executable or launch directory.
+Explicit overrides retain priority. Docker pins /app/data/logs. Relative platform state variables use absolute user-home fallbacks.
+The compiled Windows logger fixture writes and closes successfully while cwd stays empty. Linux/macOS and container runs remain pending.
+R58-ROOT-LOGS has local path proof, not tagged delivery proof. Existing owner logs remain untouched. No delivery bump ran.
+The owner merged initializer PR #1 into main at 4a89ca2. Hosted initialization remains unverified.
+Main ruleset 24553134 is active: default-branch PR requirement, zero required approvals, deletion/force-push denial and no bypass actors.
+The owner merged lifecycle PR #2 into main at 9df1d19. These task branches are not the final responsibility-branch split.
 Each slice stays a local commit. A checked gate permits a task-branch push, not a direct main write or agent merge.
 Supply an owner comparison link if PR creation is unavailable. Do not expand permissions or disable protection.
-The owner merged initializer PR #1 into main at 4a89ca2. Hosted initialization remains unverified.
-The independent lazy logger branch remains local and unpushed. Its grouped checks passed 140 tests / 860 assertions, types and the development binary; root runtime-path sign-off remains open.
-Tag protections still need separate immutable-tag and stable-creation rulesets. No tag or repository setting changed in this slice.
-Lifecycle docs are pushed on codex/main-protection-rules. Writing scores: agent procedure 1.07, Delivery 1.54 issues per 100 words.
+The checked logger branch is pushed at 00900a1. It requires owner promotion and tagged cross-platform proof, not another source implementation.
+Ruleset readback: immutable-delivery-tags 24553469 blocks all tag updates/deletions, with no bypass actors.
+Stable-release 24553551 has the correct stable/preview patterns, but only update/deletion rules and no bypass actors.
+The owner must replace those rules with creation restriction and an owner-admin bypass. Keep the immutable ruleset unchanged.
+No settings changed through this agent. No open PR or recorded preview initializer run was visible in the latest readback.
+Public unauthenticated environment readback succeeded on 2026-10-06. The connector's unsupported endpoint is not a GitHub access denial.
+cloudflare-preview allows only Tag cloudflare-worker/v*. Add Branch main for the guarded manual initializer, retaining the tag rule.
+Desktop preview and vrcp-network have no ref restrictions. Add their product tag rules before final sign-off.
+SDK, crawler and desktop release environments require owner review. Existing SDK/crawler/Worker environments use their product v* tag rules.
+Select an existing product tag as the workflow ref for SDK OIDC diagnostics and desktop asset recovery. An input tag does not change that ref.
+These are metadata checks, not hosted recovery proof or permission to change settings. No screenshot is needed for this readback.
+Lifecycle writing scores: agent procedure 1.07, Delivery 1.54 issues per 100 words.
 The repository-wide link/layout check failed on 10 existing findings outside the changed links. Do not record a full docs pass.
 Findings include stale recovery-skill references, upstream skill links, CONTRIBUTING.md and a removed node protocol path. Repair separately before final sign-off.
-PR #2 conflict repair retains the lifecycle and initializer checkpoints. Its diff against merged main remains documentation-only.
-Whitespace and unresolved-conflict checks passed. No runtime, version, tag, deployment or protection setting changed.
+This merge preserves the initializer, lifecycle and checked logger evidence. Its conflict repair changes only this checkpoint.
+Main sign-off remains open. Do not create final responsibility branches or start delivery from this repair.
 Active initialization slice: a root command uses the distributed preview SDK for explicit autoSeed false, then a catalog read.
 Plan by default. Execution requires the dedicated main-ref manual workflow and the existing cloudflare-preview secret scope.
 Use one fixed approved preview origin. Reject redirects and bound time/body size. Never print server errors or operator credentials.
@@ -149,7 +166,7 @@ Seven distributed-product deployment links passed. Worker links remain deferred 
 4. Settle recovery refs. Environment rules match the workflow ref, not its input tag.
 5. Main preview allocation, tag CI and original bytes passed. Non-main policy and distributed-product links remain separate checks.
 6. Complete main protection and owner fresh-clone proof before sign-off. Never bypass reviews.
-7. Fix the default node logger path before root-output sign-off. Existing root logs predate this gate and remain untouched.
+7. Keep the checked local logger path gate. Prove tagged crawler delivery when source/protection gates permit its next configured patch.
 
 Earlier metadata showed unprotected main. Latest read on 2026-10-06 confirms active main-guard ruleset 24553134, without bypass actors.
 Desktop preview/network lacked selected-ref restrictions. No settings changed.

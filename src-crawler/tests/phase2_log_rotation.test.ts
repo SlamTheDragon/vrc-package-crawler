@@ -27,6 +27,8 @@ describe("Phase 2 - Task 2.5: Implement Unified latest.log with Daily/Shutdown A
       enableSessionLogs: true,
     });
 
+    expect(fs.existsSync(logger.getActiveLogPath())).toBe(false);
+    logger.info("Writing test message 1");
     const activePath = logger.getActiveLogPath();
     expect(activePath).toBe(path.join(testDir, "latest.log"));
     expect(fs.existsSync(activePath)).toBe(true);
@@ -39,7 +41,6 @@ describe("Phase 2 - Task 2.5: Implement Unified latest.log with Daily/Shutdown A
     expect(activeFiles.latest).toBe(path.join(testDir, "latest.log"));
     expect(fs.existsSync(activeFiles.latest)).toBe(true);
 
-    logger.info("Writing test message 1");
     logger.warn("Writing test warning 2");
     logger.error("Writing test error 3");
   });
