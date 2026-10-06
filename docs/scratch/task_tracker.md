@@ -12,30 +12,30 @@
 - The full goal remains active. The owner creates branches and clones again after conditional sign-off.
 
 Working theory: one root allocator can serve local and App-triggered previews without duplicate version logic.
-Its direct main commit/tag push cannot satisfy reviewed-main protection unchanged.
+The prior direct main commit/tag push could not satisfy reviewed-main protection.
 
 Active release slice: prepare one config-derived metadata commit on a dedicated promotion branch, without a tag or main write.
 After manual review/merge, finalize only its exact merged main commit with a tag-only push and the same saved version.
 Reuse versionFiles and immutable-tag checks. Independent proof helpers must bind the PR, review, base/head and merged config transition.
-Implementation is unverified until the related delivery gate checks pass.
+The related local delivery gate passed. Hosted transition and repository protection remain open.
 Owner confirmed App installation and both repository entries. Live authentication and branch allocation remain unverified.
 Owner permits a manual owner-reviewed merge without a second reviewer. Check the owner merge identity, not a self-approval.
-The API cannot prove human inspection. A no-bump App diagnostic is implemented but unverified.
+The API cannot prove human inspection. The no-bump diagnostic passed local fixtures, not live authentication.
 Owner selects all nonignored pending files for preview checkpoints. Release still requires clean main.
 Working theory: print the paths, reject stale branches and pending ignored index entries, then commit and push before allocating a patch.
-Check partial push recovery, path races and unrelated tags under push.followTags. Never unstage owner files or skip a patch.
+Partial push recovery, path races and unrelated tags under push.followTags passed. Never unstage owner files or skip a patch.
 New CI ingress checks use the original run actor and exact reviewed metadata. Historical exceptions bind exact tag/object/commit pairs.
 Tag-selected code requires external main/tag/workflow protection. It cannot police old workflows. This remains a sign-off boundary.
 
 ## Current state and checked contract
 
-Implemented checkpoints: 7a1f097, 7916922, 2a6434a and bec2930.
-The owner confirmed the R58 prompt after a concurrent delivery-document rewrite entered 7a1f097.
-Preserve procedure commit 8ac3616 and owner README commit ac5bd8e.
+Local implementation checkpoints: 9ad6d94, f9aaa1f, d452345, e6fb556 and 7c4cbc2.
+Owner vision/UI commit 39c509b is preserved. Its desktop runtime was not built in this root gate.
 Human procedures are in docs/source/DELIVERY.md. Agent procedures are in docs/decisions/AGENT_DELIVERY_PROCEDURE.md.
 Keep three scratch files and preserve owner-comment cells.
 
-Root command → plan → configured patch → metadata sync → commit/tag → atomic push.
+Preview: root plan → optional pending checkpoint/push → configured patch → metadata sync → commit/tag → atomic push.
+Release: clean main → metadata branch/PR → owner merge → exact merged-main proof → tag-only push.
 Product scripts forward to root. Native hooks stay separate to prevent re-entry.
 
 - Synchronized feature-branch previews pass. Stale remote tags or main configs stop allocation before writes.
@@ -46,10 +46,14 @@ Product scripts forward to root. Native hooks stay separate to prevent re-entry.
 - It requests current-repository Contents write permission, not merge or release approval.
 - Ordinary pushes do not allocate versions. Missing App credentials stop before allocation.
 
-Final grouped root checks on 2026-10-06 passed 118 tests and 1869 assertions, with zero failures.
+Final grouped root checks on 2026-10-06 passed 151 tests and 2271 assertions, with zero failures (413.98 seconds).
+The first run found one stale installer fixture. It now tests preview filename handling without weakening release proof.
 Script syntax, workflow YAML parsing and whitespace checks passed.
-Disposable Git remotes covered feature delivery, stale-tag/main-config denial, non-main release/retry denial and lost acknowledgments.
-Workflow tests covered App routing, product forwarding and release approval conditions.
+Disposable Git remotes covered pending paths, staged-file races, ignored index denial, freshness and lost acknowledgments.
+Release fixtures covered merge/squash/rebase, owner identity, generated metadata, renamed annotations and tag-only pushes.
+Original-run checks reject App actors, wrong workflows, foreign source and forged historical tags. All 22 frozen pairs matched origin.
+Workflow checks covered full history, read scopes, App routing, product forwarding and approval conditions.
+Root entries stayed unchanged, including pre-existing logs. Scratch keeps three files. The canonical ledger keeps two tables.
 Local Bun is 1.4.1. Hosted delivery pins 1.4.2. These results are not live App proof.
 Crawler leases, source access and D1 code did not change. Their runtime tests were not repeated.
 
@@ -97,8 +101,8 @@ Seven distributed-product deployment links passed. Worker links remain deferred 
 ## Open sign-off exits and next actions
 
 1. Check the owner-configured App with the no-bump hosted diagnostic. Keep the key outside chat and source.
-2. Complete CI release provenance and reviewed version-PR/final-tag delivery. Contents-write permission does not restrict an App to preview tags.
-3. Check the accepted all-nonignored preview checkpoint path, recovery and failure guards with the related gate.
+2. Check hosted release provenance and external main/tag/workflow protection. Contents write does not restrict the App to preview tags.
+3. Preserve the checked all-nonignored checkpoint, ignored-file and same-version recovery guards.
 4. Settle recovery refs. Environment rules match the workflow ref, not its input tag.
 5. Prove normal hosted branch preview allocation, tag CI, original bytes and deployment links.
 6. Complete main protection and owner fresh-clone proof before sign-off. Never bypass reviews.
@@ -113,8 +117,10 @@ Repair bec2930 preserves pending delivery/attachment runs, rejects allocator rer
 The reviewer checked the repair diff. Final grouped checks passed. No hosted trial ran.
 Queue capacity is 100. Channel groups use the current -pre convention. Historical suffixless preview acceptance remains a caveat.
 
-The release review confirms a separate reviewed-metadata PR and exact merged-main tag-only finalization are needed.
-Reuse existing version, source-run and immutable-tag helpers. Check provenance during tag routing, CI builds and asset recovery.
+Independent reviews found followTags leakage and inconsistent retained-annotation headers. Both repairs passed grouped checks.
+The reviewers hit their usage limit afterward. Their findings are evidence, not a complete threat-model proof.
+Metadata-PR preparation and merged-main tag-only finalization now reuse version, source-run and immutable-tag helpers.
+Tag routing, CI and artifact recovery check original source proof. Old tag-selected workflows still require external policy.
 Never use a pre-merge test SHA, direct main push, App release allocation or automatic promotion merge.
-Read-only reviews changed no source or settings. Their findings remain within C57A/B.
+No live App dispatch ran. No explicit local API write credential or dispatch-capable connector is available.
 Do not resume unrelated feature work or declare the full goal complete.

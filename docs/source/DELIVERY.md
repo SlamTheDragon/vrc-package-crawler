@@ -45,7 +45,9 @@ For release, first promote product changes to main through a manually reviewed P
 
 The finalizer reproduces metadata with the same bump and sync functions. It does not bump another patch or merge a PR.
 Its API checks establish owner merge identity, not proof of human inspection. Do not bypass main protection.
-The related implementation remains unverified until the grouped delivery checks pass.
+Local delivery checks passed 151 tests and 2271 assertions. Hosted App and protection checks remain open.
+If a deleted preparation branch leaves its commit unavailable locally, fetch `refs/pull/<PR>/head` before finalization.
+Never substitute the PR test-merge SHA.
 
 If the push fails, run `bun run delivery:retry <tag>`. This retries the same tag. It does not bump again.
 For a failed preparation push, use `bun run delivery:retry-preparation <returned-branch>` on its clean local branch.
@@ -116,10 +118,10 @@ Both channels use the release SDK. Preview format is `YY.M.Patch-pre`. Release u
 
 | Gap | Current behavior | Target |
 | --- | --- | --- |
-| Dirty worktree | All nonignored preview changes use a separate checkpoint. Release requires clean main. Implementation is unverified. | Check ignored paths, stale branches and partial push recovery. See R58-DIRTY-COMMIT. |
+| Dirty worktree | All nonignored preview changes use a separate checkpoint. Release requires clean main. Local checks passed. | Keep ignored-file, stale-branch and partial-push guards. See R58-DIRTY-COMMIT. |
 | Preview approval switches | Removed. Release switches, reviews and byte checks remain. Local root checks passed 118 tests and 1869 assertions. | Automatic preview publication after successful checks. No preview approval switch. |
-| Branches | Metadata PR preparation, tag-only finalization and CI source checks are implemented but unverified. | Any synchronized preview branch. Main-only gated releases after owner-reviewed promotion. |
-| Preview GitHub App | Owner confirmed installation and both repository entries. The no-bump diagnostic is implemented but unverified. | Check authentication first, then a normal branch delivery. No merge or release-approval bypass. |
+| Branches | Metadata PR preparation, tag-only finalization and CI source fixtures passed locally. Hosted transition remains open. | Any synchronized preview branch. Main-only gated releases after owner-reviewed promotion. |
+| Preview GitHub App | Owner confirmed installation and both repository entries. Local diagnostic fixtures passed, not live authentication. | Check authentication first, then a normal branch delivery. No merge or release-approval bypass. |
 | `--execute` | Required; without it the command only plans | Unchanged unless the owner decides otherwise |
 
 ---
@@ -215,6 +217,9 @@ Local Worker: `bun run dev` in `src-worker`, with `OPERATOR_TOKEN` in an ignored
 
 - Fetch origin main before delivery if its current config object is missing locally. The plan does not fetch or change saved versions.
 - Refresh checked dependencies after producer publication. Root setup alone does not install every product.
+- Supply `GH_TOKEN` or `GITHUB_TOKEN` explicitly when authenticated metadata or Actions archive reads need it.
+- Use repository Contents, Actions and pull-request read scope for those checks. Never print or commit the token.
+- Scripts do not extract Git's stored credentials. Public reads can fail because of authentication or rate limits.
 - Stop processes before cleanup. Inspect every planned path before --apply. Applied deletion has no recovery copy.
 - Clean preserves Worker local D1. Reset removes selected node_modules only. Reset all includes root and nested network dependencies.
 - Run setup after root reset, then prepare the selected product again. Shared Bun caches and published identities are not cleanup targets.

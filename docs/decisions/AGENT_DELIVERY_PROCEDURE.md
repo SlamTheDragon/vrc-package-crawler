@@ -17,7 +17,7 @@ Human steps are in [DELIVERY.md](../source/DELIVERY.md). This file adds only the
    Owner review can use the owner's manual merge. Do not invent a second-reviewer requirement.
    CI and artifact recovery check the original tag-push actor and exact PR metadata. They do not prove human inspection.
    Protect main, release tags and workflow changes. Tag-selected code alone cannot enforce those repository controls.
-   Implementation remains unverified until the related gate checks pass.
+   Local source/recovery fixtures passed. Hosted App delivery and repository protection remain unverified.
    Never approve GitHub environments or npm stages for the owner. Keep SDK v0.1.0 held for the full owner API review.
 6. Keep failed tags fixed. Use `delivery:retry` or a CI rerun, not a new bump.
    Recover a failed preparation push with `delivery:retry-preparation` on its retained clean branch.
