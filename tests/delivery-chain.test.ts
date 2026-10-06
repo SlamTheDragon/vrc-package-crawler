@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, retryDelivery, startDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
-import { networkArchiveURL, productDirectories } from "../scripts/versioning.mjs";
+import { finalizeRelease, inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, retryDelivery, retryReleasePreparation, startDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
+import { networkArchiveURL, productDirectories, productTagPrefixes } from "../scripts/versioning.mjs";
+import { checkReleaseMetadata } from "../scripts/delivery.mjs";
 import { createHash } from "node:crypto";
 import { zipSync } from "fflate";
 
@@ -13,7 +15,11 @@ const now = new Date("2026-10-05T00:00:00Z");
 test("Worker root checks archive bytes and exact config without querying or creating a Release", async () => {
   await fixture(async (workspace, git) => {
     for (const channel of ["preview", "release"]) {
-      const result = await startDelivery(channel, "worker", true, workspace, now, git);
+      const result = channel === "preview" ? await startDelivery(channel, "worker", true, workspace, now, git)
+        : await (async () => {
+          const reviewed = await reviewedFixture(workspace, git, "worker");
+          return finalizeRelease("worker", 7, reviewed.commit, true, workspace, git, reviewed.api);
+        })();
       const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
       const config = execFileSync("git", ["show", `${result.commit}:src-worker/wrangler.toml`], { cwd: workspace });
       const bundle = Buffer.from("Synthetic Worker bundle");
@@ -64,7 +70,10 @@ test("Worker root checks archive bytes and exact config without querying or crea
 async function fixture(run: (workspace: string, git: (workspace: string, ...args: string[]) => string) => Promise<void>) {
   const parent = await realpath(tmpdir()), directory = await mkdtemp(resolve(parent, "vrcp-chain-test-"));
   const workspace = resolve(directory, "source"), remote = resolve(directory, "origin.git");
-  const actual = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe", timeout: 15_000 }).trim();
+  const actual = (cwd: string, ...args: string[]) => {
+    const output = execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe", timeout: 15_000 });
+    return args.includes("-z") ? output : output.trim();
+  };
   try {
     await mkdir(workspace);
     actual(directory, "init", "--bare", remote);
@@ -86,6 +95,13 @@ async function fixture(run: (workspace: string, git: (workspace: string, ...args
     await writeFile(resolve(workspace, productDirectories.worker, "package.json"), JSON.stringify({ name: "vrcp-worker", version: "2026.10.0-pre",
       dependencies: { "vrc-packages-api": "npm:vrc-packages-api-preview@latest", "vrc-packages-network": networkArchiveURL("2026.10.0") } }));
     await writeFile(resolve(workspace, productDirectories.worker, "wrangler.toml"), 'name = "synthetic-worker"\n\n');
+    await mkdir(resolve(workspace, productDirectories.package), { recursive: true });
+    await writeFile(resolve(workspace, productDirectories.package, "package.json"), JSON.stringify({ name: "vrc-packages-api", version: "0.0.0" }));
+    await mkdir(resolve(workspace, "src-crawler-client/src-tauri"), { recursive: true });
+    await writeFile(resolve(workspace, productDirectories["crawler-client"], "package.json"), JSON.stringify({ name: "vrcp-crawler-client", version: "26.10.0-pre",
+      dependencies: { "vrc-packages-api": "latest" } }));
+    await writeFile(resolve(workspace, "src-crawler-client/src-tauri/Cargo.toml"), '[package]\nname = "vrcp-crawler-client"\nversion = "26.10.0-pre" # preserve owner comment\n');
+    await writeFile(resolve(workspace, "src-crawler-client/src-tauri/tauri.conf.json"), JSON.stringify({ version: "../package.json", bundle: { windows: { wix: { version: "26.10.0" } } } }));
     actual(workspace, "add", "."); actual(workspace, "commit", "-m", "Synthetic delivery fixture");
     actual(workspace, "remote", "add", "origin", remote); actual(workspace, "push", "-u", "origin", "main");
     // Only identity lookup is substituted. Commits, tags, atomic pushes and divergence use real Git in a temporary bare remote.
@@ -98,6 +114,189 @@ async function fixture(run: (workspace: string, git: (workspace: string, ...args
     await rm(directory, { recursive: true, maxRetries: 5, retryDelay: 100 });
   }
 }
+
+async function reviewedFixture(workspace: string, git: (cwd: string, ...args: string[]) => string, product = "worker", method = "merge") {
+  const preparation = await startDelivery("release", product, true, workspace, now, git);
+  expect(preparation.status).toBe("preparation-pushed-awaiting-review");
+  expect(git(workspace, "ls-remote", "origin", `refs/tags/${preparation.tag}`)).toBe("");
+  expect(git(workspace, "ls-remote", "origin", "refs/heads/main")).toBe(`${preparation.base}\trefs/heads/main`);
+  git(workspace, "checkout", "main");
+  // Only the fixture simulates the owner's manual merge. The executor never merges or pushes main.
+  if (method === "merge") git(workspace, "merge", "--no-ff", preparation.branch, "-m", "Synthetic owner-reviewed promotion");
+  else if (method === "squash") {
+    git(workspace, "merge", "--squash", preparation.branch);
+    git(workspace, "commit", "-m", "Synthetic owner-reviewed squash promotion");
+  } else git(workspace, "merge", "--ff-only", preparation.branch);
+  const commit = git(workspace, "rev-parse", "HEAD");
+  git(workspace, "push", "origin", "main");
+  const prefix = "/repos/example/fixture", pull = `${prefix}/pulls/7`;
+  const parentShas = (sha: string) => git(workspace, "rev-list", "--parents", "-n", "1", sha).split(" ").slice(1).map(value => ({ sha: value }));
+  const changed = git(workspace, "diff", "--name-only", preparation.base, preparation.commit).split("\n");
+  const responses: Record<string, any> = {
+    [pull]: { number: 7, state: "closed", merged: true, draft: false, commits: 1,
+      base: { ref: "main", repo: { full_name: "example/fixture" } },
+      head: { sha: preparation.commit, ref: preparation.branch, repo: { full_name: "example/fixture" } },
+      merge_commit_sha: commit, merged_by: { login: "example", type: "User" }, user: { login: "example", type: "User" },
+      merged_at: "2026-10-06T12:00:00Z", auto_merge: null },
+    [`${pull}/commits?per_page=2`]: [{ sha: preparation.commit, parents: parentShas(preparation.commit) }],
+    [`${prefix}/commits/${preparation.commit}`]: { sha: preparation.commit, parents: parentShas(preparation.commit),
+      commit: { message: git(workspace, "log", "-1", "--format=%B", preparation.commit) }, files: changed.map(filename => ({ filename, status: "modified" })) },
+    [`${prefix}/compare/${commit}...main`]: { status: "identical", base_commit: { sha: commit }, merge_base_commit: { sha: commit } },
+    [`${pull}/reviews?per_page=100`]: [],
+  };
+  if (commit !== preparation.commit) responses[`${prefix}/commits/${commit}`] = { sha: commit, parents: parentShas(commit) };
+  const calls: string[] = [];
+  const api = async (path: string) => {
+    calls.push(path);
+    if (Object.hasOwn(responses, path)) return structuredClone(responses[path]);
+    const file = /^\/repos\/example\/fixture\/contents\/(config(?:\.preview)?\.versions\.json)\?ref=([a-f0-9]{40})$/.exec(path);
+    if (file) return { type: "file", path: file[1], encoding: "base64", content: Buffer.from(git(workspace, "show", `${file[2]}:${file[1]}`)).toString("base64") };
+    throw new Error("Unexpected synthetic release proof read");
+  };
+  return { preparation, commit, api, responses, calls };
+}
+
+test("release preparation pushes one version branch, then owner-reviewed main finalization pushes only a tag", async () => {
+  for (const product of ["package", "crawler", "crawler-client", "worker"]) {
+    await fixture(async (workspace, git) => {
+      const reviewed = await reviewedFixture(workspace, git, product);
+      const before = git(workspace, "rev-parse", "HEAD");
+      const versions = await readFile(resolve(workspace, "config.versions.json"), "utf8");
+      const commands: string[][] = [];
+      const observed = (cwd: string, ...args: string[]) => { commands.push(args); return git(cwd, ...args); };
+      const plan = await finalizeRelease(product, 7, reviewed.commit, false, workspace, observed, reviewed.api);
+      expect(plan.status).toBe("finalization-plan-only");
+      expect(commands.some(args => ["tag", "push"].includes(args[0]))).toBe(false);
+      const result = await finalizeRelease(product, 7, reviewed.commit, true, workspace, observed, reviewed.api);
+      expect(result.status).toBe("pushed");
+      expect(result.version).toBe("0.0.1");
+      expect(git(workspace, "ls-remote", "origin", "refs/heads/main")).toBe(`${before}\trefs/heads/main`);
+      expect(commands.filter(args => args[0] === "push")).toEqual([["push", "--no-follow-tags", "origin", `refs/tags/${result.tag}`]]);
+      expect(git(workspace, "cat-file", "-p", `refs/tags/${result.tag}`)).toContain(`VRCP-Release-Head: ${reviewed.preparation.commit}`);
+      expect((await finalizeRelease(product, 7, reviewed.commit, true, workspace, observed, reviewed.api)).status).toBe("already-pushed");
+      expect(commands.filter(args => args[0] === "push")).toHaveLength(1);
+      expect(await readFile(resolve(workspace, "config.versions.json"), "utf8")).toBe(versions);
+      expect(git(workspace, "status", "--porcelain")).toBe("");
+    });
+  }
+}, 120_000);
+
+test("release finalizer rejects a renamed annotated object before publication", async () => {
+  await fixture(async (workspace, git) => {
+    const reviewed = await reviewedFixture(workspace, git, "worker");
+    const tag = reviewed.preparation.tag;
+    git(workspace, "tag", "-a", "wrong-internal-tag-name", reviewed.commit, "-m",
+      `Synthetic retained annotation\n\nVRCP-Release-PR: 7\nVRCP-Release-Head: ${reviewed.preparation.commit}\nVRCP-Release-Base: ${reviewed.preparation.base}`);
+    const object = git(workspace, "rev-parse", "refs/tags/wrong-internal-tag-name");
+    git(workspace, "update-ref", `refs/tags/${tag}`, object);
+    const commands: string[][] = [];
+    const observed = (cwd: string, ...args: string[]) => { commands.push(args); return git(cwd, ...args); };
+    await expect(finalizeRelease("worker", 7, reviewed.commit, true, workspace, observed, reviewed.api))
+      .rejects.toThrow("annotation header");
+    expect(commands.some(args => ["tag", "push"].includes(args[0]))).toBe(false);
+    expect(git(workspace, "ls-remote", "origin", `refs/tags/${tag}`)).toBe("");
+  });
+}, 60_000);
+
+test("release preparation publishes only its branch even when push.followTags enables unrelated reachable tags", async () => {
+  await fixture(async (workspace, git) => {
+    git(workspace, "tag", "-a", "unrelated-preparation-tag", "-m", "Synthetic unrelated annotation");
+    git(workspace, "config", "push.followTags", "true");
+    const commands: string[][] = [];
+    const observed = (cwd: string, ...args: string[]) => { commands.push(args); return git(cwd, ...args); };
+    const result = await startDelivery("release", "worker", true, workspace, now, observed);
+    expect(commands.filter(args => args[0] === "push")).toEqual([["push", "--no-follow-tags", "origin", `HEAD:refs/heads/${result.branch}`]]);
+    expect(git(workspace, "ls-remote", "origin", "refs/tags/unrelated-preparation-tag")).toBe("");
+    expect(git(workspace, "ls-remote", "origin", `refs/heads/${result.branch}`)).toBe(`${result.commit}\trefs/heads/${result.branch}`);
+  });
+}, 60_000);
+
+test("release squash and one-commit rebase finalize their exact merged source", async () => {
+  for (const method of ["squash", "rebase"]) await fixture(async (workspace, git) => {
+    const reviewed = await reviewedFixture(workspace, git, "worker", method);
+    expect((await finalizeRelease("worker", 7, reviewed.commit, true, workspace, git, reviewed.api)).commit).toBe(reviewed.commit);
+  });
+}, 60_000);
+
+test("release preparation lost acknowledgments recover without main writes, tags or another patch", async () => {
+  await fixture(async (workspace, git) => {
+    let lost = true;
+    const flaky = (cwd: string, ...args: string[]) => {
+      const result = git(cwd, ...args);
+      if (args[0] === "push" && lost) { lost = false; throw new Error("Synthetic lost preparation acknowledgment"); }
+      return result;
+    };
+    const main = git(workspace, "rev-parse", "HEAD"), branch = "codex/release/worker/v0.0.1";
+    await expect(startDelivery("release", "worker", true, workspace, now, flaky)).rejects.toThrow("lost preparation");
+    const retained = git(workspace, "rev-parse", "HEAD");
+    const retry = await retryReleasePreparation(branch, workspace, git);
+    expect(retry.status).toBe("preparation-already-pushed-awaiting-review");
+    expect(retry.commit).toBe(retained);
+    expect(git(workspace, "ls-remote", "origin", "refs/heads/main")).toBe(`${main}\trefs/heads/main`);
+    expect(git(workspace, "ls-remote", "origin", "refs/tags/cloudflare-worker/v0.0.1")).toBe("");
+    const conflict = (cwd: string, ...args: string[]) => args[0] === "ls-remote" ? `${"a".repeat(40)}\trefs/heads/${branch}` : git(cwd, ...args);
+    await expect(retryReleasePreparation(branch, workspace, conflict)).rejects.toThrow("never overwrite");
+  });
+}, 60_000);
+
+test("release finalization recovers a lost tag-push acknowledgment without a second tag, push or version", async () => {
+  await fixture(async (workspace, git) => {
+    const reviewed = await reviewedFixture(workspace, git);
+    git(workspace, "tag", "-a", "unrelated-finalization-tag", "-m", "Synthetic unrelated annotation");
+    git(workspace, "config", "push.followTags", "true");
+    const versions = await readFile(resolve(workspace, "config.versions.json"), "utf8");
+    const commands: string[][] = [];
+    let lost = true;
+    const flaky = (cwd: string, ...args: string[]) => {
+      commands.push(args);
+      const result = git(cwd, ...args);
+      if (args[0] === "push" && lost) { lost = false; throw new Error("Synthetic lost final tag acknowledgment"); }
+      return result;
+    };
+    await expect(finalizeRelease("worker", 7, reviewed.commit, true, workspace, flaky, reviewed.api)).rejects.toThrow("lost final tag");
+    const tag = "cloudflare-worker/v0.0.1", tagObject = git(workspace, "rev-parse", `refs/tags/${tag}`);
+    const result = await finalizeRelease("worker", 7, reviewed.commit, true, workspace, flaky, reviewed.api);
+    expect(result.status).toBe("already-pushed");
+    expect(result.tagObject).toBe(tagObject);
+    expect(result.commit).toBe(reviewed.commit);
+    expect(commands.filter(args => args[0] === "tag")).toHaveLength(1);
+    expect(commands.filter(args => args[0] === "push")).toEqual([["push", "--no-follow-tags", "origin", `refs/tags/${tag}`]]);
+    expect(git(workspace, "ls-remote", "origin", "refs/tags/unrelated-finalization-tag")).toBe("");
+    expect(git(workspace, "rev-parse", "HEAD")).toBe(reviewed.commit);
+    expect(git(workspace, "ls-remote", "origin", "refs/heads/main")).toBe(`${reviewed.commit}\trefs/heads/main`);
+    expect(await readFile(resolve(workspace, "config.versions.json"), "utf8")).toBe(versions);
+    expect(git(workspace, "status", "--porcelain")).toBe("");
+  });
+}, 60_000);
+
+test("release finalization rejects unreviewed source, extra metadata edits, races and conflicting tags", async () => {
+  await fixture(async (workspace, git) => {
+    const reviewed = await reviewedFixture(workspace, git);
+    const pull = reviewed.responses["/repos/example/fixture/pulls/7"];
+    pull.merged_by.login = "another-user";
+    await expect(finalizeRelease("worker", 7, reviewed.commit, true, workspace, git, reviewed.api)).rejects.toThrow("exact merged main");
+    pull.merged_by.login = "example";
+    const tamper = (cwd: string, ...args: string[]) => args[0] === "show" && args[1] === `${reviewed.preparation.commit}:src-worker/package.json`
+      ? git(cwd, ...args).replace('"vrcp-worker"', '"tampered"') : git(cwd, ...args);
+    await expect(finalizeRelease("worker", 7, reviewed.commit, true, workspace, tamper, reviewed.api)).rejects.toThrow("generated metadata");
+    const extra = (cwd: string, ...args: string[]) => args[0] === "diff" && args.includes("--name-only")
+      ? git(cwd, ...args) + "\nsrc-worker/src/worker_entry.ts" : git(cwd, ...args);
+    await expect(finalizeRelease("worker", 7, reviewed.commit, true, workspace, extra, reviewed.api)).rejects.toThrow("outside generated metadata");
+    let mainReads = 0;
+    const race = (cwd: string, ...args: string[]) => {
+      if (args[0] === "ls-remote" && args.includes("refs/heads/main") && ++mainReads === 2) return `${"d".repeat(40)}\trefs/heads/main`;
+      return git(cwd, ...args);
+    };
+    await expect(finalizeRelease("worker", 7, reviewed.commit, true, workspace, race, reviewed.api)).rejects.toThrow("Main changed");
+    expect(git(workspace, "tag", "--list")).toBe("");
+    const wrongProof = { ...reviewed.preparation, head: reviewed.preparation.commit, commit: reviewed.commit, preparedFiles: ["config.versions.json"] };
+    await expect(checkReleaseMetadata({ channel: "release", product: "worker", version: "0.0.1" }, wrongProof, workspace, git)).rejects.toThrow("outside generated metadata");
+    const conflict = (cwd: string, ...args: string[]) => args[0] === "ls-remote" && args.includes("refs/heads/main")
+      ? git(cwd, ...args) + `\n${"a".repeat(40)}\trefs/tags/cloudflare-worker/v0.0.1` : git(cwd, ...args);
+    await expect(finalizeRelease("worker", 7, reviewed.commit, true, workspace, conflict, reviewed.api)).rejects.toThrow("never replace");
+    expect(git(workspace, "tag", "--list")).toBe("");
+  });
+}, 60_000);
 
 test("root chain dry-run is read-only; execute atomically commits one config and tag; retry does not bump", async () => {
   await fixture(async (workspace, git) => {
@@ -128,19 +327,25 @@ test("root chain dry-run is read-only; execute atomically commits one config and
   });
 }, 60_000);
 
-test("dirty worktrees, divergent origin, existing tags and SDK holds fail without config writes", async () => {
+test("dirty plans stay read-only and releases, divergent origin, existing tags and SDK holds stop before writes", async () => {
   await fixture(async (workspace, git) => {
     const path = resolve(workspace, "config.preview.versions.json"), before = await readFile(path, "utf8");
     await writeFile(resolve(workspace, "owner.txt"), "Owner edits must not be committed");
     expect((await planDelivery("preview", "crawler-client", workspace, now, git)).version).toBe("26.10.1-pre");
-    await expect(startDelivery("preview", "network", true, workspace, now, git)).rejects.toThrow("dirty");
+    const head = git(workspace, "rev-parse", "HEAD");
+    const dry = await startDelivery("preview", "network", false, workspace, now, git);
+    expect(dry.purpose).toBe("plan-only");
+    expect(dry.blockers).toContain("Worktree or index is dirty");
+    expect(git(workspace, "rev-parse", "HEAD")).toBe(head);
+    expect(git(workspace, "ls-files", "owner.txt")).toBe("");
+    await expect(startDelivery("release", "worker", true, workspace, now, git)).rejects.toThrow("dirty");
     expect(await readFile(path, "utf8")).toBe(before);
     git(workspace, "add", "owner.txt"); git(workspace, "commit", "-m", "Owner change not yet pushed");
     await expect(startDelivery("preview", "network", true, workspace, now, git)).rejects.toThrow("differs");
     git(workspace, "push", "origin", "main");
     git(workspace, "tag", "vrcp-network/v2026.10.1");
     await expect(startDelivery("preview", "network", true, workspace, now, git)).rejects.toThrow("already exists");
-    expect((await planDelivery("release", "worker", workspace, now, git)).delivery).toBe("ci-build-only-no-production-deployment");
+    expect((await planDelivery("release", "worker", workspace, now, git)).publication).toBe("ci-build-only-no-production-deployment");
     await expect(planDelivery("preview", "web", workspace, now, git)).rejects.toThrow("deferred");
     const release = JSON.parse(await readFile(resolve(workspace, "config.versions.json"), "utf8"));
     release["release-package"] = "0.0.999";
@@ -150,6 +355,183 @@ test("dirty worktrees, divergent origin, existing tags and SDK holds fail withou
     await writeFile(resolve(workspace, "config.versions.json"), JSON.stringify(release));
     await expect(planDelivery("release", "package", workspace, now, git)).rejects.toThrow("owner API review");
     expect(await readFile(path, "utf8")).toBe(before);
+  });
+}, 60_000);
+
+test("preview checkpoints all nonignored pending paths including spaces and renames before a separate version commit", async () => {
+  await fixture(async (workspace, git) => {
+    await writeFile(resolve(workspace, ".gitignore"), "ignored-secret.txt\nunchanged lock.txt\n");
+    await writeFile(resolve(workspace, "unchanged lock.txt"), "Unchanged tracked input");
+    await writeFile(resolve(workspace, "owner changes.txt"), "Original owner input");
+    await writeFile(resolve(workspace, "rename from.txt"), "Preserved renamed input");
+    git(workspace, "add", "--all");
+    git(workspace, "add", "--force", "--", "unchanged lock.txt");
+    git(workspace, "commit", "-m", "Synthetic pending-path baseline");
+    git(workspace, "push", "origin", "main");
+    const base = git(workspace, "rev-parse", "HEAD");
+    git(workspace, "tag", "-a", "unrelated-preview-tag", "-m", "Synthetic unrelated annotation");
+    git(workspace, "config", "push.followTags", "true");
+    const previous = await readFile(resolve(workspace, "config.preview.versions.json"), "utf8");
+    await writeFile(resolve(workspace, "owner changes.txt"), "Updated owner input");
+    await mkdir(resolve(workspace, "new folder"));
+    await writeFile(resolve(workspace, "new folder/new input.txt"), "New owner input");
+    await writeFile(resolve(workspace, "ignored-secret.txt"), "PRIVATE_IGNORED_TEST_VALUE");
+    await rename(resolve(workspace, "rename from.txt"), resolve(workspace, "rename to.txt"));
+    const commands: string[][] = [];
+    const observed = (cwd: string, ...args: string[]) => { commands.push(args); return git(cwd, ...args); };
+    const result = await startDelivery("preview", "network", true, workspace, now, observed);
+    expect(result.pendingCheckpoint.paths).toEqual(["new folder/new input.txt", "owner changes.txt", "rename from.txt", "rename to.txt"]);
+    const checkpoint = result.pendingCheckpoint.commit;
+    expect(result.pendingCheckpoint.branch).toBe("main");
+    expect(git(workspace, "rev-parse", `${checkpoint}^`)).toBe(base);
+    expect(git(workspace, "rev-parse", `${result.commit}^`)).toBe(checkpoint);
+    expect(git(workspace, "show", `${checkpoint}:config.preview.versions.json`)).toBe(previous.trim());
+    expect(git(workspace, "show", `${checkpoint}:owner changes.txt`)).toBe("Updated owner input");
+    expect(git(workspace, "show", `${checkpoint}:new folder/new input.txt`)).toBe("New owner input");
+    expect(git(workspace, "show", `${checkpoint}:rename to.txt`)).toBe("Preserved renamed input");
+    expect(git(workspace, "ls-tree", "-r", "--name-only", result.commit).split("\n")).not.toContain("ignored-secret.txt");
+    expect(await readFile(resolve(workspace, "ignored-secret.txt"), "utf8")).toBe("PRIVATE_IGNORED_TEST_VALUE");
+    expect(git(workspace, "show", `${result.commit}:unchanged lock.txt`)).toBe("Unchanged tracked input");
+    expect(commands.filter(args => args[0] === "push")).toEqual([
+      ["push", "--no-follow-tags", "origin", "HEAD:refs/heads/main"],
+      ["push", "--atomic", "--no-follow-tags", "origin", "HEAD:refs/heads/main", `refs/tags/${result.tag}`]
+    ]);
+    expect(git(workspace, "ls-remote", "origin", "refs/tags/unrelated-preview-tag")).toBe("");
+    expect(commands.filter(args => args[0] === "commit")).toHaveLength(2);
+    expect(commands.some(args => args.includes("--amend") || args.includes("--force"))).toBe(false);
+    expect(git(workspace, "diff", "--name-only", checkpoint, result.commit).split("\n")).toEqual([
+      "config.preview.versions.json", "src-crawler/package.json", "src-worker/package.json", "src-worker/packages/network/package.json"]);
+    expect(git(workspace, "status", "--porcelain")).toBe("");
+  });
+}, 60_000);
+
+test("a new pending file appearing during add retains staging and stops before any checkpoint commit or bump", async () => {
+  await fixture(async (workspace, git) => {
+    const before = git(workspace, "rev-parse", "HEAD");
+    const versions = await readFile(resolve(workspace, "config.preview.versions.json"), "utf8");
+    await writeFile(resolve(workspace, "printed pending input.txt"), "Original checkpoint input");
+    const commands: string[][] = [];
+    const race = (cwd: string, ...args: string[]) => {
+      commands.push(args);
+      if (args[0] === "add" && args.includes("--all")) {
+        writeFileSync(resolve(workspace, "unlisted concurrent input.txt"), "Concurrent input must remain staged for inspection");
+      }
+      return git(cwd, ...args);
+    };
+    await expect(startDelivery("preview", "network", true, workspace, now, race)).rejects.toThrow("Pending paths changed during staging");
+    expect(commands.some(args => ["commit", "push", "tag", "reset", "restore", "checkout"].includes(args[0]))).toBe(false);
+    expect(git(workspace, "rev-parse", "HEAD")).toBe(before);
+    expect(await readFile(resolve(workspace, "config.preview.versions.json"), "utf8")).toBe(versions);
+    expect(git(workspace, "diff", "--cached", "--name-only", "-z").split("\0").filter(Boolean)).toEqual([
+      "printed pending input.txt", "unlisted concurrent input.txt"
+    ]);
+    expect(git(workspace, "tag", "--list")).toBe("");
+  });
+}, 60_000);
+
+test("dirty stale or divergent preview plans reject before staging, committing or pushing pending owner files", async () => {
+  for (const reason of ["stale", "divergent"]) await fixture(async (workspace, git) => {
+    const original = git(workspace, "rev-parse", "HEAD");
+    git(workspace, "checkout", "-b", "feature-pending");
+    git(workspace, "push", "origin", "feature-pending");
+    git(workspace, "checkout", "main");
+    if (reason === "stale") {
+      const path = resolve(workspace, "config.preview.versions.json");
+      const config = JSON.parse(await readFile(path, "utf8"));
+      config["preview-worker"] = "2026.10.2-pre";
+      await writeFile(path, JSON.stringify(config));
+    } else await writeFile(resolve(workspace, "synchronized update.txt"), "Unrelated synchronized input");
+    git(workspace, "add", "--all");
+    git(workspace, "commit", "-m", "Synthetic remote update before dirty delivery");
+    git(workspace, "push", "origin", "main");
+    if (reason === "divergent") git(workspace, "push", "origin", "HEAD:refs/heads/feature-pending");
+    git(workspace, "checkout", "feature-pending");
+    await writeFile(resolve(workspace, "pending owner input.txt"), "Preserve uncommitted owner input");
+    const status = git(workspace, "status", "--porcelain=v1", "-z", "--untracked-files=all");
+    const versions = await readFile(resolve(workspace, "config.preview.versions.json"), "utf8");
+    const commands: string[][] = [];
+    const observed = (cwd: string, ...args: string[]) => { commands.push(args); return git(cwd, ...args); };
+    await expect(startDelivery("preview", "worker", true, workspace, now, observed)).rejects.toThrow(reason === "stale" ? "behind origin main" : "Origin branch differs");
+    expect(commands.some(args => ["add", "commit", "push", "tag", "checkout"].includes(args[0]))).toBe(false);
+    expect(git(workspace, "rev-parse", "HEAD")).toBe(original);
+    expect(git(workspace, "status", "--porcelain=v1", "-z", "--untracked-files=all")).toBe(status);
+    expect(await readFile(resolve(workspace, "config.preview.versions.json"), "utf8")).toBe(versions);
+  });
+}, 60_000);
+
+test("indexed ignored pending inputs reject without unstaging them or committing their contents", async () => {
+  await fixture(async (workspace, git) => {
+    await writeFile(resolve(workspace, ".gitignore"), "ignored-secret.txt\n");
+    git(workspace, "add", ".gitignore");
+    git(workspace, "commit", "-m", "Synthetic ignored-input rule");
+    git(workspace, "push", "origin", "main");
+    await writeFile(resolve(workspace, "ignored-secret.txt"), "PRIVATE_INDEXED_TEST_VALUE");
+    git(workspace, "add", "--force", "--", "ignored-secret.txt");
+    const head = git(workspace, "rev-parse", "HEAD");
+    const status = git(workspace, "status", "--porcelain=v1", "-z", "--untracked-files=all");
+    const commands: string[][] = [];
+    const observed = (cwd: string, ...args: string[]) => { commands.push(args); return git(cwd, ...args); };
+    await expect(startDelivery("preview", "network", true, workspace, now, observed)).rejects.toThrow("Indexed ignored pending files");
+    expect(commands.some(args => ["add", "commit", "push", "tag"].includes(args[0]))).toBe(false);
+    expect(git(workspace, "rev-parse", "HEAD")).toBe(head);
+    expect(git(workspace, "status", "--porcelain=v1", "-z", "--untracked-files=all")).toBe(status);
+    expect(await readFile(resolve(workspace, "ignored-secret.txt"), "utf8")).toBe("PRIVATE_INDEXED_TEST_VALUE");
+  });
+}, 60_000);
+
+test("failed pending push retains its separate commit and requires a same-branch normal push before any bump", async () => {
+  await fixture(async (workspace, git) => {
+    git(workspace, "checkout", "-b", "feature-pending-recovery");
+    git(workspace, "push", "origin", "feature-pending-recovery");
+    const before = git(workspace, "rev-parse", "HEAD");
+    const versions = await readFile(resolve(workspace, "config.preview.versions.json"), "utf8");
+    await writeFile(resolve(workspace, "pending owner input.txt"), "Preserve checkpoint input");
+    const commands: string[][] = [];
+    const failedPush = (cwd: string, ...args: string[]) => {
+      commands.push(args);
+      if (args[0] === "push") throw new Error("Synthetic refused pending push");
+      return git(cwd, ...args);
+    };
+    await expect(startDelivery("preview", "network", true, workspace, now, failedPush)).rejects.toThrow('git push --no-follow-tags origin "HEAD:refs/heads/feature-pending-recovery"');
+    const retained = git(workspace, "rev-parse", "HEAD");
+    expect(retained).not.toBe(before);
+    expect(git(workspace, "rev-parse", `${retained}^`)).toBe(before);
+    expect(git(workspace, "ls-remote", "origin", "refs/heads/feature-pending-recovery")).toBe(`${before}\trefs/heads/feature-pending-recovery`);
+    expect(await readFile(resolve(workspace, "config.preview.versions.json"), "utf8")).toBe(versions);
+    expect(git(workspace, "tag", "--list")).toBe("");
+    expect(commands.filter(args => args[0] === "commit")).toHaveLength(1);
+    await expect(startDelivery("preview", "network", true, workspace, now, git)).rejects.toThrow("Origin branch differs");
+    expect(git(workspace, "rev-parse", "HEAD")).toBe(retained);
+    git(workspace, "push", "--no-follow-tags", "origin", "HEAD:refs/heads/feature-pending-recovery");
+    const result = await startDelivery("preview", "network", true, workspace, now, git);
+    expect(result.version).toBe("2026.10.1");
+    expect(result.pendingCheckpoint).toBeUndefined();
+    expect(git(workspace, "rev-parse", `${result.commit}^`)).toBe(retained);
+    expect(git(workspace, "status", "--porcelain")).toBe("");
+  });
+}, 60_000);
+
+test("preview rechecks remote freshness after pushing pending files and stops before the version write", async () => {
+  await fixture(async (workspace, git) => {
+    await writeFile(resolve(workspace, "pending owner input.txt"), "Preserve checkpoint input");
+    const versions = await readFile(resolve(workspace, "config.preview.versions.json"), "utf8");
+    const commands: string[][] = [];
+    let pushed = false;
+    const race = (cwd: string, ...args: string[]) => {
+      commands.push(args);
+      const result = git(cwd, ...args);
+      if (args[0] === "push") pushed = true;
+      if (pushed && args[0] === "ls-remote" && args.includes("refs/heads/main")) {
+        return `${result}\n${"a".repeat(40)}\trefs/tags/vrcp-network/v2026.10.9`;
+      }
+      return result;
+    };
+    await expect(startDelivery("preview", "network", true, workspace, now, race)).rejects.toThrow("Pending checkpoint pushed; delivery blocked");
+    expect(await readFile(resolve(workspace, "config.preview.versions.json"), "utf8")).toBe(versions);
+    expect(commands.filter(args => args[0] === "commit")).toHaveLength(1);
+    expect(commands.filter(args => args[0] === "push")).toEqual([["push", "--no-follow-tags", "origin", "HEAD:refs/heads/main"]]);
+    expect(git(workspace, "tag", "--list")).toBe("");
+    expect(git(workspace, "status", "--porcelain")).toBe("");
   });
 }, 60_000);
 
@@ -187,16 +569,17 @@ test("preview delivery works on a feature branch but stale tag/config history an
   });
 }, 60_000);
 
-test("an unpublished release retry cannot use a feature branch to bypass main", async () => {
+test("an unpublished release retry cannot use a feature branch or an unproven tag to bypass promotion", async () => {
   await fixture(async (workspace, git) => {
-    const stopPush = (cwd: string, ...args: string[]) => {
-      if (args[0] === "push" && args.includes("--atomic")) throw new Error("Synthetic rejected push");
-      return git(cwd, ...args);
-    };
-    await expect(startDelivery("release", "worker", true, workspace, now, stopPush)).rejects.toThrow("rejected push");
+    const reviewed = await reviewedFixture(workspace, git);
+    const tag = "cloudflare-worker/v0.0.1";
+    git(workspace, "tag", "-a", tag, "-m", "Unproven synthetic tag");
+    expect(() => retryDelivery(tag, workspace, git)).toThrow("proof trailer");
+    git(workspace, "tag", "-d", tag);
+    git(workspace, "tag", "-a", tag, "-m", `Synthetic proof locator\n\nVRCP-Release-PR: 7\nVRCP-Release-Head: ${reviewed.preparation.commit}\nVRCP-Release-Base: ${reviewed.preparation.base}`);
     git(workspace, "checkout", "-b", "feature-release");
-    expect(() => retryDelivery("cloudflare-worker/v0.0.1", workspace, git)).toThrow("requires main");
-    expect(git(workspace, "ls-remote", "origin", "refs/tags/cloudflare-worker/v0.0.1")).toBe("");
+    await expect(retryDelivery(tag, workspace, git)).rejects.toThrow("requires clean main");
+    expect(git(workspace, "ls-remote", "origin", `refs/tags/${tag}`)).toBe("");
   });
 }, 60_000);
 

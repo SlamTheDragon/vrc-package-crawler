@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
 import { bumpVersion, networkArchiveURL, nextVersion, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, versionFiles } from "./versioning.mjs";
-import { checkSDKPublicationVersion, selectTag } from "./delivery.mjs";
+import { checkReleaseMetadata, checkReviewedRelease, checkSDKPublicationVersion, readGitHubAPI, readReleaseTagProof, selectTag } from "./delivery.mjs";
 import { allowedBinary, checkedAssetBytes, checkSourceRun, checkRemoteTag, sameSourceRunLink, sourceRunID } from "./release-assets.mjs";
 import { checkWorkerArtifacts, downloadActionsArchive } from "./worker-artifacts.mjs";
 
@@ -14,8 +14,9 @@ const workflows = { package: "vrc-packages-api", network: "network", crawler: "n
 
 function runGit(workspace, ...args) {
   try {
-    return execFileSync("git", args, { cwd: workspace, encoding: "utf8", timeout: 60_000,
-      stdio: "pipe", env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" } }).trim();
+    const output = execFileSync("git", args, { cwd: workspace, encoding: "utf8", timeout: 60_000,
+      stdio: "pipe", env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" } });
+    return args.includes("-z") ? output : output.trim();
   } catch { throw new Error(`Git ${args[0]} failed. Inspect repository state before retrying; no rollback or tag replacement ran.`); }
 }
 
@@ -48,7 +49,7 @@ function mainVersionBlocker(channel, product, version, refs, workspace, git) {
   } catch { return "Cannot read current origin main version config; fetch origin main before delivery"; }
 }
 
-/** Read-only planning. Only --execute allocates a patch and triggers tagged CI. */
+/** Read-only planning. Release execution prepares a version PR, not a direct main push. */
 export async function planDelivery(channel, product, workspace = root, now = new Date(), git = runGit) {
   if (!Object.hasOwn(workflows, product)) throw new Error("Product delivery is disabled or unknown. Website hosting remains deferred.");
   const { config, configPath } = await readVersionConfig(channel, workspace);
@@ -59,42 +60,209 @@ export async function planDelivery(channel, product, workspace = root, now = new
   const branch = git(workspace, "symbolic-ref", "--short", "HEAD");
   const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
   const tag = `${productTagPrefixes[product]}/v${version}`;
+  const releaseBranch = channel === "release" ? `codex/release/${product}/v${version}` : undefined;
   const blockers = [];
   if (channel === "release" && branch !== "main") blockers.push("Release delivery requires main after reviewed promotion");
   if (git(workspace, "status", "--porcelain")) blockers.push("Worktree or index is dirty");
   if (git(workspace, "for-each-ref", "--format=%(refname)", `refs/tags/${tag}`)) blockers.push("Local tag already exists");
+  if (releaseBranch && git(workspace, "for-each-ref", "--format=%(refname)", `refs/heads/${releaseBranch}`)) {
+    blockers.push("Release preparation branch already exists; inspect it instead of allocating again");
+  }
   const refs = git(workspace, "ls-remote", "origin", `refs/heads/${branch}`, "refs/heads/main",
-    `refs/tags/${productTagPrefixes[product]}/v*`).split("\n");
+    ...(releaseBranch ? [`refs/heads/${releaseBranch}`] : []), `refs/tags/${productTagPrefixes[product]}/v*`).split("\n");
   const head = git(workspace, "rev-parse", "HEAD");
   if (!refs.includes(`${head}\trefs/heads/${branch}`)) blockers.push("Origin branch differs from HEAD or does not exist");
   if (refs.some(line => line.endsWith(`\trefs/tags/${tag}`))) blockers.push("Remote tag already exists");
+  if (releaseBranch && refs.some(line => line.endsWith(`\trefs/heads/${releaseBranch}`))) {
+    blockers.push("Remote release preparation branch exists; review or recover it instead of allocating again");
+  }
   if (newerRemoteVersion(channel, product, previous, refs)) blockers.push("Version config is behind a remote delivery tag; synchronize before bumping");
   const mainBlocker = mainVersionBlocker(channel, product, previous, refs, workspace, git);
   if (mainBlocker) blockers.push(mainBlocker);
   const other = (await readVersionConfig(channel === "preview" ? "release" : "preview", workspace)).config;
   if (other[`${channel === "preview" ? "release" : "preview"}-${product}`] === version) blockers.push("Channel tag would be ambiguous");
-  return { channel, product, previous, version, tag, branch, repository, head, configPath, blockers,
+  return { channel, product, previous, version, tag, branch, repository, head, configPath, blockers, ...(releaseBranch ? { releaseBranch } : {}),
     workflow: `${workflows[product]}.yml`, purpose: "plan-only",
-    delivery: product === "worker" && channel === "release" ? "ci-build-only-no-production-deployment" : "tagged-delivery" };
+    delivery: channel === "release" ? "version-pr-then-reviewed-main-tag" : "tagged-delivery",
+    ...(product === "worker" && channel === "release" ? { publication: "ci-build-only-no-production-deployment" } : {}) };
+}
+
+function pendingPaths(status) {
+  if (!status) return [];
+  if (!status.endsWith("\0")) throw new Error("Pending status must use NUL-terminated paths");
+  const records = status.slice(0, -1).split("\0"), paths = new Set();
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index], code = record.slice(0, 2);
+    if (!/^[ MADRCUT?]{2} /.test(record) || record.length < 4) throw new Error("Malformed pending status");
+    if (["DD", "AU", "UD", "UA", "DU", "AA", "UU"].includes(code)) {
+      throw new Error("Resolve unmerged files before a pending preview checkpoint");
+    }
+    paths.add(record.slice(3));
+    if (/[RC]/.test(code)) {
+      const original = records[++index];
+      if (!original) throw new Error("Rename status is missing its original path");
+      paths.add(original);
+    }
+  }
+  return [...paths].sort();
+}
+
+function rejectIgnoredPending(paths, workspace, git) {
+  const ignored = new Set(git(workspace, "ls-files", "--cached", "--ignored", "--exclude-standard", "-z").split("\0"));
+  const selected = paths.filter(path => ignored.has(path));
+  if (selected.length) throw new Error(`Indexed ignored pending files cannot be checkpointed: ${JSON.stringify(selected)}`);
+}
+
+/** Checkpoint the owner's selected nonignored pending files before allocating a preview version. */
+function checkpointPendingPreview(plan, workspace, git) {
+  const args = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+  const status = git(workspace, ...args), paths = pendingPaths(status);
+  if (!paths.length) return;
+  rejectIgnoredPending(paths, workspace, git);
+  console.log(JSON.stringify({ pendingFiles: paths }));
+  if (git(workspace, "rev-parse", "HEAD") !== plan.head ||
+      git(workspace, "symbolic-ref", "--short", "HEAD") !== plan.branch || git(workspace, ...args) !== status) {
+    throw new Error("Repository changed before the pending preview checkpoint");
+  }
+  git(workspace, "add", "--all");
+  const stagedPaths = pendingPaths(git(workspace, ...args));
+  rejectIgnoredPending(stagedPaths, workspace, git);
+  if (JSON.stringify(stagedPaths) !== JSON.stringify(paths)) {
+    throw new Error("Pending paths changed during staging. Staging is retained for inspection; no commit or version bump ran.");
+  }
+  git(workspace, "commit", "-m", `Checkpoint pending changes before ${plan.product} preview ${plan.version}`);
+  const commit = git(workspace, "rev-parse", "HEAD");
+  if (git(workspace, "symbolic-ref", "--short", "HEAD") !== plan.branch) {
+    throw new Error("Branch changed during pending checkpoint. Inspect the retained commit; no version bump ran.");
+  }
+  try { git(workspace, "push", "--no-follow-tags", "origin", `HEAD:refs/heads/${plan.branch}`); }
+  catch {
+    throw new Error(`Pending preview checkpoint ${commit} is retained on ${JSON.stringify(plan.branch)}. Recover on that same branch with git push --no-follow-tags origin ${JSON.stringify(`HEAD:refs/heads/${plan.branch}`)} before rerunning preview delivery. No version bump ran.`);
+  }
+  return { branch: plan.branch, commit, paths, status: "pushed" };
 }
 
 /** Keep failed local commit/tag state so an exact retry cannot allocate another version. */
 export async function startDelivery(channel, product, execute = false, workspace = root, now = new Date(), git = runGit) {
-  const plan = await planDelivery(channel, product, workspace, now, git);
+  let plan = await planDelivery(channel, product, workspace, now, git);
   if (!execute) return plan;
-  if (plan.blockers.length) throw new Error(`Delivery blocked: ${plan.blockers.join("; ")}`);
-  // Recheck immediately before writes. A later race still cannot force an origin ref.
-  if (git(workspace, "status", "--porcelain") || git(workspace, "rev-parse", "HEAD") !== plan.head) {
+  const blockers = plan.blockers.filter(blocker => channel !== "preview" || blocker !== "Worktree or index is dirty");
+  if (blockers.length) throw new Error(`Delivery blocked: ${blockers.join("; ")}`);
+  if (git(workspace, "rev-parse", "HEAD") !== plan.head || git(workspace, "symbolic-ref", "--short", "HEAD") !== plan.branch) {
     throw new Error("Repository changed after planning");
   }
+  const pendingCheckpoint = channel === "preview" ? checkpointPendingPreview(plan, workspace, git) : undefined;
+  if (pendingCheckpoint) {
+    plan = await planDelivery(channel, product, workspace, now, git);
+    if (plan.blockers.length) throw new Error(`Pending checkpoint pushed; delivery blocked: ${plan.blockers.join("; ")}. No version bump ran.`);
+  }
+  // Recheck immediately before writes. A later race still cannot force an origin ref.
+  if (git(workspace, "status", "--porcelain") || git(workspace, "rev-parse", "HEAD") !== plan.head ||
+      git(workspace, "symbolic-ref", "--short", "HEAD") !== plan.branch) {
+    throw new Error("Repository changed after planning");
+  }
+  if (channel === "release") git(workspace, "checkout", "-b", plan.releaseBranch);
   const result = await bumpVersion(channel, product, "patch", workspace, now);
   if (result.version !== plan.version) throw new Error("Config changed after planning. Inspect it before retrying.");
   const metadata = await versionFiles("sync", channel, product, workspace);
   const paths = [plan.configPath, ...metadata.changed];
   git(workspace, "add", "--", ...paths);
-  git(workspace, "commit", "--only", "-m", `Deliver ${product} ${channel} ${plan.version}`, "--", ...paths);
+  git(workspace, "commit", "--only", "-m", `${channel === "release" ? "Prepare" : "Deliver"} ${product} ${channel} ${plan.version}`,
+    ...(channel === "release" ? ["-m", `VRCP-Release-Product: ${product}\nVRCP-Release-Version: ${plan.version}\nVRCP-Release-Base: ${plan.head}`] : []), "--", ...paths);
+  if (channel === "release") return retryReleasePreparation(plan.releaseBranch, workspace, git);
   git(workspace, "tag", "-a", plan.tag, "-m", `VRC Packages ${product} ${channel} ${plan.version}`);
-  return retryDelivery(plan.tag, workspace, git);
+  return { ...retryDelivery(plan.tag, workspace, git), ...(pendingCheckpoint ? { pendingCheckpoint } : {}) };
+}
+
+/** Preparation pushes only its version PR branch. It never writes main or a delivery tag. */
+export async function retryReleasePreparation(branch, workspace = root, git = runGit) {
+  const match = /^codex\/release\/(package|crawler|crawler-client|worker)\/v([0-9][0-9A-Za-z.+-]*)$/.exec(branch ?? "");
+  if (!match || semver.valid(match[2]) !== match[2] || semver.prerelease(match[2])) throw new Error("Expected an exact release preparation branch");
+  if (git(workspace, "symbolic-ref", "--short", "HEAD") !== branch || git(workspace, "status", "--porcelain")) {
+    throw new Error("Release preparation retry requires its clean local branch");
+  }
+  const commit = git(workspace, "rev-parse", "HEAD"), repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
+  const message = git(workspace, "log", "-1", "--format=%B");
+  const trailers = key => {
+    const values = message.split(/\r?\n/).filter(line => line.startsWith(`${key}:`));
+    if (values.length !== 1 || !values[0].startsWith(`${key}: `)) throw new Error("Release preparation commit has missing or duplicate identity trailers");
+    return values[0].slice(key.length + 2);
+  };
+  const base = trailers("VRCP-Release-Base");
+  if (!/^[a-f0-9]{40}$/.test(base) || git(workspace, "rev-parse", "HEAD^") !== base ||
+      trailers("VRCP-Release-Product") !== match[1] || trailers("VRCP-Release-Version") !== match[2]) {
+    throw new Error("Release preparation commit differs from its branch or base");
+  }
+  const config = JSON.parse(git(workspace, "show", `${commit}:config.versions.json`));
+  if (config[`release-${match[1]}`] !== match[2]) throw new Error("Preparation config differs from its branch");
+  await checkReleaseMetadata({ channel: "release", product: match[1], version: match[2] }, { base, head: commit }, workspace, git);
+  const refs = git(workspace, "ls-remote", "origin", "refs/heads/main", `refs/heads/${branch}`).split("\n");
+  const remote = refs.find(line => line.endsWith(`\trefs/heads/${branch}`));
+  if (remote && remote !== `${commit}\trefs/heads/${branch}`) throw new Error("Remote preparation branch differs; never overwrite it automatically");
+  if (!remote) {
+    if (!refs.includes(`${base}\trefs/heads/main`)) throw new Error("Main changed before release preparation push; inspect retained metadata before retrying");
+    git(workspace, "push", "--no-follow-tags", "origin", `HEAD:refs/heads/${branch}`);
+  }
+  const tag = `${productTagPrefixes[match[1]]}/v${match[2]}`;
+  return { channel: "release", product: match[1], version: match[2], repository, base, commit, branch, tag,
+    status: remote ? "preparation-already-pushed-awaiting-review" : "preparation-pushed-awaiting-review",
+    pullRequestURL: `https://github.com/${repository}/compare/main...${encodeURIComponent(branch)}?expand=1`,
+    next: ["Create and manually review a version promotion PR into main. Do not merge an evergreen tracking PR.",
+      `bun run delivery:finalize ${match[1]} <merged-pr-number> <merged-main-commit> --execute`] };
+}
+
+function releaseTagProof(tag, workspace, git) {
+  if (git(workspace, "cat-file", "-t", `refs/tags/${tag}`) !== "tag") throw new Error("Release requires an annotated proof tag");
+  return readReleaseTagProof(git(workspace, "cat-file", "-p", `refs/tags/${tag}`),
+    { tag, commit: git(workspace, "rev-parse", `refs/tags/${tag}^{commit}`) });
+}
+
+/** Read-only proof or tag-only push. Never bump again, push main, merge a PR or approve a release. */
+export async function finalizeRelease(product, prNumber, commit, execute = false, workspace = root, git = runGit, api = readGitHubAPI()) {
+  if (!["package", "crawler", "crawler-client", "worker"].includes(product) || !Number.isSafeInteger(prNumber) ||
+      prNumber < 1 || !/^[a-f0-9]{40}$/.test(commit ?? "")) throw new Error("Use finalize <product> <merged-pr-number> <merged-main-commit> [--execute]");
+  if (git(workspace, "symbolic-ref", "--short", "HEAD") !== "main" || git(workspace, "status", "--porcelain")) {
+    throw new Error("Release finalization requires clean main after owner-reviewed promotion");
+  }
+  const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
+  const main = git(workspace, "rev-parse", "HEAD");
+  const configs = Object.fromEntries(["release", "preview"].map(channel => [channel,
+    JSON.parse(git(workspace, "show", `${commit}:${channel === "release" ? "config.versions.json" : "config.preview.versions.json"}`))]));
+  const version = configs.release[`release-${product}`], tag = `${productTagPrefixes[product]}/v${version}`;
+  const selected = selectTag(tag, configs);
+  if (selected.product !== product || selected.channel !== "release") throw new Error("Merged source selects another release");
+  const refs = git(workspace, "ls-remote", "origin", "refs/heads/main", `refs/tags/${productTagPrefixes[product]}/v*`).split("\n");
+  if (!refs.includes(`${main}\trefs/heads/main`)) throw new Error("Origin main differs from the clean local checkout");
+  git(workspace, "merge-base", "--is-ancestor", commit, main);
+  if (newerRemoteVersion("release", product, version, refs)) throw new Error("A newer release tag exists; do not publish older source");
+  const mainBlocker = mainVersionBlocker("release", product, version, refs, workspace, git);
+  if (mainBlocker) throw new Error(`Release finalization blocked: ${mainBlocker}`);
+  const pr = await api(`/repos/${repository}/pulls/${prNumber}`);
+  if (!/^[a-f0-9]{40}$/.test(pr?.head?.sha ?? "")) throw new Error("Invalid release preparation head evidence");
+  const proof = await checkReviewedRelease(selected, { repository, commit, tag, prNumber, head: pr?.head?.sha,
+    base: git(workspace, "rev-parse", `${pr?.head?.sha}^`) }, api);
+  const metadata = await checkReleaseMetadata(selected, proof, workspace, git);
+  const local = git(workspace, "for-each-ref", "--format=%(refname)", `refs/tags/${tag}`);
+  let tagObject;
+  if (local) {
+    if (git(workspace, "rev-parse", `refs/tags/${tag}^{commit}`) !== commit) throw new Error("Local release tag identifies another commit");
+    const retained = releaseTagProof(tag, workspace, git);
+    if (retained.prNumber !== prNumber || retained.head !== proof.head || retained.base !== proof.base) throw new Error("Local release tag identifies another review");
+    tagObject = git(workspace, "rev-parse", `refs/tags/${tag}`);
+  }
+  const remote = refs.find(line => line.endsWith(`\trefs/tags/${tag}`));
+  if (remote && (!tagObject || remote !== `${tagObject}\trefs/tags/${tag}`)) throw new Error("Remote release tag differs; never replace it automatically");
+  const result = { ...selected, repository, tag, commit, prNumber, head: proof.head, base: proof.base, changed: metadata.changed,
+    status: remote ? "already-pushed" : execute ? "pushed" : "finalization-plan-only", next: [`bun run delivery:status ${tag}`, `bun run delivery:check ${tag}`] };
+  if (!execute || remote) return { ...result, ...(tagObject ? { tagObject } : {}) };
+  if (git(workspace, "status", "--porcelain") || git(workspace, "rev-parse", "HEAD") !== main ||
+      !git(workspace, "ls-remote", "origin", "refs/heads/main").split("\n").includes(`${main}\trefs/heads/main`)) {
+    throw new Error("Main changed after release proof; no tag push ran");
+  }
+  if (!local) git(workspace, "tag", "-a", tag, commit, "-m", `VRC Packages ${product} release ${version}\n\nVRCP-Release-PR: ${prNumber}\nVRCP-Release-Head: ${proof.head}\nVRCP-Release-Base: ${proof.base}`);
+  tagObject = git(workspace, "rev-parse", `refs/tags/${tag}`);
+  git(workspace, "push", "--no-follow-tags", "origin", `refs/tags/${tag}`);
+  return { ...result, tagObject };
 }
 
 function sourceTag(tag, workspace, git = runGit) {
@@ -116,11 +284,14 @@ export function retryDelivery(tag, workspace = root, git = runGit) {
   const remote = git(workspace, "ls-remote", "origin", `refs/tags/${tag}`);
   if (remote && remote !== `${oid}\trefs/tags/${tag}`) throw new Error("Remote tag differs. Replacement needs separate owner authorization.");
   if (!remote) {
+    if (selected.channel === "release") {
+      const proof = releaseTagProof(tag, workspace, git);
+      return finalizeRelease(selected.product, proof.prNumber, selected.commit, true, workspace, git);
+    }
     if (git(workspace, "status", "--porcelain") || git(workspace, "rev-parse", "HEAD") !== selected.commit) {
       throw new Error("Retry requires a clean checkout at the tag commit");
     }
     const branch = git(workspace, "symbolic-ref", "--short", "HEAD");
-    if (selected.channel === "release" && branch !== "main") throw new Error("Release retry requires main after reviewed promotion");
     const versions = git(workspace, "ls-remote", "origin", "refs/heads/main", `refs/tags/${productTagPrefixes[selected.product]}/v*`).split("\n");
     if (newerRemoteVersion(selected.channel, selected.product, selected.version, versions)) {
       throw new Error("Newer remote delivery exists. Inspect the retained local tag; do not replace it or skip a patch.");
@@ -128,7 +299,7 @@ export function retryDelivery(tag, workspace = root, git = runGit) {
     const mainBlocker = mainVersionBlocker(selected.channel, selected.product, selected.version, versions, workspace, git);
     if (mainBlocker) throw new Error(`Retry blocked: ${mainBlocker}`);
     // Atomic normal pushes fail on divergence and existing tags. Never replace a tag.
-    git(workspace, "push", "--atomic", "origin", `HEAD:refs/heads/${branch}`, `refs/tags/${tag}`);
+    git(workspace, "push", "--atomic", "--no-follow-tags", "origin", `HEAD:refs/heads/${branch}`, `refs/tags/${tag}`);
   }
   return { ...selected, repository, status: remote ? "already-pushed" : "pushed",
     next: [`bun run delivery:status ${tag}`, `bun run delivery:check ${tag}`] };
@@ -149,15 +320,7 @@ export function summarizeRun(run, jobs, release, product, channel = "preview") {
 }
 
 function githubReader(workspace) {
-  let token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
-  if (!token) {
-    try {
-      const credential = execFileSync("git", ["credential", "fill"], { cwd: workspace,
-        input: "protocol=https\nhost=github.com\n\n", encoding: "utf8", timeout: 15_000, stdio: "pipe",
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" } });
-      token = credential.split(/\r?\n/).find(line => line.startsWith("password="))?.slice(9);
-    } catch { /* Public metadata checks can continue without credentials. */ }
-  }
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   return async (path, missing = false, format = "json") => {
     if (format === "archive") {
       const match = /^\/repos\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/actions\/artifacts\/([1-9][0-9]*)\/zip$/.exec(path);
@@ -362,9 +525,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     let result;
     if (action === "start" && (!extra.length || extra.length === 1 && extra[0] === "--execute")) {
       result = await startDelivery(first, second, extra[0] === "--execute");
+    } else if (action === "finalize" && (extra.length === 1 || extra.length === 2 && extra[1] === "--execute") && /^[1-9][0-9]*$/.test(second ?? "")) {
+      result = await finalizeRelease(first, Number(second), extra[0], extra[1] === "--execute");
+    } else if (action === "retry-preparation" && !second && !extra.length) {
+      result = await retryReleasePreparation(first);
     } else if (["status", "check", "retry"].includes(action) && !second && !extra.length) {
-      result = action === "retry" ? retryDelivery(first) : await inspectDelivery(first, action === "check");
-    } else throw new Error("Use start <preview|release> <product> [--execute], or status|check|retry <tag>");
+      result = action === "retry" ? await retryDelivery(first) : await inspectDelivery(first, action === "check");
+    } else throw new Error("Use start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, or status|check|retry <tag>");
     console.log(JSON.stringify(result, null, 2));
     if (result.status === "ci-failed") process.exitCode = 1;
   } catch (error) {

@@ -7,6 +7,8 @@
     "delivery": "node scripts/delivery.mjs",
     "delivery:preview": "node scripts/delivery-chain.mjs start preview",
     "delivery:release": "node scripts/delivery-chain.mjs start release",
+    "delivery:finalize": "node scripts/delivery-chain.mjs finalize",
+    "delivery:retry-preparation": "node scripts/delivery-chain.mjs retry-preparation",
     "delivery:status": "node scripts/delivery-chain.mjs status",
     "delivery:check": "node scripts/delivery-chain.mjs check",
     "delivery:retry": "node scripts/delivery-chain.mjs retry",
