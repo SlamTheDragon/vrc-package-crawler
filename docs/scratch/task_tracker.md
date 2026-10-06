@@ -23,15 +23,19 @@
 - Its 31 unchanged chain cases passed, but its mixed-state recovery failure is not a clean gate result. The final-source recovery rerun passed.
 - All 374 document-link checks, syntax and whitespace checks passed. DELIVERY prose score: 1.47 issues per 100 words.
 - Checked tooling c6f317f reached main by normal push. The actual root plan passed, then --execute dispatched recovery 37466559953.
-- Recovery 37466559953 passed routing, Linux binary/container checks and Windows binary checks. Publication waits at vrcp-crawler-release.
+- Recovery 37466559953 passed routing, Linux binary/container checks, Windows binary checks, protected publication and attachment.
 - Owner granted standing release approvals for these production distribution trials. This does not remove protection rules or authorize automatic CI retries.
 - The exact-run approval attempt returned HTTP 403 despite current_user_can_approve=true. GitHub requires repository Deployments: write for review requests.
-- Question hook offers a scoped token permission update or UI approval of this run. No approval, publication or protection change succeeded.
+- The gate subsequently passed externally. Root full proof checked all six public asset hashes and the exact recovery/source/tag identity.
+- Linux SHA-256: 78a8318d159ce0a6f03c8d3e750a5429d183cbb4806fa847fd44d1bd2f565abc. Windows: 18a94c43e72141be01269ae8945bc18968900a541f2cbba75fba4b04e8901154.
+- Public GHCR 0.0.7 and latest share manifest sha256:738d07f45716f8a986b2abccfe641eb4dcd4b17ad83b7d4ce0c1726e4380b814 and the exact tagged source/SDK/network labels.
+- Deployment 6884524554 passed and links to the exact 0.0.7 Release. Discord check 112282424812 acknowledged message 1557014968916779119.
 - Tag status retains the original failure until a recovered Release exists. The root recovery command shows the separate attempt and run link.
 - Live cache monitoring returned 2262603737 bytes across 86 caches. Account capacity remains unmeasured and eviction remains GitHub-managed.
 - Root clean all and reset all produced safe dry-run target plans. No build output, dependency, database, credential or cache was deleted.
-- Next: apply the authorized gate when credential access or UI approval is available. Then check artifacts, GHCR, deployment link and terminal acknowledgment.
-- Then advance SDK preview/release, network and consumers in that order. Network peer bounds change when SDK metadata synchronizes.
+- Same-version recoveries are checked. Working theory: exercise root SDK allocation first, then network and consumers after producer publication proof.
+- SDK preview plan selects 2026.10.7-pre from configured 2026.10.6-pre without blockers. SDK release will select 0.0.6 with owner metadata review retained.
+- Next: execute SDK preview through the root pending-checkpoint/version/tag chain, then prepare the reviewed SDK release. Network peer bounds change with SDK metadata.
 - Each of the nine enabled paths needs next-patch chain proof, applicable bytes, dependency identities, deployment links and terminal notifications.
 - Check GHCR independently for crawler delivery. Worker release is build-only without production deployment or Release assets. Website remains disabled.
 - Non-main preview execution remains a separate runtime proof. D1 initialization and the owner's fresh clone remain outside delivery sign-off.
