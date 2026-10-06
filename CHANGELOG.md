@@ -4,6 +4,12 @@
 
 Here are the latest changelogs of each package and applications. For a full history, please visit [docs/changelogs](docs/changelogs)
 
+## What Changed
+
+<!-- MASTER_SUMMARY -->
+Summary
+<!-- MASTER_SUMMARY -->
+
 ## Table of Contents
 
 ### Applications - Release
@@ -87,6 +93,8 @@ Placeholder Summary
 
 - none currently
 
+See full history at [docs/changelogs/vrcp-crawler-client/release](docs/changelogs/vrcp-crawler-client/release)
+
 ## VRC Packages Crawler - `vrcp-crawler-node`
 
 <!-- vrcp-crawler-node-DESCRIPTION_SUMMARY -->
@@ -105,6 +113,8 @@ Placeholder Summary
 
 - none currently
 
+See full history at [docs/changelogs/vrcp-crawler-node/release](docs/changelogs/vrcp-crawler-node/release)
+
 ## VRC Packages API - `vrcp-packages-api`
 
 <!-- vrcp-packages-api-DESCRIPTION_SUMMARY -->
@@ -122,6 +132,8 @@ Placeholder Summary
 ### Changed
 
 - none currently
+
+See full history at [docs/changelogs/vrcp-packages-api/release](docs/changelogs/vrcp-packages-api/release)
 
 ---
 
@@ -145,6 +157,8 @@ Placeholder Summary
 
 - none currently
 
+See full history at [docs/changelogs/vrcp-web/release](docs/changelogs/vrcp-web/release)
+
 ## VRC Packages Worker - `vrcp-worker`
 
 <!-- vrcp-worker-DESCRIPTION_SUMMARY -->
@@ -162,6 +176,8 @@ Placeholder Summary
 ### Changed
 
 - none currently
+
+See full history at [docs/changelogs/vrcp-worker/release](docs/changelogs/vrcp-worker/release)
 
 ---
 
@@ -185,6 +201,8 @@ Placeholder Summary
 
 - none currently
 
+See full history at [docs/changelogs/vrcp-crawler-client/preview](docs/changelogs/vrcp-crawler-client/preview)
+
 ## VRC Packages Crawler - `vrcp-crawler-node-preview`
 
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
@@ -203,6 +221,8 @@ Placeholder Summary
 
 - none currently
 
+See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/vrcp-crawler-node/preview)
+
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
@@ -220,6 +240,8 @@ Placeholder Summary
 ### Changed
 
 - none currently
+
+See full history at [docs/changelogs/vrcp-packages-api/preview](docs/changelogs/vrcp-packages-api/preview)
 
 ---
 
@@ -243,6 +265,8 @@ Placeholder Summary
 
 - none currently
 
+See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/preview)
+
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
@@ -260,6 +284,8 @@ Placeholder Summary
 ### Changed
 
 - none currently
+
+See full history at [docs/changelogs/vrcp-worker/preview](docs/changelogs/vrcp-worker/preview)
 
 ---
 
@@ -282,3 +308,5 @@ Placeholder Summary
 ### Changed
 
 - none currently
+
+See full history at [docs/changelogs/vrcp-packages-network/](docs/changelogs/vrcp-packages-network/)
