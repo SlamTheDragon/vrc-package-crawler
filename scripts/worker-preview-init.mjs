@@ -1,5 +1,4 @@
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Fixed credential destination. A new origin requires an explicit target review.
 export const previewOrigin = "https://vrc-package-crawler-preview.slamthedragon.workers.dev";
@@ -20,6 +19,12 @@ export function previewFetch(request = fetch) {
         !(init?.method === "POST" && url.pathname === "/v1/operator/init" && !url.search ||
           init?.method === "GET" && url.pathname === "/v1/app/index" && url.search === "?limit=1")) {
       throw new Error("Unexpected preview initialization request");
+    }
+    if (init.method === "POST") {
+      const body = JSON.parse(init.body);
+      if (body?.schemaVersion !== 1 || body.autoSeed !== false || Object.keys(body).length !== 2) {
+        throw new Error("Preview initialization must explicitly disable seeding");
+      }
     }
     const response = await request(url.href, { ...init, redirect: "error", signal: AbortSignal.timeout(30_000) });
     if (!response.ok || !response.headers.get("content-type")?.toLowerCase().includes("application/json") || !response.body) {
@@ -61,8 +66,8 @@ if (import.meta.main) {
         next: "Run worker-preview-init.yml on main to initialize preview without a version bump" }));
     } else if (args.length === 1 && args[0] === "--execute") {
       requirePreviewInitialization(process.env);
-      const require = createRequire(new URL("../src-worker/package.json", import.meta.url));
-      const { VRCPackageClient } = await import(pathToFileURL(require.resolve("vrc-packages-api")).href);
+      const workerDirectory = fileURLToPath(new URL("../src-worker/", import.meta.url));
+      const { VRCPackageClient } = await import(pathToFileURL(Bun.resolveSync("vrc-packages-api", workerDirectory)).href);
       console.log(JSON.stringify(await initializePreview(VRCPackageClient)));
     } else throw new Error("Invalid initialization arguments");
   } catch {

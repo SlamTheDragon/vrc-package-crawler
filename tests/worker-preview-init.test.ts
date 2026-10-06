@@ -57,8 +57,20 @@ test("transport denies redirects and bounds response bytes while retaining schem
     new Response(null, { status: 302, headers: { location: "https://foreign.example" } }),
     new Response("<html>", { headers: { "content-type": "text/html" } }),
     new Response("x".repeat(65537), { headers: { "content-type": "application/json" } })]) {
-    await expect(previewFetch(async () => response)(`${previewOrigin}/v1/operator/init`, { method: "POST" })).rejects.toThrow();
+    await expect(previewFetch(async () => response)(`${previewOrigin}/v1/operator/init`, {
+      method: "POST", body: JSON.stringify({ schemaVersion: 1, autoSeed: false })
+    })).rejects.toThrow();
   }
+});
+
+test("transport refuses implicit or enabled seeding before sending an operator credential", async () => {
+  let requests = 0;
+  const request = previewFetch(async () => { requests++; return Response.json({}); });
+  for (const body of ["{", "null", "{}", JSON.stringify({ schemaVersion: 1 }),
+    JSON.stringify({ schemaVersion: 1, autoSeed: true }), JSON.stringify({ schemaVersion: 1, autoSeed: false, other: true })]) {
+    await expect(request(`${previewOrigin}/v1/operator/init`, { method: "POST", body })).rejects.toThrow();
+  }
+  expect(requests).toBe(0);
 });
 
 test("root CLI plans without secret or SDK setup and sanitizes invalid execution", () => {
