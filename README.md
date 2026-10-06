@@ -36,13 +36,13 @@ const deltas = await client.index.syncDeltas({
 });
 ```
 
-Install API package with npm or with your favorite package manager
+**Install API package with npm or with your favorite package manager**
 
 ```shell
-# 
+# Stable Release
 npm i vrc-packages-api
 
-# 
+# Nightly Builds
 npm i vrc-packages-api-preview
 ```
 
