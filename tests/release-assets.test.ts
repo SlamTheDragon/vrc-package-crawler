@@ -156,12 +156,13 @@ test("attachment summaries link exact releases, mark drafts and reject Worker or
 });
 
 test("installer stamping normalizes names before receipts and rejects collisions without overwriting", async () => {
-  const { config } = await readVersionConfig("release");
-  const version = config["release-crawler-client"];
+  // This tests filenames, not release authorization. Original release proof has separate ingress fixtures.
+  const { config } = await readVersionConfig("preview");
+  const version = config["preview-crawler-client"];
   const env = { ...process.env, GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_SHA: commit,
     GITHUB_REF: `refs/tags/vrcp-crawler-client/v${version}` };
   const stamp = (directory: string) => execFileSync(process.execPath,
-    ["scripts/release-assets.mjs", "stamp", "release", "crawler-client", directory], { env, stdio: "pipe", timeout: 15_000 });
+    ["scripts/release-assets.mjs", "stamp", "preview", "crawler-client", directory], { env, stdio: "pipe", timeout: 15_000 });
   fixture({ "VRCP Crawler Client.msi": "synthetic MSI", "VRCP Crawler Client-setup.exe": "synthetic NSIS" }, paths => {
     const directory = dirname(paths[0]);
     stamp(directory);
@@ -170,7 +171,7 @@ test("installer stamping normalizes names before receipts and rejects collisions
     expect(receipt.files.map((file: { name: string }) => file.name).sort())
       .toEqual(["VRCP.Crawler.Client-setup.exe", "VRCP.Crawler.Client.msi"]);
     expect(checkedAssets([receiptPath, ...receipt.files.map((file: { name: string }) => join(directory, file.name))],
-      { product: "crawler-client", channel: "release", version }, commit, {}).size).toBe(3);
+      { product: "crawler-client", channel: "preview", version }, commit, {}).size).toBe(3);
   });
   fixture({ "VRCP Client.msi": "first", "VRCP.Client.msi": "second" }, paths => {
     expect(() => stamp(dirname(paths[0]))).toThrow("Duplicate output basenames");

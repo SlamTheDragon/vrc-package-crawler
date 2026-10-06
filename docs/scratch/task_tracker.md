@@ -102,6 +102,7 @@ Seven distributed-product deployment links passed. Worker links remain deferred 
 4. Settle recovery refs. Environment rules match the workflow ref, not its input tag.
 5. Prove normal hosted branch preview allocation, tag CI, original bytes and deployment links.
 6. Complete main protection and owner fresh-clone proof before sign-off. Never bypass reviews.
+7. Fix the default node logger path before root-output sign-off. Existing root logs predate this gate and remain untouched.
 
 Public metadata on 2026-10-06 showed only unprotected main and no rulesets.
 Desktop preview/network lacked selected-ref restrictions. No settings changed.
