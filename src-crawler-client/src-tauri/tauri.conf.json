@@ -26,7 +26,7 @@
     "targets": "all",
     "windows": {
       "wix": {
-        "version": "26.10.5"
+        "version": "26.10.6"
       }
     },
     "icon": [
