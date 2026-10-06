@@ -4,7 +4,7 @@
 
 VRC Packages (VRCP) is an open-source discovery and indexing network engine for public VRChat creator packages (Tools, Assets, & Avatars).
 
-The project derives metadata discovered from VPM repositories, and creator storefronts like Gumroad, Booth, Jinxxy, Shopify, Payhip, & others. The catalog records public links to original publisher fronts. The policy excludes archives, assets, and executable downloads.
+This project derives metadata discovered from VPM repositories, and creator storefronts like Gumroad, Booth, Jinxxy, Shopify, Payhip, & others. The catalog records public links to original publisher fronts. We do not store archives, assets, and executable downloads.
 
 ---
 
