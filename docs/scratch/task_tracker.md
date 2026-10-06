@@ -17,13 +17,11 @@ The prior direct main commit/tag push could not satisfy reviewed-main protection
 Active output gate: lazy logger construction and idle CLI preservation are checked on codex/node-logger-output.
 Construction now computes paths only. The first write starts files, timers and hooks. Unused close/rotation preserves existing logs.
 Session-only logging preserves an existing latest.log. Active severity streams, rotation and shutdown fixtures passed.
-Grouped checks passed 140 tests / 860 assertions, types and a development binary build. Compiled help/version created no fixture outputs.
-Runtime default paths still use cwd. R58-ROOT-LOGS remains open for source, installed-binary and Docker path review.
-Active implementation theory: source defaults use the product log folder. Bun standalone mode selects absolute per-user storage.
-Explicit overrides retain priority. Docker sets its persistent volume path. Relative platform state variables cannot restore cwd defaults.
-This path change is unverified until the grouped crawler gate, compiled fixture and development binary checks pass.
-Do not choose the executable directory alone: system installations can be read-only, and Docker persists runtime state in /app/data.
-No delivery bump ran while this output boundary remains unresolved. Existing owner logs remain untouched.
+Grouped path checks passed 141 tests / 874 assertions, types and a development binary build on 2026-10-06.
+Source defaults use src-crawler/logs. Bun standalone mode selects absolute per-user storage, never the executable or launch directory.
+Explicit overrides retain priority. Docker pins /app/data/logs. Relative platform state variables use absolute user-home fallbacks.
+The compiled Windows logger fixture writes and closes successfully while cwd stays empty. Linux/macOS and container runs remain pending.
+R58-ROOT-LOGS has local path proof, not tagged delivery proof. Existing owner logs remain untouched. No delivery bump ran.
 The owner merged initializer PR #1 into main at 4a89ca2. Hosted initialization remains unverified.
 Main ruleset 24553134 is active: default-branch PR requirement, zero required approvals, deletion/force-push denial and no bypass actors.
 Active initialization slice: a root command uses the distributed preview SDK for explicit autoSeed false, then a catalog read.
@@ -149,7 +147,7 @@ Seven distributed-product deployment links passed. Worker links remain deferred 
 4. Settle recovery refs. Environment rules match the workflow ref, not its input tag.
 5. Main preview allocation, tag CI and original bytes passed. Non-main policy and distributed-product links remain separate checks.
 6. Complete main protection and owner fresh-clone proof before sign-off. Never bypass reviews.
-7. Fix the default node logger path before root-output sign-off. Existing root logs predate this gate and remain untouched.
+7. Keep the checked local logger path gate. Prove tagged crawler delivery when source/protection gates permit its next configured patch.
 
 Public metadata rechecked after the hosted diagnostic on 2026-10-06 still showed unprotected main and no rulesets.
 Desktop preview/network lacked selected-ref restrictions. No settings changed.
