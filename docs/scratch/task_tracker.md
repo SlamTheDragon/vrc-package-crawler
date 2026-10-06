@@ -18,9 +18,9 @@ Active release slice: prepare one config-derived metadata commit on a dedicated 
 After manual review/merge, finalize only its exact merged main commit with a tag-only push and the same saved version.
 Reuse versionFiles and immutable-tag checks. Independent proof helpers must bind the PR, review, base/head and merged config transition.
 The related local delivery gate passed. Hosted transition and repository protection remain open.
-Owner confirmed App installation and both repository entries. Live authentication and branch allocation remain unverified.
+Hosted App authentication and main-branch allocation passed. Non-main allocation remains unverified.
 Owner permits a manual owner-reviewed merge without a second reviewer. Check the owner merge identity, not a self-approval.
-The API cannot prove human inspection. The no-bump diagnostic passed local fixtures, not live authentication.
+The API cannot prove human inspection. Hosted no-bump diagnostic 37406552782 passed with both mutation steps skipped.
 Owner selects all nonignored pending files for preview checkpoints. Release still requires clean main.
 Working theory: print the paths, reject stale branches and pending ignored index entries, then commit and push before allocating a patch.
 Partial push recovery, path races and unrelated tags under push.followTags passed. Never unstage owner files or skip a patch.
@@ -54,11 +54,27 @@ Release fixtures covered merge/squash/rebase, owner identity, generated metadata
 Original-run checks reject App actors, wrong workflows, foreign source and forged historical tags. All 22 frozen pairs matched origin.
 Workflow checks covered full history, read scopes, App routing, product forwarding and approval conditions.
 Root entries stayed unchanged, including pre-existing logs. Scratch keeps three files. The canonical ledger keeps two tables.
-Local Bun is 1.4.1. Hosted delivery pins 1.4.2. These results are not live App proof.
+Local Bun is 1.4.1. Hosted delivery pins 1.4.2. Hosted proof is recorded separately below.
 Crawler leases, source access and D1 code did not change. Their runtime tests were not repeated.
 
 No real version bump, tag change, publication, deployment, protection or branch creation ran in the local gate.
-The owner subsequently confirmed App setup. A local commit or that confirmation is not live App proof.
+The owner subsequently ran the dispatcher. The first run allocated a real Worker patch because the diagnostic checkbox was unchecked.
+
+Hosted evidence, 2026-10-06:
+
+- Allocator 37406357833 passed App authentication and normal allocation on main. Its no-write step was skipped.
+- Commit e6bc3cee changed only preview-worker 6 → 7 and the Worker manifest. Other configured product versions stayed unchanged.
+- Tag cloudflare-worker/v2026.10.7-pre points to e6bc3cee. Tag object: 14c1a59ef2559c9db87b360e3a511fac5b54948b.
+- Tagged Worker run 37406393578 passed build, root tests, Worker tests/types/native checks and deployment without rebuilding.
+- Artifact 11387007401 contains only worker_entry.js and its receipt. Archive SHA-256: 7f65bbd53162280c66a2377569b1a2d86dc3c9b5bb66bf251cc073d60d5f766a.
+- Bundle SHA-256: 2d4a6d324ef388efb86e1f5b717ea7727882c194d9c4a3f99d518219ee1d089e. Receipt matches product, version, channel, commit and tracked Wrangler config hash.
+- Deploy logs report preview D1 fbef6ce1-4145-45ae-ae91-5d617a1f2672 and Worker version 40f7f884-af95-4b7e-86cf-ae1087bd6217.
+- Corrected diagnostic 37406552782 passed App authentication and planning. Commit identity and allocation steps were skipped.
+- Remote main and Worker tag remained unchanged after the diagnostic. The clean local checkout fast-forwarded to e6bc3cee.
+- A GET to /health returned the expected unknown-route 404. That path is not a health endpoint and proves no D1 behavior.
+- The implemented GET /v1/app/index?limit=1 returned 500, internal_error: D1 has no canonical_packages table.
+- Delivery passed, but catalog runtime readiness did not. Initialize only the preview schema with autoSeed false, then repeat the read-only catalog check.
+- No remote schema, seed, source profile or credential changed during this check. Do not print the operator secret.
 
 ## Retained checked baseline
 
@@ -79,7 +95,7 @@ Nine delivered paths retain independent artifact, registry and link proof:
 | SDK | 2026.10.5-pre / 37349103560 attempt 2 | 0.0.5 / 37349119431; promotion 37352706548 |
 | Crawler | 2026.10.5-pre / 37356931567 | 0.0.5 / 37356959435 |
 | Desktop | 26.10.4-pre / 37356987065 | 0.0.4 / 37357012826 |
-| Worker | 2026.10.6-pre / 37357039766 | 0.0.5 / 37357069065, build only |
+| Worker | 2026.10.7-pre / 37406393578 | 0.0.5 / 37357069065, build only |
 | Network | 2026.10.3 / 37354313987 | No release stream |
 
 Crawler/Worker use preview SDK and network. Desktop/web use release SDK. Network accepts both.
@@ -100,15 +116,16 @@ Seven distributed-product deployment links passed. Worker links remain deferred 
 
 ## Open sign-off exits and next actions
 
-1. Check the owner-configured App with the no-bump hosted diagnostic. Keep the key outside chat and source.
+1. Keep the checked App diagnostic and main preview evidence. Prove synchronized non-main delivery at a relevant capability milestone.
+   First initialize the missing preview schema through the existing protected operator path. Keep autoSeed false and production untouched.
 2. Check hosted release provenance and external main/tag/workflow protection. Contents write does not restrict the App to preview tags.
 3. Preserve the checked all-nonignored checkpoint, ignored-file and same-version recovery guards.
 4. Settle recovery refs. Environment rules match the workflow ref, not its input tag.
-5. Prove normal hosted branch preview allocation, tag CI, original bytes and deployment links.
+5. Main preview allocation, tag CI and original bytes passed. Non-main policy and distributed-product links remain separate checks.
 6. Complete main protection and owner fresh-clone proof before sign-off. Never bypass reviews.
 7. Fix the default node logger path before root-output sign-off. Existing root logs predate this gate and remain untouched.
 
-Public metadata on 2026-10-06 showed only unprotected main and no rulesets.
+Public metadata rechecked after the hosted diagnostic on 2026-10-06 still showed unprotected main and no rulesets.
 Desktop preview/network lacked selected-ref restrictions. No settings changed.
 The shell has no gh executable. Credential extraction was rejected and not retried.
 
@@ -122,5 +139,5 @@ The reviewers hit their usage limit afterward. Their findings are evidence, not 
 Metadata-PR preparation and merged-main tag-only finalization now reuse version, source-run and immutable-tag helpers.
 Tag routing, CI and artifact recovery check original source proof. Old tag-selected workflows still require external policy.
 Never use a pre-merge test SHA, direct main push, App release allocation or automatic promotion merge.
-No live App dispatch ran. No explicit local API write credential or dispatch-capable connector is available.
+Both owner-triggered App runs passed. No explicit local API write credential or dispatch-capable connector is available.
 Do not resume unrelated feature work or declare the full goal complete.

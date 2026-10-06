@@ -45,7 +45,8 @@ For release, first promote product changes to main through a manually reviewed P
 
 The finalizer reproduces metadata with the same bump and sync functions. It does not bump another patch or merge a PR.
 Its API checks establish owner merge identity, not proof of human inspection. Do not bypass main protection.
-Local delivery checks passed 151 tests and 2271 assertions. Hosted App and protection checks remain open.
+Local delivery checks passed 151 tests and 2271 assertions. Hosted App authentication and main-branch preview delivery passed.
+Non-main delivery, reviewed release promotion and external protection checks remain open.
 If a deleted preparation branch leaves its commit unavailable locally, fetch `refs/pull/<PR>/head` before finalization.
 Never substitute the PR test-merge SHA.
 
@@ -56,8 +57,17 @@ Do not move, delete or force-push a published tag.
 
 For remote preview allocation, start `preview-delivery.yml` with a synchronized branch and product.
 The preview App calls the same root executor. It does not allocate versions on every ordinary push.
-Configure the App first with [these steps](#preview-app-setup). The live branch trial remains open.
-Select `diagnose-only` for an authentication and planning check without a version bump or delivery write.
+Configure the App first with [these steps](#preview-app-setup).
+In GitHub, select the product from the dropdown. For a no-write check, tick this checkbox:
+**“Check App access and the synchronized branch preview plan without allocating a version.”**
+That checkbox sets `diagnose-only`. Without it, the workflow allocates a version and starts delivery.
+Diagnostic run [37406552782](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37406552782) passed with both mutation steps skipped.
+Earlier run 37406357833 allocated Worker preview `2026.10.7-pre`. It was not a no-write diagnostic.
+Its [tagged delivery](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37406393578) passed original bundle and receipt checks.
+The deployment used preview D1 `fbef6ce1-4145-45ae-ae91-5d617a1f2672`. These results do not prove non-main or release promotion.
+The catalog runtime check returned 500 because `canonical_packages` is missing.
+Initialize the preview schema with `autoSeed: false` through the protected operator route before catalog testing.
+Do not initialize production or grant source access as part of this delivery check.
 Do not rerun the allocator: it refuses repeated attempts before requesting an App token.
 Inspect its original tag first. Retry that tag's delivery, not another patch allocation.
 
@@ -121,7 +131,7 @@ Both channels use the release SDK. Preview format is `YY.M.Patch-pre`. Release u
 | Dirty worktree | All nonignored preview changes use a separate checkpoint. Release requires clean main. Local checks passed. | Keep ignored-file, stale-branch and partial-push guards. See R58-DIRTY-COMMIT. |
 | Preview approval switches | Removed. Release switches, reviews and byte checks remain. Local root checks passed 118 tests and 1869 assertions. | Automatic preview publication after successful checks. No preview approval switch. |
 | Branches | Metadata PR preparation, tag-only finalization and CI source fixtures passed locally. Hosted transition remains open. | Any synchronized preview branch. Main-only gated releases after owner-reviewed promotion. |
-| Preview GitHub App | Owner confirmed installation and both repository entries. Local diagnostic fixtures passed, not live authentication. | Check authentication first, then a normal branch delivery. No merge or release-approval bypass. |
+| Preview GitHub App | Hosted diagnostic 37406552782 passed without allocation. Worker preview 2026.10.7-pre passed App allocation, tag CI and original byte checks on main. | Check a synchronized non-main branch and reviewed release promotion. No merge or release-approval bypass. |
 | `--execute` | Required; without it the command only plans | Unchanged unless the owner decides otherwise |
 
 ---
