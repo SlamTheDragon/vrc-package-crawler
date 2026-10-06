@@ -53,7 +53,8 @@ Every task must strictly adhere to the following sequence of rules:
    - Use preview for iterative verification. Release publication retains its owner approvals. Do not approve protected jobs or npm stages for the owner.
    - Keep SDK v0.1.0 held for full owner API review. Keep website delivery disabled and Worker release build-only.
    - Check the tagged CI run, original artifact bytes, receipts, registry identities and deployment links before recording delivery as verified.
-   - Keep failed and published tags fixed. Inspect a failed chain before its next configured patch. Never bump unrelated products to align versions.
+   - Keep failed and published tags fixed. Require publication/artifact proof for the configured predecessor before another bump or release tag finalization.
+   - CI reruns remain manual. Broken tagged workflows require manual resolution. Never bump unrelated products to align versions.
    - Do not publish a product for a documentation-only gate, an unchanged runtime, or an unresolved safety boundary. Record the reason.
    - Record the run/tag, dependency versions, checks and remaining uncertainty. A successful deployment does not complete the full goal.
    - Follow [the agent delivery procedure](../../docs/decisions/AGENT_DELIVERY_PROCEDURE.md). Human commands are in [DELIVERY.md](../../docs/source/DELIVERY.md).

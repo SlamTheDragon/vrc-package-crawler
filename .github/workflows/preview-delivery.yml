@@ -24,6 +24,11 @@ concurrency:
 
 jobs:
   allocate:
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
     if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
     steps:

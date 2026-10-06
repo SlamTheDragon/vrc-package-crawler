@@ -24,7 +24,11 @@ Human steps are in [DELIVERY.md](../source/DELIVERY.md). This file adds only the
    Local source/recovery fixtures passed. Hosted App authentication and main preview delivery passed.
    Main ruleset 24553134 is active with no bypass actors. Non-main delivery, stable-tag protection and reviewed release promotion remain open.
    Never approve GitHub environments or npm stages for the owner. Keep SDK v0.1.0 held for the full owner API review.
-6. Keep failed tags fixed. Use `delivery:retry` or a CI rerun, not a new bump.
+6. Keep failed tags fixed. `delivery:retry` retries Git pushes only. CI reruns remain manual by owner decision.
+   Require publication and artifact proof for the configured predecessor before another allocation or release tag finalization.
+   Use root `delivery:diagnose:all` for statuses and `delivery:check:all` for the nine configured proofs.
+   Preview checkpoints reject pending edits to either version config. Preserve those edits for owner inspection, not automatic staging.
+   Broken tagged workflows require manual resolution. Do not replace their tooling or move their tags.
    Recover a failed preparation push with `delivery:retry-preparation` on its retained clean branch.
    Do not rerun App allocation. Inspect the original tag and recover its delivery instead.
 7. Record the tag, CI run, `delivery:check` result and open risks in `docs/scratch/task_tracker.md`.

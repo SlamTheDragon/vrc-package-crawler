@@ -1,5 +1,18 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
+## Active gate — publication-proof advancement (2026-10-06)
+
+- Owner requires proof before another version advance, same-version publication retry, and root troubleshooting hooks.
+- Owner reserves broken tagged workflow recovery for manual resolution. Do not substitute main tooling or move tags.
+- Registry readback: release versions are 0.0.0-stage, 0.0.0, 0.0.1, 0.0.3, 0.0.5. Preview patches are 0, 1, 3, 5. Historical gaps remain unchanged.
+- Working theory: root allocation and release finalization must check the configured predecessor with the existing strict publication/artifact verifier before writes.
+- Pending crawler 0.0.7 metadata does not authorize skipping failed 0.0.6. Its tag remains absent pending manual resolution and proof.
+- Local proof/diagnostic/config-checkpoint gate passed 102 tests / 1638 assertions across the four related suites. The first run hit a default fixture timeout; the corrected full rerun passed with zero failures. All 374 document links/layout checks, syntax and whitespace checks passed.
+- Root diagnosis and full proof commands read all nine configured channels. Hosted full checks passed eight: SDK preview/release, network, crawler preview, client preview/release, Worker preview and Worker release build-only. Crawler release 0.0.6 correctly failed the aggregate gate. No CI rerun or publication ran.
+- Preview App allocation now requests read-only Actions metadata/archive access through its normal GitHub token. Its App remains contents-write only. The final targeted wiring check passed 1 test / 24 assertions. Procedure and lifecycle rules match manual-only CI reruns.
+- Approval-service usage exhaustion rejected one command before execution. Normal review later became available and the command passed without a bypass. Local commits 8792e91 and 7dbe69f plus this checked wiring/evidence checkpoint are ready for owner promotion from codex/publication-proof-advancement. DELIVERY prose score: 1.49. Agent procedure score: 0.95.
+- Owner decision: all CI reruns remain manual for now. Do not add automatic Actions POST requests. Keep stage/release approvals and immutable artifacts unchanged.
+
 ## Active repair — annotated release checkout (2026-10-06)
 
 - The owner's ignored root `.env` supplies a read credential. Explicit `bun --env-file=.env run` passed authenticated PR reads and finalization.

@@ -53,6 +53,17 @@ Never substitute the PR test-merge SHA.
 If the push fails, run `bun run delivery:retry <tag>`. This retries the same tag. It does not bump again.
 For a failed preparation push, use `bun run delivery:retry-preparation <returned-branch>` on its clean local branch.
 If CI fails, rerun the CI job. Do not bump a new version only to retry CI.
+The allocator requires publication and artifact proof for the current configured version before it writes the next version.
+Finalization repeats this check for the predecessor, including metadata branches prepared before this guard.
+Use `bun --env-file=.env run delivery:diagnose <tag>` for read-only run status and troubleshooting pointers.
+Use `bun --env-file=.env run delivery:check <tag>` for full artifact and publication proof.
+Use `bun --env-file=.env run delivery:diagnose:all` for all nine configured channel statuses.
+Use `bun --env-file=.env run delivery:check:all` for all nine publication/artifact proofs. It fails if any proof is unavailable.
+Both commands are read-only. Network has one channel, website is excluded, and Worker keeps its no-Release boundary.
+Preview checkpoints reject pending edits to either authoritative version config before staging. Use the root allocator, not direct config edits.
+This guard does not prevent local file editing or replace protected CI transition checks.
+The existing `delivery:retry` retries Git delivery only. All CI reruns remain manual by owner decision.
+Broken tagged workflows require manual resolution. Never move their tags or allocate another patch to hide a failed delivery.
 Do not move, delete or force-push a published tag.
 
 For remote preview allocation, start `preview-delivery.yml` with a synchronized branch and product.
