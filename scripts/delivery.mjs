@@ -33,6 +33,11 @@ export function readGitHubAPI(env = process.env, request = fetch) {
         ...(token ? { authorization: `Bearer ${token}` } : {}) } });
     if (!response.ok) {
       await response.body?.cancel();
+      if (response.status === 429 || (response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0")) {
+        const reset = response.headers.get("x-ratelimit-reset") ?? "";
+        const retry = /^\d{1,12}$/.test(reset) ? ` Retry after ${new Date(Number(reset) * 1000).toISOString()}.` : "";
+        throw new Error(`Release proof metadata is rate-limited (${response.status}).${retry} No tag push ran. Use an explicit read credential or retry after the limit resets.`);
+      }
       throw new Error(`Release proof metadata unavailable (${response.status}); an explicit read credential may be required`);
     }
     if (!response.body) throw new Error("Missing release proof metadata");

@@ -262,6 +262,9 @@ Local Worker: `bun run dev` in `src-worker`, with `OPERATOR_TOKEN` in an ignored
 - Supply `GH_TOKEN` or `GITHUB_TOKEN` explicitly when authenticated metadata or Actions archive reads need it.
 - Use repository Contents, Actions and pull-request read scope for those checks. Never print or commit the token.
 - Scripts do not extract Git's stored credentials. Public reads can fail because of authentication or rate limits.
+- If the reader reports a rate limit, retry the same finalization after its reset time. Do not allocate another version.
+- An explicit `GH_TOKEN` or `GITHUB_TOKEN` can authorize metadata reads. Keep its value outside commits and logs.
+- Rate-limit handling does not waive PR proof, main protection, tag immutability or release approvals.
 - Stop processes before cleanup. Inspect every planned path before --apply. Applied deletion has no recovery copy.
 - Clean preserves Worker local D1. Reset removes selected node_modules only. Reset all includes root and nested network dependencies.
 - Run setup after root reset, then prepare the selected product again. Shared Bun caches and published identities are not cleanup targets.

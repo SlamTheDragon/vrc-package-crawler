@@ -196,6 +196,14 @@ test("GitHub proof reader uses explicit credentials only and keeps failures boun
   expect(calls[1].options.headers.authorization).toBe("Bearer test-marker");
   const denied = async () => new Response("Sensitive provider diagnostic", { status: 403 });
   await expect(readGitHubAPI({}, denied)("/repos/example/repo/pulls/7")).rejects.toThrow("explicit read credential");
+  const exhausted = async () => new Response("Sensitive provider diagnostic", { status: 403,
+    headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1791261187" } });
+  await expect(readGitHubAPI({}, exhausted)("/repos/example/repo/pulls/7"))
+    .rejects.toThrow("rate-limited (403). Retry after 2026-10-06T04:33:07.000Z. No tag push ran.");
+  const throttled = async () => new Response("Sensitive provider diagnostic", { status: 429,
+    headers: { "x-ratelimit-reset": "untrusted provider text" } });
+  await expect(readGitHubAPI({}, throttled)("/repos/example/repo/pulls/7"))
+    .rejects.toThrow("rate-limited (429). No tag push ran.");
   const oversized = async () => new Response("x".repeat(1_048_577));
   await expect(readGitHubAPI({}, oversized)("/repos/example/repo/pulls/7")).rejects.toThrow("exceeds its limit");
   const malformed = async () => new Response("Sensitive provider diagnostic");
