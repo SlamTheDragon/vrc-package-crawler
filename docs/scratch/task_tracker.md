@@ -82,6 +82,8 @@ If a preparation head is missing locally, fetch `refs/pull/<PR-number>/head`. Ne
 
 ### Blockers and failure procedures
 
+- Handover documentation check reports `Unexpected docs/ entry: changelogs`. Resolve the authoritative layout before claiming documentation checks pass.
+- Handover prose lint: 1.13 issues per 100 words. Whitespace checks passed. No product checks ran for this documentation checkpoint.
 - SDK `0.0.6` finalization and hosted publication remain pending. A handover diagnostic failed at Git rev-parse before remote proof.
 - That diagnostic failure does not prove a publication failure. The tag is not yet locally resolved. Use the finalization plan first.
 - The GitHub connector previously refused PR creation with HTTP 403. Open the root executor's comparison link manually if necessary.
