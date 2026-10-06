@@ -1,5 +1,24 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
+## Current exercise — root commands and nine chains (2026-10-06)
+
+- Owner requires real command and chain exercises before delivery sign-off. Historical green runs do not satisfy this exit alone.
+- Main-only releases retain operator approvals. Synchronized branches can publish previews without approval guards. CI reruns remain manual.
+- Owner merged PR #9 into main at `4e2ea92`. The checkout fast-forwarded before this exercise.
+- All seven old agent branches were ancestors of merged main. Exact-OID remote deletions and local merged-branch deletions passed.
+- Local and remote now contain only `main` and `codex/delivery-proof`. No tag or main history changed during cleanup.
+- Root preview planning passed. Release planning on the test branch reported its main-only blocker. Website delivery rejected the disabled path.
+- The crawler product-folder preview command forwarded to the root and returned the same branch/config plan.
+- Root SDK preview execution checked the predecessor and pushed `2026.10.6-pre`. Commit: `979939bcbad09f6f5c7d9902777b3f3d55f098dd`. Tag object: `279a78d7b67a8eb3437fc448f48cd64d02aef78d`.
+- Tagged run `37447577498` passed build, publication and Release attachment. Root `delivery:check` returned `release-artifacts-verified` and checked npm integrity against CI bytes. Terminal Discord acknowledgement remains unchecked.
+- SDK product-scoped version check passed. The global preview check rejected mixed release/preview manifests. Do not synchronize all products to one channel to hide that result.
+- All four product preview forwarders returned root plans. Cleanup/reset commands returned dry-run paths and removed nothing.
+- Main declares crawler `0.0.7`, but its tag is absent. Failed `0.0.6` still blocks predecessor proof and finalization.
+- Owner wants local troubleshooting scripts that preserve remote operator approvals. This does not authorize different recovery tooling for the immutable failed tag.
+- Working theory: one test branch can serve preview exercises. Release preparation still creates a separate branch and verifies its exact name.
+- Next: finish SDK byte/link proof, exercise remaining product entry points, then repair the one-branch release contract and resolve crawler recovery manually.
+- Keep D1 initialization and the owner's later fresh-clone check outside delivery sign-off. The full pre-production goal remains open.
+
 ## Active gate — publication-proof advancement (2026-10-06)
 
 - Owner requires proof before another version advance, same-version publication retry, and root troubleshooting hooks.
