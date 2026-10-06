@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkReleaseSource, readGitHubAPI, selectTag } from "./delivery.mjs";
@@ -160,14 +160,12 @@ export async function checkRecoveryRetry(attempts, identity, toolingCommit, api 
     }
     const base = `/repos/${identity.repository}/actions/runs/${attempt.id}`;
     const jobs = await api(`${base}/jobs?per_page=100`);
-    const artifacts = await api(`${base}/artifacts?per_page=100`);
     if (!Array.isArray(jobs.jobs) || jobs.total_count !== jobs.jobs.length || jobs.total_count >= 100 ||
         !jobs.jobs.some(job => job.conclusion === "failure") ||
         jobs.jobs.some(job => !["success", "failure", "skipped"].includes(job.conclusion)) ||
         jobs.jobs.some(job => /publish|release-assets|attach|announce/i.test(job.name) && job.conclusion !== "skipped") ||
-        artifacts.total_count !== 0 || !Array.isArray(artifacts.artifacts) || artifacts.artifacts.length !== 0 ||
         identity.failedStage === "dependency-prepare" && !dependencyPreparationFailed(jobs.jobs)) {
-      throw new Error("Retry cannot rebuild an attempt with outputs, publication activity or incomplete evidence.");
+      throw new Error("Retry cannot rebuild an attempt with publication activity or incomplete evidence.");
     }
   }
   return attempts.map(attempt => attempt.id);
@@ -228,16 +226,100 @@ async function dispatchRecovery(repository, tag) {
   if (response.status !== 204) throw new Error(`Recovery dispatch failed (HTTP ${response.status}). Check Actions write scope. No automatic retry ran.`);
 }
 
+/**
+ * Discover and write a recovery manifest entry without manual JSON editing.
+ * Resolves the tag's commit and tagObject from the GitHub API, then locates the
+ * most recent failed push run for that tag (or uses an explicit runId). Dry-runs
+ * without --execute; commits the manifest change when --execute is given.
+ */
+export async function authorizeRecovery(tag, options = {}, workspace = root, api = readGitHubAPI()) {
+  const { execute = false, failedRunId } = options;
+  // Resolve product from tag prefix.
+  const product = Object.keys(recoveryWorkflows).find(p =>
+    tag.startsWith(`${productTagPrefixes[p]}/`));
+  if (!product) throw new Error(`Tag ${tag} does not match a recoverable product prefix.`);
+  const expected = `${productTagPrefixes[product]}/v`;
+  const version = tag.startsWith(expected) ? tag.slice(expected.length) : null;
+  if (!version) throw new Error(`Tag ${tag} does not follow the expected ${expected}<version> format.`);
+
+  // Read the repository from the existing manifest (required field, avoids hardcoding).
+  const manifest = JSON.parse(readFileSync(resolve(workspace, manifestPath), "utf8"));
+  if (manifest.schemaVersion !== 1 || typeof manifest.repository !== "string")
+    throw new Error("Recovery manifest is missing or has an unsupported schema version.");
+  const repository = manifest.repository;
+
+  // Fetch the remote tag to get the commit SHA and tag object SHA.
+  const remoteTag = await api(`/repos/${repository}/git/refs/tags/${tag}`);
+  if (remoteTag.ref !== `refs/tags/${tag}` || remoteTag.object?.type !== "tag")
+    throw new Error(`Remote tag ${tag} is not an annotated tag or does not exist.`);
+  const tagObject = remoteTag.object.sha;
+  if (!sha(tagObject)) throw new Error("Remote tag object SHA is invalid.");
+  const tagData = await api(`/repos/${repository}/git/tags/${tagObject}`);
+  const commit = tagData.object?.sha;
+  if (!sha(commit)) throw new Error("Could not resolve tag commit SHA.");
+
+  // Find the failed run: use the explicit ID or search recent push runs on the tag branch.
+  let failedRun;
+  if (failedRunId) {
+    const run = await api(`/repos/${repository}/actions/runs/${failedRunId}`);
+    if (run.event !== "push" || run.head_branch !== tag || run.head_sha !== commit ||
+        run.status !== "completed" || run.conclusion !== "failure")
+      throw new Error(`Run ${failedRunId} is not a completed failed push run for ${tag}.`);
+    failedRun = failedRunId;
+  } else {
+    const runs = await api(`/repos/${repository}/actions/workflows/${recoveryWorkflows[product]}.yml/runs?event=push&per_page=30`);
+    const candidate = runs.workflow_runs?.find(r =>
+      r.head_branch === tag && r.head_sha === commit && r.status === "completed" && r.conclusion === "failure");
+    if (!candidate) throw new Error(`No failed push run found for ${tag} at ${commit}. Use --failed-run <id> to specify it.`);
+    failedRun = candidate.id;
+  }
+
+  // Build the manifest entry — omit failedStage unless dependency-prepare applies.
+  const entry = { product, version, commit, tagObject, failedRun };
+
+  const proposed = { ...manifest, tags: { [tag]: entry, ...manifest.tags } };
+  const json = JSON.stringify(proposed, null, 2) + "\n";
+
+  if (!execute) {
+    return { tag, entry, status: "authorize-plan", readOnly: true,
+      next: "Review the entry above, then rerun with --execute to write and commit the manifest." };
+  }
+
+  writeFileSync(resolve(workspace, manifestPath), json, "utf8");
+  const cleanCommit = git(workspace, "status", "--porcelain").trim() ? null : "clean";
+  if (!cleanCommit) {
+    git(workspace, "add", manifestPath);
+    git(workspace, "commit", "-m", `Authorize recovery for ${tag} routing failure`);
+  }
+  return { tag, entry, status: "authorize-committed", readOnly: false,
+    next: `Push the commit to main, then run: delivery:recover ${tag} --execute` };
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   (async () => {
-  const [tag, ...flags] = process.argv.slice(2);
+  const [subcommand, ...rest] = process.argv.slice(2);
   try {
-    if (!tag || new Set(flags).size !== flags.length || flags.some(flag => !["--execute", "--retry"].includes(flag))) {
-      throw new Error("Use delivery:recover <exact-tag> [--retry] [--execute].");
+    if (subcommand === "authorize") {
+      const [tag, ...flags] = rest;
+      if (!tag || new Set(flags).size !== flags.length ||
+          flags.some(flag => !["--execute", "--failed-run"].includes(flag) && !/^[1-9][0-9]*$/.test(flag))) {
+        throw new Error("Use: delivery-recovery.mjs authorize <exact-tag> [--failed-run <runId>] [--execute]");
+      }
+      const failedRunIdx = flags.indexOf("--failed-run");
+      const failedRunId = failedRunIdx >= 0 ? Number(flags[failedRunIdx + 1]) : undefined;
+      const result = await authorizeRecovery(tag, { execute: flags.includes("--execute"), failedRunId }, root, readGitHubAPI());
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      // Legacy: treat first arg as tag for `recover` subcommand (backward-compatible).
+      const tag = subcommand;
+      const flags = rest;
+      if (!tag || new Set(flags).size !== flags.length || flags.some(flag => !["--execute", "--retry"].includes(flag))) {
+        throw new Error("Use delivery:recover <exact-tag> [--retry] [--execute].");
+      }
+      const result = await recoverDelivery(tag, flags.includes("--execute"), root, readGitHubAPI(), dispatchRecovery, flags.includes("--retry"));
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status === "tooling-promotion-required") process.exitCode = 1;
     }
-    const result = await recoverDelivery(tag, flags.includes("--execute"), root, readGitHubAPI(), dispatchRecovery, flags.includes("--retry"));
-    console.log(JSON.stringify(result, null, 2));
-    if (result.status === "tooling-promotion-required") process.exitCode = 1;
   } catch (error) { console.error(error.message); process.exitCode = 1; }
   })();
 }

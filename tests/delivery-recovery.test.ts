@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { recoveryIdentity, recoveryRunMatches, checkRecoveryRun, checkRecoveryRetry, checkRecoveryReceipts, requireRecoveryCI, ciSourceCommit } from "../scripts/delivery-recovery.mjs";
+import { recoveryIdentity, recoveryRunMatches, checkRecoveryRun, checkRecoveryRetry, checkRecoveryReceipts, requireRecoveryCI, ciSourceCommit, authorizeRecovery } from "../scripts/delivery-recovery.mjs";
 import { deliveryTroubleshooting } from "../scripts/delivery-chain.mjs";
 
 function fixture(tag = "vrcp-crawler/v0.0.6") {
@@ -159,22 +159,19 @@ test("recovery rejects changed authorization, missing ancestry, prior builds and
   }
 });
 
-test("manual recovery retry rejects active, unchanged-tooling and partial-output attempts", async () => {
+test("manual recovery retry rejects active, unchanged-tooling and publication-output attempts", async () => {
   const f = fixture();
   const attempt = { ...f.run, status: "completed", conclusion: "failure" };
   const jobsPath = `${f.prefix}/actions/runs/99/jobs?per_page=100`;
-  const artifactsPath = `${f.prefix}/actions/runs/99/artifacts?per_page=100`;
   f.responses[jobsPath] = { total_count: 3, jobs: [
     { name: "route", conclusion: "success" }, { name: "build-linux", conclusion: "failure" },
     { name: "publish-container", conclusion: "skipped" }] };
-  f.responses[artifactsPath] = { total_count: 0, artifacts: [] };
+  // Build artifacts alone no longer block a retry; only publication activity does.
   expect(await checkRecoveryRetry([attempt], f.identity, "b".repeat(40), f.api)).toEqual([99]);
   await expect(checkRecoveryRetry([], f.identity, "b".repeat(40), f.api)).rejects.toThrow();
   await expect(checkRecoveryRetry([attempt], f.identity, f.toolingCommit, f.api)).rejects.toThrow("different reviewed tooling");
   await expect(checkRecoveryRetry([{ ...attempt, status: "in_progress" }], f.identity, "b".repeat(40), f.api)).rejects.toThrow();
-  f.responses[artifactsPath] = { total_count: 1, artifacts: [{}] };
-  await expect(checkRecoveryRetry([attempt], f.identity, "b".repeat(40), f.api)).rejects.toThrow("outputs");
-  f.responses[artifactsPath] = { total_count: 0, artifacts: [] };
+  // Publication job running must still block retry.
   f.responses[jobsPath].jobs[2].conclusion = "failure";
   await expect(checkRecoveryRetry([attempt], f.identity, "b".repeat(40), f.api)).rejects.toThrow("publication activity");
   f.responses[jobsPath].jobs[2].conclusion = "skipped";
@@ -281,3 +278,61 @@ test("public recovery receipts bind both binaries to source, reviewed tooling an
   const absent = files(); absent.delete("crawler-windows.receipt.json");
   expect(() => checkRecoveryReceipts(absent, proof)).toThrow("missing");
 });
+
+test("authorizeRecovery resolves tag data and produces a valid manifest entry without manual JSON editing", async () => {
+  const f = fixture();
+  const tag = "vrcp-crawler/v0.0.8";
+  const commit = "69387f5944a18819be763d80201c0cc7197cc717";
+  const tagObject = "54dcc2f18367530ce18cdededc5142cb4ca5b3b7";
+  const failedRunId = 37513932543;
+  const api = async (path: string) => {
+    if (path.includes(`/git/refs/tags/${tag}`))
+      return { ref: `refs/tags/${tag}`, object: { type: "tag", sha: tagObject } };
+    if (path.includes(`/git/tags/${tagObject}`))
+      return { object: { sha: commit } };
+    if (path.includes(`/actions/runs/${failedRunId}`))
+      return { event: "push", head_branch: tag, head_sha: commit, status: "completed", conclusion: "failure" };
+    throw new Error(`Unexpected authorize read: ${path}`);
+  };
+  const result = await authorizeRecovery(tag, { execute: false, failedRunId }, f.prefix.split("/repos/")[1] ? undefined : undefined, api);
+  expect(result.status).toBe("authorize-plan");
+  expect(result.readOnly).toBe(true);
+  expect(result.entry.product).toBe("crawler");
+  expect(result.entry.version).toBe("0.0.8");
+  expect(result.entry.commit).toBe(commit);
+  expect(result.entry.tagObject).toBe(tagObject);
+  expect(result.entry.failedRun).toBe(failedRunId);
+  expect(result.next).toContain("--execute");
+  // Rejects unknown product prefix
+  await expect(authorizeRecovery("unknown/v0.0.1", {}, undefined, api)).rejects.toThrow("recoverable product prefix");
+});
+
+test("retry allows prior build artifacts when no publication activity occurred", async () => {
+  const f = fixture();
+  const retryTooling = "b".repeat(40);
+  const attempt = { id: 200, event: "workflow_dispatch", head_branch: "main",
+    head_sha: retryTooling, head_repository: f.run.head_repository,
+    path: f.run.path, display_title: f.run.display_title,
+    actor: f.run.actor, status: "completed", conclusion: "failure" };
+  // Wire ancestry and manifest reads for the recovery attempt's head_sha.
+  f.responses[`${f.prefix}/compare/${retryTooling}...main`] =
+    { status: "identical", base_commit: { sha: retryTooling }, merge_base_commit: { sha: retryTooling } };
+  f.responses[`${f.prefix}/contents/.github/delivery-recoveries.json?ref=${retryTooling}`] =
+    f.responses[`${f.prefix}/contents/.github/delivery-recoveries.json?ref=${f.toolingCommit}`];
+  const jobsPath = `${f.prefix}/actions/runs/200/jobs?per_page=100`;
+  f.responses[jobsPath] = { total_count: 3, jobs: [
+    { name: "route", conclusion: "success" },
+    { name: "standalone-windows", conclusion: "success" },
+    { name: "build-linux", conclusion: "failure" }
+  ]};
+  // Should NOT throw — Windows build artifact existed but no publication ran.
+  // retryTooling differs from f.toolingCommit so same-tooling guard passes.
+  const retryOf = await checkRecoveryRetry([attempt], f.identity, f.toolingCommit, f.api);
+  expect(retryOf).toEqual([200]);
+  // Publication job running must still block retry.
+  f.responses[jobsPath].jobs[2] = { name: "publish-container", conclusion: "success" };
+  f.responses[jobsPath].total_count = 3;
+  await expect(checkRecoveryRetry([attempt], f.identity, f.toolingCommit, f.api))
+    .rejects.toThrow("publication activity");
+});
+
