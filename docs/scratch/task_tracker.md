@@ -1,5 +1,17 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
+## Active gate — main-safe preview allocation (2026-10-06)
+
+- Owner permits preview publication from main through a new delivery branch. Main protection and release approvals remain intact.
+- Working theory: check the configured predecessor's remote publication and artifacts before creating a preview branch or changing version metadata.
+- A main invocation will checkpoint pending source on that branch, allocate one patch and push its tag. No direct main push occurs.
+- Source/config promotion back to main remains owner-reviewed. A stale main config must stop at remote tag checks, not allocate a skipped patch.
+- Recovery 37454376963 passed route, Linux, Windows, container publication and attachment. Full root proof verified all six public artifact hashes.
+- SDK preview attachment 37454683571 and desktop preview attachment 37454682893 passed. Protected desktop release attachment 37454682979 also passed.
+- All-nine readback passed eight configured channels. Prepared crawler 0.0.7 still has no tag. Its old dependency snapshot needs review before publication.
+- Next: implement the allocator boundary, then publish the compatible network producer before parallel node/Worker/desktop preview builds.
+- The requested final chat matrix will distinguish live full-chain proof, attachment replay, build-only Worker release and disabled website paths.
+
 ## Active gate — immutable-source crawler recovery (2026-10-06)
 
 - Owner approved the recovery attempt and real execution when ready. This supersedes the earlier refusal of reviewed recovery tooling.

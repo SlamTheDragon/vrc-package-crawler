@@ -62,6 +62,8 @@ export async function planDelivery(channel, product, workspace = root, now = new
   const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
   const tag = `${productTagPrefixes[product]}/v${version}`;
   const releaseBranch = channel === "release" ? `codex/release/${product}/v${version}` : undefined;
+  const previewBranch = channel === "preview" && branch === "main" ? `codex/preview/${product}/v${version}` : undefined;
+  const allocationBranch = releaseBranch || previewBranch;
   const blockers = [];
   if (channel === "release" && branch !== "main") blockers.push("Release delivery requires main after reviewed promotion");
   if (git(workspace, "status", "--porcelain")) blockers.push("Worktree or index is dirty");
@@ -69,13 +71,19 @@ export async function planDelivery(channel, product, workspace = root, now = new
   if (releaseBranch && git(workspace, "for-each-ref", "--format=%(refname)", `refs/heads/${releaseBranch}`)) {
     blockers.push("Release preparation branch already exists; inspect it instead of allocating again");
   }
+  if (previewBranch && git(workspace, "for-each-ref", "--format=%(refname)", `refs/heads/${previewBranch}`)) {
+    blockers.push("Preview delivery branch already exists; inspect its retained state instead of allocating again");
+  }
   const refs = git(workspace, "ls-remote", "origin", `refs/heads/${branch}`, "refs/heads/main",
-    ...(releaseBranch ? [`refs/heads/${releaseBranch}`] : []), `refs/tags/${productTagPrefixes[product]}/v*`).split("\n");
+    ...(allocationBranch ? [`refs/heads/${allocationBranch}`] : []), `refs/tags/${productTagPrefixes[product]}/v*`).split("\n");
   const head = git(workspace, "rev-parse", "HEAD");
   if (!refs.includes(`${head}\trefs/heads/${branch}`)) blockers.push("Origin branch differs from HEAD or does not exist");
   if (refs.some(line => line.endsWith(`\trefs/tags/${tag}`))) blockers.push("Remote tag already exists");
   if (releaseBranch && refs.some(line => line.endsWith(`\trefs/heads/${releaseBranch}`))) {
     blockers.push("Remote release preparation branch exists; review or recover it instead of allocating again");
+  }
+  if (previewBranch && refs.some(line => line.endsWith(`\trefs/heads/${previewBranch}`))) {
+    blockers.push("Remote preview delivery branch exists; inspect it instead of allocating again");
   }
   if (newerRemoteVersion(channel, product, previous, refs)) blockers.push("Version config is behind a remote delivery tag; synchronize before bumping");
   const mainBlocker = mainVersionBlocker(channel, product, previous, refs, workspace, git);
@@ -83,6 +91,7 @@ export async function planDelivery(channel, product, workspace = root, now = new
   const other = (await readVersionConfig(channel === "preview" ? "release" : "preview", workspace)).config;
   if (other[`${channel === "preview" ? "release" : "preview"}-${product}`] === version) blockers.push("Channel tag would be ambiguous");
   return { channel, product, previous, version, tag, branch, repository, head, configPath, blockers, ...(releaseBranch ? { releaseBranch } : {}),
+    ...(previewBranch ? { previewBranch, mainPromotionRequired: true } : {}),
     workflow: `${workflows[product]}.yml`, purpose: "plan-only",
     delivery: channel === "release" ? "version-pr-then-reviewed-main-tag" : "tagged-delivery",
     ...(product === "worker" && channel === "release" ? { publication: "ci-build-only-no-production-deployment" } : {}) };
@@ -114,15 +123,20 @@ function rejectIgnoredPending(paths, workspace, git) {
   if (selected.length) throw new Error(`Indexed ignored pending files cannot be checkpointed: ${JSON.stringify(selected)}`);
 }
 
-/** Checkpoint the owner's selected nonignored pending files before allocating a preview version. */
-function checkpointPendingPreview(plan, workspace, git) {
-  const args = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
-  const status = git(workspace, ...args), paths = pendingPaths(status);
-  if (!paths.length) return;
+function pendingPreviewState(workspace, git) {
+  const status = git(workspace, "status", "--porcelain=v1", "-z", "--untracked-files=all"), paths = pendingPaths(status);
   if (paths.some(path => ["config.versions.json", "config.preview.versions.json"].includes(path))) {
     throw new Error("Pending version-config edits cannot be checkpointed. Use the authoritative root allocator; no staging, commit or bump ran.");
   }
   rejectIgnoredPending(paths, workspace, git);
+  return { status, paths };
+}
+
+/** Checkpoint the owner's selected nonignored pending files before allocating a preview version. */
+function checkpointPendingPreview(plan, workspace, git) {
+  const args = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+  const { status, paths } = pendingPreviewState(workspace, git);
+  if (!paths.length) return;
   console.log(JSON.stringify({ pendingFiles: paths }));
   if (git(workspace, "rev-parse", "HEAD") !== plan.head ||
       git(workspace, "symbolic-ref", "--short", "HEAD") !== plan.branch || git(workspace, ...args) !== status) {
@@ -157,6 +171,17 @@ export async function startDelivery(channel, product, execute = false, workspace
   if (git(workspace, "rev-parse", "HEAD") !== plan.head || git(workspace, "symbolic-ref", "--short", "HEAD") !== plan.branch) {
     throw new Error("Repository changed after planning");
   }
+  const previewBranch = plan.previewBranch;
+  if (previewBranch) {
+    pendingPreviewState(workspace, git);
+    const current = await planDelivery(channel, product, workspace, now, git);
+    const blockers = current.blockers.filter(blocker => blocker !== "Worktree or index is dirty");
+    if (blockers.length || current.head !== plan.head || current.version !== plan.version) {
+      throw new Error(`Main preview plan changed before branch creation: ${blockers.join("; ")}`);
+    }
+    git(workspace, "checkout", "-b", previewBranch);
+    plan = { ...plan, branch: previewBranch };
+  }
   const pendingCheckpoint = channel === "preview" ? checkpointPendingPreview(plan, workspace, git) : undefined;
   if (pendingCheckpoint) {
     plan = await planDelivery(channel, product, workspace, now, git);
@@ -177,7 +202,9 @@ export async function startDelivery(channel, product, execute = false, workspace
     ...(channel === "release" ? ["-m", `VRCP-Release-Product: ${product}\nVRCP-Release-Version: ${plan.version}\nVRCP-Release-Base: ${plan.head}`] : []), "--", ...paths);
   if (channel === "release") return retryReleasePreparation(plan.releaseBranch, workspace, git);
   git(workspace, "tag", "-a", plan.tag, "-m", `VRC Packages ${product} ${channel} ${plan.version}`);
-  return { ...retryDelivery(plan.tag, workspace, git), ...(pendingCheckpoint ? { pendingCheckpoint } : {}) };
+  return { ...retryDelivery(plan.tag, workspace, git), ...(pendingCheckpoint ? { pendingCheckpoint } : {}),
+    ...(previewBranch ? { branch: previewBranch, mainPromotionRequired: true,
+      pullRequestURL: `https://github.com/${plan.repository}/compare/main...${encodeURIComponent(previewBranch)}?expand=1` } : {}) };
 }
 
 /** Preparation pushes only its version PR branch. It never writes main or a delivery tag. */
