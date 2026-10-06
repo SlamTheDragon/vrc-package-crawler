@@ -8,7 +8,9 @@ Here are the current changelogs of each product. For a full history, visit [docs
 
 ## vrcp-crawler-node
 
-- none currently
+- Automated changelog extraction copying product milestone notes into per-version history without clearing root.
+- Apply extracted changelog notes directly to automated commit descriptions.
+- Resilient recovery tooling and single-pass delivery verification.
 
 ## vrcp-packages-api
 
