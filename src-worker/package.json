@@ -25,7 +25,7 @@
 	"dependencies": {
 		"@trybyte/robotstxt-parser": "2.0.0",
 		"vrc-packages-api": "npm:vrc-packages-api-preview@latest",
-		"vrc-packages-network": "https://github.com/SlamTheDragon/vrc-packages/releases/download/vrcp-network/v2026.10.3/vrc-packages-network-2026.10.3.tgz",
+		"vrc-packages-network": "https://github.com/SlamTheDragon/vrc-packages/releases/download/vrcp-network/v2026.10.4/vrc-packages-network-2026.10.4.tgz",
 		"zod": "^4.6.5"
 	},
 	"devDependencies": {
