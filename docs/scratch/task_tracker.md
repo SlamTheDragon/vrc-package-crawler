@@ -6,7 +6,9 @@
 - Finalization from clean main pushed crawler `0.0.6` at owner-merged PR #5 commit `995db61`; tag object `41039d1f0020a95eda00cd898654d35c093bde25` remains fixed.
 - Run `37413527166` failed route before builds/publication. Checkout fetched the annotated tag, then replaced its local ref with the peeled commit. Strict proof rejected it.
 - Working theory: explicit checkout ref suppresses the action's default commit/ref fallback. All release-capable callers and reusable attachments need this selection; proof checks remain unchanged.
-- Repair is on `codex/annotated-release-checkout`, initially unverified. Main sign-off remains guarded. After checks, push for owner promotion; never move the failed tag.
+- Repair commit `2af92d5` passed 97 grouped delivery, chain, attachment and provenance tests with 1598 assertions. All 374 document links/layout checks and whitespace checks passed. DELIVERY prose score: 1.50 issues per 100 words.
+- Explicit refs preserve annotations in all ten release-capable checkout steps. Existing proof, approval and immutability checks remain unchanged. Upstream checkout input/ref helpers confirm the observed fallback.
+- Hosted repair remains unverified. Push `codex/annotated-release-checkout` for owner promotion, then use the next root-configured crawler patch. Never move the failed `0.0.6` tag. Main sign-off remains guarded.
 
 ## Authority and active slice
 
