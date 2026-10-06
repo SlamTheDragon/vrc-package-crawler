@@ -30,6 +30,7 @@ Human steps are in [DELIVERY.md](../source/DELIVERY.md). This file adds only the
    Preview checkpoints reject pending edits to either version config. Preserve those edits for owner inspection, not automatic staging.
    Broken tagged workflows require manual resolution. Do not replace their tooling or move their tags.
    Recover a failed preparation push with `delivery:retry-preparation` on its retained clean branch.
+   Authorize a failed tag recovery with `delivery:authorize-recovery <tag> [--failed-run <id>] --execute` from clean main to resolve commit/tagObject from GitHub and commit the manifest entry instead of editing `.github/delivery-recoveries.json` manually.
    Do not rerun App allocation. Inspect the original tag and recover its delivery instead.
 7. Record the tag, CI run, `delivery:check` result and open risks in `docs/scratch/task_tracker.md`.
 8. Treat R58 as clarification of R57-C57A/B. Hosted diagnostic 37406552782 passed without allocation.

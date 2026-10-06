@@ -16,6 +16,7 @@
     "delivery:check:all": "node scripts/delivery-chain.mjs check-configured",
     "delivery:retry": "node scripts/delivery-chain.mjs retry",
     "delivery:recover": "node scripts/delivery-recovery.mjs",
+    "delivery:authorize-recovery": "node scripts/delivery-recovery.mjs authorize",
     "worker:preview:init": "bun scripts/worker-preview-init.mjs",
     "prepare:dev": "node scripts/delivery.mjs prepare",
     "build:dev": "node scripts/delivery.mjs build",

@@ -105,6 +105,15 @@ Active runs, published outputs and incomplete evidence stop the command. Inspect
 Recovery cannot overwrite published assets, update a tag, bypass release review or approve an environment.
 Other failures need a separate, reviewed authorization. Local release builds remain prohibited.
 
+To authorize a new recovery without editing the manifest manually:
+
+- Run `bun --env-file=.env run delivery:authorize-recovery <exact-tag> [--failed-run <runId>]` to see the proposed entry.
+- Add `--execute` to write and commit the manifest entry automatically.
+- The command resolves the tag's commit and tag-object SHA from the GitHub API and locates the most recent failed push run for that tag.
+- Supply `--failed-run <id>` when automatic run discovery is ambiguous.
+- Push the resulting commit to main before running `delivery:recover`.
+
+
 Runtime checklist from the first hosted recovery:
 
 - Synchronize delivery tooling exactly, including deleted files. Archive extraction alone retains obsolete tracked workflows.
