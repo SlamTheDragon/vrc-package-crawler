@@ -14,6 +14,19 @@
 Working theory: one root allocator can serve local and App-triggered previews without duplicate version logic.
 Its direct main commit/tag push cannot satisfy reviewed-main protection unchanged.
 
+Active release slice: prepare one config-derived metadata commit on a dedicated promotion branch, without a tag or main write.
+After manual review/merge, finalize only its exact merged main commit with a tag-only push and the same saved version.
+Reuse versionFiles and immutable-tag checks. Independent proof helpers must bind the PR, review, base/head and merged config transition.
+Implementation is unverified until the related delivery gate checks pass.
+Owner confirmed App installation and both repository entries. Live authentication and branch allocation remain unverified.
+Owner permits a manual owner-reviewed merge without a second reviewer. Check the owner merge identity, not a self-approval.
+The API cannot prove human inspection. A no-bump App diagnostic is implemented but unverified.
+Owner selects all nonignored pending files for preview checkpoints. Release still requires clean main.
+Working theory: print the paths, reject stale branches and pending ignored index entries, then commit and push before allocating a patch.
+Check partial push recovery, path races and unrelated tags under push.followTags. Never unstage owner files or skip a patch.
+New CI ingress checks use the original run actor and exact reviewed metadata. Historical exceptions bind exact tag/object/commit pairs.
+Tag-selected code requires external main/tag/workflow protection. It cannot police old workflows. This remains a sign-off boundary.
+
 ## Current state and checked contract
 
 Implemented checkpoints: 7a1f097, 7916922, 2a6434a and bec2930.
@@ -40,7 +53,8 @@ Workflow tests covered App routing, product forwarding and release approval cond
 Local Bun is 1.4.1. Hosted delivery pins 1.4.2. These results are not live App proof.
 Crawler leases, source access and D1 code did not change. Their runtime tests were not repeated.
 
-No real version bump, tag change, App setup, publication, deployment, protection or branch creation ran.
+No real version bump, tag change, publication, deployment, protection or branch creation ran in the local gate.
+The owner subsequently confirmed App setup. A local commit or that confirmation is not live App proof.
 
 ## Retained checked baseline
 
@@ -82,9 +96,9 @@ Seven distributed-product deployment links passed. Worker links remain deferred 
 
 ## Open sign-off exits and next actions
 
-1. Owner will configure the App installation, Client ID variable and private-key secret. Keep the key outside chat and source.
+1. Check the owner-configured App with the no-bump hosted diagnostic. Keep the key outside chat and source.
 2. Complete CI release provenance and reviewed version-PR/final-tag delivery. Contents-write permission does not restrict an App to preview tags.
-3. Settle pending-file scope before automatic commits. The executor still rejects a dirty worktree.
+3. Check the accepted all-nonignored preview checkpoint path, recovery and failure guards with the related gate.
 4. Settle recovery refs. Environment rules match the workflow ref, not its input tag.
 5. Prove normal hosted branch preview allocation, tag CI, original bytes and deployment links.
 6. Complete main protection and owner fresh-clone proof before sign-off. Never bypass reviews.

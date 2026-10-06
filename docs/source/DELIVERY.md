@@ -7,7 +7,7 @@ Do not edit those files by hand. The bump command changes them.
 
 > Owner target model (2026-10-06). R58 clarifies R57-C57A/B. Open checks are in [§7](#7-target-model-and-current-gaps).
 > - **Preview:** bump patch → commit and push → tag → CI builds → publishes with no approval guard → GitHub prerelease page with artifacts.
-> - **Release:** same chain, with owner approval checkpoints.
+> - **Release:** prepare a version PR → owner inspects and merges → tag the exact merged commit → gated CI publication.
 > - Preview works from any synchronized branch. Release requires main after a manually reviewed promotion PR.
 > - Keep responsibility branches and separate evergreen tracking PRs. Never merge the tracking PR as a release promotion.
 
@@ -19,25 +19,43 @@ From the repository root:
 
 ```sh
 bun run delivery:preview <product>             # plan only: shows next version, tag, blockers
-bun run delivery:preview <product> --execute   # bump, commit, tag, push → CI runs
+bun run delivery:preview <product> --execute   # pending checkpoint, bump, commit, tag, push → CI
 bun run delivery:status <tag>                  # read the tagged CI run
 bun run delivery:check <tag>                   # check published bytes, receipts, registry
 ```
 
-Use `delivery:release` instead of `delivery:preview` for release.
 From a product folder, `bun run delivery:preview --execute` does the same thing.
 
-Start releases only from main after a manually reviewed promotion merge.
-The current executor still pushes a version commit directly. Do not bypass protected-main rules.
-The reviewed version-PR and final-tag path remains open.
+Preview execution prints and commits all nonignored pending files, then pushes that checkpoint before the version commit.
+It rejects stale versions before staging. It rejects pending indexed files that match ignore rules, including force-added files.
+Ignore rules are not a secret scanner. Check the printed paths and maintain the ignore rules before delivery.
+If that checkpoint push fails, use its displayed same-branch recovery command. The local commit remains and no bump runs.
+Release execution never commits pending files. It requires clean main.
+
+For release, first promote product changes to main through a manually reviewed PR. Then:
+
+1. Start from clean main that matches origin.
+2. Run `bun run delivery:release <product> --execute`.
+3. Open the returned version-PR link. The command pushes only its metadata branch, not main or a tag.
+4. Inspect and manually merge that PR. An owner-reviewed merge needs no second reviewer.
+5. Return to main and synchronize it with origin.
+6. Run `bun run delivery:finalize <product> <merged-pr-number> <merged-main-commit>` to check the plan.
+7. Add `--execute` to push only the tag at that exact merged commit.
+8. Complete the product's release approvals below.
+
+The finalizer reproduces metadata with the same bump and sync functions. It does not bump another patch or merge a PR.
+Its API checks establish owner merge identity, not proof of human inspection. Do not bypass main protection.
+The related implementation remains unverified until the grouped delivery checks pass.
 
 If the push fails, run `bun run delivery:retry <tag>`. This retries the same tag. It does not bump again.
+For a failed preparation push, use `bun run delivery:retry-preparation <returned-branch>` on its clean local branch.
 If CI fails, rerun the CI job. Do not bump a new version only to retry CI.
 Do not move, delete or force-push a published tag.
 
 For remote preview allocation, start `preview-delivery.yml` with a synchronized branch and product.
 The preview App calls the same root executor. It does not allocate versions on every ordinary push.
 Configure the App first with [these steps](#preview-app-setup). The live branch trial remains open.
+Select `diagnose-only` for an authentication and planning check without a version bump or delivery write.
 Do not rerun the allocator: it refuses repeated attempts before requesting an App token.
 Inspect its original tag first. Retry that tag's delivery, not another patch allocation.
 
@@ -49,7 +67,7 @@ then `crawler` / `worker` / `crawler-client`. Do not push all tags at once.
 1. Update the `package` section in [CHANGELOG.md](CHANGELOG.md).
 2. Run `bun run delivery:preview package --execute`.
    CI publishes `vrc-packages-api-preview` through npm OIDC and creates a prerelease page.
-3. For release, run `bun run delivery:release package --execute`, then:
+3. For release, complete the version PR and finalization steps in §1, then:
    1. Approve the `vrcp-api-release` GitHub environment.
    2. Approve the staged package on npmjs.com with 2FA.
    3. The hourly `sdk-release-reconcile.yml` workflow publishes the draft Release page. You can also start it manually.
@@ -98,10 +116,10 @@ Both channels use the release SDK. Preview format is `YY.M.Patch-pre`. Release u
 
 | Gap | Current behavior | Target |
 | --- | --- | --- |
-| Dirty worktree | Bump stops if the worktree is dirty. Pending-file scope is undecided. | Commit selected pending changes before the version commit. See R58-DIRTY-COMMIT in the canonical ledger. |
+| Dirty worktree | All nonignored preview changes use a separate checkpoint. Release requires clean main. Implementation is unverified. | Check ignored paths, stale branches and partial push recovery. See R58-DIRTY-COMMIT. |
 | Preview approval switches | Removed. Release switches, reviews and byte checks remain. Local root checks passed 118 tests and 1869 assertions. | Automatic preview publication after successful checks. No preview approval switch. |
-| Branches | Root checks reject stale tag/main versions and non-main release start/retry. CI release provenance and reviewed-main finalization remain open. | Any synchronized preview branch. Main-only gated releases after manual promotion. |
-| Preview GitHub App | Dispatcher wired and locally checked. Owner will configure installation and credentials. Live branch proof remains open. | Repository-scoped preview allocation. No merge or release-approval bypass. |
+| Branches | Metadata PR preparation, tag-only finalization and CI source checks are implemented but unverified. | Any synchronized preview branch. Main-only gated releases after owner-reviewed promotion. |
+| Preview GitHub App | Owner confirmed installation and both repository entries. The no-bump diagnostic is implemented but unverified. | Check authentication first, then a normal branch delivery. No merge or release-approval bypass. |
 | `--execute` | Required; without it the command only plans | Unchanged unless the owner decides otherwise |
 
 ---
@@ -165,14 +183,22 @@ preview `vrc-package-crawler-preview` / D1 `vrcp-preview-d1` `fbef6ce1-4145-45ae
 4. Save its private key as repository secret `VRCP_PREVIEW_APP_PRIVATE_KEY`.
 5. Keep the key outside source, chat, logs and artifacts.
 6. Do not grant a main-rule bypass or permission to approve releases or merge PRs.
-7. After App setup and source/protection checks, start `preview-delivery.yml` on a synchronized branch.
-8. Check the allocated tag, CI result, published bytes and deployment link.
+7. Start `preview-delivery.yml` on a synchronized branch with `diagnose-only` selected. Check its no-write result.
+8. After source/protection checks, start normal allocation. Check the tag, CI result, published bytes and deployment link.
 
 The [official App-token action](https://github.com/actions/create-github-app-token) documents these credentials and current-repository token scope.
 This dispatcher uses the App token for tag pushes because the default Actions token suppresses new push workflows.
 See [GitHub token behavior](https://docs.github.com/en/actions/concepts/security/github_token).
 Keep the App out of release allocation. Contents-write permission does not restrict it to a preview tag prefix.
 CI release provenance must enforce that boundary too. Missing App credentials fail before allocation.
+
+### Release source trust
+
+- New releases bind the annotated tag to one owner-merged metadata PR and its exact merged main commit.
+- Tag routing, builds, publication and artifact recovery check that proof. They use the original Actions actor, not the rerun actor.
+- `.github/release-baseline.json` preserves only exact historical repository/tag/object/commit pairs. It grants no broad version or ancestry exception.
+- Repository protections must restrict main, release tags and workflow changes. A tag-selected checker cannot police an older workflow that omits it.
+- The preview App must not bypass those protections. Main protection and live source-policy checks remain sign-off requirements.
 
 ### Local development
 
