@@ -1,0 +1,3 @@
+[submodule "src-web-search"]
+	path = src-web-search
+	url = https://github.com/SlamTheDragon/vrc-packages-search
