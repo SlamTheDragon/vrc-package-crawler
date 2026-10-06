@@ -1,16 +1,21 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 
 const root = resolve(import.meta.dir, "../..");
 const ignored = new Set([".git", "node_modules", "dist", "bin", ".bun-cache"]);
 const docCategories = new Set(["scratch", "decisions", "research", "source"]);
-const rootMarkdown = new Set(["AGENTS.md", "DELEGATES.md", "TODO.md", "LEGAL.md", "README.md", "LICENSE.md"]);
+const rootMarkdown = new Set(["AGENTS.md", "DELEGATES.md", "TODO.md", "LEGAL.md", "README.md", "LICENSE.md", "CONTRIBUTING.md"]);
+// Owner-approved editor metadata is exempt only while Git ignores this exact path.
+const editorMetadata = join(root, "docs", ".obsidian");
+const ignoredEditorMetadata = spawnSync("git", ["check-ignore", "--quiet", "--", "docs/.obsidian"], { cwd: root }).status === 0;
 const files: string[] = [];
 
 function visit(dir: string): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory() && ignored.has(entry.name)) continue;
     const target = join(dir, entry.name);
+    if (entry.isDirectory() && target === editorMetadata && ignoredEditorMetadata) continue;
     if (entry.isDirectory()) visit(target);
     else if (entry.name.endsWith(".md")) files.push(target);
   }
@@ -24,6 +29,7 @@ for (const entry of readdirSync(root, { withFileTypes: true })) {
   }
 }
 for (const entry of readdirSync(join(root, "docs"), { withFileTypes: true })) {
+  if (entry.isDirectory() && entry.name === ".obsidian" && ignoredEditorMetadata) continue;
   if (!entry.isDirectory() || !docCategories.has(entry.name)) {
     broken.push(`Unexpected docs/ entry: ${entry.name}`);
   }

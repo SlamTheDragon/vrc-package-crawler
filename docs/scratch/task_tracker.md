@@ -77,6 +77,22 @@ Partial push recovery, path races and unrelated tags under push.followTags passe
 New CI ingress checks use the original run actor and exact reviewed metadata. Historical exceptions bind exact tag/object/commit pairs.
 Tag-selected code requires external main/tag/workflow protection. It cannot police old workflows. This remains a sign-off boundary.
 
+## Documentation and cleanup checkpoint — 2026-10-06
+
+Working theory: repair live references without recreating removed documents or changing architecture.
+Eight stale links now point to existing files or official documentation. CONTRIBUTING uses current root Bun delivery procedures.
+The owner approved root CONTRIBUTING.md and ignored docs/.obsidian as narrow layout exceptions.
+The checker permits only that root document and that exact ignored metadata directory. Other layout restrictions remain.
+CONTRIBUTING prose lint: 1.66 issues per 100 words. Whitespace checks passed.
+The full link/layout check passed for 374 documents. Whitespace checks passed.
+The supplied validator passed for both repaired skills through isolated uv with PyYAML. Project dependencies stayed unchanged.
+Workflow inventory found 13 files. Product delivery, reusable asset attachment, announcements, reconciliation, initialization and cache support have current roles.
+Website remains disabled. No obsolete workflow or remote run is yet proved safe to delete.
+Owner added workflow/run/code cleanup to sign-off. Inventory first, preserve delivery and security evidence, then assess exact deletion targets.
+Authenticated ruleset readback confirmed admin creation bypass only in stable-release. Immutable tags keep an empty bypass list.
+No version bump, publication, deployment or settings change belongs to this documentation gate.
+The owner logs marker remains untracked and untouched. Main sign-off and hosted initialization remain open.
+
 ## Current state and checked contract
 
 Local implementation checkpoints: 9ad6d94, f9aaa1f, d452345, e6fb556 and 7c4cbc2.
