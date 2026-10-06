@@ -2,38 +2,27 @@
 
 ## Active gate — same-version recovery, then patch-advance proof (2026-10-06)
 
-- Owner removed the main PR requirement. API readback returned HTTP 200 with active deletion and non_fast_forward rules only.
-- Normal source and preview pushes can use main. Remove the temporary-preview-branch workaround. Release review and approvals remain required.
-- Owner keeps the advancement guard. Recover network 2026.10.4, desktop preview 26.10.5-pre and prepared crawler release 0.0.7 before advancing.
-- Network run 37456412509 and desktop run 37456518411 failed root checks before publication. Their immutable tags and configured versions remain fixed.
-- Working theory: remove superseded branch logic to fix two fixture failures. The recovery CLI fixture also depends on history missing from shallow CI.
-- Current slice removes the branch workaround and aligns agent instructions. Source and assertions changed, but the grouped gate remains unverified.
-- The CLI fixture now supplies only its historical config reads and runs Node directly. It no longer requires old Git objects in shallow CI.
-- Full configured readback passed six paths. Network 2026.10.4, desktop preview 26.10.5-pre and crawler release 0.0.7 lack publication proof.
-- Syntax and whitespace checks passed. DELIVERY prose score: 1.40 issues per 100 words. Allocation/recovery grouped checks are running.
-- Allocation checks passed 30 cases. The first recovery run exposed a Windows preload-path error. The corrected recovery suite passed 10 cases / 119 assertions.
-- Live API readback confirms both failed preview runs completed with zero artifacts and skipped release jobs.
-- Recovery now permits only the two exact preview identities in the manifest, plus the existing crawler identity. Receipts bind source, main tooling and run IDs.
-- Existing network and desktop workflows gain explicit main-only recovery dispatches. Restore delivery tooling only, not product source or version configs.
-- Hosted recovery remains unverified. Next: check attachment/notification boundaries, push checked tooling to main, then exercise both root recovery commands.
-- Tooling a657295 was pushed by normal fast-forward to main. Both root recovery plans and dispatches passed against live evidence.
-- Network recovery 37459739140 failed root checks before publication: stale routing/link expectations and incomplete temporary CLI module copies.
-- Desktop recovery 37459764559 is also subject to those fixtures. No advancement or tag replacement is allowed. Repair fixtures, then use explicit --retry.
-- The repaired delivery/recovery/attachment/announcement gate passed 81 tests / 1458 assertions. No check was disabled.
-- Network recovery will use an explicit --retry with different main tooling. Desktop retry must wait until its first attempt completes without outputs.
-- Network retry 37460124422 passed build, attachment and deployment record. Root publication proof checked all four public asset hashes and fixed source/tag identity.
-- The separate consumer resolver exposed its old changelog heading check. Repair it to accept the exact package-name heading and retained historical heading.
-- Desktop retry 37460312551 passed root checks and reached its actual Windows build. Hosted final artifact/announcement proof remains open.
-- Crawler 0.0.7 finalization planning passed. The local execute attempt waited on predecessor bytes and was stopped before edits. Remote tag readback confirms no tag.
-- Desktop recovery 37460312551 passed Windows build, attachment and terminal Discord acknowledgment. Its root proof exposed a GitHub jobs-list sidecar.
-- GitHub appends the commit-level Discord check to the original failed run. Verify its exact app/name/source/acknowledgment before separating it from workflow jobs.
-- Published outputs remain fixed. This repair changes evidence interpretation only. Real publication jobs and artifact-count guards stay intact.
-- Desktop root proof now passed all five public hashes after the sidecar repair. Discord check acknowledged delivery. Its recovery half is checked.
-- Large predecessor reads delayed crawler finalization. The local pre-write attempt was stopped again. A 1 MB live probe returned HTTP 206 with the exact requested range.
-- Working theory: read binary assets in bounded 8 MB ranges, hash every byte, retain the whole-file digest/size guard, and show CLI progress.
-- Range reads never retry CI, cache trust, save local release artifacts or authorize another patch. Whole-file fallback is allowed only for the first response.
-- Recovery counts as half a pass. Each enabled path then needs a root patch bump and a green real chain with applicable artifacts and approvals.
-- Do not mark main signed off from recovered snapshots alone. Website remains disabled and Worker release remains build-only.
+- Main permits normal source and preview pushes. Release metadata review, operator approvals and immutable tags remain required.
+- API readback confirmed main-guard 24553134, immutable-delivery-tags 24553469 and stable-release 24553551 active with the documented controls.
+- The advancement guard remains. Recover failed configured versions before another patch. Recovery counts as half a pass.
+- Exact recovery identities remain in .github/delivery-recoveries.json. No published bytes or tag objects changed.
+- Tooling through 11b340a passed the grouped gate: 81 tests / 1458 assertions. Hosted checks exposed and resolved stale fixtures.
+- Network recovery 37460124422 passed. Root proof checked four public hashes. The consumer resolver checked the 26087-byte archive and source receipt.
+- Desktop preview recovery 37460312551 passed. Root proof checked five public hashes. Its terminal Discord check acknowledged delivery.
+- Repair 8fea87c checks GitHub's commit-level Discord sidecar separately from workflow jobs. Publication and zero-artifact guards remain strict.
+- Repair f7044db reads binary proofs in exact 8 MB ranges. It checks every byte against the complete size and SHA-256 digest.
+- Live finalization checked all six crawler 0.0.6 assets, including the complete 82707936-byte Linux and 87481344-byte Windows binaries.
+- Root finalization pushed crawler 0.0.7 at owner-merged source 2e1c6011d1d21c7e7bb3b2a24de9d99575f88030 from PR #8.
+- Tag object: d9788177f481e7317c250e790dd5204ba67c95f0. Actual CI run 37465066520 failed dependency preparation on Linux and Windows.
+- Live evidence shows successful routing, skipped container publication/attachment and zero artifacts. Linux passed 158 root tests before preparation failed.
+- Cause: the tagged SDK config selects 2026.10.5-pre, but registry latest selects 2026.10.6-pre. The config guard correctly refused it.
+- Working theory: authorize that exact preparation-only failure for manual recovery. Existing recovery tooling pins the tagged SDK version.
+- The new recipe checks both failed preparation steps and skipped later steps. It retains original source, version, tag and release approvals.
+- Next: check the complete recovery gate, push tooling to main and execute the root recovery command. Publication remains unverified.
+- Then advance SDK preview/release, network and consumers in that order. Network peer bounds change when SDK metadata synchronizes.
+- Each of the nine enabled paths needs next-patch chain proof, applicable bytes, dependency identities, deployment links and terminal notifications.
+- Check GHCR independently for crawler delivery. Worker release is build-only without production deployment or Release assets. Website remains disabled.
+- Non-main preview execution remains a separate runtime proof. D1 initialization and the owner's fresh clone remain outside delivery sign-off.
 
 ## Superseded checkpoint — temporary main preview branch
 
@@ -332,12 +321,12 @@ Seven distributed-product deployment links passed. Worker links remain deferred 
 ## Open sign-off exits and next actions
 
 1. Keep the checked App diagnostic and main preview evidence. Prove synchronized non-main delivery at a relevant capability milestone.
-   First initialize the missing preview schema through the existing protected operator path. Keep autoSeed false and production untouched.
+   Preview schema initialization belongs to the later ingestion gate, not delivery sign-off.
 2. Check hosted release provenance and external main/tag/workflow protection. Contents write does not restrict the App to preview tags.
 3. Preserve the checked all-nonignored checkpoint, ignored-file and same-version recovery guards.
 4. Settle recovery refs. Environment rules match the workflow ref, not its input tag.
 5. Main preview allocation, tag CI and original bytes passed. Non-main policy and distributed-product links remain separate checks.
-6. Complete main protection and owner fresh-clone proof before sign-off. Never bypass reviews.
+6. Check main/tag protection before sign-off. The owner checks a fresh clone afterward. Never bypass release reviews.
 7. Keep the checked local logger path gate. Prove tagged crawler delivery when source/protection gates permit its next configured patch.
 
 Earlier metadata showed unprotected main. Latest read on 2026-10-06 confirms active main-guard ruleset 24553134, without bypass actors.

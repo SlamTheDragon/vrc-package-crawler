@@ -21,6 +21,7 @@ export function recoveryIdentity(tag, workspace = root) {
       !Object.hasOwn(recoveryWorkflows, identity?.product ?? "") || tag !== `${productTagPrefixes[identity.product]}/v${identity.version}` ||
       !(identity.product === "crawler" ? /^0\.0\.[0-9]+$/ : identity.product === "network" ? /^\d{4}\.(?:[1-9]|1[0-2])\.\d+$/ : /^\d{2}\.(?:[1-9]|1[0-2])\.\d+-pre$/).test(identity.version) ||
       !sha(identity.commit) || !sha(identity.tagObject) ||
+      (identity.failedStage !== undefined && (identity.product !== "crawler" || identity.failedStage !== "dependency-prepare")) ||
       !Number.isSafeInteger(identity.failedRun) || identity.failedRun < 1) {
     throw new Error("Recovery requires an exact owner-reviewed product identity. No version or tag changes are permitted.");
   }
@@ -53,6 +54,9 @@ export async function checkRecoveryRun(run, identity, api = readGitHubAPI()) {
   const failed = await api(`${base}/actions/runs/${identity.failedRun}`);
   const jobs = await api(`${base}/actions/runs/${identity.failedRun}/jobs?per_page=100`);
   const artifacts = await api(`${base}/actions/runs/${identity.failedRun}/artifacts?per_page=100`);
+  if (!Array.isArray(jobs.jobs) || jobs.total_count !== jobs.jobs.length || jobs.total_count >= 100) {
+    throw new Error("Recovery requires complete original job evidence.");
+  }
   // GitHub adds commit-level terminal checks to an earlier run's jobs listing.
   // Exclude only the independently checked acknowledgment, never a workflow job.
   const workflowJobs = [];
@@ -70,12 +74,31 @@ export async function checkRecoveryRun(run, identity, api = readGitHubAPI()) {
       throw new Error("Terminal check identity differs from its acknowledgment.");
     }
   }
+  let failedStageMatches;
+  if (identity.failedStage === "dependency-prepare") {
+    const expected = new Map([["route", "success"], ["build-linux", "failure"],
+      ["standalone-windows", "failure"], ["publish-container", "skipped"], ["release-assets", "skipped"]]);
+    failedStageMatches = workflowJobs.length === expected.size && workflowJobs.every(job => {
+      if (expected.get(job.name) !== job.conclusion || !expected.delete(job.name)) return false;
+      if (!["build-linux", "standalone-windows"].includes(job.name)) return true;
+      const steps = job.steps;
+      const failures = Array.isArray(steps) ? steps.filter(step => step.conclusion === "failure") : [];
+      const prepare = failures[0];
+      return failures.length === 1 && prepare.name === "Run node scripts/delivery.mjs prepare 'release' crawler --ci" &&
+        Number.isSafeInteger(prepare.number) && prepare.number > 1 &&
+        steps.every(step => step.status === "completed" && Number.isSafeInteger(step.number) &&
+          (step.number < prepare.number ? step.conclusion === "success" : step.number === prepare.number ? step === prepare :
+            /^(?:Post |Complete job$)/.test(step.name) ? ["success", "skipped"].includes(step.conclusion) : step.conclusion === "skipped"));
+    });
+  } else {
+    const failedJob = identity.product === "crawler" ? "route" : "build";
+    failedStageMatches = workflowJobs.some(job => job.name === failedJob && job.conclusion === "failure") &&
+      !workflowJobs.some(job => job.name !== failedJob && job.conclusion !== "skipped");
+  }
   if (failed.event !== "push" || failed.head_branch !== identity.tag || failed.head_sha !== identity.commit ||
       failed.path !== workflowFor(identity) || failed.head_repository?.full_name !== identity.repository ||
       failed.status !== "completed" || failed.conclusion !== "failure" ||
-      !Array.isArray(jobs.jobs) || jobs.total_count !== jobs.jobs.length || jobs.total_count >= 100 ||
-      !workflowJobs.some(job => job.name === (identity.product === "crawler" ? "route" : "build") && job.conclusion === "failure") ||
-      workflowJobs.some(job => job.name !== (identity.product === "crawler" ? "route" : "build") && job.conclusion !== "skipped") ||
+      !failedStageMatches ||
       artifacts.total_count !== 0 || !Array.isArray(artifacts.artifacts) || artifacts.artifacts.length !== 0) {
     throw new Error("Recovery requires the authorized failed job with no publication or artifact output.");
   }

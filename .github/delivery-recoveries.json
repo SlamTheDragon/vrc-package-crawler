@@ -2,6 +2,14 @@
   "schemaVersion": 1,
   "repository": "SlamTheDragon/vrc-packages",
   "tags": {
+    "vrcp-crawler/v0.0.7": {
+      "product": "crawler",
+      "version": "0.0.7",
+      "commit": "2e1c6011d1d21c7e7bb3b2a24de9d99575f88030",
+      "tagObject": "d9788177f481e7317c250e790dd5204ba67c95f0",
+      "failedRun": 37465066520,
+      "failedStage": "dependency-prepare"
+    },
     "vrcp-network/v2026.10.4": {
       "product": "network",
       "version": "2026.10.4",

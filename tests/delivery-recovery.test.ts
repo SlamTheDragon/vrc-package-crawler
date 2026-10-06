@@ -38,7 +38,7 @@ test("only the exact approved failed crawler identity can enter recovery", () =>
   const f = fixture();
   expect(f.identity.commit).toBe("995db61eeafdf9a51f09902387411b258080fdc3");
   expect(f.identity.tagObject).toBe("41039d1f0020a95eda00cd898654d35c093bde25");
-  for (const tag of ["vrcp-crawler/v0.0.7", "vrcp-api/v0.0.6", "vrcp-crawler/v0.0.6-retry1", "__proto__"]) {
+  for (const tag of ["vrcp-crawler/v0.0.8", "vrcp-api/v0.0.6", "vrcp-crawler/v0.0.6-retry1", "__proto__"]) {
     expect(() => recoveryIdentity(tag)).toThrow("exact owner-reviewed");
   }
   expect(ciSourceCommit({ GITHUB_SHA: f.toolingCommit } as any)).toBe(f.toolingCommit);
@@ -96,6 +96,35 @@ test("GitHub's terminal acknowledgment record does not become a prior publicatio
   job.runner_id = null;
   jobs.jobs.push({ name: "publish", conclusion: "success" }); jobs.total_count++;
   await expect(checkRecoveryRun(f.run, f.identity, f.api)).rejects.toThrow("no publication");
+});
+
+test("crawler dependency recovery permits only the exact output-free preparation failure", async () => {
+  const f = fixture("vrcp-crawler/v0.0.7");
+  const path = `${f.prefix}/actions/runs/${f.identity.failedRun}/jobs?per_page=100`;
+  const steps = [
+    { name: "Run bun test ./tests", number: 8, status: "completed", conclusion: "success" },
+    { name: "Run node scripts/delivery.mjs prepare 'release' crawler --ci", number: 9, status: "completed", conclusion: "failure" },
+    { name: "Verify package contracts and node", number: 10, status: "completed", conclusion: "skipped" },
+    { name: "Post Checkout repository", number: 20, status: "completed", conclusion: "success" }
+  ];
+  const jobs = [ { name: "route", conclusion: "success" },
+    ...["build-linux", "standalone-windows"].map(name => ({ name, conclusion: "failure", steps: structuredClone(steps) })),
+    { name: "publish-container", conclusion: "skipped" }, { name: "release-assets", conclusion: "skipped" } ];
+  f.responses[path] = { total_count: jobs.length, jobs };
+  expect((await checkRecoveryRun(f.run, f.identity, f.api)).failedStage).toBe("dependency-prepare");
+  for (const mutate of [
+    (j: any[]) => { j[1].steps[1].name = "Build product"; },
+    (j: any[]) => { j[2].steps[2].conclusion = "success"; },
+    (j: any[]) => { j[1].steps[0].conclusion = "failure"; },
+    (j: any[]) => { j[1].steps = undefined; },
+    (j: any[]) => { j[4].conclusion = "success"; },
+    (j: any[]) => { j[0].conclusion = "failure"; },
+    (j: any[]) => { j[2].name = "build-linux"; }
+  ]) {
+    const changed = structuredClone(jobs); mutate(changed);
+    f.responses[path] = { total_count: changed.length, jobs: changed };
+    await expect(checkRecoveryRun(f.run, f.identity, f.api)).rejects.toThrow("no publication");
+  }
 });
 
 test("recovery rejects changed authorization, missing ancestry, prior builds and partial artifacts", async () => {

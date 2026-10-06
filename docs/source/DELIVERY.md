@@ -74,7 +74,8 @@ Do not move, delete or force-push a published tag.
 
 - Exact authorizations are in `.github/delivery-recoveries.json`. Unknown failures require separate owner approval.
 - Checked tooling can use normal main pushes. Keep the existing tag and product commit fixed.
-- Authorized previews: network `2026.10.4` and crawler-client `26.10.5-pre`. The crawler release authorization remains `0.0.6`.
+- Authorized previews: network `2026.10.4` and crawler-client `26.10.5-pre`.
+- Authorized crawler releases: `0.0.6` for routing failure and `0.0.7` for dependency-preparation failure.
 - In `vrcp-crawler-release`, add a **Branch** deployment rule for `main`. Retain its tag rule and required operator review.
 - Supply a local GitHub credential with repository **Actions: write**, **Contents: read**, and **Pull requests: read** permissions.
 - Start from clean main that matches origin. Load the ignored local `.env` explicitly.
@@ -86,6 +87,7 @@ Do not move, delete or force-push a published tag.
 
 The recovery manifest binds the exact tag object, product commit and original failed run.
 Recovery builds use the tag's saved SDK/network versions, not today's moving SDK alias.
+
 Archive and binary receipts record the source commit, tooling commit and recovery run.
 The Release notes link the recovery run and retain the original product commit.
 Release titles and changelog headings use the delivered `package.json` name.
@@ -94,6 +96,8 @@ After an output-free failure, push the checked tooling repair to main before ano
 Run `bun --env-file=.env run delivery:recover <exact-tag> --retry` to inspect the manual retry plan.
 Add `--execute` to start that explicit retry from synchronized main. No automatic retry occurs.
 Retry requires different reviewed tooling, completed failed attempts, skipped publication jobs and zero retained artifacts.
+The `0.0.7` recipe also requires successful routing and preparation-only failures on Linux and Windows. Later build steps must be skipped.
+
 Active runs, published outputs and incomplete evidence stop the command. Inspect partial publication before a rebuild.
 Recovery cannot overwrite published assets, update a tag, bypass release review or approve an environment.
 Other failures need a separate, reviewed authorization. Local release builds remain prohibited.
@@ -276,7 +280,8 @@ CI release provenance must enforce that boundary too. Missing App credentials fa
 
 Repository rulesets (Settings → Rules → Rulesets):
 
-- Main: require a PR, block deletion and force pushes, and retain zero required approvals for owner-reviewed manual merges.
+- Main: block deletion and force pushes. Normal source and preview pushes do not require a PR.
+- Release preparation still requires an owner-reviewed metadata PR and its exact merged main commit.
 - Never grant the preview App a ruleset bypass or release authority. Normal source and preview pushes can use synchronized main.
 - Tag ruleset `Immutable delivery tags`: target all tags. Enable Restrict updates and Restrict deletions, with no bypass actors.
 - Keep Restrict creations disabled in that ruleset so new preview tags remain possible.
@@ -285,8 +290,10 @@ Repository rulesets (Settings → Rules → Rulesets):
 - Enable only Restrict creations. Allow the release-authorized repository admin to bypass this creation rule, but never the preview App.
 - The immutable rule still blocks updates/deletion because its bypass list is empty. Check overlapping rules before saving.
 
-Main ruleset `main-guard` (24553134) was checked active on 2026-10-06, with no bypass actors.
-Tag protections remain owner setup work. These instructions do not prove that those settings exist.
+API readback on 2026-10-06 confirmed active `main-guard` (24553134). It blocks deletion and force pushes without bypass actors.
+It also confirmed active `immutable-delivery-tags` (24553469), with update/deletion blocking and no bypass actors.
+Active `stable-release` (24553551) restricts stable-tag creation and permits the release-authorized repository-admin role.
+The stable rule excludes preview tags and the network stream. Recheck these settings after repository policy changes.
 GitHub documents [rule controls](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
 and [tag-pattern matching](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository).
 
