@@ -544,6 +544,7 @@ test("release proof readers receive history and read-only metadata scope in ever
     for (const job of Object.values(workflow.jobs) as any[]) {
       if (!job.steps?.some((step: any) => step.uses === "actions/checkout@v4")) continue;
       for (const step of job.steps.filter((step: any) => step.uses === "actions/checkout@v4")) {
+        expect(step.with.ref).toBe("${{ github.ref }}");
         expect(step.with["fetch-depth"]).toBe(0);
       }
       const permissions = job.permissions ?? workflow.permissions;

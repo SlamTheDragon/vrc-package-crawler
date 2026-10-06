@@ -278,6 +278,7 @@ test("Distributed products wire checked release assets, Worker stays CI-only and
   expect(existsSync(new URL("../.github/workflows/web.yml", import.meta.url))).toBe(false);
   const reusable: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/release-assets.yml", import.meta.url), "utf8"));
   expect(reusable.on.workflow_dispatch.inputs.tag.required).toBe(true);
+  expect(reusable.jobs.attach.steps.find((step: any) => step.uses === "actions/checkout@v4").with.ref).toBe("${{ github.ref }}");
   expect(reusable.jobs.attach.steps.find((step: any) => step.uses?.startsWith("actions/download-artifact@")).with.path).toContain("runner.temp");
 });
 

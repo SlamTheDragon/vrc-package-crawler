@@ -1,5 +1,15 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
+## Active repair — annotated release checkout (2026-10-06)
+
+- The owner's ignored root `.env` supplies a read credential. Explicit `bun --env-file=.env run` passed authenticated PR reads and finalization.
+- Finalization from clean main pushed crawler `0.0.6` at owner-merged PR #5 commit `995db61`; tag object `41039d1f0020a95eda00cd898654d35c093bde25` remains fixed.
+- Run `37413527166` failed route before builds/publication. Checkout fetched the annotated tag, then replaced its local ref with the peeled commit. Strict proof rejected it.
+- Working theory: explicit checkout ref suppresses the action's default commit/ref fallback. All release-capable callers and reusable attachments need this selection; proof checks remain unchanged.
+- Repair commit `2af92d5` passed 97 grouped delivery, chain, attachment and provenance tests with 1598 assertions. All 374 document links/layout checks and whitespace checks passed. DELIVERY prose score: 1.50 issues per 100 words.
+- Explicit refs preserve annotations in all ten release-capable checkout steps. Existing proof, approval and immutability checks remain unchanged. Upstream checkout input/ref helpers confirm the observed fallback.
+- Hosted repair remains unverified. Push `codex/annotated-release-checkout` for owner promotion, then use the next root-configured crawler patch. Never move the failed `0.0.6` tag. Main sign-off remains guarded.
+
 ## Authority and active slice
 
 - Owner update, 2026-10-06: R58 clarifies R57-C57A/B. It is not a separate roadmap.
