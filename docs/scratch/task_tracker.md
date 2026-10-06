@@ -2,6 +2,12 @@
 
 ## Owner handover — start here (2026-10-06)
 
+Owner resumed job execution after this handover. SDK release finalization plan passed on synchronized main.
+Execution pushed `vrcp-api/v0.0.6` at PR #13's exact merged commit `2b3c4175f29247721d17f06ef5df917c521f1da6`.
+Tag object: `c4375001a753b6f9f2ab2f05d5baa3674b1580d0`. Hosted run `37492006796` reports build in progress.
+Next: inspect that same run, complete its protected publication gate and owner npm stage approval, then check public artifact proof.
+Do not repeat finalization or allocate another SDK release. Network advancement still waits for this producer proof.
+
 Main delivery sign-off remains open. No new publication or allocation ran during this handover.
 The sections below this handover retain earlier evidence. Their older next steps are not current instructions.
 
