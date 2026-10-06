@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { allowedBinary, attachRelease, checkedAssets, checkedAssetBytes, checkSourceRun, checkRemoteTag, sourceRunID, sameSourceRunLink, milestoneNotes, reconcileSDKDrafts, releaseSummary } from "../scripts/release-assets.mjs";
@@ -264,8 +264,8 @@ test("Release upload retries retain exact bytes, never clobber assets and publis
 
 test("Distributed products wire checked release assets, Worker stays CI-only and website stays disabled", () => {
   const prefixes: Record<string, string> = { "cloudflare-worker": "cloudflare-worker", "vrc-packages-api": "vrcp-api",
-    network: "vrcp-network", "node-docker": "vrcp-crawler", "node-client": "vrcp-crawler-client", web: "web" };
-  for (const name of ["cloudflare-worker", "vrc-packages-api", "network", "node-docker", "node-client", "web"]) {
+    network: "vrcp-network", "node-docker": "vrcp-crawler", "node-client": "vrcp-crawler-client" };
+  for (const name of ["cloudflare-worker", "vrc-packages-api", "network", "node-docker", "node-client"]) {
     const workflow: any = Bun.YAML.parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
     const job = workflow.jobs["release-assets"];
     expect(workflow.on.push.tags).toEqual([`${prefixes[name]}/v*`]);
@@ -274,8 +274,8 @@ test("Distributed products wire checked release assets, Worker stays CI-only and
     expect(job.permissions.contents).toBe("write");
     expect(job.permissions.actions).toBe("read");
     expect(job.needs).toBeDefined();
-    if (name === "web") { expect(workflow.jobs.build.if).toBe(false); expect(job.if).toContain("success"); }
   }
+  expect(existsSync(new URL("../.github/workflows/web.yml", import.meta.url))).toBe(false);
   const reusable: any = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/release-assets.yml", import.meta.url), "utf8"));
   expect(reusable.on.workflow_dispatch.inputs.tag.required).toBe(true);
   expect(reusable.jobs.attach.steps.find((step: any) => step.uses?.startsWith("actions/download-artifact@")).with.path).toContain("runner.temp");

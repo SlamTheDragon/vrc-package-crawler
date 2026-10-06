@@ -87,11 +87,36 @@ CONTRIBUTING prose lint: 1.66 issues per 100 words. Whitespace checks passed.
 The full link/layout check passed for 374 documents. Whitespace checks passed.
 The supplied validator passed for both repaired skills through isolated uv with PyYAML. Project dependencies stayed unchanged.
 Workflow inventory found 13 files. Product delivery, reusable asset attachment, announcements, reconciliation, initialization and cache support have current roles.
-Website remains disabled. No obsolete workflow or remote run is yet proved safe to delete.
+The disabled website workflow still contained a tag trigger and build/attachment scaffold. No current caller requires that scaffold.
+Removed web.yml and changed the boundary test to require its absence. Local website development remains available.
+Other 12 workflows retain current roles. Remote run deletion remains deferred without exact retention evidence.
+Website cleanup passed 72 related delivery/assets/provenance tests and 1275 assertions. Git preserves the removed workflow for recovery.
+The first check found four stale workflow fixtures. Corrected those fixtures while retaining every enabled-product check.
+The full link/layout check passed 374 documents. Whitespace checks passed. No product bump or publication belongs to this deferred-workflow cleanup.
+Delivery prose lint: 1.56 issues per 100 words. Canonical owner correction supersedes older sign-off prerequisites without closing runtime work.
 Owner added workflow/run/code cleanup to sign-off. Inventory first, preserve delivery and security evidence, then assess exact deletion targets.
 Authenticated ruleset readback confirmed admin creation bypass only in stable-release. Immutable tags keep an empty bypass list.
 No version bump, publication, deployment or settings change belongs to this documentation gate.
 The owner logs marker remains untracked and untouched. Main sign-off and hosted initialization remain open.
+
+## Owner correction — delivery sign-off boundary
+
+Crawler PR #5 was owner-merged at 995db61. The finalizer plan accepted its exact metadata and main identity.
+Execution stopped before tag creation: anonymous GitHub API quota reached zero. No explicit shell read credential was present.
+The provider reset header was 2026-10-06T04:33:07Z. This is throttling, not a proven ruleset or permissions denial.
+The reader now distinguishes exhausted quota/429 from other failures and prints only a bounded reset time, never provider bodies.
+Diagnostic repair passed 72 related delivery/provenance/assets tests and 1277 assertions. Link/layout checks passed 374 documents.
+Delivery prose lint: 1.52 issues per 100 words. Never extract stored credentials or bypass proof.
+The failed finalization ran from clean main at 995db61, not the metadata preparation branch. No release tag was created or pushed.
+Retry the same crawler 0.0.6 finalization after the quota resets. Do not allocate another patch or change permissions from this throttle response.
+
+Preview D1 initialization and catalog reads belong to later runtime/ingestion gates, not delivery sign-off.
+The owner creates responsibility branches and checks a fresh clone after sign-off. That check is not a prerequisite.
+The nine-path baseline and merged documentation gate passed. Protected release-promotion proof and scoped workflow cleanup remain.
+Root release preparation pushed metadata commit 226dbab for crawler 0.0.6 on codex/release/crawler/v0.0.6.
+Only the release-crawler config and product manifest changed. No tag or publication ran. The connector cannot create PRs (403).
+Owner must create and manually merge that promotion before exact merged-main finalization and protected publication.
+PR #4 was owner-merged at e8f1bfb. Existing task branches remain until sign-off and merged-work checks permit their deletion.
 
 ## Current state and checked contract
 
