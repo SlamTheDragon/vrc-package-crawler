@@ -95,8 +95,30 @@ export async function requireRecoveryCI(product, channel, env, workspace, api, r
   return proof;
 }
 
+/** A manual retry can use repaired tooling only when every earlier attempt failed without outputs. */
+export async function checkRecoveryRetry(attempts, identity, toolingCommit, api = readGitHubAPI()) {
+  if (!attempts.length) throw new Error("Manual recovery retry requires an existing failed attempt.");
+  for (const attempt of attempts) {
+    await checkRecoveryRun(attempt, identity, api);
+    if (attempt.status !== "completed" || attempt.conclusion !== "failure" || attempt.head_sha === toolingCommit) {
+      throw new Error("Retry requires a failed attempt and different reviewed tooling. Active or same-tooling runs need manual inspection.");
+    }
+    const base = `/repos/${identity.repository}/actions/runs/${attempt.id}`;
+    const jobs = await api(`${base}/jobs?per_page=100`);
+    const artifacts = await api(`${base}/artifacts?per_page=100`);
+    if (!Array.isArray(jobs.jobs) || jobs.total_count !== jobs.jobs.length || jobs.total_count >= 100 ||
+        !jobs.jobs.some(job => job.conclusion === "failure") ||
+        jobs.jobs.some(job => !["success", "failure", "skipped"].includes(job.conclusion)) ||
+        jobs.jobs.some(job => /publish|release-assets|attach|announce/i.test(job.name) && job.conclusion !== "skipped") ||
+        artifacts.total_count !== 0 || !Array.isArray(artifacts.artifacts) || artifacts.artifacts.length !== 0) {
+      throw new Error("Retry cannot rebuild an attempt with outputs, publication activity or incomplete evidence.");
+    }
+  }
+  return attempts.map(attempt => attempt.id);
+}
+
 /** Explicit dispatch only. No automatic rerun, tag update, version bump or local release artifact. */
-export async function recoverDelivery(tag, execute = false, workspace = root, api = readGitHubAPI(), dispatch = dispatchRecovery) {
+export async function recoverDelivery(tag, execute = false, workspace = root, api = readGitHubAPI(), dispatch = dispatchRecovery, retry = false) {
   const identity = recoveryIdentity(tag, workspace);
   const configs = Object.fromEntries(["release", "preview"].map(channel => [channel, JSON.parse(git(workspace,
     "show", `${identity.commit}:${channel === "release" ? "config.versions.json" : "config.preview.versions.json"}`))]));
@@ -118,14 +140,15 @@ export async function recoverDelivery(tag, execute = false, workspace = root, ap
   const listing = await api(`/repos/${identity.repository}/actions/workflows/node-docker.yml/runs?event=workflow_dispatch&per_page=100`);
   if (!Array.isArray(listing.workflow_runs) || listing.workflow_runs.length >= 100) throw new Error("Recovery listing exceeds its bound.");
   const attempts = listing.workflow_runs.filter(candidate => recoveryRunMatches(candidate, identity));
-  if (attempts.length) return { ...identity, toolingCommit, status: "existing-recovery-attempt", readOnly: true,
+  if (attempts.length && !retry) return { ...identity, toolingCommit, status: "existing-recovery-attempt", readOnly: true,
     attempts: attempts.map(attempt => ({ run: attempt.id, status: attempt.status, conclusion: attempt.conclusion, url: attempt.html_url })),
     next: "Inspect this exact attempt. CI retries and ambiguous partial publication require manual resolution." };
+  const retryOf = retry ? await checkRecoveryRetry(attempts, identity, toolingCommit, api) : [];
   const releases = await api(`/repos/${identity.repository}/releases?per_page=100`);
   if (!Array.isArray(releases) || releases.length >= 100 || releases.some(release => release.tag_name === tag)) {
     throw new Error("Recovery cannot rebuild a version with an existing Release or incomplete publication evidence.");
   }
-  const plan = { ...identity, toolingCommit, status: "recovery-plan", readOnly: true, ref: "main", workflow: "node-docker.yml" };
+  const plan = { ...identity, toolingCommit, retryOf, status: "recovery-plan", readOnly: true, ref: "main", workflow: "node-docker.yml" };
   if (!execute) return plan;
   if (git(workspace, "symbolic-ref", "--short", "HEAD").trim() !== "main" || git(workspace, "status", "--porcelain").trim() ||
       git(workspace, "ls-remote", "origin", "refs/heads/main").trim().split(/\s+/)[0] !== toolingCommit) {
@@ -149,10 +172,12 @@ async function dispatchRecovery(repository, tag) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   (async () => {
-  const [tag, flag, ...extra] = process.argv.slice(2);
+  const [tag, ...flags] = process.argv.slice(2);
   try {
-    if (!tag || extra.length || flag && flag !== "--execute") throw new Error("Use delivery:recover <exact-tag> [--execute].");
-    const result = await recoverDelivery(tag, flag === "--execute");
+    if (!tag || new Set(flags).size !== flags.length || flags.some(flag => !["--execute", "--retry"].includes(flag))) {
+      throw new Error("Use delivery:recover <exact-tag> [--retry] [--execute].");
+    }
+    const result = await recoverDelivery(tag, flags.includes("--execute"), root, readGitHubAPI(), dispatchRecovery, flags.includes("--retry"));
     console.log(JSON.stringify(result, null, 2));
     if (result.status === "tooling-promotion-required") process.exitCode = 1;
   } catch (error) { console.error(error.message); process.exitCode = 1; }

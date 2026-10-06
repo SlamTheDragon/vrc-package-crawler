@@ -84,10 +84,22 @@ Recovery builds use the tag's saved SDK/network versions, not today's moving SDK
 Binary and container receipts record the source commit, tooling commit and recovery run.
 The Release notes link the recovery run and retain the original product commit.
 Release titles and changelog headings use the delivered `package.json` name.
-The root command refuses a second dispatch when it finds an existing recovery attempt.
-Inspect a failed attempt before a manual CI rerun. Partial publication can block a rebuild with different bytes.
+The root command refuses a second dispatch by default when it finds an existing recovery attempt.
+After an output-free failure, promote the tooling repair through owner review before another attempt.
+Run `bun --env-file=.env run delivery:recover vrcp-crawler/v0.0.6 --retry` to inspect the manual retry plan.
+Add `--execute` to start that explicit retry from synchronized main. No automatic retry occurs.
+Retry requires different reviewed tooling, completed failed attempts, skipped publication jobs and zero retained artifacts.
+Active runs, published outputs and incomplete evidence stop the command. Inspect partial publication before a rebuild.
 Recovery cannot overwrite published assets, update a tag, bypass main review or approve an environment.
 Other failures need a separate, reviewed authorization. Local release builds remain prohibited.
+
+Runtime checklist from the first hosted recovery:
+
+- Synchronize delivery tooling exactly, including deleted files. Archive extraction alone retains obsolete tracked workflows.
+- Keep the tagged product files and version configs unchanged during tooling synchronization.
+- Inspect both platform jobs and output evidence before retry. A failed aggregate run does not prove publication was absent.
+- Preserve the original tag and version. Promote repaired tooling to main instead of rerunning an unchanged broken workflow.
+- Check actual publication, registry bytes, Release assets, deployment links and terminal notifications before sign-off.
 `delivery:diagnose` reports the observed failure phase and manual next actions for every configured product.
 It distinguishes routing, builds/runtime checks, publication, attachments, npm staging and pending execution or review.
 Unknown failures stop for inspection. The script never guesses that a failed job is safe to rebuild.
