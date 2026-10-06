@@ -1,6 +1,6 @@
 {
   "name": "vrcp-crawler-node",
-  "version": "2026.10.7-pre",
+  "version": "0.0.8",
   "description": "Headless crawler node for VRC Packages (VRCP). Fetches coordinator-leased public metadata. Not affiliated with VRChat Inc.",
   "license": "AGPL-3.0-or-later",
   "module": "src/index.ts",
