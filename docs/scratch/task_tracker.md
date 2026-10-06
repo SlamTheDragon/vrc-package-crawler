@@ -6,9 +6,11 @@ Owner resumed job execution after this handover. SDK release finalization plan p
 Execution pushed `vrcp-api/v0.0.6` at PR #13's exact merged commit `2b3c4175f29247721d17f06ef5df917c521f1da6`.
 Tag object: `c4375001a753b6f9f2ab2f05d5baa3674b1580d0`. Hosted run `37492006796` passed its build and awaits `vrcp-api-release` approval.
 The exact-run approval attempt returned HTTP 403: `Resource not accessible by personal access token`. No protection setting changed.
-The GitHub gate subsequently cleared externally. Publication job `112367290717` passed staging-byte checks. Release attachment is running.
+The GitHub gate subsequently cleared externally. Publication job `112367290717` passed staging-byte checks. Release attachment also passed.
 Owner action: approve `vrc-packages-api@0.0.6` in npm Staged Packages, stage `fb038069-2792-45c9-9698-a787692b7cb2`.
 CI reports `awaiting-npm-approval`. Do not treat successful staging as public npm publication or completed advancement proof.
+Latest readback: all applicable jobs in run `37492006796` completed successfully. Root status reports `publication-not-proved`.
+Public npm metadata for `vrc-packages-api/0.0.6` returns HTTP 404. Owner is waiting for npm checks before stage approval.
 Next: inspect that same run, complete its protected publication gate and owner npm stage approval, then check public artifact proof.
 Do not repeat finalization or allocate another SDK release. Network advancement still waits for this producer proof.
 
