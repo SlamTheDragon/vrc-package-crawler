@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { finalizeRelease as checkedFinalizeRelease, inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
+import { finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun } from "../scripts/delivery-chain.mjs";
 import { networkArchiveURL, productDirectories, productTagPrefixes } from "../scripts/versioning.mjs";
 import { checkReleaseMetadata } from "../scripts/delivery.mjs";
 import { createHash } from "node:crypto";
@@ -47,7 +47,43 @@ test("unpublished predecessor stops allocation before pending checkpoints or ver
     expect(await readFile(resolve(workspace, "config.preview.versions.json"), "utf8")).toBe(config);
     expect(git(workspace, "status", "--porcelain")).toBe("?? pending.txt");
   });
-});
+}, 60_000);
+
+test("configured diagnostics cover exactly nine channels without hiding partial publication proof", async () => {
+  await fixture(async workspace => {
+    const calls: boolean[] = [];
+    const inspect = async (tag: string, check: boolean) => { calls.push(check); return fixturePublication(tag); };
+    const diagnosis = await inspectConfiguredDeliveries(false, workspace, inspect);
+    expect(diagnosis.results).toHaveLength(9);
+    expect(diagnosis.verified).toBe(false);
+    expect(calls).toEqual(Array(9).fill(false));
+    expect(diagnosis.results.filter(result => result.product === "network").map(result => result.channel)).toEqual(["preview"]);
+    expect(diagnosis.results.some(result => result.product === "web")).toBe(false);
+    expect((await inspectConfiguredDeliveries(true, workspace, inspect)).verified).toBe(true);
+    const partial = await inspectConfiguredDeliveries(true, workspace, async tag => {
+      if (tag.startsWith("vrcp-crawler/v")) throw new Error("Synthetic unavailable proof");
+      return fixturePublication(tag);
+    });
+    expect(partial.results).toHaveLength(9);
+    expect(partial.verified).toBe(false);
+    expect(partial.results.filter(result => result.status === "proof-unavailable")).toHaveLength(2);
+  });
+}, 60_000);
+
+test("preview checkpoint rejects direct edits to either authoritative version config without staging them", async () => {
+  await fixture(async (workspace, git) => {
+    for (const filename of ["config.versions.json", "config.preview.versions.json"]) {
+      const original = await readFile(resolve(workspace, filename), "utf8");
+      await writeFile(resolve(workspace, filename), original + "\n");
+      const writes: string[] = [];
+      const observed = (cwd: string, ...args: string[]) => { if (["add", "commit", "tag", "push"].includes(args[0])) writes.push(args[0]); return git(cwd, ...args); };
+      await expect(startDelivery("preview", "network", true, workspace, now, observed)).rejects.toThrow("Pending version-config edits");
+      expect(writes).toEqual([]);
+      expect(await readFile(resolve(workspace, filename), "utf8")).toBe(original + "\n");
+      await writeFile(resolve(workspace, filename), original);
+    }
+  });
+}, 60_000);
 
 test("Worker root checks archive bytes and exact config without querying or creating a Release", async () => {
   await fixture(async (workspace, git) => {
@@ -203,7 +239,7 @@ test("a previously prepared release cannot bypass predecessor publication proof 
     expect(writes).toEqual([]);
     expect(git(workspace, "ls-remote", "origin", `refs/tags/${reviewed.preparation.tag}`)).toBe("");
   });
-});
+}, 60_000);
 
 test("release preparation pushes one version branch, then owner-reviewed main finalization pushes only a tag", async () => {
   for (const product of ["package", "crawler", "crawler-client", "worker"]) {

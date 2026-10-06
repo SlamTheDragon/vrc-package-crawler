@@ -8,7 +8,7 @@
 - Working theory: root allocation and release finalization must check the configured predecessor with the existing strict publication/artifact verifier before writes.
 - Pending crawler 0.0.7 metadata does not authorize skipping failed 0.0.6. Its tag remains absent pending manual resolution and proof.
 - Read-only diagnosis and guards are implemented, unverified. Automatic CI POST retries were rejected by safety review because they could rerun manual-only broken workflows. No rerun was sent.
-- Automatic retry needs a separate permitted-transient versus manual-only failure policy. Keep stage/release approvals and immutable artifacts unchanged.
+- Owner decision: all CI reruns remain manual for now. Do not add automatic Actions POST requests. Keep stage/release approvals and immutable artifacts unchanged.
 
 ## Active repair — annotated release checkout (2026-10-06)
 

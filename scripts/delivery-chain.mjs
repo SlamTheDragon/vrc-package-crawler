@@ -118,6 +118,9 @@ function checkpointPendingPreview(plan, workspace, git) {
   const args = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
   const status = git(workspace, ...args), paths = pendingPaths(status);
   if (!paths.length) return;
+  if (paths.some(path => ["config.versions.json", "config.preview.versions.json"].includes(path))) {
+    throw new Error("Pending version-config edits cannot be checkpointed. Use the authoritative root allocator; no staging, commit or bump ran.");
+  }
   rejectIgnoredPending(paths, workspace, git);
   console.log(JSON.stringify({ pendingFiles: paths }));
   if (git(workspace, "rev-parse", "HEAD") !== plan.head ||
@@ -322,6 +325,28 @@ export async function requirePublicationProof(channel, product, version, workspa
     throw new Error(`Configured delivery ${tag} lacks publication/artifact proof (${current.status}). No version or tag write ran. Use bun run delivery:diagnose ${tag}.`);
   }
   return current;
+}
+
+/** Read every enabled configured channel without allocating, publishing or approving anything. */
+export async function inspectConfiguredDeliveries(check = false, workspace = root, inspect = inspectDelivery) {
+  const results = [];
+  for (const channel of ["preview", "release"]) {
+    const { config } = await readVersionConfig(channel, workspace);
+    for (const product of Object.keys(workflows)) {
+      if (channel === "release" && product === "network") continue;
+      const version = config[`${channel}-${product}`], tag = `${productTagPrefixes[product]}/v${version}`;
+      try {
+        const proof = check ? await requirePublicationProof(channel, product, version, workspace, inspect)
+          : await inspect(tag, false, workspace);
+        results.push({ channel, product, version, tag, status: proof.status, artifactsVerified: proof.artifactsVerified === true,
+          ...(proof.url ? { url: proof.url } : {}) });
+      } catch {
+        results.push({ channel, product, version, tag, status: "proof-unavailable", artifactsVerified: false,
+          next: `bun run delivery:diagnose ${tag}` });
+      }
+    }
+  }
+  return { readOnly: true, fullProofRequested: check, verified: check && results.every(result => result.artifactsVerified), results };
 }
 
 export function summarizeRun(run, jobs, release, product, channel = "preview") {
@@ -542,7 +567,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const [action, first, second, ...extra] = process.argv.slice(2);
   try {
     let result;
-    if (action === "start" && (!extra.length || extra.length === 1 && extra[0] === "--execute")) {
+    if (["diagnose-configured", "check-configured"].includes(action) && !first && !second && !extra.length) {
+      result = await inspectConfiguredDeliveries(action === "check-configured");
+      if (action === "check-configured" && !result.verified) process.exitCode = 1;
+    } else if (action === "start" && (!extra.length || extra.length === 1 && extra[0] === "--execute")) {
       result = await startDelivery(first, second, extra[0] === "--execute");
     } else if (action === "finalize" && (extra.length === 1 || extra.length === 2 && extra[1] === "--execute") && /^[1-9][0-9]*$/.test(second ?? "")) {
       result = await finalizeRelease(first, Number(second), extra[0], extra[1] === "--execute");
