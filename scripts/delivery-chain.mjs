@@ -470,7 +470,9 @@ export async function readNetworkDistribution(version, workspace = root, api = g
     { product: "network", channel: "preview", version }, commit, { name: "vrc-packages-network" });
   const notes = files.get("CHANGELOG.md").toString("utf8");
   const link = /\[Checked CI run\]\(([^)]+)\)/.exec(notes)?.[1];
-  if (!link || !notes.startsWith(`# VRC Packages - network ${version}\n`) ||
+  const headingMatches = [`# vrc-packages-network ${version}\n`, `# VRC Packages - network ${version}\n`]
+    .some(heading => notes.startsWith(heading));
+  if (!link || !headingMatches ||
       !notes.includes(`Commit: ${receipt.commit}.\n`) || !notes.includes("Channel: preview.")) {
     throw new Error("Network notes identify another source");
   }

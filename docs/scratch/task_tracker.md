@@ -21,6 +21,10 @@
 - Desktop recovery 37459764559 is also subject to those fixtures. No advancement or tag replacement is allowed. Repair fixtures, then use explicit --retry.
 - The repaired delivery/recovery/attachment/announcement gate passed 81 tests / 1458 assertions. No check was disabled.
 - Network recovery will use an explicit --retry with different main tooling. Desktop retry must wait until its first attempt completes without outputs.
+- Network retry 37460124422 passed build, attachment and deployment record. Root publication proof checked all four public asset hashes and fixed source/tag identity.
+- The separate consumer resolver exposed its old changelog heading check. Repair it to accept the exact package-name heading and retained historical heading.
+- Desktop retry 37460312551 passed root checks and reached its actual Windows build. Hosted final artifact/announcement proof remains open.
+- Crawler 0.0.7 finalization planning passed. The local execute attempt waited on predecessor bytes and was stopped before edits. Remote tag readback confirms no tag.
 - Recovery counts as half a pass. Each enabled path then needs a root patch bump and a green real chain with applicable artifacts and approvals.
 - Do not mark main signed off from recovered snapshots alone. Website remains disabled and Worker release remains build-only.
 

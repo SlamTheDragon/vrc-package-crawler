@@ -785,7 +785,7 @@ test("hosted network resolution checks the whole delivery and refuses source, ta
   const files = new Map<string, Buffer>([[archive, Buffer.from("Synthetic network bytes, not a published artifact")]]);
   const receipt = { name: "vrc-packages-network", version, commit, purpose: "ci-release", sha256: hash(files.get(archive)!) };
   files.set(`${archive}.json`, Buffer.from(JSON.stringify(receipt)));
-  files.set("CHANGELOG.md", Buffer.from(`# VRC Packages - network ${version}\n\nChannel: preview.\nCommit: ${commit}.\n[Checked CI run](https://github.com/${repository}/actions/runs/123)\n`));
+  files.set("CHANGELOG.md", Buffer.from(`# vrc-packages-network ${version}\n\nChannel: preview.\nCommit: ${commit}.\n[Checked CI run](https://github.com/${repository}/actions/runs/123)\n`));
   const checksums = () => Buffer.from([...files].filter(([name]) => name !== "CHECKSUMS.sha256")
     .map(([name, bytes]) => `${hash(bytes)}  ${name}`).join("\n") + "\n");
   files.set("CHECKSUMS.sha256", checksums());
@@ -812,6 +812,12 @@ test("hosted network resolution checks the whole delivery and refuses source, ta
     const result = await readNetworkDistribution(version, undefined, api);
     expect(result.bytes).toEqual(files.get(archive)); expect(result.receipt).toEqual(receipt);
     expect(result.tagObject).toBe(object); expect(result.sourceRun).toBe("123");
+    const canonicalNotes = files.get("CHANGELOG.md")!;
+    files.set("CHANGELOG.md", Buffer.from(canonicalNotes.toString().replace("# vrc-packages-network", "# VRC Packages - network")));
+    files.set("CHECKSUMS.sha256", checksums());
+    expect((await readNetworkDistribution(version, undefined, api)).receipt.commit).toBe(commit);
+    files.set("CHANGELOG.md", canonicalNotes);
+    files.set("CHECKSUMS.sha256", checksums());
     release.target_commitish = "main";
     expect((await readNetworkDistribution(version, undefined, api)).receipt.commit).toBe(commit);
     release.target_commitish = "d".repeat(40);

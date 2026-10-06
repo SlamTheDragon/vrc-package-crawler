@@ -70,31 +70,32 @@ The existing `delivery:retry` retries Git delivery only. All CI reruns remain ma
 Broken tagged workflows require manual resolution. Never move their tags or allocate another patch to hide a failed delivery.
 Do not move, delete or force-push a published tag.
 
-### Recover the approved crawler failure
+### Recover an approved fixed version
 
-- Recovery authorization currently covers only `vrcp-crawler/v0.0.6`, failed run `37413527166`.
-- Promote recovery tooling through an owner-reviewed PR. Keep the existing tag and product commit fixed.
+- Exact authorizations are in `.github/delivery-recoveries.json`. Unknown failures require separate owner approval.
+- Checked tooling can use normal main pushes. Keep the existing tag and product commit fixed.
+- Authorized previews: network `2026.10.4` and crawler-client `26.10.5-pre`. The crawler release authorization remains `0.0.6`.
 - In `vrcp-crawler-release`, add a **Branch** deployment rule for `main`. Retain its tag rule and required operator review.
 - Supply a local GitHub credential with repository **Actions: write**, **Contents: read**, and **Pull requests: read** permissions.
 - Start from clean main that matches origin. Load the ignored local `.env` explicitly.
-- Run `bun --env-file=.env run delivery:recover vrcp-crawler/v0.0.6` to inspect the plan.
-- Add `--execute` to dispatch the existing crawler workflow on main. This does not bump a version or push a tag.
+- Run `bun --env-file=.env run delivery:recover <exact-tag>` to inspect the plan.
+- Add `--execute` to dispatch that product's workflow on main. This does not bump a version or push a tag.
 - Inspect the Linux, Windows and container jobs. Approve the protected release environment after those jobs pass.
 - Run `bun --env-file=.env run delivery:check vrcp-crawler/v0.0.6` after Release attachment.
 - Inspect the terminal announcement and deployment link. A successful build alone does not pass delivery sign-off.
 
 The recovery manifest binds the exact tag object, product commit and original failed run.
 Recovery builds use the tag's saved SDK/network versions, not today's moving SDK alias.
-Binary and container receipts record the source commit, tooling commit and recovery run.
+Archive and binary receipts record the source commit, tooling commit and recovery run.
 The Release notes link the recovery run and retain the original product commit.
 Release titles and changelog headings use the delivered `package.json` name.
 The root command refuses a second dispatch by default when it finds an existing recovery attempt.
-After an output-free failure, promote the tooling repair through owner review before another attempt.
-Run `bun --env-file=.env run delivery:recover vrcp-crawler/v0.0.6 --retry` to inspect the manual retry plan.
+After an output-free failure, push the checked tooling repair to main before another attempt.
+Run `bun --env-file=.env run delivery:recover <exact-tag> --retry` to inspect the manual retry plan.
 Add `--execute` to start that explicit retry from synchronized main. No automatic retry occurs.
 Retry requires different reviewed tooling, completed failed attempts, skipped publication jobs and zero retained artifacts.
 Active runs, published outputs and incomplete evidence stop the command. Inspect partial publication before a rebuild.
-Recovery cannot overwrite published assets, update a tag, bypass main review or approve an environment.
+Recovery cannot overwrite published assets, update a tag, bypass release review or approve an environment.
 Other failures need a separate, reviewed authorization. Local release builds remain prohibited.
 
 Runtime checklist from the first hosted recovery:
