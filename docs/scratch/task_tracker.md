@@ -19,6 +19,9 @@ Construction now computes paths only. The first write starts files, timers and h
 Session-only logging preserves an existing latest.log. Active severity streams, rotation and shutdown fixtures passed.
 Grouped checks passed 140 tests / 860 assertions, types and a development binary build. Compiled help/version created no fixture outputs.
 Runtime default paths still use cwd. R58-ROOT-LOGS remains open for source, installed-binary and Docker path review.
+Active implementation theory: source defaults use the product log folder. Bun standalone mode selects absolute per-user storage.
+Explicit overrides retain priority. Docker sets its persistent volume path. Relative platform state variables cannot restore cwd defaults.
+This path change is unverified until the grouped crawler gate, compiled fixture and development binary checks pass.
 Do not choose the executable directory alone: system installations can be read-only, and Docker persists runtime state in /app/data.
 No delivery bump ran while this output boundary remains unresolved. Existing owner logs remain untouched.
 The owner merged initializer PR #1 into main at 4a89ca2. Hosted initialization remains unverified.

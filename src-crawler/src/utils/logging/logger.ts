@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { homedir } from "node:os";
 import zlib from "zlib";
 import { pipeline } from "stream/promises";
 
@@ -47,7 +48,22 @@ export class Logger {
   private isInitialized: boolean = false;
 
   constructor(options: LoggerOptions = {}) {
-    this.logsDir = options.logsDir || process.env.CRAWLER_LOGS_DIR || path.resolve(process.cwd(), "logs");
+    let defaultLogsDir = path.resolve(import.meta.dir, "../../..", "logs");
+    if (Bun.isStandaloneExecutable) {
+      const userHome = homedir();
+      const stateRoot = process.platform === "win32"
+        ? process.env.LOCALAPPDATA || path.join(userHome, "AppData", "Local")
+        : process.platform === "darwin"
+          ? path.join(userHome, "Library", "Logs")
+          : process.env.XDG_STATE_HOME || path.join(userHome, ".local", "state");
+      const absoluteStateRoot = path.isAbsolute(stateRoot)
+        ? stateRoot
+        : process.platform === "win32"
+          ? path.join(userHome, "AppData", "Local")
+          : path.join(userHome, ".local", "state");
+      defaultLogsDir = path.join(absoluteStateRoot, "vrcp-crawler", "logs");
+    }
+    this.logsDir = options.logsDir || process.env.CRAWLER_LOGS_DIR || defaultLogsDir;
     this.archiveDir = options.archiveDir || path.join(this.logsDir, "archive");
     this.sessionId = options.sessionId || `${process.pid}_${Date.now()}`;
     this.hasExplicitInitialDate = !!options.initialDate;
