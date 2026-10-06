@@ -81,6 +81,7 @@ Do not move, delete or force-push a published tag.
 - Start from clean main that matches origin. Load the ignored local `.env` explicitly.
 - Run `bun --env-file=.env run delivery:recover <exact-tag>` to inspect the plan.
 - Add `--execute` to dispatch that product's workflow on main. This does not bump a version or push a tag.
+- Repeat the command without `--execute` to read existing recovery attempts and their run links. Do not dispatch another attempt.
 - Inspect the Linux, Windows and container jobs. Approve the protected release environment after those jobs pass.
 - Run `bun --env-file=.env run delivery:check vrcp-crawler/v0.0.6` after Release attachment.
 - Inspect the terminal announcement and deployment link. A successful build alone does not pass delivery sign-off.
@@ -92,6 +93,7 @@ Archive and binary receipts record the source commit, tooling commit and recover
 The Release notes link the recovery run and retain the original product commit.
 Release titles and changelog headings use the delivered `package.json` name.
 The root command refuses a second dispatch by default when it finds an existing recovery attempt.
+Tag status can retain the original failed run until a recovered Release exists. Use the recovery-attempt link for active progress.
 After an output-free failure, push the checked tooling repair to main before another attempt.
 Run `bun --env-file=.env run delivery:recover <exact-tag> --retry` to inspect the manual retry plan.
 Add `--execute` to start that explicit retry from synchronized main. No automatic retry occurs.

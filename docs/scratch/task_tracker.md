@@ -22,7 +22,10 @@
 - Final recovery/attachment/announcement checks passed 37 tests / 500 assertions. The earlier long run mixed superseded code with newer fixtures.
 - Its 31 unchanged chain cases passed, but its mixed-state recovery failure is not a clean gate result. The final-source recovery rerun passed.
 - All 374 document-link checks, syntax and whitespace checks passed. DELIVERY prose score: 1.47 issues per 100 words.
-- Next: push checked tooling to main and execute the root recovery command. Hosted publication remains unverified.
+- Checked tooling c6f317f reached main by normal push. The actual root plan passed, then --execute dispatched recovery 37466559953.
+- Recovery routing passed. Linux passed pinned SDK preparation and reached Docker checks. Windows root checks are active. Publication remains unverified.
+- Tag status retains the original failure until a recovered Release exists. The root recovery command shows the separate attempt and run link.
+- Next: inspect both platform checks, request protected release approval when ready, then check artifacts, GHCR, deployment link and terminal acknowledgment.
 - Then advance SDK preview/release, network and consumers in that order. Network peer bounds change when SDK metadata synchronizes.
 - Each of the nine enabled paths needs next-patch chain proof, applicable bytes, dependency identities, deployment links and terminal notifications.
 - Check GHCR independently for crawler delivery. Worker release is build-only without production deployment or Release assets. Website remains disabled.
