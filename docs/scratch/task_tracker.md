@@ -47,11 +47,20 @@
   - Hosted CI run [`37613541019`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37613541019):
     - `build`: completed (`success` - built Windows NSIS `-setup.exe` and WiX `.msi` bundles).
     - `release-assets / attach-desktop`: completed (`success` - approved by owner on `vrcp-crawler-client-release`).
-  - Terminal workflows completed: `Release Announcements` ([`37614808893`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37614808893)) posted Discord embed, `Cache Maintenance` ([`376148088859`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37614808859)) succeeded.
+  - Terminal workflows completed: `Release Announcements` ([`37614808893`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37614808893)) posted Discord embed, `Cache Maintenance` ([`37614808859`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37614808859)) succeeded.
   - Fully verified via `bun run delivery:check vrcp-crawler-client/v0.0.5`: returned `"status": "release-artifacts-verified"`, `"artifactsVerified": true` with all asset checksums verified (`setup.exe`, `.msi`, receipt, changelog, checksums).
-- Next steps:
-  1. Inspect `bun run delivery:diagnose:all` to check status across all 9 paths.
-  2. Continue solidifying the remaining delivery paths (preview channels and SDK/network paths).
+- Full 9/9 Configured Delivery Path Verification Pass:
+  - Executed `bun run delivery:check:all`: full readback proof requested and returned `"verified": true` across all 9 paths:
+    1. `preview/package` (`2026.10.7-pre`): `release-artifacts-verified`
+    2. `preview/network` (`2026.10.5`): `release-artifacts-verified`
+    3. `preview/crawler` (`2026.10.7-pre`): `release-artifacts-verified`
+    4. `preview/crawler-client` (`26.10.6-pre`): `release-artifacts-verified`
+    5. `preview/worker` (`2026.10.8-pre`): `preview-deployed-no-release-assets`
+    6. `release/package` (`0.0.6`): `release-artifacts-verified`
+    7. `release/crawler` (`0.0.11`): `release-artifacts-verified`
+    8. `release/crawler-client` (`0.0.5`): `release-artifacts-verified`
+    9. `release/worker` (`0.0.6`): `release-build-only-no-production-deployment`
+  - All binary assets, sha256 checksum receipts, Discord notification embeds, cache maintenance triggers, and changelog markdown comment extractions verified cleanly.
 
 
 ## Owner handover — start here (2026-10-06)
