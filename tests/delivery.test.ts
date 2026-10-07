@@ -358,7 +358,7 @@ test("packed consumer declarations are checked in installed consumers, not throu
 test("SDK verification builds through its test script before typechecking tests that import dist", () => {
   const source = readFileSync(new URL("../scripts/delivery.mjs", import.meta.url), "utf8");
   const verify = source.slice(source.indexOf('} else if (action === "verify")'), source.indexOf('} else if (action === "deploy")'));
-  const sdkTest = verify.indexOf('if (product === "package") packageCommand(["run", "test"], project)');
+  const sdkTest = verify.indexOf('runTest(["run", "test"], project)');
   const types = verify.indexOf('packageCommand(["run", "typecheck"], project)');
   expect(sdkTest).toBeGreaterThan(-1);
   expect(types).toBeGreaterThan(sdkTest);
@@ -1070,4 +1070,49 @@ test("hidden-directory uploads include only runtime artifacts and their CI recei
     for (let index = 0; index < suffixes.length; index++) expect(paths[index].endsWith(suffixes[index])).toBe(true);
     expect(paths.every(path => !path.includes("node_modules") && !path.endsWith("/"))).toBe(true);
   }
+});
+
+test("test skipping is strictly forbidden on release routes and fail-closed", async () => {
+  // Test deliver directly
+  await expect(deliver("verify", "release", "package", false, true))
+    .rejects.toThrow("Tests cannot be disabled on release/production routes");
+
+  // Test VRCP_SKIP_TESTS env var on release
+  const originalEnv = process.env.VRCP_SKIP_TESTS;
+  try {
+    process.env.VRCP_SKIP_TESTS = "true";
+    await expect(deliver("verify", "release", "package", false, false))
+      .rejects.toThrow("Tests cannot be disabled on release/production routes");
+    await expect(deliver("build", "release", "crawler", false, false))
+      .rejects.toThrow("Tests cannot be disabled on release/production routes");
+  } finally {
+    process.env.VRCP_SKIP_TESTS = originalEnv;
+  }
+});
+
+test("product workflows scope tests to product domains and enforce test policy on release", () => {
+  const workflows = ["node-docker", "cloudflare-worker", "node-client", "vrc-packages-api", "network"];
+  for (const name of workflows) {
+    const content = readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8");
+    const workflow: any = Bun.YAML.parse(content);
+    // Root tests must not be run inside product workflows
+    for (const [jobName, job] of Object.entries<any>(workflow.jobs)) {
+      if (!Array.isArray(job.steps)) continue;
+      for (const step of job.steps) {
+        if (step.run) {
+          expect(step.run).not.toContain("bun test ./tests");
+        }
+      }
+    }
+    // Workflows that have release channel must enforce test policy
+    if (["node-docker", "cloudflare-worker", "node-client", "vrc-packages-api"].includes(name)) {
+      expect(content).toContain("Enforce test policy");
+      expect(content).toContain("Tests cannot be disabled on release/production routes");
+    }
+  }
+
+  // Repository governance tests workflow exists and runs root tests
+  const repoTests = Bun.YAML.parse(readFileSync(new URL("../.github/workflows/repository-tests.yml", import.meta.url), "utf8")) as any;
+  expect(repoTests.name).toBe("Repository Tests");
+  expect(repoTests.jobs.test.steps.some((s: any) => s.run === "bun test ./tests")).toBe(true);
 });

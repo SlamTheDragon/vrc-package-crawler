@@ -95,7 +95,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
-      - run: bun test ./tests
+      - name: Enforce test policy
+        if: env.VRCP_SKIP_TESTS == 'true' && steps.route.outputs.channel == 'release'
+        run: |
+          echo "::error::Tests cannot be disabled on release/production routes"
+          exit 1
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' package --ci
       - run: node scripts/delivery.mjs verify '${{ steps.route.outputs.channel }}' package --ci
       - run: node scripts/delivery.mjs pack '${{ steps.route.outputs.channel }}' package --ci

@@ -56,7 +56,7 @@ function mainVersionBlocker(channel, product, version, refs, workspace, git) {
 }
 
 /** Read-only planning. Release execution prepares a version PR, not a direct main push. */
-export async function planDelivery(channel, product, workspace = root, now = new Date(), git = runGit, force = false) {
+export async function planDelivery(channel, product, workspace = root, now = new Date(), git = runGit, force = false, skipTests = false) {
   if (!Object.hasOwn(workflows, product)) throw new Error("Product delivery is disabled or unknown. Website hosting remains deferred.");
   const { config, configPath } = await readVersionConfig(channel, workspace);
   const previous = config[`${channel}-${product}`];
@@ -68,6 +68,14 @@ export async function planDelivery(channel, product, workspace = root, now = new
   const tag = `${productTagPrefixes[product]}/v${version}`;
   const releaseBranch = channel === "release" && !force ? `release/candidate/${product}/v${version}` : undefined;
   const blockers = [];
+  const skipTestsRequested = Boolean(
+    skipTests ||
+    process.env.VRCP_SKIP_TESTS === "true" ||
+    process.env.VRCP_SKIP_TESTS === "1"
+  );
+  if (skipTestsRequested && channel === "release") {
+    blockers.push("Tests cannot be disabled on release/production routes");
+  }
   if (channel === "release" && branch !== "main") blockers.push("Release delivery requires main after reviewed promotion");
   if (git(workspace, "status", "--porcelain")) blockers.push("Worktree or index is dirty");
   if (git(workspace, "for-each-ref", "--format=%(refname)", `refs/tags/${tag}`)) blockers.push("Local tag already exists");
@@ -89,6 +97,7 @@ export async function planDelivery(channel, product, workspace = root, now = new
   if (other[`${channel === "preview" ? "release" : "preview"}-${product}`] === version) blockers.push("Channel tag would be ambiguous");
   return { channel, product, previous, version, tag, branch, repository, head, configPath, blockers, ...(releaseBranch ? { releaseBranch } : {}),
     workflow: `${workflows[product]}.yml`, purpose: "plan-only",
+    ...(skipTestsRequested ? { skipTests: true } : {}),
     delivery: channel === "release" ? (force ? "direct-main-tag" : "version-pr-then-reviewed-main-tag") : "tagged-delivery",
     ...(product === "worker" && channel === "release" ? { publication: "ci-build-only-no-production-deployment" } : {}) };
 }
@@ -153,8 +162,16 @@ function checkpointPendingPreview(plan, workspace, git) {
 
 /** Keep failed local commit/tag state so an exact retry cannot allocate another version. */
 export async function startDelivery(channel, product, execute = false, workspace = root, now = new Date(), git = runGit,
-    publicationProof = inspectDelivery, force = false) {
-  let plan = await planDelivery(channel, product, workspace, now, git, force);
+    publicationProof = inspectDelivery, force = false, skipTests = false) {
+  const skipTestsRequested = Boolean(
+    skipTests ||
+    process.env.VRCP_SKIP_TESTS === "true" ||
+    process.env.VRCP_SKIP_TESTS === "1"
+  );
+  if (skipTestsRequested && channel === "release") {
+    throw new Error("Tests cannot be disabled on release/production routes");
+  }
+  let plan = await planDelivery(channel, product, workspace, now, git, force, skipTests);
   if (!execute) return plan;
   const blockers = plan.blockers.filter(blocker => channel !== "preview" || blocker !== "Worktree or index is dirty");
   if (blockers.length) throw new Error(`Delivery blocked: ${blockers.join("; ")}`);
@@ -178,7 +195,7 @@ export async function startDelivery(channel, product, execute = false, workspace
   }
   const pendingCheckpoint = channel === "preview" ? checkpointPendingPreview(plan, workspace, git) : undefined;
   if (pendingCheckpoint) {
-    plan = await planDelivery(channel, product, workspace, now, git, force);
+    plan = await planDelivery(channel, product, workspace, now, git, force, skipTests);
     if (plan.blockers.length) throw new Error(`Pending checkpoint pushed; delivery blocked: ${plan.blockers.join("; ")}. No version bump ran.`);
   }
   // Recheck immediately before writes. A later race still cannot force an origin ref.
@@ -681,7 +698,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     } else if (action === "start") {
       const force = extra.includes("--force");
       const execute = extra.includes("--execute");
-      result = await startDelivery(first, second, execute, root, new Date(), runGit, inspectDelivery, force);
+      const skipTests = extra.includes("--skip-tests");
+      const unknownFlags = extra.filter(arg => !["--force", "--execute", "--skip-tests"].includes(arg));
+      if (unknownFlags.length) throw new Error(`Unknown option(s): ${unknownFlags.join(", ")}`);
+      result = await startDelivery(first, second, execute, root, new Date(), runGit, inspectDelivery, force, skipTests);
     } else if (action === "finalize" && (extra.length === 1 || extra.length === 2 && extra[1] === "--execute") && /^[1-9][0-9]*$/.test(second ?? "")) {
       result = await finalizeRelease(first, Number(second), extra[0], extra[1] === "--execute");
     } else if (action === "retry-preparation" && !second && !extra.length) {

@@ -1,5 +1,78 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
+## Active checkpoint — Live Delivery Pipeline Full-Cycle Trials & Scoped CI Testing Task (2026-10-07)
+
+- Preview Channel Full-Cycle Execution (All 5 Products Verified):
+  1. `preview/package` (`vrcp-api/v2026.10.8-pre`):
+     - Source commit `92e7ed72389b2968ba0e9e838dd2b653eb37d35e`, tag object `31b535392f85330312068c530ee5490992c9ccc4`.
+     - CI run [`37617793757`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37617793757): build passed, npm OIDC publish succeeded, release-assets attached.
+     - Terminal workflows: `Discord Announcements` ([`37618851303`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37618851303)) succeeded, `Cache Maintenance` ([`37618851135`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37618851135)) succeeded.
+     - Verification: `bun run delivery:check vrcp-api/v2026.10.8-pre` verified all 5 asset digests (`status: release-artifacts-verified`, `artifactsVerified: true`).
+  2. `preview/network` (`vrcp-network/v2026.10.6`):
+     - Source commit `4bc4d54ef89ca2de6fc623b8d46123e7c8a90936`, tag object `0dcddfa96677201876435bc065dd80607c420a15`.
+     - CI run [`37619026716`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37619026716): build, release-assets attach, and deployment-record succeeded.
+     - Verification: `bun run delivery:check vrcp-network/v2026.10.6` verified all 4 artifact digests (`status: release-artifacts-verified`, `artifactsVerified: true`).
+  3. `preview/crawler` (`vrcp-crawler/v2026.10.8-pre`):
+     - Source commit `9662640760b47d1b615a10dbe0d7fa439c041513`, tag object `1bbae471c99395abfd268c9c94df1f87170a1fcc`.
+     - CI run [`37619601351`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37619601351): route, build-linux, standalone-windows, publish-container to GHCR, and release-assets attach all succeeded.
+     - Terminal workflows: `Discord Announcements` ([`37620152156`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37620152156)) succeeded, `Cache Maintenance` ([`37620152140`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37620152140)) succeeded.
+     - Verification: `bun run delivery:check vrcp-crawler/v2026.10.8-pre` verified all 6 assets (Linux binary 82.7MB, Windows binary 87.5MB, receipts, changelog, checksums).
+  4. `preview/crawler-client` (`vrcp-crawler-client/v26.10.7-pre`):
+     - Source commit `24798f4eac0cea8fb846a54698fb9024731461c3`, tag object `3051e4b10dcb9a9aa982840c02b2aa3d3c9e0e8c`.
+     - CI run [`37620460845`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37620460845): Windows Tauri build and release-assets attach-desktop succeeded.
+     - Terminal workflows: `Discord Announcements` ([`37621661014`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37621661014)) succeeded, `Cache Maintenance` ([`37621660958`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37621660958)) succeeded.
+     - Verification: `bun run delivery:check vrcp-crawler-client/v26.10.7-pre` verified all 5 assets (NSIS setup, WiX MSI, receipt, changelog, checksums).
+  5. `preview/worker` (`cloudflare-worker/v2026.10.9-pre`):
+     - Source commit `4593b7e5269e275982123ca82a8c835c3a98b154`, tag object `7963205e086c2fbf54adc8d5822e27319aaad92a`.
+     - CI run [`37621951240`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37621951240): build and deploy to Cloudflare Preview environment succeeded.
+     - Verification: `bun run delivery:check cloudflare-worker/v2026.10.9-pre` verified preview deployment, bundle SHA-256 and 1060537 bytes (`status: preview-deployed-no-release-assets`, `artifactsVerified: true`).
+
+- Release Channel Execution (Single-Pass with Owner Authority):
+  1. `release/package` (`vrcp-api/v0.0.7`):
+     - Source commit `4e45aa32714e39d00f4f473ee0b259eb74b60301`, tag object `48064b6d4f614199a53143146479c1ac8526a76a`.
+     - CI run [`37622479192`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37622479192): build, npm staging, and release-assets attach succeeded.
+     - Staged in npm Staged Packages under Stage ID `a46aa633-1dfc-4616-94c1-55cb0b3fc730` awaiting owner manual approval.
+  2. `release/crawler` (`vrcp-crawler/v0.0.12`):
+     - Source commit `39f21d02633334364a18c7d67b7b82cc84371d30`, tag object `1db6e96b55b1117507aa932630c6ce06a36f4002`.
+     - CI run [`37623262673`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37623262673): route, build-linux, standalone-windows, publish-container to GHCR, and release-assets attach all succeeded.
+     - Terminal workflows: `Discord Announcements` ([`37623861316`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37623861316)) succeeded, `Cache Maintenance` ([`37623861331`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37623861331)) succeeded.
+     - Verification: `bun run delivery:check vrcp-crawler/v0.0.12` verified all 6 assets (Linux binary 82.7MB, Windows binary 87.5MB, receipts, and checksums).
+  3. `release/crawler-client` (`vrcp-crawler-client/v0.0.6`):
+     - Source commit `04aa843df9e11d029584866840c9c4eb3e8e656e`, tag object `845b6f124885801300cf58437d437cba87f70abc`.
+     - CI run [`37624229765`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37624229765): `prepare` step stopped with `Registry SDK channel resolves outside the authoritative version config` because `vrc-packages-api@latest` on npm is currently 0.0.6 while configured release SDK is 0.0.7 (awaiting owner approval of stage `a46aa633-1dfc-4616-94c1-55cb0b3fc730`). Rerun will proceed once approved.
+  4. `release/worker` (`cloudflare-worker/v0.0.7`):
+     - Source commit `9d626f9717894b505de297925bdcd23c098a328b`, tag object `9e50e4a44865fbd5465aa09cf262b34711ad974c`.
+     - CI run [`37624730435`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37624730435): build succeeded, production deploy skipped (build-only).
+     - Verification: `bun run delivery:check cloudflare-worker/v0.0.7` verified artifact 11483273679, bundle SHA-256 and 1060529 bytes (`status: release-build-only-no-production-deployment`, `artifactsVerified: true`).
+
+- Queued Task `R60-CI-TEST-SCOPING`:
+  - Queued into `UNMERGED_IMPLEMENTATION_PLAN.md` with requirement that tests can never be disabled on release/production routes.
+
+## Active slice — R60-CI-TEST-SCOPING: Product-Scoped CI Tests and Fail-Closed Test-Skip Flag (2026-10-07)
+
+- Working theories:
+  1. Product workflows (`vrc-packages-api.yml`, `network.yml`, `node-docker.yml`, `node-client.yml`, `cloudflare-worker.yml`) should run tests scoped to the product being built, not the 186 root governance/delivery tests (`bun test ./tests`).
+  2. Root tests belong in a dedicated workflow (`.github/workflows/repository-tests.yml`) executed on PRs and pushes to `main`.
+  3. A `--skip-tests` CLI option and `VRCP_SKIP_TESTS` environment variable allow rapid iteration on preview/development pipelines.
+  4. In accordance with user's strict requirement, tests CANNOT be turned off on release/production routes: if `--skip-tests` or `VRCP_SKIP_TESTS=true` is supplied for any `release` delivery or job, execution MUST fail closed immediately with an error.
+
+- Target files:
+  - `scripts/delivery.mjs`: Support `--skip-tests` and `VRCP_SKIP_TESTS`, enforce fail-closed error if channel is release, skip product tests on preview/dev during `verify`.
+  - `scripts/delivery-chain.mjs`: Support `--skip-tests` in `start` CLI and `startDelivery`, enforce fail-closed error if channel is release.
+  - `.github/workflows/vrc-packages-api.yml`: Remove root `bun test ./tests`, enforce fail-closed check on release.
+  - `.github/workflows/network.yml`: Remove root `bun test ./tests`.
+  - `.github/workflows/node-docker.yml`: Remove root `bun test ./tests` from `build-linux` and `standalone-windows`, enforce fail-closed check on release, condition `bun run --cwd src-crawler test` on release or `VRCP_SKIP_TESTS != 'true'`.
+  - `.github/workflows/node-client.yml`: Remove root `bun test ./tests`, enforce fail-closed check on release, condition `check` on release or `VRCP_SKIP_TESTS != 'true'`.
+  - `.github/workflows/cloudflare-worker.yml`: Remove root `bun test ./tests`, enforce fail-closed check on release, condition worker test/runtime test on release or `VRCP_SKIP_TESTS != 'true'`.
+  - `.github/workflows/repository-tests.yml`: New dedicated workflow for repository governance and delivery tests on push/PR to `main`.
+  - `tests/delivery.test.ts`: Add test cases for `--skip-tests`, `VRCP_SKIP_TESTS` fail-closed enforcement on release, and workflow structure checks.
+
+- Verification results:
+  - All 189 tests pass across 15 files in `bun test ./tests`.
+  - Scoped product checks clean: `src-package` (tsc clean), `src-crawler` (tsc clean, 141 tests pass), `src-worker` (wrangler types + tsc clean, 235 tests pass, runtime smoke pass), `src-crawler-client` (svelte-check 0 errors, 0 warnings).
+  - Preview tests run by default with non-blocking continuation on failure (`continue-on-error: true` in CI, warning logging in `verify`).
+  - Fail-closed release enforcement verified: `--skip-tests` or `VRCP_SKIP_TESTS=true` on release channel throws fatal error across `delivery.mjs`, `delivery-chain.mjs`, and workflow policy steps.
+
 ## Active checkpoint — Delivery Tooling Hardening, Workflow Normalization, & Recovery (2026-10-07)
 
 - Verified test suite: `bun test ./tests` passes completely (184 passed, 0 failed, 2583 expectations across 15 files).

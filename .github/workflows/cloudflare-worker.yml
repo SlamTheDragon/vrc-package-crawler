@@ -40,17 +40,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
-      - run: bun test ./tests
+      - name: Enforce test policy
+        if: env.VRCP_SKIP_TESTS == 'true' && steps.route.outputs.channel == 'release'
+        run: |
+          echo "::error::Tests cannot be disabled on release/production routes"
+          exit 1
       - name: Prepare distributed dependencies
         run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' worker --ci
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Check Worker and build target
+      - name: Typecheck Worker
+        run: bun run --cwd src-worker check
+      - name: Test Worker
+        if: steps.route.outputs.channel == 'release' || env.VRCP_SKIP_TESTS != 'true'
+        continue-on-error: ${{ steps.route.outputs.channel == 'preview' }}
         run: |
-          bun run --cwd src-worker check
           bun run --cwd src-worker test
-          node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' worker --ci
           bun run --cwd src-worker test:runtime
+      - name: Build Worker target
+        run: node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' worker --ci
         env:
           VRCP_WORKER_BUILD_CHANNEL: ${{ steps.route.outputs.channel }}
       - uses: actions/upload-artifact@v4

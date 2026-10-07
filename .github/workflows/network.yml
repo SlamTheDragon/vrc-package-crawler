@@ -45,9 +45,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
-      - run: bun test ./tests
-        env:
-          VRCP_RECOVERY_TAG: ''
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' network --ci
       - run: node scripts/delivery.mjs verify '${{ steps.route.outputs.channel }}' network --ci
       - run: node scripts/delivery.mjs pack '${{ steps.route.outputs.channel }}' network --ci

@@ -1049,3 +1049,20 @@ test("verifyPredecessor enforces verified predecessor publication before CI buil
     await expect(verifyPredecessor(preview.tag, workspace, git, failingProof as any)).rejects.toThrow("publication/artifact proof");
   });
 }, 60_000);
+
+test("test skipping is strictly prohibited on release routes in delivery chain", async () => {
+  await fixture(async (workspace, git) => {
+    // planDelivery on release with skipTests adds blocker
+    const releasePlan = await planDelivery("release", "crawler", workspace, now, git, false, true);
+    expect(releasePlan.blockers).toContain("Tests cannot be disabled on release/production routes");
+
+    // startDelivery on release with skipTests throws
+    await expect(startDelivery("release", "crawler", false, workspace, now, git, false, true))
+      .rejects.toThrow("Tests cannot be disabled on release/production routes");
+
+    // planDelivery on preview with skipTests succeeds and records skipTests flag
+    const previewPlan = await planDelivery("preview", "crawler", workspace, now, git, false, true);
+    expect(previewPlan.skipTests).toBe(true);
+    expect(previewPlan.blockers).not.toContain("Tests cannot be disabled on release/production routes");
+  });
+});

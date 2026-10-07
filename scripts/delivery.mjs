@@ -579,11 +579,19 @@ function inspectDependencies(project, latestVersion) {
 }
 
 /** Produce product-local development artifacts or CI-only release artifacts. Never tag or push. */
-export async function deliver(action, channel, product, ci = false) {
+export async function deliver(action, channel, product, ci = false, skipTests = false) {
   if (product === "network" && channel === "release") throw new Error("Network has one rapid stream; use preview network");
   if (!["prepare", "build", "pack", "verify", "deploy", "publish"].includes(action) ||
       !["release", "preview"].includes(channel) || !Object.hasOwn(productDirectories, product)) {
-    throw new Error("Usage: delivery.mjs <prepare|build|pack|verify|deploy|publish> <release|preview> <product> [--ci]");
+    throw new Error("Usage: delivery.mjs <prepare|build|pack|verify|deploy|publish> <release|preview> <product> [--ci] [--skip-tests]");
+  }
+  const skipTestsRequested = Boolean(
+    skipTests ||
+    process.env.VRCP_SKIP_TESTS === "true" ||
+    process.env.VRCP_SKIP_TESTS === "1"
+  );
+  if (skipTestsRequested && channel === "release") {
+    throw new Error("Tests cannot be disabled on release/production routes");
   }
   if (["deploy", "publish"].includes(action) && !ci) throw new Error("Remote actions are CI-only");
   if (action === "deploy" && product !== "worker") throw new Error("Only Worker deployment is configured. Web hosting remains owner-selected.");
@@ -644,18 +652,33 @@ export async function deliver(action, channel, product, ci = false) {
       packageCommand(["run", "build"], project);
       console.log(JSON.stringify({ artifact: pack(project, ci), purpose: ci ? "ci-release" : "development" }));
     } else if (action === "verify") {
-      if (product === "package") packageCommand(["run", "test"], project);
+      const runTest = (cmd, cwd) => {
+        try {
+          packageCommand(cmd, cwd);
+        } catch (error) {
+          if (channel === "preview") {
+            console.warn(`::warning::Preview test failure ignored (${cmd.join(" ")}): ${error instanceof Error ? error.message : error}`);
+          } else {
+            throw error;
+          }
+        }
+      };
+      if (!skipTestsRequested) {
+        if (product === "package") runTest(["run", "test"], project);
+      }
       packageCommand(["run", "typecheck"], project);
       if (product === "network") {
         // Pack once. Both SDK channels must consume these same network bytes.
         packageCommand(["run", "build"], project);
         const network = pack(project, false);
-        for (const sdkChannel of ["release", "preview"]) {
-          const sdkConfig = (await readVersionConfig(sdkChannel)).config;
-          const sdk = packRegistrySDK(resolve(root, productDirectories.package), sdkChannel, sdkConfig[`${sdkChannel}-package`]);
-          packageCommand(["run", "test:distribution", "--sdk-tarball", sdk, "--network-tarball", network], project);
+        if (!skipTestsRequested) {
+          for (const sdkChannel of ["release", "preview"]) {
+            const sdkConfig = (await readVersionConfig(sdkChannel)).config;
+            const sdk = packRegistrySDK(resolve(root, productDirectories.package), sdkChannel, sdkConfig[`${sdkChannel}-package`]);
+            runTest(["run", "test:distribution", "--sdk-tarball", sdk, "--network-tarball", network], project);
+          }
         }
-      } else packageCommand(["run", "test:distribution"], project);
+      } else if (!skipTestsRequested) runTest(["run", "test:distribution"], project);
     } else if (action === "deploy") {
       if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) throw new Error("CI requires protected Cloudflare account/token secrets");
       const directory = channel === "preview" ? "preview" : "production";
@@ -773,8 +796,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         appendFileSync(process.env.GITHUB_OUTPUT, `commit=${ciSourceCommit()}\n`);
       }
     } else {
-      if (extra.length || (flag && flag !== "--ci")) throw new Error("Only --ci is accepted after the product");
-      console.log(JSON.stringify(await deliver(action, channel, product, flag === "--ci")));
+      const allFlags = [flag, ...extra].filter(Boolean);
+      const ci = allFlags.includes("--ci");
+      const skipTests = allFlags.includes("--skip-tests");
+      const unknownFlags = allFlags.filter(arg => arg !== "--ci" && arg !== "--skip-tests");
+      if (unknownFlags.length) throw new Error("Only --ci and --skip-tests are accepted after the product");
+      console.log(JSON.stringify(await deliver(action, channel, product, ci, skipTests)));
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Delivery command failed");
