@@ -18,14 +18,22 @@
   - Normalized all 13 workflow names (`name:`) down into concise, direct descriptive literal functions.
   - Aligned workflow triggers in `cache-maintenance.yml` and `release-announcements.yml`.
 - Recovery execution for Crawler 0.0.9:
-  - Authorized in `.github/delivery-recoveries.json`, dispatched retry run [`37606773009`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37606773009).
-  - Fixed backward-compatibility in `tests/preprod_layout.test.ts` for checkout recovery (supporting `research` directory at either modern `docs/scratch/research` or historical `docs/research`).
-  - Jobs `route`, `build-linux`, and `standalone-windows` completed with `success`.
-  - Job `publish-container` is currently waiting for owner environment approval on `vrcp-crawler-release` (per repo rules, agents never approve protected environments).
+  - Completed via authorized recipe in `.github/delivery-recoveries.json`, retry run [`37606773009`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37606773009).
+  - All jobs (`route`, `build-linux`, `standalone-windows`, `publish-container`, `release-assets / attach`) succeeded.
+  - Announcement workflow run [`37607573560`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37607573560) succeeded and posted Discord embed.
+  - Delivery verification (`node --env-file=.env scripts/delivery-chain.mjs check vrcp-crawler/v0.0.9`) verified all 6 assets and hashes.
+- Single-pass delivery for Crawler 0.0.10:
+  - Root `CHANGELOG.md` updated with 0.0.10 release notes under backticked heading.
+  - Executed direct release on `main` at commit `075911e49c7f3ffcd71f32a73bf495eb68db2eeb`, created tag `vrcp-crawler/v0.0.10`.
+  - Hosted CI run [`37609060480`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37609060480):
+    - `route`: completed (`success`)
+    - `build-linux`: completed (`success`)
+    - `standalone-windows`: completed (`success`)
+    - `publish-container`: `waiting` for owner deployment approval on environment `vrcp-crawler-release`.
 - Next steps:
-  1. Owner approves deployment for `vrcp-crawler-release` on run [`37606773009`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37606773009).
-  2. Complete `release-assets` attachment and verify delivery proof with `node --env-file=.env scripts/delivery-chain.mjs check vrcp-crawler/v0.0.9`.
-  3. Verify clean single-pass pipeline for next patch (`0.0.10`).
+  1. Owner approves deployment for `vrcp-crawler-release` on run [`37609060480`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37609060480).
+  2. Complete `publish-container` and `release-assets` attachment.
+  3. Verify release announcements and delivery proof with `node --env-file=.env scripts/delivery-chain.mjs check vrcp-crawler/v0.0.10`.
 
 
 ## Owner handover — start here (2026-10-06)
