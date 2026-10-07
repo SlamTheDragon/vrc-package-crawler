@@ -46,12 +46,12 @@
   - Extracted clean changelog `docs/changelogs/vrcp-crawler-client/release/0.0.5.md` without markdown comments.
   - Hosted CI run [`37613541019`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37613541019):
     - `build`: completed (`success` - built Windows NSIS `-setup.exe` and WiX `.msi` bundles).
-    - `release-assets / attach-desktop`: `waiting` for owner deployment approval on environment `vrcp-crawler-client-release`.
+    - `release-assets / attach-desktop`: completed (`success` - approved by owner on `vrcp-crawler-client-release`).
+  - Terminal workflows completed: `Release Announcements` ([`37614808893`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37614808893)) posted Discord embed, `Cache Maintenance` ([`376148088859`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37614808859)) succeeded.
+  - Fully verified via `bun run delivery:check vrcp-crawler-client/v0.0.5`: returned `"status": "release-artifacts-verified"`, `"artifactsVerified": true` with all asset checksums verified (`setup.exe`, `.msi`, receipt, changelog, checksums).
 - Next steps:
-  1. Owner approves deployment for `vrcp-crawler-client-release` on run [`37613541019`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37613541019).
-  2. Complete `release-assets / attach-desktop` and verify Discord announcement embed.
-  3. Verify release assets and receipts with `bun run delivery:check vrcp-crawler-client/v0.0.5`.
-  4. Continue delivery path verification across remaining paths (e.g. preview channels).
+  1. Inspect `bun run delivery:diagnose:all` to check status across all 9 paths.
+  2. Continue solidifying the remaining delivery paths (preview channels and SDK/network paths).
 
 
 ## Owner handover — start here (2026-10-06)
