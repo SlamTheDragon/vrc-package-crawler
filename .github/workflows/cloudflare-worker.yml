@@ -1,4 +1,4 @@
-name: Cloudflare Worker tagged deployment
+name: Cloudflare Worker
 on:
   push:
     tags: ['cloudflare-worker/v*']

@@ -25,7 +25,8 @@ describe("Pre-production directory layout and configuration conformance", () => 
     const sdkChannel = sdk.name === "vrc-packages-api-preview" ? "preview" : "release";
     const sdkConfig = JSON.parse(readFileSync(join(rootDir, sdkChannel === "preview" ? "config.preview.versions.json" : "config.versions.json"), "utf8"));
     expect(sdk.version).toBe(sdkConfig[`${sdkChannel}-package`]);
-    expect(readFileSync(join(rootDir, "README.md"), "utf8").split(/\r?\n/)[0]).toMatch(/^# VRC Packages(?: \([^()\r\n]+\))?$/);
+    const readmeTitle = readFileSync(join(rootDir, "README.md"), "utf8").split(/\r?\n/).find(l => l.startsWith("# "));
+    expect(readmeTitle).toMatch(/^# VRC Packages(?: \([^()\r\n]+\))?$/);
     const docker = readFileSync(join(rootDir, "src-crawler/Dockerfile"), "utf8");
     expect(docker).toContain("USER vrcpuser");
     expect(docker).not.toMatch(/\bvrc(?:user|group)\b/);
@@ -68,7 +69,7 @@ describe("Pre-production directory layout and configuration conformance", () => 
       "src-package",
       "docs",
       "docs/scratch",
-      "docs/research",
+      "docs/scratch/research",
       "docs/source",
     ];
 
@@ -93,7 +94,7 @@ describe("Pre-production directory layout and configuration conformance", () => 
       expect(existsSync(join(rootDir, file))).toBe(true);
     }
     expect(readdirSync(join(rootDir, "docs/scratch")).sort()).toEqual([
-      "IMPLEMENTATION_PLAN.md", "UNMERGED_IMPLEMENTATION_PLAN.md", "task_tracker.md"
+      "IMPLEMENTATION_PLAN.md", "UNMERGED_IMPLEMENTATION_PLAN.md", "research", "task_tracker.md"
     ]);
   });
 

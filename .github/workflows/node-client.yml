@@ -1,4 +1,4 @@
-name: Build & Publish Crawler Client
+name: Crawler Client
 run-name: ${{ inputs.recovery-tag && format('Recover crawler-client {0}', inputs.recovery-tag) || github.ref_name }}
 
 # Independent Windows shell build. No bundled crawler or updater contract is implied.

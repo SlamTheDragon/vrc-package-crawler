@@ -271,6 +271,12 @@ export function readReleaseTagProof(annotation, expected) {
     if (lines.length !== 1 || !lines[0].startsWith(`${key}: `)) throw new Error("Missing or duplicated release tag proof trailer");
     return lines[0].slice(key.length + 2);
   };
+  const directLines = message.split(/\r?\n/).filter(line => line.startsWith("VRCP-Release-Direct:"));
+  if (directLines.length === 1 && directLines[0] === "VRCP-Release-Direct: true") {
+    const base = trailer("VRCP-Release-Base");
+    if (!/^[a-f0-9]{40}$/.test(base)) throw new Error("Invalid release direct base locator");
+    return { direct: true, base, head: expected.commit };
+  }
   const pr = trailer("VRCP-Release-PR"), head = trailer("VRCP-Release-Head"), base = trailer("VRCP-Release-Base");
   if (!/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr)) || ![head, base].every(value => /^[a-f0-9]{40}$/.test(value))) {
     throw new Error("Invalid release PR locator");
@@ -327,6 +333,16 @@ export async function checkReleaseSource(selected, source, api = readGitHubAPI()
   const tagProof = readReleaseTagProof(annotation, { tag, commit });
   if (remoteAnnotation?.object?.type !== "commit" ||
       remoteAnnotation.object.sha !== commit || remoteAnnotation.tag !== tag) throw new Error("Invalid release tag annotation");
+  if (tagProof.direct) {
+    const owner = repository.split("/")[0].toLowerCase();
+    const releaseActor = actor ?? context?.actor;
+    if (!human(releaseActor) || releaseActor.login.toLowerCase() !== owner) {
+      throw new Error("Direct release requires repository owner actor");
+    }
+    const proof = { repository, commit, tag, head: commit, base: tagProof.base, direct: true };
+    const metadata = await checkReleaseMetadata(selected, proof, workspace, git);
+    return { ...proof, tagObject, metadata, baseline: false };
+  }
   const proof = await checkReviewedRelease(selected, { repository, commit, tag, ...tagProof, actor: actor ?? context?.actor }, api);
   const metadata = await checkReleaseMetadata(selected, proof, workspace, git);
   return { ...proof, tagObject, metadata, baseline: false };

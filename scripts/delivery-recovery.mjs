@@ -14,7 +14,7 @@ const sha = value => /^[a-f0-9]{40}$/.test(value ?? "");
 const git = (workspace, ...args) => execFileSync("git", args, {
   cwd: workspace, encoding: "utf8", timeout: 30_000, stdio: "pipe" });
 
-function dependencyPreparationFailed(jobs) {
+function builderStepFailed(jobs, expectedStepName) {
   const expected = new Map([["route", "success"], ["build-linux", "failure"],
     ["standalone-windows", "failure"], ["publish-container", "skipped"], ["release-assets", "skipped"]]);
   return jobs.length === expected.size && jobs.every(job => {
@@ -23,14 +23,15 @@ function dependencyPreparationFailed(jobs) {
     const steps = job.steps;
     if (!Array.isArray(steps) || !steps.length || steps.some((step, index) =>
       !Number.isSafeInteger(step.number) || step.number < 1 || index > 0 && step.number <= steps[index - 1].number)) return false;
-    const prepareName = "Run node scripts/delivery.mjs prepare 'release' crawler --ci";
     const failures = steps.filter(step => step.conclusion === "failure");
-    const prepare = failures[0];
+    const failedStep = failures[0];
     const cleanup = job.name === "build-linux" ? "Post Checkout repository" : "Post Run actions/checkout@v4";
-    return failures.length === 1 && prepare.name === prepareName && prepare.number > 1 &&
-      steps.filter(step => step.name === prepareName).length === 1 &&
+    return failures.length === 1 && failedStep.name === expectedStepName && failedStep.number > 1 &&
+      steps.filter(step => step.name === expectedStepName).length === 1 &&
       steps.every(step => step.status === "completed" &&
-        (step.number < prepare.number ? step.conclusion === "success" : step.number === prepare.number ? step === prepare :
+        (step.number < failedStep.number
+          ? (step.name === "Restore reviewed recovery tooling only" ? ["skipped", "success"].includes(step.conclusion) : step.conclusion === "success")
+          : step.number === failedStep.number ? step === failedStep :
           [cleanup, "Complete job"].includes(step.name) ? step.conclusion === "success" : step.conclusion === "skipped"));
   });
 }
@@ -42,10 +43,11 @@ export function recoveryIdentity(tag, workspace = root) {
       !Object.hasOwn(recoveryWorkflows, identity?.product ?? "") || tag !== `${productTagPrefixes[identity.product]}/v${identity.version}` ||
       !(identity.product === "crawler" ? /^0\.0\.[0-9]+$/ : identity.product === "network" ? /^\d{4}\.(?:[1-9]|1[0-2])\.\d+$/ : /^\d{2}\.(?:[1-9]|1[0-2])\.\d+-pre$/).test(identity.version) ||
       !sha(identity.commit) || !sha(identity.tagObject) ||
-      (identity.failedStage !== undefined && (identity.product !== "crawler" || identity.failedStage !== "dependency-prepare")) ||
+      (identity.failedStage !== undefined && (identity.product !== "crawler" || !["dependency-prepare", "test-failed"].includes(identity.failedStage))) ||
       !Number.isSafeInteger(identity.failedRun) || identity.failedRun < 1) {
     throw new Error("Recovery requires an exact owner-reviewed product identity. No version or tag changes are permitted.");
   }
+
   return { ...identity, tag, repository: manifest.repository };
 }
 
@@ -97,7 +99,9 @@ export async function checkRecoveryRun(run, identity, api = readGitHubAPI()) {
   }
   let failedStageMatches;
   if (identity.failedStage === "dependency-prepare") {
-    failedStageMatches = dependencyPreparationFailed(workflowJobs);
+    failedStageMatches = builderStepFailed(workflowJobs, "Run node scripts/delivery.mjs prepare 'release' crawler --ci");
+  } else if (identity.failedStage === "test-failed") {
+    failedStageMatches = builderStepFailed(workflowJobs, "Run bun test ./tests");
   } else {
     const failedJob = identity.product === "crawler" ? "route" : "build";
     failedStageMatches = workflowJobs.some(job => job.name === failedJob && job.conclusion === "failure") &&
@@ -164,7 +168,8 @@ export async function checkRecoveryRetry(attempts, identity, toolingCommit, api 
         !jobs.jobs.some(job => job.conclusion === "failure") ||
         jobs.jobs.some(job => !["success", "failure", "skipped"].includes(job.conclusion)) ||
         jobs.jobs.some(job => /publish|release-assets|attach|announce/i.test(job.name) && job.conclusion !== "skipped") ||
-        identity.failedStage === "dependency-prepare" && !dependencyPreparationFailed(jobs.jobs)) {
+        (identity.failedStage === "dependency-prepare" && !builderStepFailed(jobs.jobs, "Run node scripts/delivery.mjs prepare 'release' crawler --ci")) ||
+        (identity.failedStage === "test-failed" && !builderStepFailed(jobs.jobs, "Run bun test ./tests"))) {
       throw new Error("Retry cannot rebuild an attempt with publication activity or incomplete evidence.");
     }
   }

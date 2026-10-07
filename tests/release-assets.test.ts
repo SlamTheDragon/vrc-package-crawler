@@ -183,17 +183,17 @@ test("installer stamping normalizes names before receipts and rejects collisions
 });
 
 test("Release notes select one bounded product milestone, not every commit or another product", () => {
-  const markdown = "# Milestones\n\n## package\n\n- SDK change.\n\n## worker\n\n- Worker-only change.\n";
+  const markdown = "# Milestones\n\n## VRC Packages API - `vrcp-packages-api-preview`\n\n- SDK change.\n\n## VRC Packages Worker - `vrcp-worker-preview`\n\n- Worker-only change.\n";
   const notes = milestoneNotes(markdown, "package", selected, commit, "https://github.com/example/repo/actions/runs/1", "checked", "vrc-packages-api-preview");
   expect(notes).toStartWith("# vrc-packages-api-preview 2026.10.0-pre\n");
   expect(notes).toContain("SDK change");
   expect(notes).not.toContain("Worker-only");
-  const canonicalMarkdown = "# Latest Changes\n\n## vrcp-packages-api\n\n- Canonical SDK notes.\n\n## vrcp-crawler-node\n\n- Node notes.\n";
+  const canonicalMarkdown = "# Latest Changes\n\n## vrcp-packages-api-preview\n\n- Canonical SDK notes.\n\n## vrcp-crawler-node-preview\n\n- Node notes.\n";
   const canonicalNotes = milestoneNotes(canonicalMarkdown, "package", selected, commit, "https://github.com/example/repo/actions/runs/1", "checked", "vrc-packages-api-preview");
   expect(canonicalNotes).toContain("Canonical SDK notes");
   expect(canonicalNotes).not.toContain("Node notes");
   expect(() => milestoneNotes(markdown, "crawler", selected, commit, "url", "checked", "vrcp-crawler-node")).toThrow("Missing");
-  expect(() => milestoneNotes("## package\n" + "x".repeat(6001), "package", selected, commit, "url", "checked", "vrc-packages-api")).toThrow("bounded");
+  expect(() => milestoneNotes("## vrcp-packages-api-preview\n" + "x".repeat(6001), "package", selected, commit, "url", "checked", "vrc-packages-api")).toThrow("bounded");
   expect(() => milestoneNotes(markdown, "package", selected, commit, "url", "checked", "Injected\nTitle")).toThrow("package.json name");
 });
 

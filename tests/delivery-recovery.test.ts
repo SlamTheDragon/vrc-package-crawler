@@ -38,7 +38,7 @@ test("only the exact approved failed crawler identity can enter recovery", () =>
   const f = fixture();
   expect(f.identity.commit).toBe("995db61eeafdf9a51f09902387411b258080fdc3");
   expect(f.identity.tagObject).toBe("41039d1f0020a95eda00cd898654d35c093bde25");
-  for (const tag of ["vrcp-crawler/v0.0.9", "vrcp-api/v0.0.6", "vrcp-crawler/v0.0.6-retry1", "__proto__"]) {
+  for (const tag of ["vrcp-crawler/v0.0.999", "vrcp-api/v0.0.6", "vrcp-crawler/v0.0.6-retry1", "__proto__"]) {
     expect(() => recoveryIdentity(tag)).toThrow("exact owner-reviewed");
   }
   expect(ciSourceCommit({ GITHUB_SHA: f.toolingCommit } as any)).toBe(f.toolingCommit);
@@ -260,7 +260,7 @@ test("troubleshooting adapts to observed phases without authorizing blind retrie
     expect(result.automaticRetry).toBe(false);
     expect(result.next.every((command: string) => !command.includes("--execute"))).toBe(true);
   }
-  const unknown = deliveryTroubleshooting({ tag: "vrcp-crawler/v0.0.9", status: "ci-failed", jobs: [] });
+  const unknown = deliveryTroubleshooting({ tag: "vrcp-crawler/v0.0.999", status: "ci-failed", jobs: [] });
   expect(unknown.next.join("\n")).not.toContain("delivery:recover");
 });
 

@@ -1,4 +1,4 @@
-name: Attach checked release assets
+name: Release Assets
 
 on:
   workflow_call:

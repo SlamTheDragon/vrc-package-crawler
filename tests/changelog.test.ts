@@ -60,3 +60,43 @@ test("extractProductChangelog handles network single stream layout", () => {
     rmSync(dir, { recursive: true });
   }
 });
+
+test("extractProductChangelog distinguishes release and preview headings with backtick identifiers", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vrcp-changelog-test-"));
+  try {
+    const changelogWithSections = `# Changelog
+
+# Applications - Release
+
+## VRC Packages Crawler - \`vrcp-crawler-node\`
+
+### Added
+
+- Release crawler feature.
+
+# Applications - Preview
+
+## VRC Packages Crawler - \`vrcp-crawler-node-preview\`
+
+### Added
+
+- Preview crawler experiment.
+
+---
+`;
+    writeFileSync(join(dir, "CHANGELOG.md"), changelogWithSections);
+
+    const relResult = extractProductChangelog("release", "crawler", "0.0.9", dir);
+    expect(relResult).toBeDefined();
+    expect(relResult!.section).toContain("Release crawler feature.");
+    expect(relResult!.section).not.toContain("Preview crawler experiment.");
+
+    const prevResult = extractProductChangelog("preview", "crawler", "2026.10.8-pre", dir);
+    expect(prevResult).toBeDefined();
+    expect(prevResult!.section).toContain("Preview crawler experiment.");
+    expect(prevResult!.section).not.toContain("Release crawler feature.");
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+

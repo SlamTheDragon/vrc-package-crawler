@@ -8,6 +8,7 @@ import semver from "semver";
 import { checkReleaseSource, requireCI, resolveTag, validateCIArtifact } from "./delivery.mjs";
 import { productDirectories, sdkPackageNames } from "./versioning.mjs";
 import { checkRecoveryReceipts, checkRecoveryRun, ciSourceCommit, recoveryIdentity, recoveryRunMatches } from "./delivery-recovery.mjs";
+import { findProductChangelogSection } from "./changelog.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -141,13 +142,9 @@ const changelogHeadings = {
 
 export function milestoneNotes(markdown, product, selected, commit, runURL, status, packageName) {
   checkedPackageName(packageName);
-  const heading = changelogHeadings[product] ?? product;
-  const lines = markdown.replace(/\r/g, "").split("\n");
-  const start = lines.findIndex(line => line === `## ${heading}` || line === `## ${product}`);
-  if (start < 0) throw new Error("Missing product milestone changelog");
-  let end = lines.findIndex((line, index) => index > start && line.startsWith("## "));
-  if (end < 0) end = lines.length;
-  const section = lines.slice(start + 1, end).join("\n").trim();
+  const found = findProductChangelogSection(markdown, selected?.channel ?? "preview", product);
+  if (!found) throw new Error("Missing product milestone changelog");
+  const section = found.section;
   if (!section || section.length > 6000) throw new Error("Product milestone notes must be nonempty and bounded");
   return `# ${packageName} ${selected.version}\n\nChannel: ${selected.channel}. Delivery: ${status}.\nCommit: ${commit}.\n[Checked CI run](${runURL})\n\n${section}\n\nAssets include checked build outputs and SHA-256 checksums.\n`;
 }

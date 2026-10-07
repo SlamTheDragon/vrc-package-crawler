@@ -170,7 +170,7 @@ test("terminal workflow keeps secrets off source tags and excludes Worker/networ
   expect(workflow).toContain("ref: ${{ github.event.repository.default_branch }}");
   expect(workflow).toContain("DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}");
   expect(workflow).toContain("DISCORD_PREVIEW_WEBHOOK: ${{ secrets.DISCORD_PREVIEW_WEBHOOK }}");
-  expect(workflow).not.toContain("Cloudflare Worker tagged deployment");
+  expect(workflow).not.toContain("Cloudflare Worker");
   expect(workflow).not.toContain("https://discord.com/api/webhooks/");
   expect(workflow).toContain("workflow_dispatch:");
   expect(workflow).toContain("run-id:");

@@ -1,4 +1,4 @@
-name: Announce verified product releases
+name: Release Announcements
 
 on:
   workflow_dispatch:
@@ -9,10 +9,10 @@ on:
         type: string
   workflow_run:
     workflows:
-      - SDK tagged artifact and channel npm publication
-      - Build & Publish Crawler Node Container
-      - Build & Publish Crawler Client
-      - Attach checked release assets
+      - Package API
+      - Crawler Node
+      - Crawler Client
+      - Release Assets
     types: [completed]
 
 permissions:

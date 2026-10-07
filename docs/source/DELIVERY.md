@@ -184,7 +184,7 @@ For first-time preview schema setup:
 
 1. In Settings → Environments → `cloudflare-preview`, retain the existing Worker Tag rule.
 2. Add a **Branch** rule for `main` so the manual initializer can access its existing `OPERATOR_TOKEN` secret.
-3. Open Actions → **Initialize preview Worker schema without seeding**.
+3. Open Actions → **Worker Preview Init**.
 4. Select `main`, then run the workflow. It uses the published preview SDK and explicitly disables seeding.
 5. Check that initialization and the catalog read pass. A failure does not prove that no schema statements ran.
 

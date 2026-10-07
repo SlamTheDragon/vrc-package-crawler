@@ -1,0 +1,20 @@
+name: Cleanup Candidate Branch
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.repository == 'SlamTheDragon/vrc-packages' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/candidate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete candidate branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${BRANCH}"

@@ -1,4 +1,4 @@
-name: Initialize preview Worker schema without seeding
+name: Worker Preview Init
 on:
   workflow_dispatch:
 permissions:

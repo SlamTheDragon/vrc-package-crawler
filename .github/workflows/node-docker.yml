@@ -1,4 +1,4 @@
-name: Build & Publish Crawler Node Container
+name: Crawler Node
 run-name: ${{ inputs.recovery-tag && format('Recover crawler {0}', inputs.recovery-tag) || github.ref_name }}
 
 on:

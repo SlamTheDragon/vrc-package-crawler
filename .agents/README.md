@@ -1,9 +1,9 @@
-# Antigravity workspace guidance
+# Agent workspace guidance
 
-Antigravity discovers the flat `.agents/rules/*.md` files and each
+Agents discovers the flat `.agents/rules/*.md` files and each
 `.agents/skills/<name>/SKILL.md`. The owner also requested a `SKILLS.md` in
 each skill folder; those files hold the detailed procedure, and the native
-`SKILL.md` entry point tells Antigravity to read them. These instructions
+`SKILL.md` entry point tells Agents to read them. These instructions
 apply to future work, not retroactively to previously signed-off phases.
 
 Read `docs/scratch/IMPLEMENTATION_PLAN.md` for gate order,

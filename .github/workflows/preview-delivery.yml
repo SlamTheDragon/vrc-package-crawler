@@ -1,4 +1,4 @@
-name: Queue preview delivery through the root executor
+name: Preview Delivery
 
 on:
   workflow_dispatch:

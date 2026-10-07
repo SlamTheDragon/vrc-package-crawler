@@ -1,4 +1,4 @@
-name: Warm trusted dependency downloads
+name: Dependency Cache
 on:
   push:
     branches: [main]

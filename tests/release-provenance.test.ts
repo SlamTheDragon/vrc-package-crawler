@@ -16,7 +16,7 @@ function fixture() {
   const responses: Record<string, any> = {
     [pull]: { number: 7, state: "closed", merged: true, draft: false, commits: 1,
       base: { ref: "main", repo: { full_name: repository } },
-      head: { sha: head, ref: "codex/release/worker/v0.0.2", repo: { full_name: repository } },
+      head: { sha: head, ref: "release/candidate/worker/v0.0.2", repo: { full_name: repository } },
       merge_commit_sha: commit, merged_by: { login: "example", type: "User" }, user: { login: "author", type: "User" },
       merged_at: "2026-10-06T12:00:00Z", auto_merge: null },
     [`${pull}/commits?per_page=2`]: [{ sha: head, parents: [{ sha: base }] }],

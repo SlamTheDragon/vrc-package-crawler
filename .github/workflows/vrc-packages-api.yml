@@ -1,4 +1,4 @@
-name: SDK tagged artifact and channel npm publication
+name: Package API
 
 # NPM_TOKEN is owner-configured. The package and API review holds remain explicit.
 

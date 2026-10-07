@@ -1,4 +1,4 @@
-name: Publish verified SDK release drafts
+name: SDK Release Reconcile
 on:
   schedule:
     - cron: '23 * * * *'

@@ -1,4 +1,4 @@
-name: Internal network tagged artifact
+name: Network Package
 run-name: ${{ inputs.recovery-tag && format('Recover network {0}', inputs.recovery-tag) || github.ref_name }}
 on:
   workflow_dispatch:

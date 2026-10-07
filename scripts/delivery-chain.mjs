@@ -52,7 +52,7 @@ function mainVersionBlocker(channel, product, version, refs, workspace, git) {
 }
 
 /** Read-only planning. Release execution prepares a version PR, not a direct main push. */
-export async function planDelivery(channel, product, workspace = root, now = new Date(), git = runGit) {
+export async function planDelivery(channel, product, workspace = root, now = new Date(), git = runGit, force = false) {
   if (!Object.hasOwn(workflows, product)) throw new Error("Product delivery is disabled or unknown. Website hosting remains deferred.");
   const { config, configPath } = await readVersionConfig(channel, workspace);
   const previous = config[`${channel}-${product}`];
@@ -62,7 +62,7 @@ export async function planDelivery(channel, product, workspace = root, now = new
   const branch = git(workspace, "symbolic-ref", "--short", "HEAD");
   const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
   const tag = `${productTagPrefixes[product]}/v${version}`;
-  const releaseBranch = channel === "release" ? `release/candidate/${product}/v${version}` : undefined;
+  const releaseBranch = channel === "release" && !force ? `release/candidate/${product}/v${version}` : undefined;
   const blockers = [];
   if (channel === "release" && branch !== "main") blockers.push("Release delivery requires main after reviewed promotion");
   if (git(workspace, "status", "--porcelain")) blockers.push("Worktree or index is dirty");
@@ -85,7 +85,7 @@ export async function planDelivery(channel, product, workspace = root, now = new
   if (other[`${channel === "preview" ? "release" : "preview"}-${product}`] === version) blockers.push("Channel tag would be ambiguous");
   return { channel, product, previous, version, tag, branch, repository, head, configPath, blockers, ...(releaseBranch ? { releaseBranch } : {}),
     workflow: `${workflows[product]}.yml`, purpose: "plan-only",
-    delivery: channel === "release" ? "version-pr-then-reviewed-main-tag" : "tagged-delivery",
+    delivery: channel === "release" ? (force ? "direct-main-tag" : "version-pr-then-reviewed-main-tag") : "tagged-delivery",
     ...(product === "worker" && channel === "release" ? { publication: "ci-build-only-no-production-deployment" } : {}) };
 }
 

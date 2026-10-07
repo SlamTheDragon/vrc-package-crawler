@@ -35,11 +35,14 @@ function fixture(baseline = false) {
   const annotation = `Finalize worker 0.0.2\n\nVRCP-Release-PR: 7\nVRCP-Release-Head: ${head}\nVRCP-Release-Base: ${base}\n`;
   const local = { tagObject, tagType: "tag", peeled: commit, annotation,
     diff: "config.versions.json\nsrc-worker/package.json\n", mergedTree: "e".repeat(40) };
-  const git = (_cwd: string, ...args: string[]) =\u003e {
+  const git = (_cwd: string, ...args: string[]) => {
     if (args[0] === "rev-parse" && args[1] === "--verify") return args[2].endsWith("^{commit}") ? local.peeled : local.tagObject;
     if (args[0] === "cat-file") return args[1] === "-t" ? local.tagType :
       `object ${commit}\ntype commit\ntag ${tag}\ntagger example <synthetic@example.invalid> 0 +0000\n\n${local.annotation}`;
-    if (args[0] === "ls-tree") return `100644 blob ${base}\t${args[3]}\n`;
+    if (args[0] === "ls-tree") {
+      const path = args[3];
+      return Object.hasOwn(args[1] === base ? before : after, path) ? `100644 blob ${base}\t${path}\n` : "";
+    }
     if (args[0] === "show") {
       const [revision, path] = args[1].split(":");
       if (Object.hasOwn(revision === base ? before : after, path)) return (revision === base ? before : after)[path];

@@ -1,12 +1,12 @@
-name: Read-only Actions cache usage
+name: Cache Maintenance
 on:
   workflow_run:
     workflows:
-      - SDK tagged artifact and channel npm publication
-      - Internal network tagged artifact
-      - Build & Publish Crawler Node Container
-      - Build & Publish Crawler Client
-      - Cloudflare Worker tagged deployment
+      - Package API
+      - Network Package
+      - Crawler Node
+      - Crawler Client
+      - Cloudflare Worker
     types: [completed]
   workflow_dispatch:
 permissions:
