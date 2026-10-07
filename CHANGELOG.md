@@ -78,52 +78,48 @@ Summary
 ## VRC Packages Crawler Client - `vrcp-crawler-client`
 
 <!-- vrcp-crawler-client-DESCRIPTION_SUMMARY -->
-Desktop crawler client release v0.0.5 with delivery pipeline synchronization and updated package scripts.
+Desktop crawler client release v0.0.6 pipeline verification and live delivery synchronization.
 <!-- vrcp-crawler-client-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- Desktop client delivery automation on synchronized release pipeline.
+- Automated pipeline validation for production desktop client distribution.
 
 ### Changed
 
-- Updated client package configuration and build scripts.
+- Synchronized desktop client package and release configuration dependencies.
 
 See full history at [docs/changelogs/vrcp-crawler-client/release](docs/changelogs/vrcp-crawler-client/release)
 
 ## VRC Packages Crawler - `vrcp-crawler-node`
 
 <!-- vrcp-crawler-node-DESCRIPTION_SUMMARY -->
-Crawler Node release v0.0.11 featuring automated markdown comment stripping during changelog extraction and direct single-pass package script delivery execution.
+Crawler Node release v0.0.12 pipeline verification and multi-architecture release validation.
 <!-- vrcp-crawler-node-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- Automated markdown comment stripping during changelog extraction for clean receipts, commit descriptions, and release notes.
+- Automated pipeline validation for Linux and Windows production binary artifacts and container image.
 
 ### Changed
 
-- Updated changelog extraction pipeline and added unit tests verifying comment sanitization across channels.
+- Synchronized production crawler package manifests and build dependencies.
 
 See full history at [docs/changelogs/vrcp-crawler-node/release](docs/changelogs/vrcp-crawler-node/release)
 
 ## VRC Packages API - `vrcp-packages-api`
 
 <!-- vrcp-packages-api-DESCRIPTION_SUMMARY -->
-Placeholder Summary
+SDK API package release v0.0.7 pipeline verification and npm distribution staging validation.
 <!-- vrcp-packages-api-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- none currently
-
-### Bugs Fixed
-
-- none currently
+- Automated pipeline validation for production SDK package distribution.
 
 ### Changed
 
-- none currently
+- Synchronized release API package configuration and distributed exports.
 
 See full history at [docs/changelogs/vrcp-packages-api/release](docs/changelogs/vrcp-packages-api/release)
 
@@ -154,20 +150,16 @@ See full history at [docs/changelogs/vrcp-web/release](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker`
 
 <!-- vrcp-worker-DESCRIPTION_SUMMARY -->
-Placeholder Summary
+Worker coordinator release v0.0.7 pipeline verification and production build bundle validation.
 <!-- vrcp-worker-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- none currently
-
-### Bugs Fixed
-
-- none currently
+- Automated pipeline validation for Cloudflare worker production bundle compilation.
 
 ### Changed
 
-- none currently
+- Synchronized production worker coordinator package manifests and build tooling.
 
 See full history at [docs/changelogs/vrcp-worker/release](docs/changelogs/vrcp-worker/release)
 
