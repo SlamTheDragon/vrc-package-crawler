@@ -44,9 +44,11 @@
   - Validated predecessor publication for `vrcp-crawler-client/v0.0.4` (verified setup.exe, msi, receipt, and changelog hashes).
   - Executed direct release on `main` at commit `b9b99a6b3995a36671aa90684d48636c67c40800`, created tag `vrcp-crawler-client/v0.0.5`.
   - Extracted clean changelog `docs/changelogs/vrcp-crawler-client/release/0.0.5.md` without markdown comments.
-  - Hosted CI run [`37613541019`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37613541019) actively running (`build` on `windows-latest`).
+  - Hosted CI run [`37613541019`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37613541019):
+    - `build`: completed (`success` - built Windows NSIS `-setup.exe` and WiX `.msi` bundles).
+    - `release-assets / attach-desktop`: `waiting` for owner deployment approval on environment `vrcp-crawler-client-release`.
 - Next steps:
-  1. Monitor CI run [`37613541019`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37613541019) to completion.
+  1. Owner approves deployment for `vrcp-crawler-client-release` on run [`37613541019`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37613541019).
   2. Complete `release-assets / attach-desktop` and verify Discord announcement embed.
   3. Verify release assets and receipts with `bun run delivery:check vrcp-crawler-client/v0.0.5`.
   4. Continue delivery path verification across remaining paths (e.g. preview channels).
