@@ -78,20 +78,16 @@ Summary
 ## VRC Packages Crawler Client - `vrcp-crawler-client`
 
 <!-- vrcp-crawler-client-DESCRIPTION_SUMMARY -->
-Placeholder Summary
+Desktop crawler client release v0.0.5 with delivery pipeline synchronization and updated package scripts.
 <!-- vrcp-crawler-client-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- none currently
-
-### Bugs Fixed
-
-- none currently
+- Desktop client delivery automation on synchronized release pipeline.
 
 ### Changed
 
-- none currently
+- Updated client package configuration and build scripts.
 
 See full history at [docs/changelogs/vrcp-crawler-client/release](docs/changelogs/vrcp-crawler-client/release)
 
