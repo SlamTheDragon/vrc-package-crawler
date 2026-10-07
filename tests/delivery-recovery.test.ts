@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { recoveryIdentity, recoveryRunMatches, checkRecoveryRun, checkRecoveryRetry, checkRecoveryReceipts, requireRecoveryCI, ciSourceCommit, authorizeRecovery } from "../scripts/delivery-recovery.mjs";
+import { recoveryIdentity, recoveryRunMatches, checkRecoveryRun, checkRecoveryRetry, checkRecoveryReceipts, requireRecoveryCI, ciSourceCommit, authorizeRecovery, diagnoseFailure, rerunWorkflowRun, revertDeliveryTag, createPatchBranch, mergeAndCleanupPatchBranch, promptInteractiveRecovery } from "../scripts/delivery-recovery.mjs";
 import { deliveryTroubleshooting } from "../scripts/delivery-chain.mjs";
 
 function fixture(tag = "vrcp-crawler/v0.0.6") {
@@ -335,4 +335,160 @@ test("retry allows prior build artifacts when no publication activity occurred",
   await expect(checkRecoveryRetry([attempt], f.identity, f.toolingCommit, f.api))
     .rejects.toThrow("publication activity");
 });
+
+test("diagnoseFailure categorizes transient, collision, and defect failures accurately", () => {
+  // Transient error
+  const transientDiag = diagnoseFailure({ error: "FetchError: request to https://api.github.com timed out" });
+  expect(transientDiag.category).toBe("transient");
+  expect(transientDiag.severity).toBe("low");
+  expect(transientDiag.continuity).toBe("resumable");
+  expect(transientDiag.suggestedActions).toContain("rerun-failed-jobs");
+
+  // Transient job conclusion
+  const jobTimeoutDiag = diagnoseFailure({ jobs: [{ name: "build-linux", status: "completed", conclusion: "timed_out" }] });
+  expect(jobTimeoutDiag.category).toBe("transient");
+  expect(jobTimeoutDiag.continuity).toBe("resumable");
+
+  // Collision error
+  const collisionDiag = diagnoseFailure({ error: "Delivery aborted: Local tag already exists" });
+  expect(collisionDiag.category).toBe("collision");
+  expect(collisionDiag.severity).toBe("medium");
+  expect(collisionDiag.continuity).toBe("requires-reversion");
+  expect(collisionDiag.suggestedActions).toContain("revert-tag");
+
+  // Defect / test failure
+  const defectDiag = diagnoseFailure({ error: "bun test failed with 2 assertions failing" });
+  expect(defectDiag.category).toBe("defect");
+  expect(defectDiag.severity).toBe("critical");
+  expect(defectDiag.continuity).toBe("requires-patch");
+  expect(defectDiag.suggestedActions).toContain("create-patch-branch");
+
+  // Build failure in jobs
+  const buildJobDiag = diagnoseFailure({ jobs: [{ name: "build", status: "completed", conclusion: "failure" }] });
+  expect(buildJobDiag.category).toBe("defect");
+  expect(buildJobDiag.severity).toBe("critical");
+  expect(buildJobDiag.continuity).toBe("requires-patch");
+
+  // Unknown failure
+  const unknownDiag = diagnoseFailure({ error: "Something unusual happened" });
+  expect(unknownDiag.category).toBe("unknown");
+  expect(unknownDiag.severity).toBe("high");
+  expect(unknownDiag.continuity).toBe("requires-investigation");
+});
+
+test("rerunWorkflowRun calls GitHub actions rerun endpoint", async () => {
+  let requestedUrl = "";
+  let requestedMethod = "";
+  const fetchMock = async (url: string, opts: any) => {
+    requestedUrl = url;
+    requestedMethod = opts.method;
+    return new Response(JSON.stringify({}), { status: 201 });
+  };
+  const res = await rerunWorkflowRun("SlamTheDragon/vrc-packages", 12345, {
+    failedJobsOnly: true,
+    token: "ghp_fake_token",
+    fetchFn: fetchMock as any
+  });
+  expect(res.status).toBe("rerun-dispatched");
+  expect(requestedUrl).toBe("https://api.github.com/repos/SlamTheDragon/vrc-packages/actions/runs/12345/rerun-failed-jobs");
+  expect(requestedMethod).toBe("POST");
+});
+
+test("revertDeliveryTag deletes local tag and invokes remote DELETE when requested", async () => {
+  const gitLog: string[] = [];
+  const mockGit = (_cwd: string, ...args: string[]) => {
+    gitLog.push(args.join(" "));
+    return "";
+  };
+  let remoteDeletedUrl = "";
+  const fetchMock = async (url: string, opts: any) => {
+    if (opts.method === "DELETE") remoteDeletedUrl = url;
+    return new Response(null, { status: 204 });
+  };
+
+  const res = await revertDeliveryTag("vrcp-api/v0.0.9", {
+    workspace: "/test",
+    readGit: mockGit,
+    deleteRemote: true,
+    repository: "test/repo",
+    token: "ghp_token",
+    fetchFn: fetchMock as any
+  });
+
+  expect(res.status).toBe("tag-reverted");
+  expect(gitLog).toContain("tag -d vrcp-api/v0.0.9");
+  expect(remoteDeletedUrl).toBe("https://api.github.com/repos/test/repo/git/refs/tags/vrcp-api%2Fv0.0.9");
+});
+
+test("patch branch lifecycle creates temporary branch and merges back cleanly", () => {
+  const gitLog: string[] = [];
+  let currentBranch = "main";
+  let porcelainStatus = "";
+  const mockGit = (_cwd: string, ...args: string[]) => {
+    gitLog.push(args.join(" "));
+    if (args[0] === "symbolic-ref") return currentBranch;
+    if (args[0] === "checkout" && args[1] === "-b") {
+      currentBranch = args[2];
+      return "";
+    }
+    if (args[0] === "checkout") {
+      currentBranch = args[1];
+      return "";
+    }
+    if (args[0] === "status" && args.includes("--porcelain")) return porcelainStatus;
+    if (args[0] === "config" && args[1] === "--get") return "main";
+    return "";
+  };
+
+  // Create patch branch
+  const createRes = createPatchBranch("crawler", "0.0.12", {
+    workspace: "/test",
+    readGit: mockGit,
+    baseBranch: "main"
+  });
+  expect(createRes.status).toBe("patch-branch-created");
+  expect(createRes.branch).toBe("release/patch/crawler/v0.0.12");
+  expect(createRes.tagDeleted).toBe("vrcp-crawler/v0.0.12");
+  expect(gitLog).toContain("checkout -b release/patch/crawler/v0.0.12");
+  expect(gitLog).toContain("tag -d vrcp-crawler/v0.0.12");
+
+  // Merge and cleanup patch branch
+  const mergeRes = mergeAndCleanupPatchBranch("crawler", "0.0.12", {
+    workspace: "/test",
+    readGit: mockGit,
+    targetBranch: "main"
+  });
+  expect(mergeRes.status).toBe("patch-branch-merged-and-deleted");
+  expect(mergeRes.branch).toBe("release/patch/crawler/v0.0.12");
+  expect(mergeRes.mergedInto).toBe("main");
+  expect(gitLog).toContain("checkout main");
+  expect(gitLog).toContain("merge --no-ff release/patch/crawler/v0.0.12 -m merge: apply patch fixes from release/patch/crawler/v0.0.12");
+  expect(gitLog).toContain("branch -D release/patch/crawler/v0.0.12");
+});
+
+test("promptInteractiveRecovery presents menu and dispatches chosen recovery action", async () => {
+  const messages: string[] = [];
+  const askFn = async (_q: string) => "1"; // Choose option 1: rerun failed jobs
+  let rerunCalled = false;
+  const fetchMock = async (url: string) => {
+    if (url.includes("/rerun-failed-jobs")) rerunCalled = true;
+    return new Response(JSON.stringify({}), { status: 201 });
+  };
+
+  const res = await promptInteractiveRecovery({
+    runId: 9999,
+    tag: "vrcp-api/v0.0.5",
+    error: "Test assertion failed in CI"
+  }, {
+    askFn,
+    onProgress: (msg: string) => messages.push(msg),
+    token: "ghp_mock",
+    fetchFn: fetchMock as any
+  });
+
+  expect(res.status).toBe("rerun-dispatched");
+  expect(rerunCalled).toBe(true);
+  expect(messages.some(m => m.includes("VRCP Delivery Failure Recovery Console"))).toBe(true);
+});
+
 

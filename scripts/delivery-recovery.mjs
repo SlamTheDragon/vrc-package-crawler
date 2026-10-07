@@ -300,6 +300,251 @@ export async function authorizeRecovery(tag, options = {}, workspace = root, api
     next: `Push the commit to main, then run: delivery:recover ${tag} --execute` };
 }
 
+export function diagnoseFailure(context = {}) {
+  const errorMsg = typeof context.error === "string" ? context.error : context.error?.message ?? "";
+  const jobs = Array.isArray(context.jobs) ? context.jobs : [];
+  const failedJobs = jobs.filter(j => ["failure", "cancelled", "timed_out", "action_required", "startup_failure"].includes(j.conclusion));
+  const failedNames = failedJobs.map(j => j.name);
+
+  // Transient failure detection (network glitch, timeout, runner shutdown)
+  const isTransientError = /timeout|timed out|ETIMEDOUT|ECONNRESET|socket hang up|rate limit|fetch failed|network|503|502|runner_listener|startup_failure/i.test(errorMsg);
+  const isTransientJob = failedJobs.some(j => j.conclusion === "timed_out" || j.conclusion === "startup_failure");
+  if (isTransientError || isTransientJob) {
+    return {
+      category: "transient",
+      severity: "low",
+      continuity: "resumable",
+      rootCause: isTransientJob ? `Job(s) timed out or had startup failures: ${failedNames.join(", ")}` : `Transient network/service error: ${errorMsg}`,
+      suggestedActions: ["rerun-failed-jobs", "rerun-run"]
+    };
+  }
+
+  // Tag, version, branch or release collision
+  const isCollision = /already exists|Reference already exists|Local tag already exists|Remote tag differs|Release preparation branch already exists|version config is behind|Divergent|rejected/i.test(errorMsg);
+  if (isCollision) {
+    return {
+      category: "collision",
+      severity: "medium",
+      continuity: "requires-reversion",
+      rootCause: `Tag, version, or branch collision: ${errorMsg}`,
+      suggestedActions: ["revert-tag", "sync-versions"]
+    };
+  }
+
+  // Code, test or build defect
+  const isDefect = /test|failed.*test|vitest|bun test|syntax error|compilation|tsc|build-or-runtime-check|missing.*asset|missing.*receipt/i.test(errorMsg) ||
+    failedNames.some(n => /test|build|compile|check/i.test(n));
+  if (isDefect || failedNames.length > 0) {
+    return {
+      category: "defect",
+      severity: "critical",
+      continuity: "requires-patch",
+      rootCause: failedNames.length > 0 ? `Build or test failure in job(s): ${failedNames.join(", ")}` : `Code or verification defect: ${errorMsg}`,
+      suggestedActions: ["create-patch-branch", "abort"]
+    };
+  }
+
+  return {
+    category: "unknown",
+    severity: "high",
+    continuity: "requires-investigation",
+    rootCause: errorMsg || "Unclassified failure during pipeline execution",
+    suggestedActions: ["inspect-run", "create-patch-branch", "abort"]
+  };
+}
+
+export async function rerunWorkflowRun(repository, runId, options = {}) {
+  const { failedJobsOnly = true, token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN, fetchFn = fetch } = options;
+  if (!token) throw new Error("Workflow rerun requires GitHub credential with actions write permission.");
+  const endpoint = failedJobsOnly
+    ? `https://api.github.com/repos/${repository}/actions/runs/${runId}/rerun-failed-jobs`
+    : `https://api.github.com/repos/${repository}/actions/runs/${runId}/rerun`;
+  const response = await fetchFn(endpoint, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "user-agent": "VRCPDelivery",
+      accept: "application/vnd.github+json"
+    }
+  });
+  if (!response.ok && response.status !== 201) {
+    throw new Error(`Failed to dispatch rerun for run ${runId}: HTTP ${response.status}`);
+  }
+  return { status: "rerun-dispatched", runId, failedJobsOnly };
+}
+
+export async function revertDeliveryTag(tag, options = {}) {
+  const { workspace = root, readGit = git, deleteRemote = false, repository = "SlamTheDragon/vrc-packages", token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN, fetchFn = fetch } = options;
+  let localDeleted = false;
+  let remoteDeleted = false;
+  try {
+    readGit(workspace, "tag", "-d", tag);
+    localDeleted = true;
+  } catch {}
+  if (deleteRemote) {
+    if (!token) throw new Error("Deleting remote tag requires a GitHub token with write permission.");
+    const response = await fetchFn(`https://api.github.com/repos/${repository}/git/refs/tags/${encodeURIComponent(tag)}`, {
+      method: "DELETE",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "user-agent": "VRCPDelivery",
+        accept: "application/vnd.github+json"
+      }
+    });
+    if (response.ok || response.status === 204 || response.status === 404) {
+      remoteDeleted = true;
+    } else {
+      throw new Error(`Failed to delete remote tag ${tag}: HTTP ${response.status}`);
+    }
+  }
+  return { status: "tag-reverted", tag, local: localDeleted, remote: remoteDeleted };
+}
+
+export function createPatchBranch(product, version, options = {}) {
+  const {
+    workspace = root,
+    readGit = git,
+    baseBranch,
+    tag = productTagPrefixes[product] ? `${productTagPrefixes[product]}/v${version}` : undefined,
+    deleteTag = true
+  } = options;
+  if (!product || !version) throw new Error("createPatchBranch requires product and version");
+  const branchName = `release/patch/${product}/v${version}`;
+  const currentBranch = baseBranch || readGit(workspace, "symbolic-ref", "--short", "HEAD").trim();
+  try {
+    readGit(workspace, "config", "vrcp.patch.previousBranch", currentBranch);
+  } catch {}
+
+  // Switch branch along side the patch
+  readGit(workspace, "checkout", "-b", branchName);
+
+  // Delete premature or advanced tag if one was created
+  let tagDeleted = false;
+  if (deleteTag && tag) {
+    try {
+      readGit(workspace, "tag", "-d", tag);
+      tagDeleted = true;
+    } catch {}
+  }
+
+  return {
+    status: "patch-branch-created",
+    branch: branchName,
+    previousBranch: currentBranch,
+    tagDeleted: tagDeleted ? tag : null,
+    instruction: `Switched to temporary patch branch '${branchName}'${tagDeleted ? ` (deleted tag ${tag})` : ""}. Make code fixes, commit them, then run merge-patch.`
+  };
+}
+
+export function mergeAndCleanupPatchBranch(product, version, options = {}) {
+  const { workspace = root, readGit = git, targetBranch } = options;
+  if (!product || !version) throw new Error("mergeAndCleanupPatchBranch requires product and version");
+  const branchName = `release/patch/${product}/v${version}`;
+  const dirty = readGit(workspace, "status", "--porcelain").trim();
+  if (dirty) {
+    throw new Error(`Cannot merge patch branch '${branchName}': worktree has uncommitted changes.`);
+  }
+  let destination = targetBranch;
+  if (!destination) {
+    try {
+      destination = readGit(workspace, "config", "--get", "vrcp.patch.previousBranch").trim();
+    } catch {}
+  }
+  if (!destination) destination = "main";
+  readGit(workspace, "checkout", destination);
+  readGit(workspace, "merge", "--no-ff", branchName, "-m", `merge: apply patch fixes from ${branchName}`);
+  readGit(workspace, "branch", "-D", branchName);
+  try {
+    readGit(workspace, "config", "--unset", "vrcp.patch.previousBranch");
+  } catch {}
+  return {
+    status: "patch-branch-merged-and-deleted",
+    branch: branchName,
+    mergedInto: destination,
+    prompt: `Patch branch '${branchName}' merged into '${destination}' and deleted. You may now restart the local pipeline cleanly.`
+  };
+}
+
+export async function promptInteractiveRecovery(context = {}, options = {}) {
+  const {
+    input = process.stdin,
+    output = process.stdout,
+    askFn,
+    onProgress = console.log,
+    workspace = root,
+    readGit = git,
+    repository = "SlamTheDragon/vrc-packages",
+    token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
+    fetchFn = fetch
+  } = options;
+
+  let rl;
+  const ask = askFn || (async query => {
+    if (!rl) {
+      const readline = await import("node:readline/promises");
+      rl = readline.createInterface({ input, output });
+    }
+    return (await rl.question(query)).trim();
+  });
+
+  try {
+    const diagnosis = diagnoseFailure(context);
+    onProgress("=================================================");
+    onProgress("VRCP Delivery Failure Recovery Console");
+    onProgress("=================================================");
+    onProgress(`Failure Category: ${diagnosis.category.toUpperCase()} (Severity: ${diagnosis.severity})`);
+    onProgress(`Root Cause: ${diagnosis.rootCause}`);
+    onProgress(`Continuity Impact: ${diagnosis.continuity}`);
+    onProgress(`Suggested Action(s): ${diagnosis.suggestedActions.join(", ")}`);
+    onProgress("-------------------------------------------------");
+    onProgress("Available Remediation Options:");
+    onProgress("  1) Rerun failed CI jobs (transient failure)");
+    onProgress("  2) Revert delivery tag locally (collision/abort)");
+    onProgress("  3) Switch to temporary patch branch (release/patch/*) and revert tag");
+    onProgress("  4) Merge and clean up temporary patch branch");
+    onProgress("  5) Abort and exit");
+    onProgress("-------------------------------------------------");
+
+    const choice = await ask("Select remediation option [1-5]: ");
+    if (choice === "1") {
+      if (!context.runId) throw new Error("No runId available in context to rerun.");
+      onProgress(`Rerunning failed jobs for workflow run #${context.runId}...`);
+      const res = await rerunWorkflowRun(repository, context.runId, { failedJobsOnly: true, token, fetchFn });
+      onProgress("Rerun dispatched successfully.");
+      return res;
+    } else if (choice === "2") {
+      if (!context.tag) throw new Error("No tag specified in context to revert.");
+      onProgress(`Reverting delivery tag ${context.tag}...`);
+      const res = await revertDeliveryTag(context.tag, { workspace, readGit, deleteRemote: false, repository, token, fetchFn });
+      onProgress(`Local tag ${context.tag} deleted.`);
+      return res;
+    } else if (choice === "3") {
+      const product = context.product || (await ask("Enter product name: "));
+      const version = context.version || (await ask("Enter version string: "));
+      const tag = context.tag || (productTagPrefixes[product] ? `${productTagPrefixes[product]}/v${version}` : undefined);
+      onProgress(`Switching to patch branch for ${product} v${version} and cleaning up tag ${tag || ""}...`);
+      const res = createPatchBranch(product, version, { workspace, readGit, tag });
+      if (res.tagDeleted) {
+        onProgress(`✓ Reverted premature delivery tag ${res.tagDeleted}`);
+      }
+      onProgress(res.instruction);
+      return res;
+    } else if (choice === "4") {
+      const product = context.product || (await ask("Enter product name: "));
+      const version = context.version || (await ask("Enter version string: "));
+      onProgress(`Merging and cleaning up patch branch for ${product} v${version}...`);
+      const res = mergeAndCleanupPatchBranch(product, version, { workspace, readGit });
+      onProgress(res.prompt);
+      return res;
+    } else {
+      onProgress("Recovery cancelled by user.");
+      return { status: "recovery-aborted" };
+    }
+  } finally {
+    if (rl) rl.close();
+  }
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   (async () => {
   const [subcommand, ...rest] = process.argv.slice(2);
@@ -314,16 +559,46 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const failedRunId = failedRunIdx >= 0 ? Number(flags[failedRunIdx + 1]) : undefined;
       const result = await authorizeRecovery(tag, { execute: flags.includes("--execute"), failedRunId }, root, readGitHubAPI());
       console.log(JSON.stringify(result, null, 2));
-    } else {
-      // Legacy: treat first arg as tag for `recover` subcommand (backward-compatible).
-      const tag = subcommand;
-      const flags = rest;
+    } else if (subcommand === "patch-branch") {
+      const [action, product, version] = rest;
+      if (action === "create") {
+        const res = createPatchBranch(product, version);
+        console.log(JSON.stringify(res, null, 2));
+      } else if (action === "merge") {
+        const res = mergeAndCleanupPatchBranch(product, version);
+        console.log(JSON.stringify(res, null, 2));
+      } else {
+        throw new Error("Use: delivery-recovery.mjs patch-branch <create|merge> <product> <version>");
+      }
+    } else if (subcommand === "rerun") {
+      const [runId, ...flags] = rest;
+      if (!runId || !/^[1-9][0-9]*$/.test(runId)) throw new Error("Use: delivery-recovery.mjs rerun <runId> [--all]");
+      const res = await rerunWorkflowRun("SlamTheDragon/vrc-packages", Number(runId), { failedJobsOnly: !flags.includes("--all") });
+      console.log(JSON.stringify(res, null, 2));
+    } else if (subcommand === "revert-tag") {
+      const [tag, ...flags] = rest;
+      if (!tag) throw new Error("Use: delivery-recovery.mjs revert-tag <tag> [--remote]");
+      const res = await revertDeliveryTag(tag, { deleteRemote: flags.includes("--remote") });
+      console.log(JSON.stringify(res, null, 2));
+    } else if (subcommand === "interactive" || subcommand === "recover-interactive") {
+      const [tag, runId] = rest;
+      const res = await promptInteractiveRecovery({ tag, runId: runId ? Number(runId) : undefined });
+      console.log(JSON.stringify(res, null, 2));
+    } else if (subcommand === "diagnose") {
+      const [tag] = rest;
+      const res = diagnoseFailure({ tag, error: tag });
+      console.log(JSON.stringify(res, null, 2));
+    } else if (subcommand === "recover" || subcommand?.includes("/v")) {
+      const tag = subcommand === "recover" ? rest[0] : subcommand;
+      const flags = subcommand === "recover" ? rest.slice(1) : rest;
       if (!tag || new Set(flags).size !== flags.length || flags.some(flag => !["--execute", "--retry"].includes(flag))) {
-        throw new Error("Use delivery:recover <exact-tag> [--retry] [--execute].");
+        throw new Error("Use: delivery-recovery.mjs recover <exact-tag> [--retry] [--execute]");
       }
       const result = await recoverDelivery(tag, flags.includes("--execute"), root, readGitHubAPI(), dispatchRecovery, flags.includes("--retry"));
       console.log(JSON.stringify(result, null, 2));
       if (result.status === "tooling-promotion-required") process.exitCode = 1;
+    } else {
+      throw new Error("Unknown recovery command. Use: recover, authorize, patch-branch, rerun, revert-tag, diagnose, or interactive.");
     }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
   })();

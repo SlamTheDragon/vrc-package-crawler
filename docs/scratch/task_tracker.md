@@ -2,6 +2,15 @@
 
 ## Active checkpoint — Consolidated Delivery Lifecycle & Architecture (Milestone M-R64) (2026-10-08)
 
+- Implementation Progress:
+  - `R70-CLEANUP-CI-TEST-POLICY`: Implemented & committed locally (`4154ac9`). Cleaned up `VRCP_SKIP_TESTS` from 4 workflows, resolved language server warning, enforced native `continue-on-error: ${{ channel == 'preview' }}` policy.
+  - `R64-INTERACTIVE-DELIVERY-ENTRY`: Implemented & committed locally (`ff9fef4`). Added interactive terminal prompts in `scripts/delivery-chain.mjs` for product/channel/bump selection, PAT admin/owner authority verification, dirty worktree check, changelog preparedness self-check (summary, new features, bug fixes, other changes), and unit tests (41/41 passing).
+  - `R65-FAILURE-RECOVERY-WORKFLOW`: Implemented & committed locally. Added categorized failure diagnosis (`diagnoseFailure`), workflow rerun (`rerunWorkflowRun`), delivery tag rollback (`revertDeliveryTag`), automated temporary patch branch lifecycle (`createPatchBranch`, `mergeAndCleanupPatchBranch` for `release/patch/<product>/v<version>`), and interactive terminal recovery menu (`promptInteractiveRecovery`). 19/19 tests passing.
+  - `R66-INTERACTIVE-SETUP-ONBOARDING`: In progress. Interactive onboarding wizard (`setup.mjs`) inspecting `.env`, prompting for missing credentials (`GH_TOKEN`, Cloudflare, Discord), validating PAT against GitHub API, selecting target projects, and orchestrating full-repo dependency installation.
+  - `R67-LOCAL-BUILD-ORCHESTRATION`: Queued.
+  - `R68-INDEPENDENT-SYNC-CHECK`: Queued.
+  - `R69-INTERNAL-DEPENDENCY-SYNC`: Queued.
+
 - Active Working Theories & Architectural Covenants:
   1. Entry Point for Deployment/Release (R64):
      - Interactive terminal prompt answering which package/app to distribute (`package`, `crawler`, `crawler-client`, `worker`, `network`, `web`, `web-search`) and which channel to deploy (`preview` vs `release`).
