@@ -1,6 +1,6 @@
 {
   "name": "vrcp-crawler-client",
-  "version": "0.0.5",
+  "version": "26.10.7-pre",
   "description": "Desktop crawler-client shell for VRC Packages (VRCP).",
   "type": "module",
   "scripts": {
