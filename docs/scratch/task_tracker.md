@@ -1,5 +1,37 @@
 # Active checkpoint — R57-C57A/B delivery transition
 
+## Active checkpoint — Consolidated Delivery Lifecycle & Architecture (Milestone M-R64) (2026-10-08)
+
+- Active Working Theories & Architectural Covenants:
+  1. Entry Point for Deployment/Release (R64):
+     - Interactive terminal prompt answering which package/app to distribute (`package`, `crawler`, `crawler-client`, `worker`, `network`, `web`, `web-search`) and which channel to deploy (`preview` vs `release`).
+     - Check executor owner/admin authority using PAT verification (`GH_TOKEN` / `GITHUB_TOKEN`) to enable overriding dangerous parameters.
+     - Commit remaining work for a clean tree.
+     - Interactive changelog verification evaluating user judgment: "Is the summary written? Were there new features? Bug fixes? Changes made?" with abort on unready state.
+     - Evaluate local vs remote version config: if out of date, patch/sync version control config with evidences; verify remote build artifacts/deployed/release page.
+     - Prompt for bump type (patch, minor, major for release; CalVer patch for preview).
+     - Extract changelog to target directory with bumped version.
+     - Automated atomic commit, tag, and push.
+     - Transition from local gated protections to remote observation streaming CI progress.
+     - Branch enforcement: `preview/*` (or `main`) commits to preview without restriction; `release` requires PR to `main` unless owner `--force`.
+     - Staged Discord notifications for 3 products: `crawler`, `crawler-client`, `package` (`vrc-packages-api`).
+     - Bounded eager wait for npm stage approval on `vrc-packages-api`, falling back to asynchronous reconciliation.
+     - Finalization: apply extracted changelog to GitHub Release, attach build artifacts, emit final Discord announcement.
+  2. Failure Points & Guided Recovery (R65):
+     - Categorize failure points and suggest actionable fixes on the fly: job rerun, tag/release reversion, recreating tags.
+     - Automated temporary patch branch creation: `release/patch/<product>/v<version>` for critical fixes, merged back to work branch, auto-deleted after merge, with prompt to restart local pipeline.
+  3. Repository Setup & Onboarding (R66):
+     - Download dependencies in one pass across root and all subfolders/submodules.
+     - Interactive onboarding wizard (`npx`-style): prompt for `.env` credentials, verify PAT against GitHub API, select target projects.
+  4. Local Build Orchestration (R67):
+     - Root script navigating to subfolders/submodules to execute local building of files directly, reusable in CI/CD builds for targeted setups.
+  5. Independent Sync & Parity Check (R68):
+     - Standalone command checking if branch is behind remote and if local version configs are out of date.
+  6. Subproject Dependency Synchronization (R69):
+     - Synchronize internal package references (e.g. `vrc-packages-network`) across sibling projects.
+  7. CI Test Policy Simplification (R70):
+     - Eliminate redundant `VRCP_SKIP_TESTS` from workflow `env:` blocks and steps; rely on native `continue-on-error: ${{ channel == 'preview' }}` (release = fails closed; preview = non-blocking).
+
 ## Active checkpoint — Live Delivery Pipeline Full-Cycle Trials & Scoped CI Testing Task (2026-10-07)
 
 - Preview Channel Full-Cycle Execution (All 5 Products Verified):

@@ -24,7 +24,6 @@ concurrency:
 env:
   GH_TOKEN: ${{ github.token }}
   VRCP_RECOVERY_TAG: ${{ inputs.recovery-tag || '' }}
-  VRCP_SKIP_TESTS: ${{ vars.VRCP_SKIP_TESTS || '' }}
 jobs:
   build-linux:
     runs-on: ubuntu-latest
@@ -55,18 +54,12 @@ jobs:
           project: crawler
       - run: bun install --no-save --ignore-scripts
       - run: node scripts/versioning.mjs sync '${{ needs.route.outputs.channel }}'
-      - name: Enforce test policy
-        if: env.VRCP_SKIP_TESTS == 'true' && needs.route.outputs.channel == 'release'
-        run: |
-          echo "::error::Tests cannot be disabled on release/production routes"
-          exit 1
       - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Typecheck crawler node
         run: bun run --cwd src-crawler typecheck
       - name: Test crawler node
-        if: needs.route.outputs.channel == 'release' || env.VRCP_SKIP_TESTS != 'true'
         continue-on-error: ${{ needs.route.outputs.channel == 'preview' }}
         run: bun run --cwd src-crawler test
       - name: Build and verify crawler node
@@ -177,17 +170,11 @@ jobs:
           project: crawler
       - run: bun install --no-save --ignore-scripts
       - run: node scripts/versioning.mjs sync '${{ needs.route.outputs.channel }}'
-      - name: Enforce test policy
-        if: env.VRCP_SKIP_TESTS == 'true' && needs.route.outputs.channel == 'release'
-        run: |
-          echo "::error::Tests cannot be disabled on release/production routes"
-          exit 1
       - run: node scripts/delivery.mjs prepare '${{ needs.route.outputs.channel }}' crawler --ci
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: bun run --cwd src-crawler typecheck
       - name: Test crawler node
-        if: needs.route.outputs.channel == 'release' || env.VRCP_SKIP_TESTS != 'true'
         continue-on-error: ${{ needs.route.outputs.channel == 'preview' }}
         run: bun run --cwd src-crawler test
       - run: node scripts/delivery.mjs build '${{ needs.route.outputs.channel }}' crawler --ci

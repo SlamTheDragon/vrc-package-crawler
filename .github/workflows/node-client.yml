@@ -19,7 +19,6 @@ permissions:
 env:
   GH_TOKEN: ${{ github.token }}
   VRCP_RECOVERY_TAG: ${{ inputs.recovery-tag || '' }}
-  VRCP_SKIP_TESTS: ${{ vars.VRCP_SKIP_TESTS || '' }}
 jobs:
   build:
     runs-on: windows-latest
@@ -55,14 +54,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - run: node scripts/versioning.mjs sync '${{ steps.route.outputs.channel }}'
-      - name: Enforce test policy
-        if: env.VRCP_SKIP_TESTS == 'true' && steps.route.outputs.channel == 'release'
-        run: |
-          echo "::error::Tests cannot be disabled on release/production routes"
-          exit 1
       - run: node scripts/delivery.mjs prepare '${{ steps.route.outputs.channel }}' crawler-client --ci
       - name: Check crawler client
-        if: steps.route.outputs.channel == 'release' || env.VRCP_SKIP_TESTS != 'true'
         continue-on-error: ${{ steps.route.outputs.channel == 'preview' }}
         run: bun run --cwd src-crawler-client check
       - run: node scripts/delivery.mjs build '${{ steps.route.outputs.channel }}' crawler-client --ci

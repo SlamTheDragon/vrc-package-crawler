@@ -1105,10 +1105,11 @@ test("product workflows scope tests to product domains and enforce test policy o
         }
       }
     }
-    // Workflows that have release channel must enforce test policy
-    if (["node-docker", "cloudflare-worker", "node-client", "vrc-packages-api"].includes(name)) {
-      expect(content).toContain("Enforce test policy");
-      expect(content).toContain("Tests cannot be disabled on release/production routes");
+    // Workflows must not contain redundant VRCP_SKIP_TESTS context access in CI
+    expect(content).not.toContain("VRCP_SKIP_TESTS");
+    // Workflows that have separate test steps configure continue-on-error for preview tests
+    if (["node-docker", "cloudflare-worker", "node-client"].includes(name)) {
+      expect(content).toContain("continue-on-error: ${{");
     }
   }
 
