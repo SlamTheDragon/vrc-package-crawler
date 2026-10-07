@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,17 @@ import semver from "semver";
 import { checkRemoteTag, checkSourceRun, sameSourceRunLink } from "./release-assets.mjs";
 import { downloadActionsArchive } from "./worker-artifacts.mjs";
 import { checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+
+if (typeof process.loadEnvFile === "function") {
+  const envFile = resolve(root, ".env");
+  if (existsSync(envFile)) {
+    try { process.loadEnvFile(envFile); } catch {}
+  } else {
+    try { process.loadEnvFile(); } catch {}
+  }
+}
 
 const products = {
   package: { prefix: "vrcp-api", title: "VRC Packages API" },

@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { executeDelivery, finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun, trackDeliveryPipeline, triggerReconcile, verifyPredecessor } from "../scripts/delivery-chain.mjs";
+import { executeDelivery, finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, loadRootEnv, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, resolveGitHubToken, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun, trackDeliveryPipeline, triggerReconcile, verifyPredecessor } from "../scripts/delivery-chain.mjs";
 import { networkArchiveURL, productDirectories, productTagPrefixes } from "../scripts/versioning.mjs";
 import { checkReleaseMetadata } from "../scripts/delivery.mjs";
 import { createHash } from "node:crypto";
@@ -1186,3 +1186,23 @@ test("trackDeliveryPipeline locates workflow run and inspects delivery", async (
     expect(messages.some(m => m.includes("Workflow run #8888 succeeded"))).toBe(true);
   });
 }, 60_000);
+
+test("resolveGitHubToken resolves from env and workspace .env", async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), "vrcp-env-test-"));
+  try {
+    writeFileSync(resolve(dir, ".env"), "GH_TOKEN=test-token-from-env-file\n");
+    const originalToken = process.env.GH_TOKEN;
+    delete process.env.GH_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.RELEASE_TOKEN;
+    try {
+      const token = resolveGitHubToken(dir);
+      expect(token).toBe("test-token-from-env-file");
+    } finally {
+      if (originalToken) process.env.GH_TOKEN = originalToken;
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+

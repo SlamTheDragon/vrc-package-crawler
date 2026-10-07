@@ -5,8 +5,10 @@ import process from "node:process";
 
 const TOPICS = {
   execute: `
+================================================================
 Execute Pipeline (bun run execute <product> <channel> [options])
 ================================================================
+
 Runs the unified single-command delivery pipeline for a product and channel.
 
 Usage:
@@ -32,8 +34,10 @@ Pipeline Stages:
   7. Finalization: Verifies published assets, registry digests, and announcements.
 `,
   reconcile: `
+=======================================================
 SDK Release Reconciliation (bun run delivery:reconcile)
 =======================================================
+
 Dispatches sdk-release-reconcile.yml to reconcile staged npm packages.
 
 Usage:
@@ -46,8 +50,10 @@ Purpose:
   reconciliation workflow to make the release public and notify Discord.
 `,
   delivery: `
+=========================================
 Delivery Subcommands (bun run delivery:*)
 =========================================
+
 Manual and granular delivery lifecycle operations.
 
 Available Commands:
@@ -60,17 +66,21 @@ Available Commands:
   bun run delivery:status                Display current delivery pipeline status.
 `,
   recovery: `
+============================================
 Delivery Recovery (bun run delivery:recover)
 ============================================
+
 Operational recovery procedures for interrupted or failed delivery runs.
 
 Commands:
-  bun run delivery:recover <tag>             Trigger authorized CI recovery.
+  bun run delivery:recover <tag>              Trigger authorized CI recovery.
   bun run delivery:authorize-recovery <tag>   Authorize recovery token locally.
 `,
   testing: `
+===========================
 Testing & Quality Assurance
 ===========================
+
 Commands for running test suites and checking code boundaries.
 
 Commands:
@@ -80,6 +90,22 @@ Commands:
   bun run --cwd src-worker test         Run Coordinator Worker unit tests.
   bun run --cwd src-worker test:runtime Run Coordinator Worker runtime smoke tests.
   bun run --cwd src-crawler-client check Run Svelte type checks.
+`,
+  setup: `
+============================================
+Monorepo Setup (bun run setup [project|all])
+============================================
+
+Installs dependencies across the root repository and all product subprojects using Bun without mutating lockfiles (--no-save --ignore-scripts).
+
+Usage:
+  bun run setup                     Install all dependencies across root and all subprojects
+  bun run setup:all                 Same as bun run setup
+  bun run setup <project>           Install dependencies for a specific product
+  bun run setup:root                Install root dependencies only
+
+Available Projects:
+  root, crawler, crawler-client, package, web, worker, network
 `
 };
 
@@ -90,23 +116,26 @@ if (topic && TOPICS[topic]) {
   console.log(TOPICS[topic].trim());
 } else {
   console.log(`
+=============================================
 VRC Packages (VRCP) Delivery & Operations CLI
 =============================================
+
 Authoritative repository CLI tool for building, testing, delivering, and managing VRCP components.
 
 Primary Commands:
   bun run execute <product> <channel>    Run unified delivery pipeline (e.g. bun run execute package release)
   bun run delivery:reconcile             Trigger on-demand SDK staged package reconciliation
+  bun run setup                          Install dependencies across root and all subprojects
   bun run delivery:check <tag>           Verify published artifacts against remote checksums
   bun run delivery:status                Check active delivery status across products
   bun test ./tests                       Run root governance and integration test suite
 
 Products:
   package         VRC Packages SDK (vrc-packages-api on npm)
-  crawler         Crawler Node (Linux/Windows binaries + Docker image)
-  crawler-client  Crawler Desktop Shell (Windows Tauri application)
-  worker          Coordinator Service (Cloudflare Worker API)
-  network         Discovery Bot & Protocol contracts
+  crawler         Crawler Node (Docker image & Windows binaries)
+  crawler-client  Crawler Desktop Shell (Windows)
+  worker          Coordinator Services (Cloudflare Worker API)
+  network         Internal Shared Package
 
 Help Topics:
   bun run help execute                   Detailed options for the execute pipeline
@@ -114,10 +143,9 @@ Help Topics:
   bun run help delivery                  Granular delivery subcommands
   bun run help recovery                  Troubleshooting and CI recovery
   bun run help testing                   Test suites and validation commands
+  bun run help setup                     Monorepo setup and dependency installation
 
 Documentation:
-  - Architecture & Delivery: docs/scratch/IMPLEMENTATION_PLAN.md
-  - Operational Runbook:     DELEGATES.md
-  - Task Status:             docs/scratch/task_tracker.md
+  - Source Code & Tooling:  docs/source/README.md
 `.trim());
 }

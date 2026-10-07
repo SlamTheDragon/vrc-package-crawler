@@ -48,6 +48,22 @@
 - Queued Task `R60-CI-TEST-SCOPING`:
   - Queued into `UNMERGED_IMPLEMENTATION_PLAN.md` with requirement that tests can never be disabled on release/production routes.
 
+## Active checkpoint — Dynamic Owner Guard, Monorepo Setup & Local Token Resolution (R62) (2026-10-08)
+
+- Dynamic owner check & admin authority:
+  - Made `--force` single-pass release validation in `scripts/delivery-chain.mjs` dynamic: derives repository owner from `git remote get-url origin` (`repositoryFromRemote`) and checks GitHub collaborator admin permissions (`GET /repos/{owner}/{repo}/collaborators/{user}/permission`).
+  - Added `loadRootEnv` and `resolveGitHubToken` with fallback to `git credential fill` across `delivery-chain.mjs`, `delivery.mjs`, and `release-announcements.mjs`.
+  - Added `.env.example` in root documenting local token configuration.
+- Monorepo dependency setup:
+  - Implemented `scripts/setup.mjs` supporting `all`, `root`, and all individual subprojects (`crawler`, `crawler-client`, `package`, `web`, `worker`, `network`) using `bun install --no-save --ignore-scripts` without mutating lockfiles.
+  - Wired setup scripts in root `package.json` (`setup`, `setup:all`, `setup:root`, and per-project scripts).
+  - Documented setup commands in `scripts/help.mjs`.
+- Verification evidence:
+  - Added unit test suite `tests/setup.test.ts` (3 tests pass).
+  - Added token resolution and `.env` test in `tests/delivery-chain.test.ts` (passes).
+  - All 199 tests pass across 16 test files.
+  - `bun run setup all` and `bun run setup root` executed cleanly.
+
 ## Active checkpoint — Root Execute Pipeline, Staging Pings, & Reconciliation (R61) (2026-10-08)
 
 - Verified test suite: All 195 tests pass across 15 files (`bun test ./tests`, 2748 expectations).

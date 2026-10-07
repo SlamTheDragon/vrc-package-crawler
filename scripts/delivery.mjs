@@ -8,11 +8,16 @@ import semver from "semver";
 import { ciSourceCommit, recoveryIdentity, requireRecoveryCI } from "./delivery-recovery.mjs";
 import { bumpVersion, distributedArtifact, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, sdkChannelForProduct, versionFiles } from "./versioning.mjs";
 
-if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN && typeof process.loadEnvFile === "function") {
-  try { process.loadEnvFile(); } catch {}
-}
-
 const root = fileURLToPath(new URL("../", import.meta.url));
+
+if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN && typeof process.loadEnvFile === "function") {
+  const envFile = resolve(root, ".env");
+  if (existsSync(envFile)) {
+    try { process.loadEnvFile(envFile); } catch {}
+  } else {
+    try { process.loadEnvFile(); } catch {}
+  }
+}
 const artifacts = { "vrc-packages-api": "package", "vrc-packages-network": "network" };
 const releaseWorkflows = { package: "vrc-packages-api", crawler: "node-docker", "crawler-client": "node-client", worker: "cloudflare-worker" };
 const readGit = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8", timeout: 30_000, stdio: "pipe" });

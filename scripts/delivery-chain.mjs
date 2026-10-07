@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
@@ -10,11 +11,39 @@ import { checkWorkerArtifacts, downloadActionsArchive } from "./worker-artifacts
 import { checkRecoveryReceipts, checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
 import { extractProductChangelog } from "./changelog.mjs";
 
-if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN && typeof process.loadEnvFile === "function") {
-  try { process.loadEnvFile(); } catch {}
+const root = fileURLToPath(new URL("../", import.meta.url));
+
+export function loadRootEnv(workspace = root) {
+  const envFile = resolve(workspace, ".env");
+  if (existsSync(envFile) && typeof process.loadEnvFile === "function") {
+    try { process.loadEnvFile(envFile); } catch {}
+  } else if (typeof process.loadEnvFile === "function") {
+    try { process.loadEnvFile(); } catch {}
+  }
 }
 
-const root = fileURLToPath(new URL("../", import.meta.url));
+loadRootEnv();
+
+export function resolveGitHubToken(workspace = root) {
+  loadRootEnv(workspace);
+  if (process.env.GH_TOKEN !== undefined) return process.env.GH_TOKEN || undefined;
+  if (process.env.GITHUB_TOKEN !== undefined) return process.env.GITHUB_TOKEN || undefined;
+  if (process.env.RELEASE_TOKEN !== undefined) return process.env.RELEASE_TOKEN || undefined;
+  if (resolve(workspace) === resolve(root)) {
+    try {
+      const out = execFileSync("git", ["credential", "fill"], {
+        cwd: workspace,
+        input: "protocol=https\nhost=github.com\n\n",
+        stdio: ["pipe", "pipe", "ignore"],
+        encoding: "utf8",
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" }
+      });
+      const token = out.split("\n").find(l => l.startsWith("password="))?.slice(9).trim();
+      if (token) return token;
+    } catch {}
+  }
+  return undefined;
+}
 const workflows = { package: "vrc-packages-api", network: "network", crawler: "node-docker",
   "crawler-client": "node-client", worker: "cloudflare-worker" };
 
@@ -178,15 +207,29 @@ export async function startDelivery(channel, product, execute = false, workspace
   if (force) {
     if (channel !== "release") throw new Error("Force delivery applies only to release channel");
     if (process.env.GITHUB_ACTIONS === "true") throw new Error("Force release cannot run inside GitHub Actions");
-    const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+    const token = resolveGitHubToken(workspace);
     if (!token) throw new Error("Force release requires GH_TOKEN or GITHUB_TOKEN to verify owner authority");
     const userResp = await fetch("https://api.github.com/user", {
       headers: { authorization: `Bearer ${token}`, "user-agent": "VRCPDelivery" }
     });
     if (!userResp.ok) throw new Error("Failed to verify user identity for force release");
     const user = await userResp.json();
-    if (user.login !== "SlamTheDragon") {
-      throw new Error(`Force release is authorized only for repository owner SlamTheDragon (got ${user.login})`);
+    const repo = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
+    const repoOwner = repo.split("/")[0];
+    let isAuthorized = user.login?.toLowerCase() === repoOwner.toLowerCase();
+    if (!isAuthorized) {
+      try {
+        const permResp = await fetch(`https://api.github.com/repos/${repo}/collaborators/${user.login}/permission`, {
+          headers: { authorization: `Bearer ${token}`, "user-agent": "VRCPDelivery" }
+        });
+        if (permResp.ok) {
+          const permData = await permResp.json();
+          isAuthorized = permData.permission === "admin";
+        }
+      } catch {}
+    }
+    if (!isAuthorized) {
+      throw new Error(`Force release is authorized only for repository owner/admin ${repoOwner} (got ${user.login})`);
     }
   }
   await requirePublicationProof(channel, product, plan.previous, workspace, publicationProof);
@@ -457,7 +500,7 @@ export function summarizeRun(run, jobs, release, product, channel = "preview") {
 }
 
 function githubReader(workspace) {
-  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  const token = resolveGitHubToken(workspace);
   return async (path, missing = false, format = "json") => {
     if (format === "archive") {
       const match = /^\/repos\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/actions\/artifacts\/([1-9][0-9]*)\/zip$/.exec(path);
@@ -690,7 +733,7 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
 
 export async function triggerReconcile(workspace = root, fetchFn = fetch, git = runGit) {
   const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
-  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || process.env.RELEASE_TOKEN;
+  const token = resolveGitHubToken(workspace);
   if (!token) throw new Error("Triggering reconcile requires GH_TOKEN or GITHUB_TOKEN");
   const response = await fetchFn(`https://api.github.com/repos/${repository}/actions/workflows/sdk-release-reconcile.yml/dispatches`, {
     method: "POST",
