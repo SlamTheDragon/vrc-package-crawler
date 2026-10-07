@@ -48,6 +48,26 @@
 - Queued Task `R60-CI-TEST-SCOPING`:
   - Queued into `UNMERGED_IMPLEMENTATION_PLAN.md` with requirement that tests can never be disabled on release/production routes.
 
+## Active checkpoint — Submodule Setup, Package Script Cleanup, & CLI Help Walkthrough (R63) (2026-10-08)
+
+- Submodule repository integration in setup script:
+  - Added `web-search` (`src-web-search`, pointing to submodule `https://github.com/SlamTheDragon/vrc-packages-search`) to `setupProjects` in `scripts/setup.mjs`.
+  - Added automatic git submodule initialization via `git submodule update --init --recursive` when submodules require initialization before dependency installation.
+  - Added target argument handling in `scripts/setup.mjs` allowing `bun run setup web-search` or `bun run setup:web-search` to target individual projects directly.
+- Root package.json scripts cleanup:
+  - Removed obsolete and conflicting `"install": "bun run setup"` and `"postinstall": "bun run help"` scripts to avoid unexpected execution loops during package manager operations.
+  - Removed legacy, redundant `build:release:*` and `build:preview:*` scripts across products.
+  - Added `"setup:web-search": "node scripts/setup.mjs web-search"`.
+  - Preserved root governance, delivery, versioning, cleanup, and product-referenced scripts.
+- Enhanced CLI help tool (`scripts/help.mjs`):
+  - Added comprehensive Quickstart Setup Walkthrough (Step 1: Environment, Step 2: Monorepo Setup & Submodules, Step 3: Verification).
+  - Documented all 8 projects and submodules (`package`, `crawler`, `crawler-client`, `worker`, `network`, `web`, `web-search`).
+  - Added rich concrete example usage with realistic example values across all commands and topics (`execute`, `setup`, `reconcile`, `delivery`, `recovery`, `cleaning`, `versions`, `testing`).
+- Verification evidence:
+  - `tests/setup.test.ts`: updated to cover all 8 projects, submodule initialization attempt on missing manifests, and unknown product handling (4/4 tests pass).
+  - Root test suite and layout conformance tests verified green.
+  - Live command verification: `bun run setup web-search` and `bun run setup:web-search` executed cleanly and installed dependencies non-destructively.
+
 ## Active checkpoint — Dynamic Owner Guard, Monorepo Setup & Local Token Resolution (R62) (2026-10-08)
 
 - Dynamic owner check & admin authority:

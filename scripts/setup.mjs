@@ -9,7 +9,8 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 
 export const setupProjects = {
   root: ".",
-  ...productDirectories
+  ...productDirectories,
+  "web-search": "src-web-search"
 };
 
 export async function setup(target = "all", options = {}) {
@@ -22,7 +23,21 @@ export async function setup(target = "all", options = {}) {
       throw new Error(`Unknown project: "${name}". Valid targets: all, ${projectKeys.join(", ")}`);
     }
     const projectDir = resolve(workspace, setupProjects[name]);
-    const manifestPath = resolve(projectDir, "package.json");
+    let manifestPath = resolve(projectDir, "package.json");
+
+    if (!existsSync(manifestPath) && name === "web-search") {
+      if (!quiet) console.log(`Initializing git submodule for ${name}...`);
+      try {
+        exec("git", ["submodule", "update", "--init", "--recursive"], {
+          cwd: workspace,
+          stdio: quiet ? "ignore" : "inherit",
+          encoding: "utf8"
+        });
+      } catch (submoduleErr) {
+        if (!quiet) console.warn(`Warning: failed to initialize submodule: ${submoduleErr instanceof Error ? submoduleErr.message : String(submoduleErr)}`);
+      }
+    }
+
     if (!existsSync(manifestPath)) {
       if (!quiet) console.log(`Skipping ${name}: no package.json found at ${projectDir}`);
       continue;
@@ -37,7 +52,8 @@ export async function setup(target = "all", options = {}) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  const target = process.argv[2] || "all";
+  const args = process.argv.slice(2);
+  const target = (args.length > 1 && args[0] === "all") ? args[1] : (args[0] || "all");
   try {
     await setup(target);
     console.log("All dependency installations complete.");

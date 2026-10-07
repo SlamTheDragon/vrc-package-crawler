@@ -9,6 +9,7 @@ test("setupProjects includes root and all product directories", () => {
   expect(setupProjects.web).toBe("src-web");
   expect(setupProjects.worker).toBe("src-worker");
   expect(setupProjects.network).toBe("src-worker/packages/network");
+  expect(setupProjects["web-search"]).toBe("src-web-search");
 });
 
 test("setup executes bun install --no-save --ignore-scripts across selected targets", async () => {
@@ -27,10 +28,26 @@ test("setup executes bun install --no-save --ignore-scripts across selected targ
   // Test setup("all")
   executed.length = 0;
   await setup("all", { exec: fakeExec as any, quiet: true });
-  // Should have executed for all 7 projects
-  expect(executed.length).toBe(7);
+  // Should have executed for all 8 projects
+  expect(executed.length).toBe(8);
   expect(executed.every(e => e.cmd === "bun")).toBe(true);
   expect(executed.every(e => e.args.join(" ") === "install --no-save --ignore-scripts")).toBe(true);
+});
+
+test("setup initializes submodule if package.json is missing for web-search", async () => {
+  const executed: { cmd: string; args: string[]; cwd: string }[] = [];
+  const fakeExec = (cmd: string, args: string[], options: any) => {
+    executed.push({ cmd, args, cwd: options.cwd });
+    return "";
+  };
+
+  // Run in a simulated workspace directory where src-web-search has no package.json
+  const tempWorkspace = import.meta.dir;
+  await setup("web-search", { workspace: tempWorkspace, exec: fakeExec as any, quiet: true });
+  // Should attempt git submodule update
+  const gitCall = executed.find(e => e.cmd === "git");
+  expect(gitCall).toBeDefined();
+  expect(gitCall?.args).toEqual(["submodule", "update", "--init", "--recursive"]);
 });
 
 test("setup throws on unknown product target", async () => {
