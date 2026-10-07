@@ -149,18 +149,32 @@ function checkpointPendingPreview(plan, workspace, git) {
 
 /** Keep failed local commit/tag state so an exact retry cannot allocate another version. */
 export async function startDelivery(channel, product, execute = false, workspace = root, now = new Date(), git = runGit,
-    publicationProof = inspectDelivery) {
-  let plan = await planDelivery(channel, product, workspace, now, git);
+    publicationProof = inspectDelivery, force = false) {
+  let plan = await planDelivery(channel, product, workspace, now, git, force);
   if (!execute) return plan;
   const blockers = plan.blockers.filter(blocker => channel !== "preview" || blocker !== "Worktree or index is dirty");
   if (blockers.length) throw new Error(`Delivery blocked: ${blockers.join("; ")}`);
+  if (force) {
+    if (channel !== "release") throw new Error("Force delivery applies only to release channel");
+    if (process.env.GITHUB_ACTIONS === "true") throw new Error("Force release cannot run inside GitHub Actions");
+    const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+    if (!token) throw new Error("Force release requires GH_TOKEN or GITHUB_TOKEN to verify owner authority");
+    const userResp = await fetch("https://api.github.com/user", {
+      headers: { authorization: `Bearer ${token}`, "user-agent": "VRCPDelivery" }
+    });
+    if (!userResp.ok) throw new Error("Failed to verify user identity for force release");
+    const user = await userResp.json();
+    if (user.login !== "SlamTheDragon") {
+      throw new Error(`Force release is authorized only for repository owner SlamTheDragon (got ${user.login})`);
+    }
+  }
   await requirePublicationProof(channel, product, plan.previous, workspace, publicationProof);
   if (git(workspace, "rev-parse", "HEAD") !== plan.head || git(workspace, "symbolic-ref", "--short", "HEAD") !== plan.branch) {
     throw new Error("Repository changed after planning");
   }
   const pendingCheckpoint = channel === "preview" ? checkpointPendingPreview(plan, workspace, git) : undefined;
   if (pendingCheckpoint) {
-    plan = await planDelivery(channel, product, workspace, now, git);
+    plan = await planDelivery(channel, product, workspace, now, git, force);
     if (plan.blockers.length) throw new Error(`Pending checkpoint pushed; delivery blocked: ${plan.blockers.join("; ")}. No version bump ran.`);
   }
   // Recheck immediately before writes. A later race still cannot force an origin ref.
@@ -168,7 +182,7 @@ export async function startDelivery(channel, product, execute = false, workspace
       git(workspace, "symbolic-ref", "--short", "HEAD") !== plan.branch) {
     throw new Error("Repository changed after planning");
   }
-  if (channel === "release") git(workspace, "checkout", "-b", plan.releaseBranch);
+  if (channel === "release" && !force) git(workspace, "checkout", "-b", plan.releaseBranch);
   const result = await bumpVersion(channel, product, "patch", workspace, now);
   if (result.version !== plan.version) throw new Error("Config changed after planning. Inspect it before retrying.");
   const metadata = await versionFiles("sync", channel, product, workspace);
@@ -178,14 +192,22 @@ export async function startDelivery(channel, product, execute = false, workspace
   git(workspace, "add", "--", ...paths);
   const commitMessages = [`${channel === "release" ? "Prepare" : "Deliver"} ${product} ${channel} ${plan.version}`];
   if (changelogResult?.section && changelogResult.section !== "- none currently") commitMessages.push(changelogResult.section);
-  if (channel === "release") commitMessages.push(`VRCP-Release-Product: ${product}\nVRCP-Release-Version: ${plan.version}\nVRCP-Release-Base: ${plan.head}`);
+  if (channel === "release") {
+    commitMessages.push(`VRCP-Release-Product: ${product}\nVRCP-Release-Version: ${plan.version}${force ? "\nVRCP-Release-Direct: true" : ""}\nVRCP-Release-Base: ${plan.head}`);
+  }
   git(workspace, "commit", "--only", ...commitMessages.flatMap(m => ["-m", m]), "--", ...paths);
-  if (channel === "release") return retryReleasePreparation(plan.releaseBranch, workspace, git);
+  if (channel === "release" && !force) return retryReleasePreparation(plan.releaseBranch, workspace, git);
+  if (channel === "release" && force) {
+    const commit = git(workspace, "rev-parse", "HEAD");
+    git(workspace, "tag", "-a", plan.tag, commit, "-m", `VRC Packages ${product} release ${plan.version}\n\nVRCP-Release-Direct: true\nVRCP-Release-Head: ${commit}\nVRCP-Release-Base: ${plan.head}\nVRCP-Previous-Version: ${plan.previous}`);
+    const tagObject = git(workspace, "rev-parse", `refs/tags/${plan.tag}`);
+    git(workspace, "push", "--atomic", "--no-follow-tags", "origin", "HEAD:refs/heads/main", `refs/tags/${plan.tag}`);
+    return { ...plan, commit, tagObject, status: "pushed", next: [`bun run delivery:status ${plan.tag}`, `bun run delivery:check ${plan.tag}`] };
+  }
   git(workspace, "tag", "-a", plan.tag, "-m", `VRC Packages ${product} ${channel} ${plan.version}\n\nVRCP-Previous-Version: ${plan.previous}`);
   return { ...retryDelivery(plan.tag, workspace, git), ...(pendingCheckpoint ? { pendingCheckpoint } : {}) };
 }
 
-/** Preparation pushes only its version PR branch. It never writes main or a delivery tag. */
 export async function retryReleasePreparation(branch, workspace = root, git = runGit) {
   const match = /^release\/candidate\/(package|crawler|crawler-client|worker)\/v([0-9][0-9A-Za-z.+-]*)$/.exec(branch ?? "");
   if (!match || semver.valid(match[2]) !== match[2] || semver.prerelease(match[2])) throw new Error("Expected an exact release preparation branch");
@@ -652,8 +674,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (["diagnose-configured", "check-configured"].includes(action) && !first && !second && !extra.length) {
       result = await inspectConfiguredDeliveries(action === "check-configured");
       if (action === "check-configured" && !result.verified) process.exitCode = 1;
-    } else if (action === "start" && (!extra.length || extra.length === 1 && extra[0] === "--execute")) {
-      result = await startDelivery(first, second, extra[0] === "--execute");
+    } else if (action === "start") {
+      const force = extra.includes("--force");
+      const execute = extra.includes("--execute");
+      result = await startDelivery(first, second, execute, root, new Date(), runGit, inspectDelivery, force);
     } else if (action === "finalize" && (extra.length === 1 || extra.length === 2 && extra[1] === "--execute") && /^[1-9][0-9]*$/.test(second ?? "")) {
       result = await finalizeRelease(first, Number(second), extra[0], extra[1] === "--execute");
     } else if (action === "retry-preparation" && !second && !extra.length) {
