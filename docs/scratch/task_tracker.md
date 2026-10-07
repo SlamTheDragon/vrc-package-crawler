@@ -35,11 +35,21 @@
   - Added built-in `.env` loading to `scripts/delivery.mjs` and `scripts/delivery-chain.mjs` so root `package.json` scripts (`bun run delivery:release` / `npm run delivery:release`) execute without manual env flags.
   - Executed direct single-pass release via root script: `bun run delivery:release crawler --force --execute`.
   - Validated predecessor publication for `vrcp-crawler/v0.0.10`, committed directly on `main` at `4c20daa10d394b71cc06c5539f3d6f6517302013`, and pushed tag `vrcp-crawler/v0.0.11`.
-  - Active hosted CI run: [`37611314794`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37611314794).
+  - Hosted CI run [`37611314794`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37611314794) completed all jobs (`route`, `build-linux`, `standalone-windows`, `publish-container`, `release-assets / attach`).
+  - Terminal workflows completed: `Release Announcements` ([`37611905173`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37611905173)) posted Discord embed, `Cache Maintenance` ([`37611905182`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37611905182)) succeeded.
+  - Fully verified via `bun run delivery:check vrcp-crawler/v0.0.11`: returned `"status": "release-artifacts-verified"`, `"artifactsVerified": true` with all 6 asset checksums verified.
+- Single-pass delivery for Crawler Client 0.0.5:
+  - Aligned `config.versions.json` baseline with published predecessor `vrcp-crawler-client/v0.0.4`.
+  - Root `CHANGELOG.md` updated with 0.0.5 release notes under `## VRC Packages Crawler Client - `vrcp-crawler-client``.
+  - Validated predecessor publication for `vrcp-crawler-client/v0.0.4` (verified setup.exe, msi, receipt, and changelog hashes).
+  - Executed direct release on `main` at commit `b9b99a6b3995a36671aa90684d48636c67c40800`, created tag `vrcp-crawler-client/v0.0.5`.
+  - Extracted clean changelog `docs/changelogs/vrcp-crawler-client/release/0.0.5.md` without markdown comments.
+  - Hosted CI run [`37613541019`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37613541019) actively running (`build` on `windows-latest`).
 - Next steps:
-  1. Monitor CI run [`37611314794`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37611314794).
-  2. Owner approves deployment for `vrcp-crawler-release` when `publish-container` transitions to `waiting`.
-  3. Verify release assets, announcement embed, and run `node --env-file=.env scripts/delivery-chain.mjs check vrcp-crawler/v0.0.11`.
+  1. Monitor CI run [`37613541019`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37613541019) to completion.
+  2. Complete `release-assets / attach-desktop` and verify Discord announcement embed.
+  3. Verify release assets and receipts with `bun run delivery:check vrcp-crawler-client/v0.0.5`.
+  4. Continue delivery path verification across remaining paths (e.g. preview channels).
 
 
 ## Owner handover — start here (2026-10-06)
