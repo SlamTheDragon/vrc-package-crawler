@@ -19,6 +19,7 @@ permissions:
 env:
   GH_TOKEN: ${{ github.token }}
   VRCP_RECOVERY_TAG: ${{ inputs.recovery-tag || '' }}
+  VRCP_SKIP_TESTS: ${{ vars.VRCP_SKIP_TESTS || '' }}
 jobs:
   build:
     runs-on: windows-latest
@@ -74,6 +75,16 @@ jobs:
             src-crawler-client/src-tauri/target/release/bundle/nsis/*-setup.exe
             src-crawler-client/src-tauri/target/release/bundle/crawler-client.receipt.json
           if-no-files-found: error
+      - name: Notify Discord of pending publication approval
+        if: steps.route.outputs.channel == 'release'
+        continue-on-error: true
+        run: node scripts/release-announcements.mjs staging-notify --product crawler-client --version '${{ steps.route.outputs.version }}'
+        env:
+          DISCORD_STAGING_WEBHOOK: ${{ secrets.DISCORD_STAGING_WEBHOOK }}
+          DISCORD_STAGING_PING: ${{ secrets.DISCORD_STAGING_PING || vars.DISCORD_STAGING_PING }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
   release-assets:
     needs: build
     permissions:

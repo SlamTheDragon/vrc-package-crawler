@@ -11,7 +11,9 @@ import { checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
 const products = {
   package: { prefix: "vrcp-api", title: "VRC Packages API" },
   crawler: { prefix: "vrcp-crawler", title: "VRCP Crawler" },
-  "crawler-client": { prefix: "vrcp-crawler-client", title: "VRCP Crawler Client" }
+  "crawler-client": { prefix: "vrcp-crawler-client", title: "VRCP Crawler Client" },
+  worker: { prefix: "cloudflare-worker", title: "VRCP Worker" },
+  network: { prefix: "vrcp-network", title: "VRCP Network" }
 };
 const sourcePaths = ["vrc-packages-api", "node-docker", "node-client", "release-assets"].map(name => `.github/workflows/${name}.yml`);
 
@@ -59,6 +61,75 @@ export function releaseEmbed(release, receipt, repository) {
       footer: { text: `${receipt.channel === "preview" ? "Preview" : "Release"} verified · ${receipt.commit.slice(0, 12)}` }
     }], components: [{ type: 1, components: [{ type: 2, style: 5, label: "View release", url }] }]
   };
+}
+
+export function stagingEmbed(options) {
+  const { version, runId, repository = "SlamTheDragon/vrc-packages", ping, product = "package", statusText } = options;
+  const prod = products[product] || { prefix: product, title: product };
+  const tag = `${prod.prefix}/v${version}`;
+  const runUrl = `https://github.com/${repository}/actions/runs/${runId}`;
+  const releaseUrl = `https://github.com/${repository}/releases/tag/${tag}`;
+
+  const isNpm = product === "package";
+  const npmUrl = "https://www.npmjs.com/package/vrc-packages-api";
+  const targetUrl = isNpm ? npmUrl : runUrl;
+  const description = isNpm
+    ? `Package **vrc-packages-api@${version}** has been staged on npm and is awaiting manual owner approval.`
+    : `Release delivery for **${prod.title} v${version}** is pending approval in GitHub Actions.`;
+
+  const fields = [
+    { name: "Product", value: `\`${prod.title}\``, inline: true },
+    { name: "Version", value: `\`${version}\``, inline: true },
+    { name: "CI Run", value: `[View Actions Run](${runUrl})`, inline: true }
+  ];
+
+  if (isNpm) {
+    fields.push(
+      { name: "Approval Required", value: `Review and approve staged package at [npmjs.com](${npmUrl})`, inline: false },
+      { name: "Draft Release", value: `[${tag}](${releaseUrl})`, inline: false }
+    );
+  } else {
+    fields.push(
+      { name: "Approval Required", value: `Review and approve deployment / publication at [Actions Run](${runUrl})`, inline: false },
+      { name: "Release Page", value: `[${tag}](${releaseUrl})`, inline: false }
+    );
+  }
+
+  const payload = {
+    allowed_mentions: { parse: ["roles", "users", "everyone"] },
+    embeds: [{
+      title: `📦 ${prod.title} ${version} — Publication Approval Pending`,
+      url: targetUrl,
+      description,
+      color: 0xf1c40f,
+      fields,
+      footer: { text: "VRCP Staging Notification · Approval required to finalize release" }
+    }],
+    components: [{
+      type: 1,
+      components: [
+        ...(isNpm ? [{ type: 2, style: 5, label: "Approve on npm", url: npmUrl }] : []),
+        { type: 2, style: 5, label: "View Actions Run", url: runUrl },
+        { type: 2, style: 5, label: "Release Page", url: releaseUrl }
+      ]
+    }]
+  };
+
+  if (ping && typeof ping === "string" && ping.trim().length > 0) {
+    payload.content = ping.trim();
+  }
+
+  return payload;
+}
+
+export async function sendDiscordStagingNotification(options, request = fetch) {
+  const { webhook, version, runId, repository, ping, product = "package", statusText } = options;
+  if (!webhook || typeof webhook !== "string" || !webhook.trim()) {
+    return { status: "skipped", reason: "no-webhook" };
+  }
+  const payload = stagingEmbed({ version, runId, repository, ping, product, statusText });
+  const messageId = await sendDiscordRelease(webhook, payload, request);
+  return { status: "sent", messageId };
 }
 
 function webhookURL(webhook) {
@@ -162,6 +233,20 @@ export async function announceRelease(event, repository, api, download, send) {
 
 async function main() {
   const env = process.env;
+  if (process.argv[2] === "staging-notify") {
+    const versionIdx = process.argv.indexOf("--version");
+    const version = versionIdx !== -1 ? process.argv[versionIdx + 1] : undefined;
+    const productIdx = process.argv.indexOf("--product");
+    const product = productIdx !== -1 ? process.argv[productIdx + 1] : "package";
+    if (!version) throw new Error("Expected --version <version> for staging-notify");
+    const webhook = env.DISCORD_STAGING_WEBHOOK;
+    const ping = env.DISCORD_STAGING_PING;
+    const runId = Number(env.GITHUB_RUN_ID) || 0;
+    const repository = env.GITHUB_REPOSITORY || "SlamTheDragon/vrc-packages";
+    const result = await sendDiscordStagingNotification({ webhook, version, runId, repository, ping, product });
+    console.log(JSON.stringify(result));
+    return;
+  }
   if (env.GITHUB_ACTIONS !== "true" || !["workflow_run", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME) ||
     env.GITHUB_REPOSITORY !== "SlamTheDragon/vrc-packages" || !env.GITHUB_TOKEN) throw new Error("Announcement is CI-only");
   const rawEvent = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));

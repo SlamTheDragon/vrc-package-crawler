@@ -22,6 +22,7 @@ concurrency:
   queue: max
 env:
   GH_TOKEN: ${{ github.token }}
+  VRCP_SKIP_TESTS: ${{ vars.VRCP_SKIP_TESTS || '' }}
 jobs:
   # trust check is no longer being ran, should we clean this up?
   preview-trust-check:
@@ -73,6 +74,7 @@ jobs:
     outputs:
       channel: ${{ steps.route.outputs.channel }}
       environment: ${{ steps.route.outputs.environment }}
+      version: ${{ steps.route.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -162,6 +164,38 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Notify Discord of staged SDK
+        if: needs.build.outputs.channel == 'release'
+        continue-on-error: true
+        run: node scripts/release-announcements.mjs staging-notify --version '${{ needs.build.outputs.version }}'
+        env:
+          DISCORD_STAGING_WEBHOOK: ${{ secrets.DISCORD_STAGING_WEBHOOK }}
+          DISCORD_STAGING_PING: ${{ secrets.DISCORD_STAGING_PING || vars.DISCORD_STAGING_PING }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+      - name: Await npm stage approval (bounded)
+        if: needs.build.outputs.channel == 'release'
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          node --input-type=module <<'NODE'
+          const pkg = 'vrc-packages-api';
+          const version = '${{ needs.build.outputs.version }}';
+          console.log(`Checking npm registry for approval of ${pkg}@${version}...`);
+          const start = Date.now();
+          while (Date.now() - start < 240_000) {
+            try {
+              const res = await fetch(`https://registry.npmjs.org/${pkg}/${version}`, { signal: AbortSignal.timeout(10_000) });
+              if (res.ok) {
+                console.log(`Package ${pkg}@${version} is approved and published on npm!`);
+                process.exit(0);
+              }
+            } catch {}
+            await new Promise(r => setTimeout(r, 10_000));
+          }
+          console.log('Bounded polling window expired; draft release will be reconciled asynchronously.');
+          NODE
       - name: Publish checked preview SDK through its trusted publisher
         if: needs.build.outputs.channel == 'preview'
         run: node scripts/delivery.mjs publish preview package --ci

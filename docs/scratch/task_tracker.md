@@ -48,30 +48,37 @@
 - Queued Task `R60-CI-TEST-SCOPING`:
   - Queued into `UNMERGED_IMPLEMENTATION_PLAN.md` with requirement that tests can never be disabled on release/production routes.
 
-## Active slice — R60-CI-TEST-SCOPING: Product-Scoped CI Tests and Fail-Closed Test-Skip Flag (2026-10-07)
+## Active slice — R61-ROOT-EXECUTE-AND-RECONCILE: Unified Root Execute Pipeline & Fast Staged Release Reconciliation (2026-10-07)
 
 - Working theories:
-  1. Product workflows (`vrc-packages-api.yml`, `network.yml`, `node-docker.yml`, `node-client.yml`, `cloudflare-worker.yml`) should run tests scoped to the product being built, not the 186 root governance/delivery tests (`bun test ./tests`).
-  2. Root tests belong in a dedicated workflow (`.github/workflows/repository-tests.yml`) executed on PRs and pushes to `main`.
-  3. A `--skip-tests` CLI option and `VRCP_SKIP_TESTS` environment variable allow rapid iteration on preview/development pipelines.
-  4. In accordance with user's strict requirement, tests CANNOT be turned off on release/production routes: if `--skip-tests` or `VRCP_SKIP_TESTS=true` is supplied for any `release` delivery or job, execution MUST fail closed immediately with an error.
+  1. The release and delivery pattern should be invokable via a single unified command (`bun run execute <product> <channel>` or `bun run delivery:execute <product> <channel>`).
+  2. The unified execution follows the exact pattern:
+     - Check previous version sync & verified remote predecessor proof (`config.versions.json`).
+     - Check if target version or tag already has artifacts or tags in remote.
+     - Extract clean changelog for product & version (stripping comments).
+     - Commit all and atomically push commit and tag (direct single-pass on `main` for owner release, or preview branch delivery).
+     - Locate and track triggered GitHub Actions workflow run.
+     - Detect manual gated approvals/challenges: prompt for GitHub environment approvals or npm stage approval.
+     - Finalize: verify release creation, asset attachment, and Discord announcement.
+  3. GitHub Actions staged npm detection:
+     - In `vrc-packages-api.yml`, add bounded npm polling (up to 4-5 minutes) immediately after staging so that if the owner approves on npmjs.com while CI is running, it finishes inline and creates a non-draft public release with Discord announcements in the same run.
+     - In `sdk-release-reconcile.yml`, tighten schedule to `*/5 * * * *` (every 5 minutes) for fast background reconciliation if approved after the CI window.
+     - In `executeDelivery`, poll for npm approval and immediately dispatch `sdk-release-reconcile.yml` if the run has completed as a draft.
 
 - Target files:
-  - `scripts/delivery.mjs`: Support `--skip-tests` and `VRCP_SKIP_TESTS`, enforce fail-closed error if channel is release, skip product tests on preview/dev during `verify`.
-  - `scripts/delivery-chain.mjs`: Support `--skip-tests` in `start` CLI and `startDelivery`, enforce fail-closed error if channel is release.
-  - `.github/workflows/vrc-packages-api.yml`: Remove root `bun test ./tests`, enforce fail-closed check on release.
-  - `.github/workflows/network.yml`: Remove root `bun test ./tests`.
-  - `.github/workflows/node-docker.yml`: Remove root `bun test ./tests` from `build-linux` and `standalone-windows`, enforce fail-closed check on release, condition `bun run --cwd src-crawler test` on release or `VRCP_SKIP_TESTS != 'true'`.
-  - `.github/workflows/node-client.yml`: Remove root `bun test ./tests`, enforce fail-closed check on release, condition `check` on release or `VRCP_SKIP_TESTS != 'true'`.
-  - `.github/workflows/cloudflare-worker.yml`: Remove root `bun test ./tests`, enforce fail-closed check on release, condition worker test/runtime test on release or `VRCP_SKIP_TESTS != 'true'`.
-  - `.github/workflows/repository-tests.yml`: New dedicated workflow for repository governance and delivery tests on push/PR to `main`.
-  - `tests/delivery.test.ts`: Add test cases for `--skip-tests`, `VRCP_SKIP_TESTS` fail-closed enforcement on release, and workflow structure checks.
+  - `scripts/delivery-chain.mjs`: Implement `executeDelivery`, add CLI `execute` command supporting `<product> <channel>`, `--watch`, `--force`, `--skip-tests`.
+  - `package.json`: Add `"execute"` and `"delivery:execute"` scripts pointing to `delivery-chain.mjs execute`.
+  - `.github/workflows/vrc-packages-api.yml`: Expose `version` output in `build` job, add bounded npm polling step after staging in `publish` job.
+  - `.github/workflows/sdk-release-reconcile.yml`: Tighten schedule to `*/5 * * * *`.
+  - `tests/delivery-chain.test.ts`: Add test cases for `executeDelivery` argument normalization, planning, and remote checks.
+  - `tests/delivery.test.ts`: Verify workflow cron and bounded polling step.
 
-- Verification results:
-  - All 189 tests pass across 15 files in `bun test ./tests`.
-  - Scoped product checks clean: `src-package` (tsc clean), `src-crawler` (tsc clean, 141 tests pass), `src-worker` (wrangler types + tsc clean, 235 tests pass, runtime smoke pass), `src-crawler-client` (svelte-check 0 errors, 0 warnings).
-  - Preview tests run by default with non-blocking continuation on failure (`continue-on-error: true` in CI, warning logging in `verify`).
-  - Fail-closed release enforcement verified: `--skip-tests` or `VRCP_SKIP_TESTS=true` on release channel throws fatal error across `delivery.mjs`, `delivery-chain.mjs`, and workflow policy steps.
+## Active checkpoint — Product-Scoped CI Tests and Fail-Closed Test-Skip Flag (R60) (2026-10-07)
+
+- Verified test suite: All 189 tests pass across 15 files (`bun test ./tests`).
+- Scoped product checks clean: `src-package` (tsc clean), `src-crawler` (141 tests pass), `src-worker` (235 tests pass + runtime smoke), `src-crawler-client` (svelte-check 0 errors, 0 warnings).
+- Fail-closed release enforcement verified on release routes across scripts and workflows. Preview tests continue-on-error.
+- Committed and pushed to `main` at `42f856d`.
 
 ## Active checkpoint — Delivery Tooling Hardening, Workflow Normalization, & Recovery (2026-10-07)
 

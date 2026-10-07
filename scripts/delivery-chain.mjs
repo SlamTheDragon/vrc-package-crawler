@@ -688,6 +688,222 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
     sha256: Object.fromEntries(digests) };
 }
 
+export async function triggerReconcile(workspace = root, fetchFn = fetch, git = runGit) {
+  const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || process.env.RELEASE_TOKEN;
+  if (!token) throw new Error("Triggering reconcile requires GH_TOKEN or GITHUB_TOKEN");
+  const response = await fetchFn(`https://api.github.com/repos/${repository}/actions/workflows/sdk-release-reconcile.yml/dispatches`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "user-agent": "VRCPDelivery",
+      "content-type": "application/json",
+      accept: "application/vnd.github+json"
+    },
+    body: JSON.stringify({ ref: "main" })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to dispatch sdk-release-reconcile.yml: ${response.status} ${response.statusText}`);
+  }
+  return { status: "dispatched", workflow: "sdk-release-reconcile.yml", repository };
+}
+
+export async function trackDeliveryPipeline(tag, options = {}) {
+  const {
+    workspace = root,
+    git = runGit,
+    api = githubReader(workspace),
+    pollIntervalMs = 5000,
+    timeoutMs = 600000,
+    onProgress = msg => console.log(msg),
+    fetchFn = fetch,
+    inspect = inspectDelivery
+  } = options;
+  const selected = sourceTag(tag, workspace, git);
+  const repository = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
+  const base = `/repos/${repository}`;
+  const workflowFile = workflows[selected.product];
+  if (!workflowFile) throw new Error(`Unknown product: ${selected.product}`);
+
+  onProgress(`Locating workflow run for ${tag} (commit: ${selected.commit.slice(0, 10)})...`);
+  const startTime = Date.now();
+  let run = null;
+
+  while (Date.now() - startTime < timeoutMs) {
+    const listing = await api(`${base}/actions/workflows/${workflowFile}.yml/runs?event=push&head_sha=${selected.commit}&per_page=20`);
+    if (listing && Array.isArray(listing.workflow_runs)) {
+      const match = listing.workflow_runs.find(r => r.head_sha === selected.commit && r.head_branch === tag);
+      if (match) {
+        run = match;
+        break;
+      }
+    }
+    if (Date.now() - startTime >= timeoutMs) break;
+    await new Promise(r => setTimeout(r, pollIntervalMs));
+  }
+
+  if (!run) throw new Error(`Timed out waiting for workflow run to start for ${tag}`);
+  onProgress(`Found workflow run #${run.id}: ${run.html_url}`);
+
+  let lastStatus = "";
+  let npmPrompted = false;
+
+  while (Date.now() - startTime < timeoutMs) {
+    run = await api(`${base}/actions/runs/${run.id}`);
+    const jobs = await api(`${base}/actions/runs/${run.id}/jobs?per_page=100`);
+    const jobList = Array.isArray(jobs?.jobs) ? jobs.jobs : [];
+
+    // Check for environment approval challenge
+    if (run.status === "waiting" || jobList.some(j => j.status === "waiting")) {
+      const waitingJob = jobList.find(j => j.status === "waiting");
+      onProgress(`[CHALLENGE / APPROVAL REQUIRED] Run is awaiting environment approval for job '${waitingJob?.name || "review"}': ${run.html_url}`);
+    }
+
+    // Check for SDK npm staging challenge
+    if (selected.product === "package" && selected.channel === "release") {
+      const publishJob = jobList.find(j => j.name === "publish");
+      if (publishJob && (publishJob.status === "in_progress" || publishJob.status === "completed") && !npmPrompted) {
+        try {
+          const res = await fetchFn(`https://registry.npmjs.org/vrc-packages-api/${selected.version}`, { signal: AbortSignal.timeout(5000) });
+          if (!res.ok) {
+            onProgress(`[ACTION REQUIRED] SDK staged on npm. Please approve at https://www.npmjs.com/package/vrc-packages-api`);
+            npmPrompted = true;
+          }
+        } catch {}
+      }
+    }
+
+    const currentSummary = `${run.status} (${jobList.map(j => `${j.name}:${j.conclusion || j.status}`).join(", ")})`;
+    if (currentSummary !== lastStatus) {
+      onProgress(`Run status: ${run.status} - ${jobList.map(j => `${j.name}: ${j.conclusion || j.status}`).join(" | ")}`);
+      lastStatus = currentSummary;
+    }
+
+    if (run.status === "completed") {
+      break;
+    }
+
+    if (Date.now() - startTime >= timeoutMs) break;
+    await new Promise(r => setTimeout(r, pollIntervalMs));
+  }
+
+  if (run.status !== "completed") {
+    throw new Error(`Timed out waiting for workflow run #${run.id} to complete`);
+  }
+
+  if (run.conclusion !== "success") {
+    throw new Error(`Workflow run #${run.id} completed with status: ${run.conclusion} (${run.html_url})`);
+  }
+
+  onProgress(`Workflow run #${run.id} succeeded.`);
+
+  // Handle SDK draft release reconciliation if needed
+  if (selected.product === "package" && selected.channel === "release") {
+    const release = await api(`${base}/releases/tags/${encodeURIComponent(tag)}`, true);
+    if (release?.draft) {
+      onProgress(`Release ${tag} is currently in draft status (awaiting npm publication).`);
+      onProgress(`Checking npm registry for vrc-packages-api@${selected.version}...`);
+      let publishedOnNpm = false;
+      const npmWaitStart = Date.now();
+      while (Date.now() - npmWaitStart < Math.min(timeoutMs, 120000)) {
+        try {
+          const res = await fetchFn(`https://registry.npmjs.org/vrc-packages-api/${selected.version}`, { signal: AbortSignal.timeout(5000) });
+          if (res.ok) {
+            publishedOnNpm = true;
+            break;
+          }
+        } catch {}
+        await new Promise(r => setTimeout(r, 5000));
+      }
+      if (publishedOnNpm) {
+        onProgress(`Package vrc-packages-api@${selected.version} detected on npm registry. Triggering draft reconciliation...`);
+        await triggerReconcile(workspace, fetchFn, git);
+        onProgress(`Reconciliation dispatched. Polling release status...`);
+        const reconStart = Date.now();
+        while (Date.now() - reconStart < 120000) {
+          const updatedRelease = await api(`${base}/releases/tags/${encodeURIComponent(tag)}`, true);
+          if (updatedRelease && !updatedRelease.draft) {
+            onProgress(`Release ${tag} is now published and non-draft!`);
+            break;
+          }
+          await new Promise(r => setTimeout(r, 5000));
+        }
+      } else {
+        onProgress(`Package not yet approved on npm. Draft release will be reconciled automatically once approved.`);
+        return { status: "awaiting-npm-approval", tag, run: run.id, url: run.html_url, draft: true };
+      }
+    }
+  }
+
+  onProgress(`Verifying published artifacts for ${tag}...`);
+  const inspected = await inspect(tag, true, workspace, api);
+  onProgress(`Verification complete: ${tag} (${inspected.status})`);
+  return inspected;
+}
+
+export async function executeDelivery(firstArg, secondArg, options = {}) {
+  const {
+    workspace = root,
+    now = new Date(),
+    git = runGit,
+    publicationProof = inspectDelivery,
+    force = false,
+    skipTests = false,
+    watch = true,
+    api = githubReader(workspace),
+    pollIntervalMs = 5000,
+    timeoutMs = 600000,
+    onProgress = msg => console.log(msg),
+    fetchFn = fetch,
+    inspect = inspectDelivery
+  } = options;
+
+  let channel, product;
+  if (["release", "preview"].includes(firstArg)) {
+    channel = firstArg;
+    product = secondArg;
+  } else if (["release", "preview"].includes(secondArg)) {
+    channel = secondArg;
+    product = firstArg;
+  } else {
+    throw new Error(`Invalid arguments: expected channel ('release' | 'preview') and product (${Object.keys(workflows).join(", ")}), got: ${firstArg}, ${secondArg}`);
+  }
+
+  if (!Object.hasOwn(workflows, product)) {
+    throw new Error(`Unknown or unsupported product: ${product}`);
+  }
+
+  if (channel === "release" && product === "network") {
+    throw new Error("Product 'network' is available only on the preview channel");
+  }
+
+  onProgress(`Starting unified delivery for ${product} on ${channel}...`);
+  const deliveryResult = await startDelivery(channel, product, true, workspace, now, git, publicationProof, force, skipTests);
+
+  if (channel === "release" && !force) {
+    onProgress(`Release candidate branch created and pushed: ${deliveryResult.releaseBranch || deliveryResult.branch}`);
+    onProgress(`A PR must be opened, reviewed, and merged to main before tag finalization.`);
+    return deliveryResult;
+  }
+
+  onProgress(`Delivery pushed: tag ${deliveryResult.tag} (commit: ${deliveryResult.commit.slice(0, 10)})`);
+
+  if (!watch) {
+    return deliveryResult;
+  }
+
+  return trackDeliveryPipeline(deliveryResult.tag, {
+    workspace,
+    git,
+    api,
+    pollIntervalMs,
+    timeoutMs,
+    onProgress,
+    fetchFn,
+    inspect
+  });
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [action, first, second, ...extra] = process.argv.slice(2);
   try {
@@ -695,6 +911,15 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (["diagnose-configured", "check-configured"].includes(action) && !first && !second && !extra.length) {
       result = await inspectConfiguredDeliveries(action === "check-configured");
       if (action === "check-configured" && !result.verified) process.exitCode = 1;
+    } else if (action === "execute") {
+      const force = extra.includes("--force");
+      const skipTests = extra.includes("--skip-tests");
+      const noWatch = extra.includes("--no-watch");
+      const unknownFlags = extra.filter(arg => !["--force", "--skip-tests", "--no-watch", "--watch"].includes(arg));
+      if (unknownFlags.length) throw new Error(`Unknown option(s): ${unknownFlags.join(", ")}`);
+      result = await executeDelivery(first, second, { force, skipTests, watch: !noWatch });
+    } else if (action === "reconcile" && !first && !second && !extra.length) {
+      result = await triggerReconcile();
     } else if (action === "start") {
       const force = extra.includes("--force");
       const execute = extra.includes("--execute");
@@ -711,7 +936,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     } else if (["status", "check", "diagnose", "retry"].includes(action) && !second && !extra.length) {
       result = action === "retry" ? await retryDelivery(first) : await inspectDelivery(first, action === "check");
       if (action === "diagnose") result = { ...result, ...deliveryTroubleshooting(result) };
-    } else throw new Error("Use start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, verify-predecessor <tag>, or status|check|diagnose|retry <tag>");
+    } else throw new Error("Use execute <product> <channel> [--force] [--skip-tests] [--no-watch], reconcile, start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, verify-predecessor <tag>, or status|check|diagnose|retry <tag>");
     console.log(JSON.stringify(result, null, 2));
     if (result.status === "ci-failed") process.exitCode = 1;
   } catch (error) {

@@ -12,6 +12,7 @@ concurrency:
   queue: max
 env:
   GH_TOKEN: ${{ github.token }}
+  VRCP_SKIP_TESTS: ${{ vars.VRCP_SKIP_TESTS || '' }}
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -69,6 +70,16 @@ jobs:
             src-worker/.wrangler/dev-build/${{ steps.route.outputs.channel == 'preview' && 'preview' || 'production' }}/worker_entry.js.json
           include-hidden-files: true
           if-no-files-found: error
+      - name: Notify Discord of release build completion
+        if: steps.route.outputs.channel == 'release'
+        continue-on-error: true
+        run: node scripts/release-announcements.mjs staging-notify --product worker --version '${{ steps.route.outputs.version }}'
+        env:
+          DISCORD_STAGING_WEBHOOK: ${{ secrets.DISCORD_STAGING_WEBHOOK }}
+          DISCORD_STAGING_PING: ${{ secrets.DISCORD_STAGING_PING || vars.DISCORD_STAGING_PING }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
   deploy:
     needs: build
     # Current owner authorization is preview-only. Release tags still build artifacts.

@@ -24,6 +24,7 @@ concurrency:
 env:
   GH_TOKEN: ${{ github.token }}
   VRCP_RECOVERY_TAG: ${{ inputs.recovery-tag || '' }}
+  VRCP_SKIP_TESTS: ${{ vars.VRCP_SKIP_TESTS || '' }}
 jobs:
   build-linux:
     runs-on: ubuntu-latest
@@ -265,6 +266,16 @@ jobs:
         with:
           project: root
       - run: bun install --no-save --ignore-scripts
+      - name: Notify Discord of pending publication approval
+        if: needs.route.outputs.channel == 'release'
+        continue-on-error: true
+        run: node scripts/release-announcements.mjs staging-notify --product crawler --version '${{ needs.route.outputs.version }}'
+        env:
+          DISCORD_STAGING_WEBHOOK: ${{ secrets.DISCORD_STAGING_WEBHOOK }}
+          DISCORD_STAGING_PING: ${{ secrets.DISCORD_STAGING_PING || vars.DISCORD_STAGING_PING }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
       - uses: actions/download-artifact@v4
         with:
           name: ci-only-crawler-${{ needs.route.outputs.version }}-container

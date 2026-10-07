@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { zipSync } from "fflate";
-import { readAnnouncementReceipt, releaseEmbed, sendDiscordRelease, announceRelease } from "../scripts/release-announcements.mjs";
+import { readAnnouncementReceipt, releaseEmbed, sendDiscordRelease, announceRelease, stagingEmbed, sendDiscordStagingNotification } from "../scripts/release-announcements.mjs";
 
 const repository = "SlamTheDragon/vrc-packages", commit = "a".repeat(40);
 const digest = (bytes: Uint8Array) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -177,4 +177,52 @@ test("terminal workflow keeps secrets off source tags and excludes Worker/networ
   expect(workflow).toContain("checks: write");
   expect(workflow).toContain("group: vrcp-release-announcements");
   expect(workflow).toContain("queue: max");
+});
+
+test("stagingEmbed formats amber staging notification and ping correctly", () => {
+  const withoutPing = stagingEmbed({ version: "0.0.7", runId: 12345, repository: "SlamTheDragon/vrc-packages" });
+  expect(withoutPing.content).toBeUndefined();
+  expect(withoutPing.embeds[0].color).toBe(0xf1c40f);
+  expect(withoutPing.embeds[0].title).toBe("📦 VRC Packages API 0.0.7 — Publication Approval Pending");
+  expect(withoutPing.embeds[0].url).toBe("https://www.npmjs.com/package/vrc-packages-api");
+  expect(withoutPing.allowed_mentions).toEqual({ parse: ["roles", "users", "everyone"] });
+  expect(withoutPing.components[0].components[0].label).toBe("Approve on npm");
+
+  const withPing = stagingEmbed({ version: "0.0.7", runId: 12345, repository: "SlamTheDragon/vrc-packages", ping: "<@&999888777>" });
+  expect(withPing.content).toBe("<@&999888777>");
+  expect(withPing.allowed_mentions).toEqual({ parse: ["roles", "users", "everyone"] });
+
+  const crawler = stagingEmbed({ product: "crawler", version: "0.0.12", runId: 12345, repository: "SlamTheDragon/vrc-packages" });
+  expect(crawler.embeds[0].title).toBe("📦 VRCP Crawler 0.0.12 — Publication Approval Pending");
+  expect(crawler.components[0].components.some((c: any) => c.label === "Release Page")).toBe(true);
+});
+
+test("sendDiscordStagingNotification skips when webhook is not set and sends when valid", async () => {
+  const skipped = await sendDiscordStagingNotification({ webhook: "", version: "0.0.7", runId: 12345 });
+  expect(skipped).toEqual({ status: "skipped", reason: "no-webhook" });
+
+  const fixtureOnlyURL = "https://discord.com/api/webhooks/123/fixture-only-not-a-live-webhook";
+  let capturedPayload: any;
+  const mockRequest: any = async (url: URL, options: any) => {
+    capturedPayload = JSON.parse(options.body);
+    return Response.json({ id: "9876543210" });
+  };
+  const sent = await sendDiscordStagingNotification({
+    webhook: fixtureOnlyURL,
+    version: "0.0.7",
+    runId: 12345,
+    repository: "SlamTheDragon/vrc-packages",
+    ping: "@here"
+  }, mockRequest);
+  expect(sent).toEqual({ status: "sent", messageId: "9876543210" });
+  expect(capturedPayload.content).toBe("@here");
+  expect(capturedPayload.embeds[0].title).toContain("0.0.7");
+});
+
+test("release workflows contain Discord staging notifications during publication approval pending", () => {
+  for (const file of ["vrc-packages-api.yml", "node-docker.yml", "node-client.yml", "cloudflare-worker.yml"]) {
+    const workflow = readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8");
+    expect(workflow).toContain("DISCORD_STAGING_WEBHOOK: ${{ secrets.DISCORD_STAGING_WEBHOOK }}");
+    expect(workflow).toContain("DISCORD_STAGING_PING: ${{ secrets.DISCORD_STAGING_PING || vars.DISCORD_STAGING_PING }}");
+  }
 });

@@ -3,8 +3,12 @@
     "@types/node": "^26.6.4"
   },
   "scripts": {
+    "help": "node scripts/help.mjs",
     "setup": "bun install --no-save --ignore-scripts",
+    "execute": "node scripts/delivery-chain.mjs execute",
     "delivery": "node scripts/delivery.mjs",
+    "delivery:execute": "node scripts/delivery-chain.mjs execute",
+    "delivery:reconcile": "node scripts/delivery-chain.mjs reconcile",
     "delivery:preview": "node scripts/delivery-chain.mjs start preview",
     "delivery:release": "node scripts/delivery-chain.mjs start release",
     "delivery:finalize": "node scripts/delivery-chain.mjs finalize",

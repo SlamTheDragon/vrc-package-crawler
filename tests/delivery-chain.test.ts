@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun, verifyPredecessor } from "../scripts/delivery-chain.mjs";
+import { executeDelivery, finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun, trackDeliveryPipeline, triggerReconcile, verifyPredecessor } from "../scripts/delivery-chain.mjs";
 import { networkArchiveURL, productDirectories, productTagPrefixes } from "../scripts/versioning.mjs";
 import { checkReleaseMetadata } from "../scripts/delivery.mjs";
 import { createHash } from "node:crypto";
@@ -1066,3 +1066,123 @@ test("test skipping is strictly prohibited on release routes in delivery chain",
     expect(previewPlan.blockers).not.toContain("Tests cannot be disabled on release/production routes");
   });
 });
+
+test("executeDelivery validates argument order, channel restrictions, and test-skip flags", async () => {
+  await fixture(async (workspace, git) => {
+    // Rejects invalid channel or product
+    await expect(executeDelivery("invalid", "package", { workspace, git, publicationProof: fixturePublication, watch: false }))
+      .rejects.toThrow("Invalid arguments");
+    await expect(executeDelivery("preview", "invalid", { workspace, git, publicationProof: fixturePublication, watch: false }))
+      .rejects.toThrow("Unknown or unsupported product");
+
+    // Rejects network on release channel regardless of arg order
+    await expect(executeDelivery("network", "release", { workspace, git, publicationProof: fixturePublication, watch: false }))
+      .rejects.toThrow("Product 'network' is available only on the preview channel");
+    await expect(executeDelivery("release", "network", { workspace, git, publicationProof: fixturePublication, watch: false }))
+      .rejects.toThrow("Product 'network' is available only on the preview channel");
+
+    // Prohibits skipTests on release
+    await expect(executeDelivery("crawler", "release", { workspace, git, publicationProof: fixturePublication, watch: false, skipTests: true }))
+      .rejects.toThrow("Tests cannot be disabled on release/production routes");
+
+    // Executes preview delivery with watch: false when order is (product, channel)
+    const result1 = await executeDelivery("crawler", "preview", {
+      workspace,
+      git,
+      publicationProof: fixturePublication,
+      watch: false,
+      now
+    });
+    expect(result1.tag).toBe("vrcp-crawler/v2026.10.1-pre");
+    expect(result1.status).toBe("pushed");
+
+    // Executes release delivery (candidate branch) when order is (channel, product)
+    const result2 = await executeDelivery("release", "crawler", {
+      workspace,
+      git,
+      publicationProof: fixturePublication,
+      watch: false,
+      now
+    });
+    expect(result2.tag).toBe("vrcp-crawler/v0.0.1");
+    expect(result2.branch).toBe("release/candidate/crawler/v0.0.1");
+    expect(result2.pullRequestURL).toContain("release%2Fcandidate%2Fcrawler%2Fv0.0.1");
+  });
+}, 60_000);
+
+test("triggerReconcile dispatches sdk-release-reconcile workflow", async () => {
+  await fixture(async (workspace, git) => {
+    const previousToken = process.env.GH_TOKEN;
+    try {
+      process.env.GH_TOKEN = "";
+      process.env.GITHUB_TOKEN = "";
+      delete process.env.RELEASE_TOKEN;
+      await expect(triggerReconcile(workspace, fetch as any, git as any)).rejects.toThrow("requires GH_TOKEN or GITHUB_TOKEN");
+
+      process.env.GH_TOKEN = "fixture-token-123";
+      let dispatchedUrl = "", dispatchedBody: any, dispatchedHeaders: any;
+      const mockFetch: any = async (url: string, options: any) => {
+        dispatchedUrl = url;
+        dispatchedBody = JSON.parse(options.body);
+        dispatchedHeaders = options.headers;
+        return new Response("", { status: 204 });
+      };
+
+      const result = await triggerReconcile(workspace, mockFetch, git as any);
+      expect(result.status).toBe("dispatched");
+      expect(result.workflow).toBe("sdk-release-reconcile.yml");
+      expect(dispatchedUrl).toContain("/actions/workflows/sdk-release-reconcile.yml/dispatches");
+      expect(dispatchedBody).toEqual({ ref: "main" });
+      expect(dispatchedHeaders.authorization).toBe("Bearer fixture-token-123");
+    } finally {
+      process.env.GH_TOKEN = previousToken;
+    }
+  });
+});
+
+test("trackDeliveryPipeline locates workflow run and inspects delivery", async () => {
+  await fixture(async (workspace, git) => {
+    const preview = await checkedStartDelivery("preview", "crawler", true, workspace, now, git, fixturePublication);
+    let inspectedTag = "";
+    const mockInspect = async (tag: string, check: boolean) => {
+      inspectedTag = tag;
+      return { tag, status: "release-artifacts-verified", artifactsVerified: true };
+    };
+
+    const mockApi = async (path: string) => {
+      if (path.includes("/actions/workflows/") && path.includes("/runs?")) {
+        return {
+          workflow_runs: [{
+            id: 8888,
+            head_sha: preview.commit,
+            head_branch: preview.tag,
+            html_url: "https://github.com/example/fixture/actions/runs/8888"
+          }]
+        };
+      }
+      if (path.endsWith("/actions/runs/8888")) {
+        return { id: 8888, status: "completed", conclusion: "success", html_url: "https://github.com/example/fixture/actions/runs/8888" };
+      }
+      if (path.endsWith("/actions/runs/8888/jobs?per_page=100")) {
+        return { jobs: [{ name: "build-linux", status: "completed", conclusion: "success" }] };
+      }
+      return {};
+    };
+
+    const messages: string[] = [];
+    const tracked = await trackDeliveryPipeline(preview.tag, {
+      workspace,
+      git: git as any,
+      api: mockApi as any,
+      pollIntervalMs: 10,
+      timeoutMs: 5000,
+      onProgress: msg => messages.push(msg),
+      inspect: mockInspect as any
+    });
+
+    expect(tracked.artifactsVerified).toBe(true);
+    expect(inspectedTag).toBe(preview.tag);
+    expect(messages.some(m => m.includes("Found workflow run #8888"))).toBe(true);
+    expect(messages.some(m => m.includes("Workflow run #8888 succeeded"))).toBe(true);
+  });
+}, 60_000);
