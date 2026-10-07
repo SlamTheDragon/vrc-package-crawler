@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import semver from "semver";
@@ -227,10 +228,115 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
   return { mode, channel, product, changed: edits.map(edit => edit.path) };
 }
 
+export async function checkSync(options = {}) {
+  const {
+    workspace = root,
+    git = (...args) => execFileSync("git", args, { cwd: workspace, encoding: "utf8", stdio: "pipe" })
+  } = options;
+
+  let currentBranch = "main";
+  try {
+    currentBranch = git("symbolic-ref", "--short", "HEAD").trim();
+  } catch {}
+
+  const drifts = [];
+  let ahead = 0, behind = 0, remoteAvailable = false;
+
+  try {
+    const counts = git("rev-list", "--left-right", "--count", `HEAD...origin/${currentBranch}`).trim();
+    const [left, right] = counts.split(/\s+/).map(Number);
+    ahead = left;
+    behind = right;
+    remoteAvailable = true;
+    if (behind > 0) drifts.push(`Current branch '${currentBranch}' is behind origin/${currentBranch} by ${behind} commit(s).`);
+    if (ahead > 0) drifts.push(`Current branch '${currentBranch}' is ahead of origin/${currentBranch} by ${ahead} commit(s).`);
+  } catch {
+    drifts.push(`Remote tracking for branch '${currentBranch}' is unavailable or not fetched.`);
+  }
+
+  const { config: localRelease } = await readVersionConfig("release", workspace);
+  const { config: localPreview } = await readVersionConfig("preview", workspace);
+
+  let remoteRelease = null, remotePreview = null;
+  try {
+    const rawRel = git("show", "origin/main:config.versions.json");
+    remoteRelease = JSON.parse(rawRel);
+  } catch {}
+  try {
+    const rawPrev = git("show", "origin/main:config.preview.versions.json");
+    remotePreview = JSON.parse(rawPrev);
+  } catch {}
+
+  const releaseDrifts = [];
+  if (remoteRelease) {
+    for (const [k, v] of Object.entries(localRelease)) {
+      if (remoteRelease[k] && semver.lt(v, remoteRelease[k])) {
+        releaseDrifts.push(`${k}: local (${v}) is behind origin/main (${remoteRelease[k]})`);
+      }
+    }
+  }
+  const previewDrifts = [];
+  if (remotePreview) {
+    for (const [k, v] of Object.entries(localPreview)) {
+      if (remotePreview[k] && semver.lt(v, remotePreview[k])) {
+        previewDrifts.push(`${k}: local (${v}) is behind origin/main (${remotePreview[k]})`);
+      }
+    }
+  }
+
+  drifts.push(...releaseDrifts, ...previewDrifts);
+
+  return {
+    status: drifts.length ? "drift-detected" : "in-sync",
+    branch: currentBranch,
+    git: { ahead, behind, remoteAvailable },
+    versions: {
+      release: { local: localRelease, remote: remoteRelease, inSync: releaseDrifts.length === 0 },
+      preview: { local: localPreview, remote: remotePreview, inSync: previewDrifts.length === 0 }
+    },
+    drifts
+  };
+}
+
+export async function syncInternalDependencies(workspace = root) {
+  const { config: previewConfig } = await readVersionConfig("preview", workspace);
+  const networkVersion = previewConfig["preview-network"];
+  const archive = networkArchiveURL(networkVersion);
+  const updated = [];
+
+  for (const consumer of ["crawler", "worker"]) {
+    const manifestPath = resolve(workspace, productDirectories[consumer], "package.json");
+    try {
+      const text = await readFile(manifestPath, "utf8");
+      const manifest = JSON.parse(text);
+      if (manifest.dependencies?.["vrc-packages-network"] && manifest.dependencies["vrc-packages-network"] !== archive) {
+        manifest.dependencies["vrc-packages-network"] = archive;
+        const indent = text.match(/\n([\t ]+)"/)?.[1] ?? "  ";
+        await writeFile(manifestPath, JSON.stringify(manifest, null, indent) + "\n");
+        updated.push(manifestPath);
+      }
+    } catch {}
+  }
+
+  return {
+    status: "internal-deps-synced",
+    networkVersion,
+    archiveURL: archive,
+    updated
+  };
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [mode, channel, product, ...extra] = process.argv.slice(2);
   try {
-    if (mode === "bump") {
+    if (mode === "check-sync" || mode === "sync:check") {
+      const res = await checkSync();
+      console.log(JSON.stringify(res, null, 2));
+      if (res.status === "drift-detected") process.exitCode = 1;
+    } else if (mode === "sync-deps" || mode === "sync:deps") {
+      const res = await syncInternalDependencies();
+      console.log(JSON.stringify(res, null, 2));
+    } else if (mode === "bump") {
       if (extra[0] !== "patch" || extra.length > 2 || (extra.length === 2 && extra[1] !== "--execute")) {
         throw new Error("Bump requires patch and optional --execute; execution commits and pushes tagged delivery");
       }
