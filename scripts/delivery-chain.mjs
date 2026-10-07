@@ -10,6 +10,10 @@ import { checkWorkerArtifacts, downloadActionsArchive } from "./worker-artifacts
 import { checkRecoveryReceipts, checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
 import { extractProductChangelog } from "./changelog.mjs";
 
+if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN && typeof process.loadEnvFile === "function") {
+  try { process.loadEnvFile(); } catch {}
+}
+
 const root = fileURLToPath(new URL("../", import.meta.url));
 const workflows = { package: "vrc-packages-api", network: "network", crawler: "node-docker",
   "crawler-client": "node-client", worker: "cloudflare-worker" };
