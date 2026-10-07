@@ -1,4 +1,4 @@
-name: Release Announcements
+name: Discord Announcements
 
 on:
   workflow_dispatch:
