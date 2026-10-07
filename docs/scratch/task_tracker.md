@@ -48,30 +48,23 @@
 - Queued Task `R60-CI-TEST-SCOPING`:
   - Queued into `UNMERGED_IMPLEMENTATION_PLAN.md` with requirement that tests can never be disabled on release/production routes.
 
-## Active slice — R61-ROOT-EXECUTE-AND-RECONCILE: Unified Root Execute Pipeline & Fast Staged Release Reconciliation (2026-10-07)
+## Active checkpoint — Root Execute Pipeline, Staging Pings, & Reconciliation (R61) (2026-10-08)
 
-- Working theories:
-  1. The release and delivery pattern should be invokable via a single unified command (`bun run execute <product> <channel>` or `bun run delivery:execute <product> <channel>`).
-  2. The unified execution follows the exact pattern:
-     - Check previous version sync & verified remote predecessor proof (`config.versions.json`).
-     - Check if target version or tag already has artifacts or tags in remote.
-     - Extract clean changelog for product & version (stripping comments).
-     - Commit all and atomically push commit and tag (direct single-pass on `main` for owner release, or preview branch delivery).
-     - Locate and track triggered GitHub Actions workflow run.
-     - Detect manual gated approvals/challenges: prompt for GitHub environment approvals or npm stage approval.
-     - Finalize: verify release creation, asset attachment, and Discord announcement.
-  3. GitHub Actions staged npm detection:
-     - In `vrc-packages-api.yml`, add bounded npm polling (up to 4-5 minutes) immediately after staging so that if the owner approves on npmjs.com while CI is running, it finishes inline and creates a non-draft public release with Discord announcements in the same run.
-     - In `sdk-release-reconcile.yml`, tighten schedule to `*/5 * * * *` (every 5 minutes) for fast background reconciliation if approved after the CI window.
-     - In `executeDelivery`, poll for npm approval and immediately dispatch `sdk-release-reconcile.yml` if the run has completed as a draft.
-
-- Target files:
-  - `scripts/delivery-chain.mjs`: Implement `executeDelivery`, add CLI `execute` command supporting `<product> <channel>`, `--watch`, `--force`, `--skip-tests`.
-  - `package.json`: Add `"execute"` and `"delivery:execute"` scripts pointing to `delivery-chain.mjs execute`.
-  - `.github/workflows/vrc-packages-api.yml`: Expose `version` output in `build` job, add bounded npm polling step after staging in `publish` job.
-  - `.github/workflows/sdk-release-reconcile.yml`: Tighten schedule to `*/5 * * * *`.
-  - `tests/delivery-chain.test.ts`: Add test cases for `executeDelivery` argument normalization, planning, and remote checks.
-  - `tests/delivery.test.ts`: Verify workflow cron and bounded polling step.
+- Verified test suite: All 195 tests pass across 15 files (`bun test ./tests`, 2748 expectations).
+- Product checks clean:
+  - `src-package`: `tsc --noEmit` clean.
+  - `src-crawler`: `tsc --noEmit` clean.
+  - `src-crawler-client`: `svelte-check` 0 errors, 0 warnings.
+  - `src-worker`: `cf-typegen && tsc --noEmit && tsc --noEmit -p test/tsconfig.json` clean.
+- GitHub Actions workflow diagnostics resolved:
+  - Declared `VRCP_SKIP_TESTS: ${{ vars.VRCP_SKIP_TESTS || '' }}` in top-level `env:` blocks for `vrc-packages-api.yml`, `cloudflare-worker.yml`, `node-client.yml`, and `node-docker.yml` to eliminate context access warnings.
+- Help CLI tool:
+  - Added `scripts/help.mjs` and `"help"` script in `package.json` documenting the authoritative execute pipeline, checkpoints, and troubleshooting commands.
+- Live release status & reconciliation:
+  - `vrc-packages-api@0.0.7` is live and published on npm with `latest: 0.0.7`.
+  - GitHub Release for `vrcp-api/v0.0.7` is verified public (`draft: false`) with all 5 assets attached.
+  - Rerun of failed jobs on `vrcp-crawler-client/v0.0.6` CI run [`37624229765`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37624229765) dispatched (status: queued).
+- Committed and pushed to `main` at `33c7a03`.
 
 ## Active checkpoint — Product-Scoped CI Tests and Fail-Closed Test-Skip Flag (R60) (2026-10-07)
 
