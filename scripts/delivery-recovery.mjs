@@ -547,7 +547,8 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   (async () => {
-  const [subcommand, ...rest] = process.argv.slice(2);
+  const [rawSubcommand, ...rest] = process.argv.slice(2);
+  const subcommand = rawSubcommand ? rawSubcommand.toLowerCase() : "interactive";
   try {
     if (subcommand === "authorize") {
       const [tag, ...flags] = rest;

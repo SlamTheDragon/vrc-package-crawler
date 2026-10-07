@@ -1112,7 +1112,7 @@ export async function executeDelivery(firstArg, secondArg, options = {}) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [action, first, second, ...extra] = process.argv.slice(2);
+  const [action = "execute", first, second, ...extra] = process.argv.slice(2);
   try {
     let result;
     if (["diagnose-configured", "check-configured"].includes(action) && !first && !second && !extra.length) {
