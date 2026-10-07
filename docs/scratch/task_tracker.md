@@ -17,12 +17,14 @@
 - GitHub Actions workflow name normalization:
   - Normalized all 13 workflow names (`name:`) down into concise, direct descriptive literal functions.
   - Aligned workflow triggers in `cache-maintenance.yml` and `release-announcements.yml`.
-- Recovery authorization & recipe for Crawler 0.0.9:
-  - Added `vrcp-crawler/v0.0.9` recipe with `failedStage: "test-failed"` (run 37523218945) into `.github/delivery-recoveries.json`.
-  - Fixed fixture issue in `tests/release-ingress.test.ts` where `ls-tree` mock produced dummy blobs for non-existent files.
+- Recovery execution for Crawler 0.0.9:
+  - Authorized in `.github/delivery-recoveries.json`, dispatched retry run [`37606773009`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37606773009).
+  - Fixed backward-compatibility in `tests/preprod_layout.test.ts` for checkout recovery (supporting `research` directory at either modern `docs/scratch/research` or historical `docs/research`).
+  - Jobs `route`, `build-linux`, and `standalone-windows` completed with `success`.
+  - Job `publish-container` is currently waiting for owner environment approval on `vrcp-crawler-release` (per repo rules, agents never approve protected environments).
 - Next steps:
-  1. Commit and push tooling updates to `main`.
-  2. Execute recovery for `vrcp-crawler/v0.0.9` (`bun run delivery:recover vrcp-crawler/v0.0.9`).
+  1. Owner approves deployment for `vrcp-crawler-release` on run [`37606773009`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37606773009).
+  2. Complete `release-assets` attachment and verify delivery proof with `node --env-file=.env scripts/delivery-chain.mjs check vrcp-crawler/v0.0.9`.
   3. Verify clean single-pass pipeline for next patch (`0.0.10`).
 
 
