@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { setup, setupProjects } from "../scripts/setup.mjs";
+import { setup, setupProjects, parseEnvFile, writeEnvEntry, validateGitHubToken, interactiveSetup } from "../scripts/setup.mjs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 test("setupProjects includes root and all product directories", () => {
   expect(setupProjects.root).toBe(".");
@@ -52,4 +55,88 @@ test("setup initializes submodule if package.json is missing for web-search", as
 
 test("setup throws on unknown product target", async () => {
   await expect(setup("invalid-target" as any, { quiet: true })).rejects.toThrow("Unknown project: \"invalid-target\"");
+});
+
+test("parseEnvFile and writeEnvEntry correctly read and mutate .env", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vrcp-setup-env-"));
+  try {
+    const envFile = join(dir, ".env");
+    writeFileSync(envFile, "FOO=bar\n# comment\nBAZ=\"qux\"\n");
+    const parsed = parseEnvFile(readFileSync(envFile, "utf8"));
+    expect(parsed.FOO).toBe("bar");
+    expect(parsed.BAZ).toBe("qux");
+
+    writeEnvEntry(envFile, "NEW_KEY", "new_value");
+    const updated = parseEnvFile(readFileSync(envFile, "utf8"));
+    expect(updated.NEW_KEY).toBe("new_value");
+    expect(updated.FOO).toBe("bar");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("validateGitHubToken tests token against GitHub user API", async () => {
+  const fetchValid = async () => new Response(JSON.stringify({ login: "validUser" }), { status: 200 });
+  const validRes = await validateGitHubToken("ghp_good", fetchValid as any);
+  expect(validRes.valid).toBe(true);
+  expect(validRes.login).toBe("validUser");
+
+  const fetchInvalid = async () => new Response(JSON.stringify({ message: "Bad credentials" }), { status: 401 });
+  const invalidRes = await validateGitHubToken("ghp_bad", fetchInvalid as any);
+  expect(invalidRes.valid).toBe(false);
+  expect(invalidRes.error).toBe("HTTP 401");
+});
+
+test("interactiveSetup prompts for missing configuration and runs target setup", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "vrcp-interactive-setup-"));
+  try {
+    const executed: string[] = [];
+    const fakeExec = (cmd: string, args: string[]) => {
+      executed.push(`${cmd} ${args.join(" ")}`);
+      return "";
+    };
+
+    const answers: Record<string, string> = {
+      "GitHub Token": "ghp_mock_token",
+      "CLOUDFLARE_API_TOKEN": "cf_fake_token",
+      "DISCORD_STAGING_WEBHOOK": "https://discord.com/api/webhooks/mock",
+      "Select target project": "root"
+    };
+
+    const askFn = async (query: string) => {
+      for (const [key, val] of Object.entries(answers)) {
+        if (query.includes(key)) return val;
+      }
+      return "";
+    };
+
+    const fetchMock = async (url: string) => {
+      if (url.includes("/user")) return new Response(JSON.stringify({ login: "onboardingDev" }), { status: 200 });
+      return new Response(null, { status: 404 });
+    };
+
+    writeFileSync(join(dir, "package.json"), "{}");
+
+    const messages: string[] = [];
+    const res = await interactiveSetup({
+      workspace: dir,
+      env: {},
+      askFn,
+      onProgress: (msg: string) => messages.push(msg),
+      fetchFn: fetchMock as any,
+      exec: fakeExec as any
+    });
+
+    expect(res.status).toBe("setup-complete");
+    expect(res.target).toBe("root");
+    expect(res.ghTokenConfigured).toBe(true);
+
+    const envContent = readFileSync(join(dir, ".env"), "utf8");
+    expect(envContent).toContain("GITHUB_TOKEN=ghp_mock_token");
+    expect(envContent).toContain("CLOUDFLARE_API_TOKEN=cf_fake_token");
+    expect(envContent).toContain("DISCORD_STAGING_WEBHOOK=https://discord.com/api/webhooks/mock");
+    expect(executed).toContain("bun install --no-save --ignore-scripts");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

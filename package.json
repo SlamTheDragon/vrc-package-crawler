@@ -6,6 +6,8 @@
     "help": "node scripts/help.mjs",
     "setup": "node scripts/setup.mjs all",
     "setup:all": "node scripts/setup.mjs all",
+    "setup:interactive": "node scripts/setup.mjs --interactive",
+    "onboard": "node scripts/setup.mjs --interactive",
     "setup:root": "node scripts/setup.mjs root",
     "setup:crawler": "node scripts/setup.mjs crawler",
     "setup:crawler-client": "node scripts/setup.mjs crawler-client",

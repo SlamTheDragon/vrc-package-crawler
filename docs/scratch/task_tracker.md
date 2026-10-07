@@ -6,8 +6,8 @@
   - `R70-CLEANUP-CI-TEST-POLICY`: Implemented & committed locally (`4154ac9`). Cleaned up `VRCP_SKIP_TESTS` from 4 workflows, resolved language server warning, enforced native `continue-on-error: ${{ channel == 'preview' }}` policy.
   - `R64-INTERACTIVE-DELIVERY-ENTRY`: Implemented & committed locally (`ff9fef4`). Added interactive terminal prompts in `scripts/delivery-chain.mjs` for product/channel/bump selection, PAT admin/owner authority verification, dirty worktree check, changelog preparedness self-check (summary, new features, bug fixes, other changes), and unit tests (41/41 passing).
   - `R65-FAILURE-RECOVERY-WORKFLOW`: Implemented & committed locally. Added categorized failure diagnosis (`diagnoseFailure`), workflow rerun (`rerunWorkflowRun`), delivery tag rollback (`revertDeliveryTag`), automated temporary patch branch lifecycle (`createPatchBranch`, `mergeAndCleanupPatchBranch` for `release/patch/<product>/v<version>`), and interactive terminal recovery menu (`promptInteractiveRecovery`). 19/19 tests passing.
-  - `R66-INTERACTIVE-SETUP-ONBOARDING`: In progress. Interactive onboarding wizard (`setup.mjs`) inspecting `.env`, prompting for missing credentials (`GH_TOKEN`, Cloudflare, Discord), validating PAT against GitHub API, selecting target projects, and orchestrating full-repo dependency installation.
-  - `R67-LOCAL-BUILD-ORCHESTRATION`: Queued.
+  - `R66-INTERACTIVE-SETUP-ONBOARDING`: Implemented & committed locally. Added interactive onboarding wizard (`interactiveSetup`) in `scripts/setup.mjs` verifying GitHub PAT against `/user` endpoint, prompting for missing optional tokens (`CLOUDFLARE_API_TOKEN`, `DISCORD_STAGING_WEBHOOK`), managing `.env` file entries, selecting project targets, and orchestrating full-repo dependency installation. 7/7 tests passing.
+  - `R67-LOCAL-BUILD-ORCHESTRATION`: In progress. Implement unified root build orchestrator (`bun run build <product> [channel]`) dispatching directly to subproject build definitions, managing environment and artifact directories, and aligning with CI build targets.
   - `R68-INDEPENDENT-SYNC-CHECK`: Queued.
   - `R69-INTERNAL-DEPENDENCY-SYNC`: Queued.
 
