@@ -25,15 +25,21 @@
 - Single-pass delivery for Crawler 0.0.10:
   - Root `CHANGELOG.md` updated with 0.0.10 release notes under backticked heading.
   - Executed direct release on `main` at commit `075911e49c7f3ffcd71f32a73bf495eb68db2eeb`, created tag `vrcp-crawler/v0.0.10`.
-  - Hosted CI run [`37609060480`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37609060480):
-    - `route`: completed (`success`)
-    - `build-linux`: completed (`success`)
-    - `standalone-windows`: completed (`success`)
-    - `publish-container`: `waiting` for owner deployment approval on environment `vrcp-crawler-release`.
+  - Hosted CI run [`37609060480`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37609060480) completed all jobs (`route`, `build-linux`, `standalone-windows`, `publish-container`, `release-assets / attach`).
+  - Terminal workflows executed: `Release Announcements` ([`37609773724`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37609773724)) posted Discord embed, `Cache Maintenance` ([`37609773710`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37609773710)) completed.
+  - Fully verified via `node --env-file=.env scripts/delivery-chain.mjs check vrcp-crawler/v0.0.10`: returned `"status": "release-artifacts-verified"`, `"artifactsVerified": true` with all 6 asset checksums verified.
+- Markdown comment stripping & package script delivery (Crawler 0.0.11):
+  - Implemented `stripMarkdownComments` in `scripts/changelog.mjs` to strip HTML/markdown comments (`<!-- ... -->`) upon changelog extraction.
+  - Cleans up trailing whitespace and collapses extra blank lines, ensuring extracted per-version files, commit descriptions, release notes, and Discord announcements contain zero markdown comments.
+  - Added unit tests in `tests/changelog.test.ts` (186/186 tests passing across 15 files).
+  - Added built-in `.env` loading to `scripts/delivery.mjs` and `scripts/delivery-chain.mjs` so root `package.json` scripts (`bun run delivery:release` / `npm run delivery:release`) execute without manual env flags.
+  - Executed direct single-pass release via root script: `bun run delivery:release crawler --force --execute`.
+  - Validated predecessor publication for `vrcp-crawler/v0.0.10`, committed directly on `main` at `4c20daa10d394b71cc06c5539f3d6f6517302013`, and pushed tag `vrcp-crawler/v0.0.11`.
+  - Active hosted CI run: [`37611314794`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37611314794).
 - Next steps:
-  1. Owner approves deployment for `vrcp-crawler-release` on run [`37609060480`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37609060480).
-  2. Complete `publish-container` and `release-assets` attachment.
-  3. Verify release announcements and delivery proof with `node --env-file=.env scripts/delivery-chain.mjs check vrcp-crawler/v0.0.10`.
+  1. Monitor CI run [`37611314794`](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37611314794).
+  2. Owner approves deployment for `vrcp-crawler-release` when `publish-container` transitions to `waiting`.
+  3. Verify release assets, announcement embed, and run `node --env-file=.env scripts/delivery-chain.mjs check vrcp-crawler/v0.0.11`.
 
 
 ## Owner handover — start here (2026-10-06)
