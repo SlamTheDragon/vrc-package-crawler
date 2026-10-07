@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { executeDelivery, finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, loadRootEnv, planDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, resolveGitHubToken, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun, trackDeliveryPipeline, triggerReconcile, verifyPredecessor } from "../scripts/delivery-chain.mjs";
+import { tmpdir } from "node:os";
+import { executeDelivery, finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, loadRootEnv, planDelivery, promptInteractiveDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, resolveGitHubToken, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun, trackDeliveryPipeline, triggerReconcile, verifyPredecessor } from "../scripts/delivery-chain.mjs";
 import { networkArchiveURL, productDirectories, productTagPrefixes } from "../scripts/versioning.mjs";
 import { checkReleaseMetadata } from "../scripts/delivery.mjs";
 import { createHash } from "node:crypto";
@@ -1204,5 +1204,61 @@ test("resolveGitHubToken resolves from env and workspace .env", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("promptInteractiveDelivery aborts if changelog summary is not written", async () => {
+  const answers: Record<string, string> = {
+    "Select product": "package",
+    "Select deployment channel": "preview",
+    "written in CHANGELOG.md": "n"
+  };
+  const askFn = async (query: string) => {
+    for (const [key, val] of Object.entries(answers)) {
+      if (query.includes(key)) return val;
+    }
+    return "y";
+  };
+  await expect(promptInteractiveDelivery({ askFn, onProgress: () => {} }))
+    .rejects.toThrow("Delivery aborted: Please write a summary for the release in CHANGELOG.md before proceeding.");
+});
+
+test("promptInteractiveDelivery aborts if no changes are confirmed in preparedness self-check", async () => {
+  const answers: Record<string, string> = {
+    "Select product": "package",
+    "Select deployment channel": "preview",
+    "written in CHANGELOG.md": "y",
+    "new features": "n",
+    "bug fixes": "n",
+    "other changes": "n"
+  };
+  const askFn = async (query: string) => {
+    for (const [key, val] of Object.entries(answers)) {
+      if (query.includes(key)) return val;
+    }
+    return "n";
+  };
+  await expect(promptInteractiveDelivery({ askFn, onProgress: () => {} }))
+    .rejects.toThrow("Delivery aborted: Preparedness self-check failed (no features, bug fixes, or changes recorded).");
+});
+
+test("promptInteractiveDelivery aborts if dirty worktree commit is declined", async () => {
+  const mockGit = (_cwd: string, ...args: string[]) => {
+    if (args[0] === "status" && args.includes("--porcelain")) return "M dirty-file.ts";
+    if (args[0] === "symbolic-ref") return "main";
+    return "";
+  };
+  const answers: Record<string, string> = {
+    "Select product": "package",
+    "Select deployment channel": "preview",
+    "Commit remaining work": "n"
+  };
+  const askFn = async (query: string) => {
+    for (const [key, val] of Object.entries(answers)) {
+      if (query.includes(key)) return val;
+    }
+    return "y";
+  };
+  await expect(promptInteractiveDelivery({ askFn, git: mockGit, onProgress: () => {} }))
+    .rejects.toThrow("Delivery aborted: Worktree is dirty. Please commit or stash changes before delivering.");
 });
 

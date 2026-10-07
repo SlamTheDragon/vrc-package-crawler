@@ -3,6 +3,8 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import readline from "node:readline/promises";
+import { stdin as defaultInput, stdout as defaultOutput } from "node:process";
 import semver from "semver";
 import { bumpVersion, networkArchiveURL, nextVersion, productDirectories, productTagPrefixes, readVersionConfig, sdkPackageNames, versionFiles } from "./versioning.mjs";
 import { checkReleaseMetadata, checkReviewedRelease, checkSDKPublicationVersion, readGitHubAPI, readReleaseTagProof, selectTag } from "./delivery.mjs";
@@ -85,11 +87,11 @@ function mainVersionBlocker(channel, product, version, refs, workspace, git) {
 }
 
 /** Read-only planning. Release execution prepares a version PR, not a direct main push. */
-export async function planDelivery(channel, product, workspace = root, now = new Date(), git = runGit, force = false, skipTests = false) {
+export async function planDelivery(channel, product, workspace = root, now = new Date(), git = runGit, force = false, skipTests = false, increment = "patch") {
   if (!Object.hasOwn(workflows, product)) throw new Error("Product delivery is disabled or unknown. Website hosting remains deferred.");
   const { config, configPath } = await readVersionConfig(channel, workspace);
   const previous = config[`${channel}-${product}`];
-  const version = nextVersion(channel, product, "patch", previous, now);
+  const version = nextVersion(channel, product, increment, previous, now);
   if (product === "package") checkSDKPublicationVersion(version, channel,
     sdkPackageNames[channel]);
   const branch = git(workspace, "symbolic-ref", "--short", "HEAD");
@@ -191,7 +193,7 @@ function checkpointPendingPreview(plan, workspace, git) {
 
 /** Keep failed local commit/tag state so an exact retry cannot allocate another version. */
 export async function startDelivery(channel, product, execute = false, workspace = root, now = new Date(), git = runGit,
-    publicationProof = inspectDelivery, force = false, skipTests = false) {
+    publicationProof = inspectDelivery, force = false, skipTests = false, increment = "patch") {
   const skipTestsRequested = Boolean(
     skipTests ||
     process.env.VRCP_SKIP_TESTS === "true" ||
@@ -200,7 +202,7 @@ export async function startDelivery(channel, product, execute = false, workspace
   if (skipTestsRequested && channel === "release") {
     throw new Error("Tests cannot be disabled on release/production routes");
   }
-  let plan = await planDelivery(channel, product, workspace, now, git, force, skipTests);
+  let plan = await planDelivery(channel, product, workspace, now, git, force, skipTests, increment);
   if (!execute) return plan;
   const blockers = plan.blockers.filter(blocker => channel !== "preview" || blocker !== "Worktree or index is dirty");
   if (blockers.length) throw new Error(`Delivery blocked: ${blockers.join("; ")}`);
@@ -238,7 +240,7 @@ export async function startDelivery(channel, product, execute = false, workspace
   }
   const pendingCheckpoint = channel === "preview" ? checkpointPendingPreview(plan, workspace, git) : undefined;
   if (pendingCheckpoint) {
-    plan = await planDelivery(channel, product, workspace, now, git, force, skipTests);
+    plan = await planDelivery(channel, product, workspace, now, git, force, skipTests, increment);
     if (plan.blockers.length) throw new Error(`Pending checkpoint pushed; delivery blocked: ${plan.blockers.join("; ")}. No version bump ran.`);
   }
   // Recheck immediately before writes. A later race still cannot force an origin ref.
@@ -247,7 +249,7 @@ export async function startDelivery(channel, product, execute = false, workspace
     throw new Error("Repository changed after planning");
   }
   if (channel === "release" && !force) git(workspace, "checkout", "-b", plan.releaseBranch);
-  const result = await bumpVersion(channel, product, "patch", workspace, now);
+  const result = await bumpVersion(channel, product, increment, workspace, now);
   if (result.version !== plan.version) throw new Error("Config changed after planning. Inspect it before retrying.");
   const metadata = await versionFiles("sync", channel, product, workspace);
   const changelogResult = extractProductChangelog(channel, product, plan.version, workspace);
@@ -884,6 +886,162 @@ export async function trackDeliveryPipeline(tag, options = {}) {
   return inspected;
 }
 
+export async function promptInteractiveDelivery(options = {}) {
+  const {
+    input = defaultInput,
+    output = defaultOutput,
+    workspace = root,
+    now = new Date(),
+    git = runGit,
+    publicationProof = inspectDelivery,
+    askFn,
+    onProgress = msg => console.log(msg),
+    fetchFn = fetch,
+    inspect = inspectDelivery,
+    firstArg,
+    secondArg
+  } = options;
+
+  let rl;
+  const ask = askFn || (async query => {
+    if (!rl) rl = readline.createInterface({ input, output });
+    return (await rl.question(query)).trim();
+  });
+
+  try {
+    onProgress("=================================================");
+    onProgress("VRCP Interactive Delivery & Release Console");
+    onProgress("=================================================");
+
+    const availableProducts = Object.keys(workflows);
+    let product;
+    if (firstArg && availableProducts.includes(firstArg)) {
+      product = firstArg;
+    } else if (secondArg && availableProducts.includes(secondArg)) {
+      product = secondArg;
+    } else {
+      product = (await ask(`Select product to deliver (${availableProducts.join(", ")}): `)).toLowerCase();
+      while (!availableProducts.includes(product)) {
+        onProgress(`Invalid product. Must be one of: ${availableProducts.join(", ")}`);
+        product = (await ask(`Select product to deliver (${availableProducts.join(", ")}): `)).toLowerCase();
+      }
+    }
+
+    let channel;
+    if (firstArg && ["preview", "release"].includes(firstArg)) {
+      channel = firstArg;
+    } else if (secondArg && ["preview", "release"].includes(secondArg)) {
+      channel = secondArg;
+    } else {
+      channel = (await ask("Select deployment channel (preview, release): ")).toLowerCase();
+      while (!["preview", "release"].includes(channel)) {
+        onProgress("Invalid channel. Must be 'preview' or 'release'.");
+        channel = (await ask("Select deployment channel (preview, release): ")).toLowerCase();
+      }
+    }
+
+    if (product === "network" && channel === "release") {
+      throw new Error("Product 'network' is available only on the preview channel");
+    }
+
+    let force = Boolean(options.force);
+    const token = resolveGitHubToken(workspace);
+    let isAuthorized = false;
+    let repoOwner = "";
+    if (token) {
+      try {
+        const repo = repositoryFromRemote(git(workspace, "remote", "get-url", "origin"));
+        repoOwner = repo.split("/")[0];
+        const userResp = await fetchFn("https://api.github.com/user", {
+          headers: { authorization: `Bearer ${token}`, "user-agent": "VRCPDelivery" }
+        });
+        if (userResp.ok) {
+          const user = await userResp.json();
+          if (user.login?.toLowerCase() === repoOwner.toLowerCase()) {
+            isAuthorized = true;
+          } else {
+            const permResp = await fetchFn(`https://api.github.com/repos/${repo}/collaborators/${user.login}/permission`, {
+              headers: { authorization: `Bearer ${token}`, "user-agent": "VRCPDelivery" }
+            });
+            if (permResp.ok) {
+              const permData = await permResp.json();
+              isAuthorized = permData.permission === "admin";
+            }
+          }
+          if (isAuthorized) {
+            onProgress(`Verified repository admin/owner credentials for ${user.login}.`);
+            if (channel === "release" && !force) {
+              const forceAns = (await ask("Apply single-pass direct release (--force)? (y/n, default: y): ")).toLowerCase();
+              force = forceAns !== "n" && forceAns !== "no";
+            }
+          }
+        }
+      } catch (err) {
+        onProgress(`Token verification check skipped: ${err.message}`);
+      }
+    }
+
+    // Clean tree checkpoint
+    const dirty = git(workspace, "status", "--porcelain");
+    if (dirty) {
+      const commitAns = (await ask("Working tree has uncommitted changes. Commit remaining work for a clean tree? (y/n): ")).toLowerCase();
+      if (commitAns === "y" || commitAns === "yes") {
+        const defaultMsg = `Checkpoint uncommitted changes before ${product} ${channel} delivery`;
+        const commitMsg = (await ask(`Enter commit message (default: "${defaultMsg}"): `)) || defaultMsg;
+        git(workspace, "add", "-A");
+        git(workspace, "commit", "-m", commitMsg);
+        onProgress("Committed remaining work for a clean tree.");
+      } else {
+        throw new Error("Delivery aborted: Worktree is dirty. Please commit or stash changes before delivering.");
+      }
+    }
+
+    // Interactive changelog preparedness review
+    onProgress("--- Changelog Preparedness Self-Check ---");
+    const summaryWritten = (await ask(`Is the section summary for ${product} written in CHANGELOG.md? (y/n): `)).toLowerCase();
+    if (summaryWritten !== "y" && summaryWritten !== "yes") {
+      throw new Error("Delivery aborted: Please write a summary for the release in CHANGELOG.md before proceeding.");
+    }
+
+    const hasFeatures = (await ask("Were there new features added? (y/n): ")).toLowerCase();
+    const hasFixes = (await ask("Were there bug fixes? (y/n): ")).toLowerCase();
+    const hasChanges = (await ask("Were there other changes or refactors made? (y/n): ")).toLowerCase();
+
+    const anyChangesConfirmed = [hasFeatures, hasFixes, hasChanges].some(ans => ans === "y" || ans === "yes");
+    if (!anyChangesConfirmed) {
+      throw new Error("Delivery aborted: Preparedness self-check failed (no features, bug fixes, or changes recorded).");
+    }
+
+    // Bump selection
+    let increment = options.increment || "patch";
+    if (channel === "release" && !options.increment) {
+      const incAns = (await ask("Select version increment (patch, minor, major) [default: patch]: ")).toLowerCase();
+      if (["minor", "major"].includes(incAns)) {
+        increment = incAns;
+      }
+    }
+
+    // Version parity & branch checks
+    const branch = git(workspace, "symbolic-ref", "--short", "HEAD");
+    if (channel === "release" && !force && branch !== "main") {
+      throw new Error("Release delivery requires main after reviewed promotion");
+    }
+
+    onProgress(`Proceeding with delivery: ${product} (${channel}, increment: ${increment}, force: ${force})...`);
+    return executeDelivery(product, channel, {
+      ...options,
+      force,
+      increment,
+      skipTests: Boolean(options.skipTests),
+      watch: options.watch ?? true,
+      interactive: false,
+      onProgress
+    });
+  } finally {
+    if (rl) rl.close();
+  }
+}
+
 export async function executeDelivery(firstArg, secondArg, options = {}) {
   const {
     workspace = root,
@@ -893,6 +1051,8 @@ export async function executeDelivery(firstArg, secondArg, options = {}) {
     force = false,
     skipTests = false,
     watch = true,
+    increment = "patch",
+    interactive = false,
     api = githubReader(workspace),
     pollIntervalMs = 5000,
     timeoutMs = 600000,
@@ -900,6 +1060,10 @@ export async function executeDelivery(firstArg, secondArg, options = {}) {
     fetchFn = fetch,
     inspect = inspectDelivery
   } = options;
+
+  if ((!firstArg || !secondArg) && interactive !== false) {
+    return promptInteractiveDelivery({ ...options, firstArg, secondArg });
+  }
 
   let channel, product;
   if (["release", "preview"].includes(firstArg)) {
@@ -921,7 +1085,7 @@ export async function executeDelivery(firstArg, secondArg, options = {}) {
   }
 
   onProgress(`Starting unified delivery for ${product} on ${channel}...`);
-  const deliveryResult = await startDelivery(channel, product, true, workspace, now, git, publicationProof, force, skipTests);
+  const deliveryResult = await startDelivery(channel, product, true, workspace, now, git, publicationProof, force, skipTests, increment);
 
   if (channel === "release" && !force) {
     onProgress(`Release candidate branch created and pushed: ${deliveryResult.releaseBranch || deliveryResult.branch}`);
@@ -958,9 +1122,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const force = extra.includes("--force");
       const skipTests = extra.includes("--skip-tests");
       const noWatch = extra.includes("--no-watch");
-      const unknownFlags = extra.filter(arg => !["--force", "--skip-tests", "--no-watch", "--watch"].includes(arg));
+      const interactive = extra.includes("--interactive") || extra.includes("-i");
+      const unknownFlags = extra.filter(arg => !["--force", "--skip-tests", "--no-watch", "--watch", "--interactive", "-i"].includes(arg));
       if (unknownFlags.length) throw new Error(`Unknown option(s): ${unknownFlags.join(", ")}`);
-      result = await executeDelivery(first, second, { force, skipTests, watch: !noWatch });
+      result = await executeDelivery(first, second, { force, skipTests, watch: !noWatch, interactive: !first || !second || interactive });
     } else if (action === "reconcile" && !first && !second && !extra.length) {
       result = await triggerReconcile();
     } else if (action === "start") {
