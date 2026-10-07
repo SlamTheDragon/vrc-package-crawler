@@ -178,60 +178,48 @@ See full history at [docs/changelogs/vrcp-worker/release](docs/changelogs/vrcp-w
 ## VRC Packages Crawler - `vrcp-crawler-client-preview`
 
 <!-- vrcp-crawler-client-preview-DESCRIPTION_SUMMARY -->
-Placeholder Summary
+Desktop crawler client preview release v26.10.7-pre pipeline verification and multi-installer validation.
 <!-- vrcp-crawler-client-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- none currently
-
-### Bugs Fixed
-
-- none currently
+- Automated pipeline verification for NSIS setup and WiX MSI preview bundles.
 
 ### Changed
 
-- none currently
+- Synchronized desktop preview build configurations and client dependencies.
 
 See full history at [docs/changelogs/vrcp-crawler-client/preview](docs/changelogs/vrcp-crawler-client/preview)
 
 ## VRC Packages Crawler - `vrcp-crawler-node-preview`
 
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
-Placeholder Summary
+Crawler Node preview release v2026.10.8-pre pipeline verification and container image build testing.
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- none currently
-
-### Bugs Fixed
-
-- none currently
+- Automated pipeline verification across Linux, Windows binaries and GHCR preview container.
 
 ### Changed
 
-- none currently
+- Updated consumer dependency references to latest preview SDK and network archive.
 
 See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/vrcp-crawler-node/preview)
 
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
-Placeholder Summary
+Preview SDK package release v2026.10.8-pre pipeline verification and dependency synchronization.
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- none currently
-
-### Bugs Fixed
-
-- none currently
+- Automated pipeline verification for preview SDK package distribution.
 
 ### Changed
 
-- none currently
+- Synchronized preview package metadata and distribution dependencies.
 
 See full history at [docs/changelogs/vrcp-packages-api/preview](docs/changelogs/vrcp-packages-api/preview)
 
@@ -262,20 +250,16 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Placeholder Summary
+Worker coordinator preview release v2026.10.9-pre pipeline verification and D1 isolated deployment test.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- none currently
-
-### Bugs Fixed
-
-- none currently
+- Automated pipeline verification for Cloudflare preview worker deployment.
 
 ### Changed
 
-- none currently
+- Synchronized preview worker bundle and runtime dependency references.
 
 See full history at [docs/changelogs/vrcp-worker/preview](docs/changelogs/vrcp-worker/preview)
 
@@ -286,19 +270,15 @@ See full history at [docs/changelogs/vrcp-worker/preview](docs/changelogs/vrcp-w
 ## VRC Packages Network `vrcp-packages-network`
 
 <!-- vrcp-packages-network-DESCRIPTION_SUMMARY -->
-Placeholder Summary
+Preview network archive release v2026.10.6 pipeline verification and peer package bounds synchronization.
 <!-- vrcp-packages-network-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- none currently
-
-### Bugs Fixed
-
-- none currently
+- Automated pipeline verification for distributed network archive bundle.
 
 ### Changed
 
-- none currently
+- Updated peer package bounds for preview SDK package alignment.
 
 See full history at [docs/changelogs/vrcp-packages-network/](docs/changelogs/vrcp-packages-network/)
