@@ -32,6 +32,17 @@ export const changelogIdentifiers = {
   },
 };
 
+export function stripMarkdownComments(text) {
+  if (!text) return "";
+  return text
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split("\n")
+    .map(line => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /**
  * Find the start and end of a product's changelog section in CHANGELOG.md
  * using strictly typed channel and product identifiers.
@@ -49,7 +60,8 @@ export function findProductChangelogSection(markdown, channel, product) {
   let end = lines.findIndex((l, i) => i > start && (l.startsWith("## ") || l.startsWith("# ") || l === "---"));
   if (end < 0) end = lines.length;
 
-  const section = lines.slice(start + 1, end).join("\n").trim();
+  const rawSection = lines.slice(start + 1, end).join("\n");
+  const section = stripMarkdownComments(rawSection);
   return { start, end, heading: lines[start], folder, identifier, section: section || "- none currently" };
 }
 

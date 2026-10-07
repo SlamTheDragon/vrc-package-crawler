@@ -98,22 +98,16 @@ See full history at [docs/changelogs/vrcp-crawler-client/release](docs/changelog
 ## VRC Packages Crawler - `vrcp-crawler-node`
 
 <!-- vrcp-crawler-node-DESCRIPTION_SUMMARY -->
-Crawler Node release v0.0.10 containing delivery pipeline hardening, automated branch cleanup, and test fixture compatibility improvements.
+Crawler Node release v0.0.11 featuring automated markdown comment stripping during changelog extraction and direct single-pass package script delivery execution.
 <!-- vrcp-crawler-node-DESCRIPTION_SUMMARY -->
 
 ### Added
 
-- Single-pass delivery verification support for crawler node releases.
-- Candidate branch cleanup automation upon pull request merge.
-
-### Bugs Fixed
-
-- Fixed directory layout tests to support research structure backwards compatibility during recovery checkouts.
-- Resolved release candidate branch prefix matching across release scripts.
+- Automated markdown comment stripping during changelog extraction for clean receipts, commit descriptions, and release notes.
 
 ### Changed
 
-- Normalized GitHub Actions workflow names down into short literal descriptions.
+- Updated changelog extraction pipeline and added unit tests verifying comment sanitization across channels.
 
 See full history at [docs/changelogs/vrcp-crawler-node/release](docs/changelogs/vrcp-crawler-node/release)
 

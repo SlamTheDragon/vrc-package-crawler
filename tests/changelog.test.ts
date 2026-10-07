@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, normalize } from "node:path";
-import { extractProductChangelog } from "../scripts/changelog.mjs";
+import { extractProductChangelog, stripMarkdownComments } from "../scripts/changelog.mjs";
 
 test("extractProductChangelog copies product notes to dedicated markdown without modifying root CHANGELOG", () => {
   const dir = mkdtempSync(join(tmpdir(), "vrcp-changelog-test-"));
@@ -95,6 +95,69 @@ test("extractProductChangelog distinguishes release and preview headings with ba
     expect(prevResult).toBeDefined();
     expect(prevResult!.section).toContain("Preview crawler experiment.");
     expect(prevResult!.section).not.toContain("Release crawler feature.");
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("stripMarkdownComments removes HTML/markdown comments and normalizes whitespace", () => {
+  const input = `<!-- header comment -->
+Some text here <!-- inline comment --> and more text.
+<!--
+multi-line
+comment
+-->
+### Section
+
+<!-- trailing comment -->`;
+
+  const stripped = stripMarkdownComments(input);
+  expect(stripped).not.toContain("header comment");
+  expect(stripped).not.toContain("inline comment");
+  expect(stripped).not.toContain("multi-line");
+  expect(stripped).not.toContain("trailing comment");
+  expect(stripped).toContain("Some text here  and more text.");
+  expect(stripped).toContain("### Section");
+});
+
+test("extractProductChangelog strips markdown comments from extracted markdown file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vrcp-changelog-test-"));
+  try {
+    const changelog = `# Changelog
+
+## VRC Packages Crawler - \`vrcp-crawler-node\`
+
+<!-- vrcp-crawler-node-DESCRIPTION_SUMMARY -->
+Crawler Node release v0.0.11 summary text.
+<!-- vrcp-crawler-node-DESCRIPTION_SUMMARY -->
+
+### Added
+
+<!-- developer note -->
+- Added comment stripping feature.
+
+### Changed
+
+- Updated parser.
+`;
+    writeFileSync(join(dir, "CHANGELOG.md"), changelog);
+
+    const result = extractProductChangelog("release", "crawler", "0.0.11", dir);
+    expect(result).toBeDefined();
+    expect(result!.section).not.toContain("DESCRIPTION_SUMMARY");
+    expect(result!.section).not.toContain("developer note");
+    expect(result!.section).toContain("Crawler Node release v0.0.11 summary text.");
+    expect(result!.section).toContain("Added comment stripping feature.");
+
+    const perVersion = readFileSync(result!.file, "utf8");
+    expect(perVersion).not.toContain("<!--");
+    expect(perVersion).not.toContain("-->");
+    expect(perVersion).toContain("Crawler Node release v0.0.11 summary text.");
+    expect(perVersion).toContain("Added comment stripping feature.");
+
+    // Root CHANGELOG.md remains untouched with comments preserved
+    const rootAfter = readFileSync(join(dir, "CHANGELOG.md"), "utf8");
+    expect(rootAfter).toBe(changelog);
   } finally {
     rmSync(dir, { recursive: true });
   }
