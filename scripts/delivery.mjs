@@ -95,7 +95,7 @@ export async function checkReviewedRelease(selected, proof, api = readGitHubAPI(
     const lines = message.split(/\r?\n/).filter(line => line.startsWith(`${key}:`));
     if (lines.length !== 1 || lines[0] !== `${key}: ${value}`) throw new Error("Version preparation trailers differ from the selected release");
   }
-  if (pr.head.ref !== `release/candidate/${selected.product}/v${selected.version}`) throw new Error("Unexpected version preparation branch");
+  if (![`release/candidate/${selected.product}/v${selected.version}`, `codex/release/${selected.product}/v${selected.version}`].includes(pr.head.ref)) throw new Error("Unexpected version preparation branch");
   const merged = await api(`${prefix}/commits/${commit}`);
   if (merged?.sha !== commit || !Array.isArray(merged.parents) || ![1, 2].includes(merged.parents.length) ||
       !sha(merged.parents[0]?.sha) || (merged.parents.length === 2 && merged.parents[1]?.sha !== head)) {
