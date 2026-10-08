@@ -78,48 +78,28 @@ Summary
 ## VRC Packages Crawler Client - `vrcp-crawler-client`
 
 <!-- vrcp-crawler-client-DESCRIPTION_SUMMARY -->
-Desktop crawler client release v0.0.6 pipeline verification and live delivery synchronization.
+test
 <!-- vrcp-crawler-client-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- Automated pipeline validation for production desktop client distribution.
-
-### Changed
-
-- Synchronized desktop client package and release configuration dependencies.
-
-See full history at [docs/changelogs/vrcp-crawler-client/release](docs/changelogs/vrcp-crawler-client/release)
+test
 
 ## VRC Packages Crawler - `vrcp-crawler-node`
 
 <!-- vrcp-crawler-node-DESCRIPTION_SUMMARY -->
-Crawler Node release v0.0.12 pipeline verification and multi-architecture release validation.
+test
 <!-- vrcp-crawler-node-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- Automated pipeline validation for Linux and Windows production binary artifacts and container image.
-
-### Changed
-
-- Synchronized production crawler package manifests and build dependencies.
+test
 
 See full history at [docs/changelogs/vrcp-crawler-node/release](docs/changelogs/vrcp-crawler-node/release)
 
 ## VRC Packages API - `vrcp-packages-api`
 
 <!-- vrcp-packages-api-DESCRIPTION_SUMMARY -->
-SDK API package release v0.0.7 pipeline verification and npm distribution staging validation.
+test
 <!-- vrcp-packages-api-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- Automated pipeline validation for production SDK package distribution.
-
-### Changed
-
-- Synchronized release API package configuration and distributed exports.
+test
 
 See full history at [docs/changelogs/vrcp-packages-api/release](docs/changelogs/vrcp-packages-api/release)
 
@@ -130,36 +110,20 @@ See full history at [docs/changelogs/vrcp-packages-api/release](docs/changelogs/
 ## VRC Packages Web - `vrcp-web`
 
 <!-- vrcp-web-DESCRIPTION_SUMMARY -->
-Placeholder Summary
+test
 <!-- vrcp-web-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- none currently
-
-### Bugs Fixed
-
-- none currently
-
-### Changed
-
-- none currently
+test
 
 See full history at [docs/changelogs/vrcp-web/release](docs/changelogs/vrcp-web/release)
 
 ## VRC Packages Worker - `vrcp-worker`
 
 <!-- vrcp-worker-DESCRIPTION_SUMMARY -->
-Worker coordinator release v0.0.7 pipeline verification and production build bundle validation.
+test
 <!-- vrcp-worker-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- Automated pipeline validation for Cloudflare worker production bundle compilation.
-
-### Changed
-
-- Synchronized production worker coordinator package manifests and build tooling.
+test
 
 See full history at [docs/changelogs/vrcp-worker/release](docs/changelogs/vrcp-worker/release)
 
@@ -170,48 +134,30 @@ See full history at [docs/changelogs/vrcp-worker/release](docs/changelogs/vrcp-w
 ## VRC Packages Crawler - `vrcp-crawler-client-preview`
 
 <!-- vrcp-crawler-client-preview-DESCRIPTION_SUMMARY -->
-Desktop crawler client preview release v26.10.7-pre pipeline verification and multi-installer validation.
+test
 <!-- vrcp-crawler-client-preview-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- Automated pipeline verification for NSIS setup and WiX MSI preview bundles.
-
-### Changed
-
-- Synchronized desktop preview build configurations and client dependencies.
+test
 
 See full history at [docs/changelogs/vrcp-crawler-client/preview](docs/changelogs/vrcp-crawler-client/preview)
 
 ## VRC Packages Crawler - `vrcp-crawler-node-preview`
 
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
-Crawler Node preview release v2026.10.8-pre pipeline verification and container image build testing.
+test
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- Automated pipeline verification across Linux, Windows binaries and GHCR preview container.
-
-### Changed
-
-- Updated consumer dependency references to latest preview SDK and network archive.
+test
 
 See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/vrcp-crawler-node/preview)
 
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
-Preview SDK package release v2026.10.8-pre pipeline verification and dependency synchronization.
+test
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- Automated pipeline verification for preview SDK package distribution.
-
-### Changed
-
-- Synchronized preview package metadata and distribution dependencies.
+test
 
 See full history at [docs/changelogs/vrcp-packages-api/preview](docs/changelogs/vrcp-packages-api/preview)
 
@@ -222,36 +168,20 @@ See full history at [docs/changelogs/vrcp-packages-api/preview](docs/changelogs/
 ## VRC Packages Web - `vrcp-web-preview-preview`
 
 <!-- vrcp-web-preview-preview-DESCRIPTION_SUMMARY -->
-Placeholder Summary
+test
 <!-- vrcp-web-preview-preview-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- none currently
-
-### Bugs Fixed
-
-- none currently
-
-### Changed
-
-- none currently
+test
 
 See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/preview)
 
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Worker coordinator preview release v2026.10.9-pre pipeline verification and D1 isolated deployment test.
+test
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- Automated pipeline verification for Cloudflare preview worker deployment.
-
-### Changed
-
-- Synchronized preview worker bundle and runtime dependency references.
+test
 
 See full history at [docs/changelogs/vrcp-worker/preview](docs/changelogs/vrcp-worker/preview)
 
@@ -262,15 +192,9 @@ See full history at [docs/changelogs/vrcp-worker/preview](docs/changelogs/vrcp-w
 ## VRC Packages Network `vrcp-packages-network`
 
 <!-- vrcp-packages-network-DESCRIPTION_SUMMARY -->
-Preview network archive release v2026.10.6 pipeline verification and peer package bounds synchronization.
+test
 <!-- vrcp-packages-network-DESCRIPTION_SUMMARY -->
 
-### Added
-
-- Automated pipeline verification for distributed network archive bundle.
-
-### Changed
-
-- Updated peer package bounds for preview SDK package alignment.
+test
 
 See full history at [docs/changelogs/vrcp-packages-network/](docs/changelogs/vrcp-packages-network/)
