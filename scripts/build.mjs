@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { defineCommand, runMain } from "citty";
 import { productDirectories } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -150,24 +151,47 @@ export async function build(product = "all", channel = "preview", options = {}) 
   return buildProduct(product, channelNorm, options);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  const args = process.argv.slice(2);
-  let product = "all";
-  let channel = "preview";
+export const main = defineCommand({
+  meta: {
+    name: "build",
+    description: "Build monorepo products in dependency order"
+  },
+  args: {
+    product: {
+      type: "positional",
+      description: "Product target: all, package, crawler, crawler-client, worker, network, web, web-search",
+      required: false,
+      default: "all"
+    },
+    channel: {
+      type: "positional",
+      description: "Channel: preview (default) | release",
+      required: false,
+      default: "preview"
+    }
+  },
+  async run({ args }) {
+    let product = "all";
+    let channel = "preview";
 
-  for (const arg of args) {
-    const argLower = arg.toLowerCase();
-    if (["preview", "release"].includes(argLower)) {
-      channel = argLower;
-    } else if (Object.keys(buildTargets).includes(argLower) || argLower === "all") {
-      product = argLower;
+    for (const arg of [args.product, args.channel].filter(Boolean)) {
+      const argLower = arg.toLowerCase();
+      if (["preview", "release"].includes(argLower)) {
+        channel = argLower;
+      } else if (Object.keys(buildTargets).includes(argLower) || argLower === "all") {
+        product = argLower;
+      }
+    }
+
+    try {
+      await build(product, channel);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
     }
   }
+});
 
-  try {
-    await build(product, channel);
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-  }
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  runMain(main);
 }

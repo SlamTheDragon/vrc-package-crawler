@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { checkReleaseSource, readGitHubAPI, selectTag } from "./delivery.mjs";
 import { productDirectories, productTagPrefixes } from "./versioning.mjs";
 import { checkRemoteTag } from "./release-assets.mjs";
+import * as p from "@clack/prompts";
+import { defineCommand, runMain } from "citty";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -513,6 +515,8 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
     fetchFn = fetch
   } = options;
 
+  const isInteractiveTTY = !askFn && Boolean(process.stdin.isTTY) && !process.env.CI;
+
   let rl;
   const ask = askFn || (async query => {
     if (!rl) {
@@ -524,54 +528,155 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
 
   try {
     const diagnosis = diagnoseFailure(context);
-    onProgress(`\n${c.bold}${c.cyan}◆ VRCP Delivery Failure Recovery Console${c.reset}`);
-    onProgress(`${c.dim}  Interactive incident remediation, tag rollback, and patch branch orchestration${c.reset}\n`);
-    onProgress(`${c.bold}┌── 🩺 Failure Diagnosis${c.reset}`);
-    onProgress(`│  Failure Category:   ${c.bold}${diagnosis.category.toUpperCase()}${c.reset} (Severity: ${diagnosis.severity})`);
-    onProgress(`│  Root Cause:          ${c.yellow}${diagnosis.rootCause}${c.reset}`);
-    onProgress(`│  Continuity Impact:   ${diagnosis.continuity}`);
-    onProgress(`│  Suggested Action(s): ${c.cyan}${diagnosis.suggestedActions.join(", ")}${c.reset}`);
-    onProgress(`│`);
-    onProgress(`${c.bold}└── 🛠  Available Remediation Options${c.reset}`);
-    onProgress(`   ${c.yellow}1)${c.reset} Rerun failed CI jobs (transient failure)`);
-    onProgress(`   ${c.yellow}2)${c.reset} Revert delivery tag locally (collision/abort)`);
-    onProgress(`   ${c.yellow}3)${c.reset} Switch to temporary patch branch (release/patch/*) and revert tag`);
-    onProgress(`   ${c.yellow}4)${c.reset} Merge and clean up temporary patch branch`);
-    onProgress(`   ${c.yellow}5)${c.reset} Abort and exit\n`);
 
-    const choice = await ask("Select remediation option [1-5]: ");
+    if (isInteractiveTTY) {
+      p.intro(`${c.bold}${c.cyan}VRCP Delivery Failure Recovery Console${c.reset}`);
+      p.note(
+        `Category:   ${diagnosis.category.toUpperCase()} (Severity: ${diagnosis.severity})\nRoot Cause: ${diagnosis.rootCause}\nContinuity: ${diagnosis.continuity}\nActions:    ${diagnosis.suggestedActions.join(", ")}`,
+        "Failure Diagnosis"
+      );
+    } else {
+      onProgress(`\n${c.bold}${c.cyan}◆ VRCP Delivery Failure Recovery Console${c.reset}`);
+      onProgress(`${c.dim}  Interactive incident remediation, tag rollback, and patch branch orchestration${c.reset}\n`);
+      onProgress(`${c.bold}┌── 🩺 Failure Diagnosis${c.reset}`);
+      onProgress(`│  Failure Category:   ${c.bold}${diagnosis.category.toUpperCase()}${c.reset} (Severity: ${diagnosis.severity})`);
+      onProgress(`│  Root Cause:          ${c.yellow}${diagnosis.rootCause}${c.reset}`);
+      onProgress(`│  Continuity Impact:   ${diagnosis.continuity}`);
+      onProgress(`│  Suggested Action(s): ${c.cyan}${diagnosis.suggestedActions.join(", ")}${c.reset}`);
+      onProgress(`│`);
+      onProgress(`${c.bold}└── 🛠  Available Remediation Options${c.reset}`);
+      onProgress(`   ${c.yellow}1)${c.reset} Rerun failed CI jobs (transient failure)`);
+      onProgress(`   ${c.yellow}2)${c.reset} Revert delivery tag locally (collision/abort)`);
+      onProgress(`   ${c.yellow}3)${c.reset} Switch to temporary patch branch (release/patch/*) and revert tag`);
+      onProgress(`   ${c.yellow}4)${c.reset} Merge and clean up temporary patch branch`);
+      onProgress(`   ${c.yellow}5)${c.reset} Abort and exit\n`);
+    }
+
+    let choice = "5";
+    if (isInteractiveTTY) {
+      const res = await p.select({
+        message: "Select remediation option:",
+        options: [
+          { value: "1", label: "Rerun failed CI jobs", hint: "Transient runner/network failure" },
+          { value: "2", label: "Revert delivery tag locally", hint: "Collision / aborted release" },
+          { value: "3", label: "Switch to temporary patch branch", hint: "release/patch/* development" },
+          { value: "4", label: "Merge and clean up patch branch", hint: "After fixes are committed" },
+          { value: "5", label: "Abort and exit" }
+        ],
+        initialValue: "1"
+      });
+      if (p.isCancel(res)) {
+        p.cancel("Recovery cancelled.");
+        return { status: "recovery-aborted" };
+      }
+      choice = String(res);
+    } else {
+      choice = await ask("Select remediation option [1-5]: ");
+    }
+
     if (choice === "1") {
       if (!context.runId) throw new Error("No runId available in context to rerun.");
-      onProgress(`  ${c.cyan}◆${c.reset} Rerunning failed jobs for workflow run #${context.runId}...`);
-      const res = await rerunWorkflowRun(repository, context.runId, { failedJobsOnly: true, token, fetchFn });
-      onProgress(`  ${c.green}✓${c.reset} Rerun dispatched successfully.`);
-      return res;
+      if (isInteractiveTTY) {
+        const s = p.spinner();
+        s.start(`Rerunning failed jobs for workflow run #${context.runId}...`);
+        const res = await rerunWorkflowRun(repository, context.runId, { failedJobsOnly: true, token, fetchFn });
+        s.stop("Rerun dispatched successfully.");
+        p.outro("Rerun complete.");
+        return res;
+      } else {
+        onProgress(`  ${c.cyan}◆${c.reset} Rerunning failed jobs for workflow run #${context.runId}...`);
+        const res = await rerunWorkflowRun(repository, context.runId, { failedJobsOnly: true, token, fetchFn });
+        onProgress(`  ${c.green}✓${c.reset} Rerun dispatched successfully.`);
+        return res;
+      }
     } else if (choice === "2") {
       if (!context.tag) throw new Error("No tag specified in context to revert.");
-      onProgress(`  ${c.cyan}◆${c.reset} Reverting delivery tag ${context.tag}...`);
-      const res = await revertDeliveryTag(context.tag, { workspace, readGit, deleteRemote: false, repository, token, fetchFn });
-      onProgress(`  ${c.green}✓${c.reset} Local tag ${context.tag} deleted.`);
-      return res;
-    } else if (choice === "3") {
-      const product = context.product || (await ask("Enter product name: "));
-      const version = context.version || (await ask("Enter version string: "));
-      const tag = context.tag || (productTagPrefixes[product] ? `${productTagPrefixes[product]}/v${version}` : undefined);
-      onProgress(`  ${c.cyan}◆${c.reset} Switching to patch branch for ${product} v${version} and cleaning up tag ${tag || ""}...`);
-      const res = createPatchBranch(product, version, { workspace, readGit, tag });
-      if (res.tagDeleted) {
-        onProgress(`  ${c.green}✓${c.reset} Reverted premature delivery tag ${res.tagDeleted}`);
+      if (isInteractiveTTY) {
+        const s = p.spinner();
+        s.start(`Reverting delivery tag ${context.tag}...`);
+        const res = await revertDeliveryTag(context.tag, { workspace, readGit, deleteRemote: false, repository, token, fetchFn });
+        s.stop(`Local tag ${context.tag} deleted.`);
+        p.outro("Tag rollback complete.");
+        return res;
+      } else {
+        onProgress(`  ${c.cyan}◆${c.reset} Reverting delivery tag ${context.tag}...`);
+        const res = await revertDeliveryTag(context.tag, { workspace, readGit, deleteRemote: false, repository, token, fetchFn });
+        onProgress(`  ${c.green}✓${c.reset} Local tag ${context.tag} deleted.`);
+        return res;
       }
-      onProgress(res.instruction);
-      return res;
+    } else if (choice === "3") {
+      let product = context.product;
+      let version = context.version;
+      if (isInteractiveTTY) {
+        if (!product) {
+          product = await p.select({
+            message: "Select product for patch branch:",
+            options: Object.keys(productDirectories).map(k => ({ value: k, label: k }))
+          });
+          if (p.isCancel(product)) { p.cancel("Recovery cancelled."); return { status: "recovery-aborted" }; }
+        }
+        if (!version) {
+          version = await p.text({ message: "Enter version string (e.g. 0.0.12):" });
+          if (p.isCancel(version)) { p.cancel("Recovery cancelled."); return { status: "recovery-aborted" }; }
+        }
+      } else {
+        if (!product) product = await ask("Enter product name: ");
+        if (!version) version = await ask("Enter version string: ");
+      }
+      const tag = context.tag || (productTagPrefixes[product] ? `${productTagPrefixes[product]}/v${version}` : undefined);
+      if (isInteractiveTTY) {
+        const s = p.spinner();
+        s.start(`Switching to patch branch for ${product} v${version}...`);
+        const res = createPatchBranch(product, version, { workspace, readGit, tag });
+        s.stop(`Switched to patch branch ${res.branch}`);
+        p.note(res.instruction, "Branch Instructions");
+        p.outro("Patch branch creation complete.");
+        return res;
+      } else {
+        onProgress(`  ${c.cyan}◆${c.reset} Switching to patch branch for ${product} v${version} and cleaning up tag ${tag || ""}...`);
+        const res = createPatchBranch(product, version, { workspace, readGit, tag });
+        if (res.tagDeleted) {
+          onProgress(`  ${c.green}✓${c.reset} Reverted premature delivery tag ${res.tagDeleted}`);
+        }
+        onProgress(res.instruction);
+        return res;
+      }
     } else if (choice === "4") {
-      const product = context.product || (await ask("Enter product name: "));
-      const version = context.version || (await ask("Enter version string: "));
-      onProgress(`  ${c.cyan}◆${c.reset} Merging and cleaning up patch branch for ${product} v${version}...`);
-      const res = mergeAndCleanupPatchBranch(product, version, { workspace, readGit });
-      onProgress(res.prompt);
-      return res;
+      let product = context.product;
+      let version = context.version;
+      if (isInteractiveTTY) {
+        if (!product) {
+          product = await p.select({
+            message: "Select product for patch branch merge:",
+            options: Object.keys(productDirectories).map(k => ({ value: k, label: k }))
+          });
+          if (p.isCancel(product)) { p.cancel("Recovery cancelled."); return { status: "recovery-aborted" }; }
+        }
+        if (!version) {
+          version = await p.text({ message: "Enter version string (e.g. 0.0.12):" });
+          if (p.isCancel(version)) { p.cancel("Recovery cancelled."); return { status: "recovery-aborted" }; }
+        }
+        const s = p.spinner();
+        s.start(`Merging and cleaning up patch branch for ${product} v${version}...`);
+        const res = mergeAndCleanupPatchBranch(product, version, { workspace, readGit });
+        s.stop(`Merged patch branch ${res.branch}`);
+        p.note(res.prompt, "Next Steps");
+        p.outro("Patch branch merged successfully.");
+        return res;
+      } else {
+        if (!product) product = await ask("Enter product name: ");
+        if (!version) version = await ask("Enter version string: ");
+        onProgress(`  ${c.cyan}◆${c.reset} Merging and cleaning up patch branch for ${product} v${version}...`);
+        const res = mergeAndCleanupPatchBranch(product, version, { workspace, readGit });
+        onProgress(res.prompt);
+        return res;
+      }
     } else {
-      onProgress(`  ${c.dim}Recovery cancelled by user.${c.reset}`);
+      if (isInteractiveTTY) {
+        p.outro("Recovery cancelled by user.");
+      } else {
+        onProgress(`  ${c.dim}Recovery cancelled by user.${c.reset}`);
+      }
       return { status: "recovery-aborted" };
     }
   } finally {
@@ -579,62 +684,89 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  (async () => {
-  const [rawSubcommand, ...rest] = process.argv.slice(2);
-  const subcommand = rawSubcommand ? rawSubcommand.toLowerCase() : "interactive";
-  try {
-    if (subcommand === "authorize") {
-      const [tag, ...flags] = rest;
-      if (!tag || new Set(flags).size !== flags.length ||
-          flags.some(flag => !["--execute", "--failed-run"].includes(flag) && !/^[1-9][0-9]*$/.test(flag))) {
-        throw new Error("Use: delivery-recovery.mjs authorize <exact-tag> [--failed-run <runId>] [--execute]");
-      }
-      const failedRunIdx = flags.indexOf("--failed-run");
-      const failedRunId = failedRunIdx >= 0 ? Number(flags[failedRunIdx + 1]) : undefined;
-      const result = await authorizeRecovery(tag, { execute: flags.includes("--execute"), failedRunId }, root, readGitHubAPI());
-      console.log(JSON.stringify(result, null, 2));
-    } else if (subcommand === "patch-branch") {
-      const [action, product, version] = rest;
-      if (action === "create") {
-        const res = createPatchBranch(product, version);
+export const main = defineCommand({
+  meta: {
+    name: "recovery",
+    description: "Delivery failure diagnosis, patch branch orchestration, and remediation"
+  },
+  args: {
+    subcommand: {
+      type: "positional",
+      description: "Subcommand: interactive, recover, authorize, patch-branch, rerun, revert-tag, diagnose, or <tag>",
+      required: false,
+      default: "interactive"
+    },
+    arg1: { type: "positional", required: false, description: "First positional argument (tag, action, or runId)" },
+    arg2: { type: "positional", required: false, description: "Second positional argument (version, product, or commit)" },
+    arg3: { type: "positional", required: false, description: "Third positional argument" },
+    execute: { type: "boolean", default: false, description: "Execute remote mutation" },
+    retry: { type: "boolean", default: false, description: "Allow retry of prior attempt" },
+    failedRun: { type: "string", description: "Failed GitHub workflow run ID" },
+    remote: { type: "boolean", default: false, description: "Delete remote tag as well" },
+    all: { type: "boolean", default: false, description: "Rerun all jobs instead of failed only" }
+  },
+  async run() {
+    const [rawSubcommand, ...rest] = process.argv.slice(2);
+    const subcommand = rawSubcommand ? rawSubcommand.toLowerCase() : "interactive";
+    try {
+      if (subcommand === "authorize") {
+        const [tag, ...flags] = rest;
+        if (!tag || new Set(flags).size !== flags.length ||
+            flags.some(flag => !["--execute", "--failed-run"].includes(flag) && !/^[1-9][0-9]*$/.test(flag))) {
+          throw new Error("Use: delivery-recovery.mjs authorize <exact-tag> [--failed-run <runId>] [--execute]");
+        }
+        const failedRunIdx = flags.indexOf("--failed-run");
+        const failedRunId = failedRunIdx >= 0 ? Number(flags[failedRunIdx + 1]) : undefined;
+        const result = await authorizeRecovery(tag, { execute: flags.includes("--execute"), failedRunId }, root, readGitHubAPI());
+        console.log(JSON.stringify(result, null, 2));
+      } else if (subcommand === "patch-branch") {
+        const [action, product, version] = rest;
+        if (action === "create") {
+          const res = createPatchBranch(product, version);
+          console.log(JSON.stringify(res, null, 2));
+        } else if (action === "merge") {
+          const res = mergeAndCleanupPatchBranch(product, version);
+          console.log(JSON.stringify(res, null, 2));
+        } else {
+          throw new Error("Use: delivery-recovery.mjs patch-branch <create|merge> <product> <version>");
+        }
+      } else if (subcommand === "rerun") {
+        const [runId, ...flags] = rest;
+        if (!runId || !/^[1-9][0-9]*$/.test(runId)) throw new Error("Use: delivery-recovery.mjs rerun <runId> [--all]");
+        const res = await rerunWorkflowRun("SlamTheDragon/vrc-packages", Number(runId), { failedJobsOnly: !flags.includes("--all") });
         console.log(JSON.stringify(res, null, 2));
-      } else if (action === "merge") {
-        const res = mergeAndCleanupPatchBranch(product, version);
+      } else if (subcommand === "revert-tag") {
+        const [tag, ...flags] = rest;
+        if (!tag) throw new Error("Use: delivery-recovery.mjs revert-tag <tag> [--remote]");
+        const res = await revertDeliveryTag(tag, { deleteRemote: flags.includes("--remote") });
         console.log(JSON.stringify(res, null, 2));
+      } else if (subcommand === "interactive" || subcommand === "recover-interactive") {
+        const [tag, runId] = rest;
+        const res = await promptInteractiveRecovery({ tag, runId: runId ? Number(runId) : undefined });
+        console.log(JSON.stringify(res, null, 2));
+      } else if (subcommand === "diagnose") {
+        const [tag] = rest;
+        const res = diagnoseFailure({ tag, error: tag });
+        console.log(JSON.stringify(res, null, 2));
+      } else if (subcommand === "recover" || subcommand?.includes("/v")) {
+        const tag = subcommand === "recover" ? rest[0] : rawSubcommand;
+        const flags = subcommand === "recover" ? rest.slice(1) : rest;
+        if (!tag || new Set(flags).size !== flags.length || flags.some(flag => !["--execute", "--retry"].includes(flag))) {
+          throw new Error("Use: delivery-recovery.mjs recover <exact-tag> [--retry] [--execute]");
+        }
+        const result = await recoverDelivery(tag, flags.includes("--execute"), root, readGitHubAPI(), dispatchRecovery, flags.includes("--retry"));
+        console.log(JSON.stringify(result, null, 2));
+        if (result.status === "tooling-promotion-required") process.exitCode = 1;
       } else {
-        throw new Error("Use: delivery-recovery.mjs patch-branch <create|merge> <product> <version>");
+        throw new Error("Unknown recovery command. Use: recover, authorize, patch-branch, rerun, revert-tag, diagnose, or interactive.");
       }
-    } else if (subcommand === "rerun") {
-      const [runId, ...flags] = rest;
-      if (!runId || !/^[1-9][0-9]*$/.test(runId)) throw new Error("Use: delivery-recovery.mjs rerun <runId> [--all]");
-      const res = await rerunWorkflowRun("SlamTheDragon/vrc-packages", Number(runId), { failedJobsOnly: !flags.includes("--all") });
-      console.log(JSON.stringify(res, null, 2));
-    } else if (subcommand === "revert-tag") {
-      const [tag, ...flags] = rest;
-      if (!tag) throw new Error("Use: delivery-recovery.mjs revert-tag <tag> [--remote]");
-      const res = await revertDeliveryTag(tag, { deleteRemote: flags.includes("--remote") });
-      console.log(JSON.stringify(res, null, 2));
-    } else if (subcommand === "interactive" || subcommand === "recover-interactive") {
-      const [tag, runId] = rest;
-      const res = await promptInteractiveRecovery({ tag, runId: runId ? Number(runId) : undefined });
-      console.log(JSON.stringify(res, null, 2));
-    } else if (subcommand === "diagnose") {
-      const [tag] = rest;
-      const res = diagnoseFailure({ tag, error: tag });
-      console.log(JSON.stringify(res, null, 2));
-    } else if (subcommand === "recover" || subcommand?.includes("/v")) {
-      const tag = subcommand === "recover" ? rest[0] : subcommand;
-      const flags = subcommand === "recover" ? rest.slice(1) : rest;
-      if (!tag || new Set(flags).size !== flags.length || flags.some(flag => !["--execute", "--retry"].includes(flag))) {
-        throw new Error("Use: delivery-recovery.mjs recover <exact-tag> [--retry] [--execute]");
-      }
-      const result = await recoverDelivery(tag, flags.includes("--execute"), root, readGitHubAPI(), dispatchRecovery, flags.includes("--retry"));
-      console.log(JSON.stringify(result, null, 2));
-      if (result.status === "tooling-promotion-required") process.exitCode = 1;
-    } else {
-      throw new Error("Unknown recovery command. Use: recover, authorize, patch-branch, rerun, revert-tag, diagnose, or interactive.");
+    } catch (error) {
+      console.error(error.message);
+      process.exitCode = 1;
     }
-  } catch (error) { console.error(error.message); process.exitCode = 1; }
-  })();
+  }
+});
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  runMain(main);
 }

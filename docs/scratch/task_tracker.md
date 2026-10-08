@@ -26,6 +26,13 @@
     - Restored CI release announcement entry point: Re-added `"release:announce": "bun scripts/release-announcements.mjs"` to root `package.json` required by `.github/workflows/release-announcements.yml`.
     - Purged duplicate scripts: Cleaned up all redundant `delivery:*` scripts from root `package.json` and all 6 subproject `package.json` manifests, standardizing entirely on `publish:*`.
     - Updated governance test assertions: Updated `tests/delivery.test.ts`, `tests/preview-dispatcher.test.ts`, and `tests/delivery-recovery.test.ts` to assert canonical `publish:*` commands. All tests green.
+  - `CLI-FRAMEWORK-AND-UNCERTAINTY-CATCHES` (2026-10-08):
+    - Adopted `citty` and `@clack/prompts`: Integrated `citty.defineCommand` and `@clack/prompts` across `scripts/build.mjs`, `scripts/setup.mjs`, `scripts/delivery-recovery.mjs`, and `scripts/delivery-chain.mjs`.
+    - Built-in `--help` navigation: Every tool (`bun run publish --help`, `bun run build --help`, `bun run setup --help`, `bun run recovery --help`) natively exposes formatted help, flag definitions, and usage parameters.
+    - Uncertainty catches & cancellation: Wrapped interactive prompts in `p.isCancel()` checks with graceful cancellation and exit code handling.
+    - Preserved test harness compatibility: In headless test mode where `askFn` or mock executions are passed, all scripts preserve test hooks and pass without regressions.
+    - Binary option UX: Enhanced `askBinary` and `p.confirm` with explicit `(Y/n)` / `(y/N)` notation and arrows.
+    - Reserved help architecture: Emptied `scripts/help.mjs` reserved for the upcoming proposal.
   - `GATE-VERIFICATION-PASS`:
     - Full repository test suite (`bun test ./tests`): all targeted test suites passing green across build, delivery, recovery, setup, and sync (86 pass across 5 files, 1,417 assertions).
 

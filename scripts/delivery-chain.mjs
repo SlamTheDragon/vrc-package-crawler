@@ -12,6 +12,8 @@ import { allowedBinary, checkedAssetBytes, checkSourceRun, checkRemoteTag, sameS
 import { checkWorkerArtifacts, downloadActionsArchive } from "./worker-artifacts.mjs";
 import { checkRecoveryReceipts, checkRecoveryRun, recoveryIdentity } from "./delivery-recovery.mjs";
 import { extractProductChangelog } from "./changelog.mjs";
+import * as p from "@clack/prompts";
+import { defineCommand, runMain } from "citty";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -932,6 +934,8 @@ export async function promptInteractiveDelivery(options = {}) {
     secondArg
   } = options;
 
+  const isInteractiveTTY = !askFn && Boolean(process.stdin.isTTY) && !process.env.CI;
+
   let rl;
   const ask = askFn || (async query => {
     if (!rl) rl = readline.createInterface({ input, output });
@@ -939,9 +943,13 @@ export async function promptInteractiveDelivery(options = {}) {
   });
 
   try {
-    onProgress(`${style.cyan}${style.bold}┌─────────────────────────────────────────────────────────────┐${style.reset}`);
-    onProgress(`${style.cyan}${style.bold}│  ◆ VRCP Interactive Publish & Release Console              │${style.reset}`);
-    onProgress(`${style.cyan}${style.bold}└─────────────────────────────────────────────────────────────┘${style.reset}`);
+    if (isInteractiveTTY) {
+      p.intro(`${style.cyan}${style.bold}VRCP Interactive Publish & Release Console${style.reset}`);
+    } else {
+      onProgress(`${style.cyan}${style.bold}┌─────────────────────────────────────────────────────────────┐${style.reset}`);
+      onProgress(`${style.cyan}${style.bold}│  ◆ VRCP Interactive Publish & Release Console              │${style.reset}`);
+      onProgress(`${style.cyan}${style.bold}└─────────────────────────────────────────────────────────────┘${style.reset}`);
+    }
 
     const availableProducts = Object.keys(workflows);
     const firstArgLower = firstArg?.toLowerCase();
@@ -951,6 +959,20 @@ export async function promptInteractiveDelivery(options = {}) {
       product = firstArgLower;
     } else if (secondArgLower && availableProducts.includes(secondArgLower)) {
       product = secondArgLower;
+    } else if (isInteractiveTTY) {
+      const prodChoice = await p.select({
+        message: "Select product to deliver:",
+        options: availableProducts.map(k => ({
+          value: k,
+          label: k,
+          hint: productDirectories[k] || "Root product"
+        }))
+      });
+      if (p.isCancel(prodChoice)) {
+        p.cancel("Delivery cancelled.");
+        process.exit(0);
+      }
+      product = prodChoice;
     } else {
       product = (await ask(`Select product to deliver (${availableProducts.join(", ")}): `)).toLowerCase();
       while (!availableProducts.includes(product)) {
@@ -964,6 +986,20 @@ export async function promptInteractiveDelivery(options = {}) {
       channel = firstArgLower;
     } else if (secondArgLower && ["preview", "release"].includes(secondArgLower)) {
       channel = secondArgLower;
+    } else if (isInteractiveTTY) {
+      const chanChoice = await p.select({
+        message: "Select deployment channel:",
+        options: [
+          { value: "preview", label: "preview", hint: "Continuous deployment to preview/staging" },
+          { value: "release", label: "release", hint: "Production release with strict gating" }
+        ],
+        initialValue: "preview"
+      });
+      if (p.isCancel(chanChoice)) {
+        p.cancel("Delivery cancelled.");
+        process.exit(0);
+      }
+      channel = chanChoice;
     } else {
       channel = (await ask("Select deployment channel (preview, release): ")).toLowerCase();
       while (!["preview", "release"].includes(channel)) {
@@ -1001,9 +1037,24 @@ export async function promptInteractiveDelivery(options = {}) {
             }
           }
           if (isAuthorized) {
-            onProgress(`  ${style.green}✔${style.reset} Verified repository admin/owner credentials for ${style.bold}@${user.login}${style.reset}.`);
-            if (channel === "release" && !force) {
-              force = await askBinary(ask, "Apply single-pass direct release (--force)?", true);
+            if (isInteractiveTTY) {
+              p.note(`Verified repository admin/owner credentials for @${user.login}`, "GitHub Admin");
+              if (channel === "release" && !force) {
+                const forceChoice = await p.confirm({
+                  message: "Apply single-pass direct release (--force)?",
+                  initialValue: true
+                });
+                if (p.isCancel(forceChoice)) {
+                  p.cancel("Delivery cancelled.");
+                  process.exit(0);
+                }
+                force = forceChoice;
+              }
+            } else {
+              onProgress(`  ${style.green}✔${style.reset} Verified repository admin/owner credentials for ${style.bold}@${user.login}${style.reset}.`);
+              if (channel === "release" && !force) {
+                force = await askBinary(ask, "Apply single-pass direct release (--force)?", true);
+              }
             }
           }
         }
@@ -1015,40 +1066,114 @@ export async function promptInteractiveDelivery(options = {}) {
     // Clean tree checkpoint
     const dirty = git(workspace, "status", "--porcelain");
     if (dirty) {
-      const commitAns = await askBinary(ask, "Working tree has uncommitted changes. Commit remaining work for a clean tree?", true);
-      if (commitAns) {
+      if (isInteractiveTTY) {
+        const commitAns = await p.confirm({
+          message: "Working tree has uncommitted changes. Commit remaining work for a clean tree?",
+          initialValue: true
+        });
+        if (p.isCancel(commitAns) || !commitAns) {
+          p.cancel("Delivery aborted: Worktree is dirty.");
+          throw new Error("Delivery aborted: Worktree is dirty. Please commit or stash changes before delivering.");
+        }
         const defaultMsg = `Checkpoint uncommitted changes before ${product} ${channel} delivery`;
-        const commitMsg = (await ask(`Enter commit message (default: "${defaultMsg}"): `)) || defaultMsg;
+        const commitMsg = await p.text({
+          message: "Enter commit message:",
+          initialValue: defaultMsg,
+          placeholder: defaultMsg
+        });
+        if (p.isCancel(commitMsg)) {
+          p.cancel("Delivery cancelled.");
+          process.exit(0);
+        }
         git(workspace, "add", "-A");
-        git(workspace, "commit", "-m", commitMsg);
-        onProgress(`  ${style.green}✔${style.reset} Committed remaining work for a clean tree.`);
+        git(workspace, "commit", "-m", commitMsg || defaultMsg);
+        p.note("Committed remaining work for a clean tree.", "Clean Tree");
       } else {
-        throw new Error("Delivery aborted: Worktree is dirty. Please commit or stash changes before delivering.");
+        const commitAns = await askBinary(ask, "Working tree has uncommitted changes. Commit remaining work for a clean tree?", true);
+        if (commitAns) {
+          const defaultMsg = `Checkpoint uncommitted changes before ${product} ${channel} delivery`;
+          const commitMsg = (await ask(`Enter commit message (default: "${defaultMsg}"): `)) || defaultMsg;
+          git(workspace, "add", "-A");
+          git(workspace, "commit", "-m", commitMsg);
+          onProgress(`  ${style.green}✔${style.reset} Committed remaining work for a clean tree.`);
+        } else {
+          throw new Error("Delivery aborted: Worktree is dirty. Please commit or stash changes before delivering.");
+        }
       }
     }
 
     // Interactive changelog preparedness review
-    onProgress(`${style.dim}─── ${style.reset}${style.cyan}❯ Changelog Preparedness Self-Check${style.reset} ${style.dim}───────────────────────────${style.reset}`);
-    const summaryWritten = await askBinary(ask, `Is the section summary for ${product} written in CHANGELOG.md?`, true);
-    if (!summaryWritten) {
-      throw new Error("Delivery aborted: Please write a summary for the release in CHANGELOG.md before proceeding.");
-    }
+    if (isInteractiveTTY) {
+      p.note("Changelog Preparedness Self-Check", "Preparedness");
+      const summaryWritten = await p.confirm({
+        message: `Is the section summary for ${product} written in CHANGELOG.md?`,
+        initialValue: true
+      });
+      if (p.isCancel(summaryWritten) || !summaryWritten) {
+        p.cancel("Delivery aborted: Please write a summary in CHANGELOG.md.");
+        throw new Error("Delivery aborted: Please write a summary for the release in CHANGELOG.md before proceeding.");
+      }
 
-    const hasFeatures = await askBinary(ask, "Were there new features added?", false);
-    const hasFixes = await askBinary(ask, "Were there bug fixes?", false);
-    const hasChanges = await askBinary(ask, "Were there other changes or refactors made?", false);
+      const hasFeatures = await p.confirm({
+        message: "Were there new features added?",
+        initialValue: false
+      });
+      if (p.isCancel(hasFeatures)) { p.cancel("Delivery cancelled."); process.exit(0); }
 
-    const anyChangesConfirmed = hasFeatures || hasFixes || hasChanges;
-    if (!anyChangesConfirmed) {
-      throw new Error("Delivery aborted: Preparedness self-check failed (no features, bug fixes, or changes recorded).");
+      const hasFixes = await p.confirm({
+        message: "Were there bug fixes?",
+        initialValue: false
+      });
+      if (p.isCancel(hasFixes)) { p.cancel("Delivery cancelled."); process.exit(0); }
+
+      const hasChanges = await p.confirm({
+        message: "Were there other changes or refactors made?",
+        initialValue: false
+      });
+      if (p.isCancel(hasChanges)) { p.cancel("Delivery cancelled."); process.exit(0); }
+
+      const anyChangesConfirmed = hasFeatures || hasFixes || hasChanges;
+      if (!anyChangesConfirmed) {
+        p.cancel("Delivery aborted: Preparedness self-check failed.");
+        throw new Error("Delivery aborted: Preparedness self-check failed (no features, bug fixes, or changes recorded).");
+      }
+    } else {
+      onProgress(`${style.dim}─── ${style.reset}${style.cyan}❯ Changelog Preparedness Self-Check${style.reset} ${style.dim}───────────────────────────${style.reset}`);
+      const summaryWritten = await askBinary(ask, `Is the section summary for ${product} written in CHANGELOG.md?`, true);
+      if (!summaryWritten) {
+        throw new Error("Delivery aborted: Please write a summary for the release in CHANGELOG.md before proceeding.");
+      }
+
+      const hasFeatures = await askBinary(ask, "Were there new features added?", false);
+      const hasFixes = await askBinary(ask, "Were there bug fixes?", false);
+      const hasChanges = await askBinary(ask, "Were there other changes or refactors made?", false);
+
+      const anyChangesConfirmed = hasFeatures || hasFixes || hasChanges;
+      if (!anyChangesConfirmed) {
+        throw new Error("Delivery aborted: Preparedness self-check failed (no features, bug fixes, or changes recorded).");
+      }
     }
 
     // Bump selection
     let increment = options.increment || "patch";
     if (channel === "release" && !options.increment) {
-      const incAns = (await ask("Select version increment (patch, minor, major) [default: patch]: ")).toLowerCase();
-      if (["minor", "major"].includes(incAns)) {
+      if (isInteractiveTTY) {
+        const incAns = await p.select({
+          message: "Select version increment:",
+          options: [
+            { value: "patch", label: "patch", hint: "Bug fixes and routine updates" },
+            { value: "minor", label: "minor", hint: "Backwards-compatible features" },
+            { value: "major", label: "major", hint: "Breaking changes" }
+          ],
+          initialValue: "patch"
+        });
+        if (p.isCancel(incAns)) { p.cancel("Delivery cancelled."); process.exit(0); }
         increment = incAns;
+      } else {
+        const incAns = (await ask("Select version increment (patch, minor, major) [default: patch]: ")).toLowerCase();
+        if (["minor", "major"].includes(incAns)) {
+          increment = incAns;
+        }
       }
     }
 
@@ -1058,7 +1183,11 @@ export async function promptInteractiveDelivery(options = {}) {
       throw new Error("Release delivery requires main after reviewed promotion");
     }
 
-    onProgress(`${style.cyan}◆${style.reset} Proceeding with publication: ${style.bold}${product}${style.reset} (${channel}, increment: ${increment}, force: ${force})...`);
+    if (isInteractiveTTY) {
+      p.note(`Product: ${product}\nChannel: ${channel}\nIncrement: ${increment}\nForce: ${force}`, "Publication Summary");
+    } else {
+      onProgress(`${style.cyan}◆${style.reset} Proceeding with publication: ${style.bold}${product}${style.reset} (${channel}, increment: ${increment}, force: ${force})...`);
+    }
     return executeDelivery(product, channel, {
       ...options,
       force,
@@ -1144,45 +1273,79 @@ export async function executeDelivery(firstArg, secondArg, options = {}) {
   });
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [action = "execute", first, second, ...extra] = process.argv.slice(2);
-  try {
-    let result;
-    if (["diagnose-configured", "check-configured"].includes(action) && !first && !second && !extra.length) {
-      result = await inspectConfiguredDeliveries(action === "check-configured");
-      if (action === "check-configured" && !result.verified) process.exitCode = 1;
-    } else if (action === "execute") {
-      const force = extra.includes("--force");
-      const skipTests = extra.includes("--skip-tests");
-      const noWatch = extra.includes("--no-watch");
-      const interactive = extra.includes("--interactive") || extra.includes("-i");
-      const unknownFlags = extra.filter(arg => !["--force", "--skip-tests", "--no-watch", "--watch", "--interactive", "-i"].includes(arg));
-      if (unknownFlags.length) throw new Error(`Unknown option(s): ${unknownFlags.join(", ")}`);
-      result = await executeDelivery(first, second, { force, skipTests, watch: !noWatch, interactive: !first || !second || interactive });
-    } else if (action === "reconcile" && !first && !second && !extra.length) {
-      result = await triggerReconcile();
-    } else if (action === "start") {
-      const force = extra.includes("--force");
-      const execute = extra.includes("--execute");
-      const skipTests = extra.includes("--skip-tests");
-      const unknownFlags = extra.filter(arg => !["--force", "--execute", "--skip-tests"].includes(arg));
-      if (unknownFlags.length) throw new Error(`Unknown option(s): ${unknownFlags.join(", ")}`);
-      result = await startDelivery(first, second, execute, root, new Date(), runGit, inspectDelivery, force, skipTests);
-    } else if (action === "finalize" && (extra.length === 1 || extra.length === 2 && extra[1] === "--execute") && /^[1-9][0-9]*$/.test(second ?? "")) {
-      result = await finalizeRelease(first, Number(second), extra[0], extra[1] === "--execute");
-    } else if (action === "retry-preparation" && !second && !extra.length) {
-      result = await retryReleasePreparation(first);
-    } else if (action === "verify-predecessor" && !second && !extra.length) {
-      result = await verifyPredecessor(first);
-    } else if (["status", "check", "diagnose", "retry"].includes(action) && !second && !extra.length) {
-      result = action === "retry" ? await retryDelivery(first) : await inspectDelivery(first, action === "check");
-      if (action === "diagnose") result = { ...result, ...deliveryTroubleshooting(result) };
-    } else throw new Error("Use execute <product> <channel> [--force] [--skip-tests] [--no-watch], reconcile, start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, verify-predecessor <tag>, or status|check|diagnose|retry <tag>");
-    console.log(JSON.stringify(result, null, 2));
-    if (result.status === "ci-failed") process.exitCode = 1;
-  } catch (error) {
-    // Native errors can include credential-helper or authenticated transport details.
-    console.error(error instanceof Error && !error.cause ? error.message : "Delivery failed. Inspect the exact tag/run before retrying.");
-    process.exitCode = 1;
+export const main = defineCommand({
+  meta: {
+    name: "publish",
+    description: "Unified monorepo delivery orchestration for preview and release channels"
+  },
+  args: {
+    action: {
+      type: "positional",
+      description: "Action: execute, publish, start, finalize, status, check, diagnose, retry, reconcile, verify-predecessor",
+      required: false,
+      default: "execute"
+    },
+    target: {
+      type: "positional",
+      description: "Target product (package, crawler, worker, etc.) or sub-action parameter",
+      required: false
+    },
+    channel: {
+      type: "positional",
+      description: "Deployment channel (preview | release) or PR number",
+      required: false
+    },
+    force: { type: "boolean", default: false, description: "Apply single-pass direct release (--force)" },
+    skipTests: { type: "boolean", default: false, description: "Skip local test suite verification" },
+    noWatch: { type: "boolean", default: false, description: "Do not watch remote CI/CD workflow progress" },
+    interactive: { type: "boolean", alias: "i", default: false, description: "Run interactive delivery wizard" },
+    execute: { type: "boolean", default: false, description: "Execute remote mutation" }
+  },
+  async run() {
+    const [rawAction = "execute", first, second, ...extra] = process.argv.slice(2);
+    const action = rawAction.toLowerCase();
+    try {
+      let result;
+      if (["diagnose-configured", "check-configured"].includes(action) && !first && !second && !extra.length) {
+        result = await inspectConfiguredDeliveries(action === "check-configured");
+        if (action === "check-configured" && !result.verified) process.exitCode = 1;
+      } else if (action === "execute" || action === "publish") {
+        const force = extra.includes("--force");
+        const skipTests = extra.includes("--skip-tests");
+        const noWatch = extra.includes("--no-watch");
+        const interactive = extra.includes("--interactive") || extra.includes("-i");
+        const unknownFlags = extra.filter(arg => !["--force", "--skip-tests", "--no-watch", "--watch", "--interactive", "-i"].includes(arg));
+        if (unknownFlags.length) throw new Error(`Unknown option(s): ${unknownFlags.join(", ")}`);
+        result = await executeDelivery(first, second, { force, skipTests, watch: !noWatch, interactive: !first || !second || interactive });
+      } else if (action === "reconcile" && !first && !second && !extra.length) {
+        result = await triggerReconcile();
+      } else if (action === "start") {
+        const force = extra.includes("--force");
+        const execute = extra.includes("--execute");
+        const skipTests = extra.includes("--skip-tests");
+        const unknownFlags = extra.filter(arg => !["--force", "--execute", "--skip-tests"].includes(arg));
+        if (unknownFlags.length) throw new Error(`Unknown option(s): ${unknownFlags.join(", ")}`);
+        result = await startDelivery(first, second, execute, root, new Date(), runGit, inspectDelivery, force, skipTests);
+      } else if (action === "finalize" && (extra.length === 1 || extra.length === 2 && extra[1] === "--execute") && /^[1-9][0-9]*$/.test(second ?? "")) {
+        result = await finalizeRelease(first, Number(second), extra[0], extra[1] === "--execute");
+      } else if (action === "retry-preparation" && !second && !extra.length) {
+        result = await retryReleasePreparation(first);
+      } else if (action === "verify-predecessor" && !second && !extra.length) {
+        result = await verifyPredecessor(first);
+      } else if (["status", "check", "diagnose", "retry"].includes(action) && !second && !extra.length) {
+        result = action === "retry" ? await retryDelivery(first) : await inspectDelivery(first, action === "check");
+        if (action === "diagnose") result = { ...result, ...deliveryTroubleshooting(result) };
+      } else throw new Error("Use execute <product> <channel> [--force] [--skip-tests] [--no-watch], reconcile, start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, verify-predecessor <tag>, or status|check|diagnose|retry <tag>");
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status === "ci-failed") process.exitCode = 1;
+    } catch (error) {
+      // Native errors can include credential-helper or authenticated transport details.
+      console.error(error instanceof Error && !error.cause ? error.message : "Delivery failed. Inspect the exact tag/run before retrying.");
+      process.exitCode = 1;
+    }
   }
+});
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  runMain(main);
 }

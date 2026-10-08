@@ -5,8 +5,8 @@
   "packageManager": "bun@1.4.2",
   "scripts": {
     "help": "node scripts/help.mjs",
-    "init": "bun run setup",
-    "setup": "bun run setup:root && bun run setup:interactive",
+    "init": "node scripts/setup.mjs --interactive",
+    "setup": "node scripts/setup.mjs",
     "setup:root": "node scripts/setup.mjs root",
     "setup:interactive": "node scripts/setup.mjs --interactive",
     "build": "node scripts/build.mjs",
@@ -47,7 +47,9 @@
     "cache:check": "node scripts/cache-maintenance.mjs"
   },
   "dependencies": {
-    "@types/node": "^26.6.4"
+    "@clack/prompts": "^1.8.1",
+    "@types/node": "^26.6.4",
+    "citty": "^0.2.2"
   },
   "devDependencies": {
     "@types/bun": "latest",
