@@ -541,7 +541,7 @@ export async function requirePublicationProof(channel, product, version, workspa
   const status = product === "worker" ? channel === "preview" ? "preview-deployed-no-release-assets"
     : "release-build-only-no-production-deployment" : "release-artifacts-verified";
   if (current.artifactsVerified !== true || current.status !== status) {
-    throw new Error(`Configured delivery ${tag} lacks publication/artifact proof (${current.status}). No version or tag write ran. Use bun run delivery:diagnose ${tag}.`);
+    throw new Error(`Configured delivery ${tag} lacks publication/artifact proof (${current.status}). No version or tag write ran. Use bun run publish:diagnose ${tag}.`);
   }
   return current;
 }
@@ -583,7 +583,7 @@ export async function inspectConfiguredDeliveries(check = false, workspace = roo
           ...(proof.url ? { url: proof.url } : {}) });
       } catch {
         results.push({ channel, product, version, tag, status: "proof-unavailable", artifactsVerified: false,
-          next: `bun run delivery:diagnose ${tag}` });
+          next: `bun run publish:diagnose ${tag}` });
       }
     }
   }
@@ -594,9 +594,14 @@ export async function inspectConfiguredDeliveries(check = false, workspace = roo
 export function deliveryTroubleshooting(result) {
   const failedJobs = (result.jobs ?? []).filter(job => ["failure", "cancelled", "timed_out", "action_required", "startup_failure"].includes(job.conclusion))
     .map(job => job.name);
-  const next = [`bun run delivery:check ${result.tag}`];
+  const tag = result.tag ?? "";
+  const channel = result.channel || (tag.includes("-pre") || tag.includes("network") ? "preview" : "release");
+  const product = result.product || (tag.split("/")[0] || "").replace(/^vrcp-/, "");
+  const runId = result.run ? String(result.run) : "";
+
+  const next = [`bun run publish:check ${tag}`];
   let stage = "proof-readback";
-  if (result.status === "ci-not-observed") { stage = "tag-trigger"; next.unshift(`bun run delivery:retry ${result.tag}`); }
+  if (result.status === "ci-not-observed") { stage = "tag-trigger"; next.unshift(`bun run publish:retry ${tag}`); }
   else if (result.status === "ci-active-or-awaiting-environment") {
     stage = "execution-or-review-pending"; next.unshift("Inspect the existing run and its required operator review. Do not allocate or dispatch another version.");
   } else if (result.status === "awaiting-npm-owner-approval") {
@@ -604,8 +609,14 @@ export function deliveryTroubleshooting(result) {
   } else if (result.status === "ci-failed") {
     stage = failedJobs.includes("route") ? "routing" : failedJobs.some(name => name.includes("attach")) ? "release-attachment"
       : failedJobs.some(name => name.includes("publish")) ? "publication" : "build-or-runtime-check";
-    next.unshift("Inspect the exact failed jobs. CI reruns remain manual. Resolve partial publication before rebuilding.");
-    try { recoveryIdentity(result.tag); next.unshift(`bun run delivery:recover ${result.tag}`); }
+    next.unshift("Inspect the exact failed jobs. Note: Rerunning a workflow executes the frozen tagged commit, not new code on your branch.");
+    if (runId) next.unshift(`[Transient Retry] bun run recovery rerun ${runId}`);
+    if (channel === "preview") {
+      next.unshift(`[If Patched] bun run recovery revert-tag ${tag} --remote && bun run publish:preview ${product}`);
+    } else {
+      next.unshift(`[If Patched] bun run recovery patch-branch create ${product} ${result.version || "version"}`);
+    }
+    try { recoveryIdentity(tag); next.unshift(`bun run recovery ${tag}`); }
     catch { /* Unknown failures have no approved rebuild recipe. */ }
   }
   return { readOnly: true, automaticRetry: false, stage, failedJobs, next,
@@ -1457,11 +1468,59 @@ export const main = defineCommand({
         if (result.url) entries.push(["CI Run URL", result.url]);
         if (result.stage) entries.push(["Diagnosed Stage", result.stage]);
         if (result.failedJobs?.length) entries.push(["Failed Jobs", `${style.red}${result.failedJobs.join(", ")}${style.reset}`]);
-        if (result.next?.length) entries.push(["Suggested Next", result.next.join(" | ")]);
+        if (action !== "diagnose" && result.next?.length) entries.push(["Suggested Next", result.next[0]]);
         if (result.limits) entries.push(["Policy Limits", result.limits]);
         renderCardTable("Delivery Verification Summary", entries);
+
+        if (action === "diagnose" && result.status === "ci-failed") {
+          const isPreview = (result.channel || (result.tag?.includes("-pre") ? "preview" : "release")) === "preview";
+          const tag = result.tag || first;
+          const runId = result.run ? String(result.run) : "";
+          const prod = result.product || (tag.split("/")[0] || "").replace(/^vrcp-/, "");
+
+          const remediationEntries = [];
+          if (runId) {
+            remediationEntries.push([
+              "1. Transient Retry",
+              `bun run recovery rerun ${runId}`
+            ]);
+            remediationEntries.push([
+              "   ↳ Scope",
+              `Reruns the FROZEN tagged commit (use ONLY if failure was network/timeout/CDN delay)`
+            ]);
+          }
+          if (isPreview) {
+            remediationEntries.push([
+              "2. Patched Preview",
+              `bun run recovery revert-tag ${tag} --remote && bun run publish:preview ${prod}`
+            ]);
+            remediationEntries.push([
+              "   ↳ Scope",
+              `Any branch ahead of origin can publish preview; reverts unverified tag & tags current code`
+            ]);
+          } else {
+            remediationEntries.push([
+              "2. Patched Release",
+              `bun run recovery patch-branch create ${prod} ${result.version || "version"}`
+            ]);
+            remediationEntries.push([
+              "   ↳ Scope",
+              `Releases require main; creates temporary patch branch for fix & merges back cleanly`
+            ]);
+          }
+          remediationEntries.push([
+            "3. Interactive Tool",
+            `bun run recovery interactive ${tag}${runId ? ` ${runId}` : ""}`
+          ]);
+          remediationEntries.push([
+            "4. Verification",
+            `bun run publish:check ${tag}`
+          ]);
+
+          renderCardTable("Actionable Remediation Guidance", remediationEntries);
+        }
       }
-      if (result.status === "ci-failed") process.exitCode = 1;
+      if (action === "check" && (result.status === "ci-failed" || !result.artifactsVerified)) process.exitCode = 1;
     } catch (error) {
       // Native errors can include credential-helper or authenticated transport details.
       console.error(error instanceof Error && !error.cause ? error.message : "Delivery failed. Inspect the exact tag/run before retrying.");

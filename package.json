@@ -6,7 +6,7 @@
   "scripts": {
     "help": "node scripts/help.mjs",
     "init": "node scripts/setup.mjs --interactive",
-    "setup": "node scripts/setup.mjs",
+    "setup": "bun run setup:root && bun run setup:interactive",
     "setup:root": "node scripts/setup.mjs root",
     "setup:interactive": "node scripts/setup.mjs --interactive",
     "build": "node scripts/build.mjs",

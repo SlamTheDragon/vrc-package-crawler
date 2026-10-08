@@ -5,9 +5,8 @@ import { fileURLToPath } from "node:url";
 import { checkReleaseSource, readGitHubAPI, selectTag } from "./delivery.mjs";
 import { productDirectories, productTagPrefixes } from "./versioning.mjs";
 import { checkRemoteTag } from "./release-assets.mjs";
-import { renderCardTable } from "./delivery-chain.mjs";
-import * as p from "@clack/prompts";
-import { defineCommand, runMain } from "citty";
+
+const defineCommand = def => def;
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -22,6 +21,21 @@ const c = {
   red: useColor ? "\x1b[31m" : "",
   magenta: useColor ? "\x1b[35m" : ""
 };
+
+export function renderCardTable(title, entries) {
+  const stripAnsi = str => String(str ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+  const maxKeyLen = Math.max(4, ...entries.map(([k]) => stripAnsi(k).length));
+  const maxValLen = Math.max(4, ...entries.map(([_, v]) => stripAnsi(v).length));
+  const totalInner = Math.max(stripAnsi(title).length + 4, maxKeyLen + maxValLen + 5);
+
+  console.log(`\n┌─ ${c.bold}${c.cyan}${title}${c.reset} ${"─".repeat(Math.max(0, totalInner - stripAnsi(title).length - 3))}┐`);
+  for (const [k, v] of entries) {
+    const padKey = " ".repeat(Math.max(0, maxKeyLen - stripAnsi(k).length));
+    const padVal = " ".repeat(Math.max(0, totalInner - maxKeyLen - stripAnsi(v).length - 5));
+    console.log(`│  ${c.dim}${k}${c.reset}${padKey} : ${v}${padVal} │`);
+  }
+  console.log(`└${"─".repeat(totalInner + 2)}┘\n`);
+}
 
 const manifestPath = ".github/delivery-recoveries.json";
 const recoveryWorkflows = { crawler: "node-docker", network: "network", "crawler-client": "node-client" };
@@ -517,6 +531,11 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
   } = options;
 
   const isInteractiveTTY = !askFn && Boolean(process.stdin.isTTY) && !process.env.CI;
+  let p = null;
+  if (isInteractiveTTY) {
+    try { p = await import("@clack/prompts"); } catch { p = null; }
+  }
+  const useClack = Boolean(p);
 
   let rl;
   const ask = askFn || (async query => {
@@ -530,7 +549,7 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
   try {
     const diagnosis = diagnoseFailure(context);
 
-    if (isInteractiveTTY) {
+    if (useClack) {
       p.intro(`${c.bold}${c.cyan}VRCP Delivery Failure Recovery Console${c.reset}`);
       p.note(
         `Category:   ${diagnosis.category.toUpperCase()} (Severity: ${diagnosis.severity})\nRoot Cause: ${diagnosis.rootCause}\nContinuity: ${diagnosis.continuity}\nActions:    ${diagnosis.suggestedActions.join(", ")}`,
@@ -554,7 +573,7 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
     }
 
     let choice = "5";
-    if (isInteractiveTTY) {
+    if (useClack) {
       const res = await p.select({
         message: "Select remediation option:",
         options: [
@@ -577,7 +596,7 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
 
     if (choice === "1") {
       if (!context.runId) throw new Error("No runId available in context to rerun.");
-      if (isInteractiveTTY) {
+      if (useClack) {
         const s = p.spinner();
         s.start(`Rerunning failed jobs for workflow run #${context.runId}...`);
         const res = await rerunWorkflowRun(repository, context.runId, { failedJobsOnly: true, token, fetchFn });
@@ -592,7 +611,7 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
       }
     } else if (choice === "2") {
       if (!context.tag) throw new Error("No tag specified in context to revert.");
-      if (isInteractiveTTY) {
+      if (useClack) {
         const s = p.spinner();
         s.start(`Reverting delivery tag ${context.tag}...`);
         const res = await revertDeliveryTag(context.tag, { workspace, readGit, deleteRemote: false, repository, token, fetchFn });
@@ -608,7 +627,7 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
     } else if (choice === "3") {
       let product = context.product;
       let version = context.version;
-      if (isInteractiveTTY) {
+      if (useClack) {
         if (!product) {
           product = await p.select({
             message: "Select product for patch branch:",
@@ -625,7 +644,7 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
         if (!version) version = await ask("Enter version string: ");
       }
       const tag = context.tag || (productTagPrefixes[product] ? `${productTagPrefixes[product]}/v${version}` : undefined);
-      if (isInteractiveTTY) {
+      if (useClack) {
         const s = p.spinner();
         s.start(`Switching to patch branch for ${product} v${version}...`);
         const res = createPatchBranch(product, version, { workspace, readGit, tag });
@@ -645,7 +664,7 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
     } else if (choice === "4") {
       let product = context.product;
       let version = context.version;
-      if (isInteractiveTTY) {
+      if (useClack) {
         if (!product) {
           product = await p.select({
             message: "Select product for patch branch merge:",
@@ -673,7 +692,7 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
         return res;
       }
     } else {
-      if (isInteractiveTTY) {
+      if (useClack) {
         p.outro("Recovery cancelled by user.");
       } else {
         onProgress(`  ${c.dim}Recovery cancelled by user.${c.reset}`);
@@ -847,5 +866,13 @@ export const main = defineCommand({
 });
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  runMain(main);
+  try {
+    const { runMain } = await import("citty");
+    runMain(main);
+  } catch {
+    main.run().catch(error => {
+      console.error(error.message);
+      process.exitCode = 1;
+    });
+  }
 }

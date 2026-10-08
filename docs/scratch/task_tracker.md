@@ -41,6 +41,15 @@
       - Artifact progress bar: Added `renderProgressBar(current, total, label)` to `scripts/delivery-chain.mjs`, displaying dynamic ASCII/Unicode progress bars during hosted artifact downloads and hash verification.
       - Boxed Table & Card Views: Added `renderTable` (Unicode multi-column box table) and `renderCardTable` (compact boxed card tables with status badges and next steps) across `scripts/delivery-chain.mjs` and `scripts/delivery-recovery.mjs`. Supported `--json` flag on all commands for tooling backward-compatibility.
       - Per-project Setup Progress: Updated `scripts/setup.mjs` interactive mode to display step-by-step spinners (`[i/n] Installing dependencies for <project> (<dir>)...`) detailing individual installation status per subproject.
+  - `REMEDIATION-GUIDANCE-AND-ISOLATION-HARDENING` (2026-10-08):
+    - Actionable Remediation Guidance: Updated `deliveryTroubleshooting` and `main.run` in `scripts/delivery-chain.mjs` to render a dedicated `Actionable Remediation Guidance` card table upon failure. Explicitly differentiates between:
+      1) Transient retry (`bun run recovery rerun <runId>`), noting that it executes the FROZEN tagged commit.
+      2) Code patch fix (`bun run recovery revert-tag <tag> --remote && bun run publish:preview <product>`), noting that any branch ahead of origin can publish previews by reverting the unverified tag and tagging the current code.
+      3) Interactive recovery tool (`bun run recovery interactive <tag> <runId>`).
+      4) Readback verification (`bun run publish:check <tag>`).
+    - Exit Code Fix: Ensured `publish:diagnose` exits with 0 on successful diagnosis rather than falsely signaling script error code 1.
+    - Module Isolation Hardening: Made `@clack/prompts` and `citty` dynamically loaded in `scripts/delivery-recovery.mjs` and defined `renderCardTable` locally, preventing import resolution failures in bare fixture environments (`tests/delivery.test.ts`).
+    - Package Script Conformance: Aligned root `package.json` `"setup": "bun run setup:root && bun run setup:interactive"` with governance assertions.
   - `GATE-VERIFICATION-PASS`:
     - Full repository test suite (`bun test ./tests`): all targeted test suites passing green across build, delivery, recovery, setup, and sync (86 pass across 5 files, 1,417 assertions).
 
