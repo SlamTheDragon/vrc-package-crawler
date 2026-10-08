@@ -37,6 +37,7 @@ This is the current entry point for agents working in this repository. `DELEGATE
 - Owner selects strict lead wire DTOs without convenience aliases or invented audit reasons. Lead rows keep the Worker's snake-case fields. Approval and rejection require an explicit caller reason. This does not authorize a blanket rename of every existing API field.
 - Pick one capability gate and one bounded vertical slice. The 2–3-file constraint applies only to `docs/scratch/`.
 - Owner correction, 2026-10-04: implement a capability gate or related gate group before test verification and checkpoint write-ups. Slices are not gates. This supersedes per-slice failing-test and full-suite requirements in older skills/rules.
+- Owner instruction, 2026-10-08: Never run root level tests (`bun test ./tests`) unless root level tooling (`scripts/`, `tests/`, `package.json`, root configs) is changed. Product-scoped work runs only its own domain test/typecheck suite.
 - Keep changes marked unverified until the gate checkpoint passes. At that checkpoint, run the relevant tests, typechecks and runtime/build checks together. Do not invent smaller gates to justify repeated tests. Keep continuation records concise.
 - Keep scratch footprint minimal: maintain strictly 2–3 files in `docs/scratch/` (`IMPLEMENTATION_PLAN.md`, `UNMERGED_IMPLEMENTATION_PLAN.md`, `task_tracker.md`).
 - At a pause, record evidence, open risks, and next steps in `docs/scratch/task_tracker.md`.

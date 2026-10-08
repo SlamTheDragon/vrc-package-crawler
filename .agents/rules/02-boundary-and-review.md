@@ -17,5 +17,6 @@ description: "Protect crawler/coordinator boundaries and require system-level re
    inapplicable checks with a reason, not an unchecked tick.
 4. Implement the capability gate or related gate group before its checkpoint.
    Then run relevant unit/integration/protocol tests, typechecks, runtime/build
-   checks and a final diff audit together. A green suite is evidence for
-   exercised cases, not proof of all paths. Record gaps and counterexamples.
+   checks and a final diff audit together. Never run root level tests unless
+   root level tooling is changed. A green suite is evidence for exercised cases,
+   not proof of all paths. Record gaps and counterexamples.
