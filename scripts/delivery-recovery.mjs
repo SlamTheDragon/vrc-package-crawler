@@ -7,6 +7,19 @@ import { productDirectories, productTagPrefixes } from "./versioning.mjs";
 import { checkRemoteTag } from "./release-assets.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+
+const useColor = !process.env.NO_COLOR && (process.stdout.isTTY ?? true);
+const c = {
+  reset: useColor ? "\x1b[0m" : "",
+  bold: useColor ? "\x1b[1m" : "",
+  dim: useColor ? "\x1b[2m" : "",
+  cyan: useColor ? "\x1b[36m" : "",
+  green: useColor ? "\x1b[32m" : "",
+  yellow: useColor ? "\x1b[33m" : "",
+  red: useColor ? "\x1b[31m" : "",
+  magenta: useColor ? "\x1b[35m" : ""
+};
+
 const manifestPath = ".github/delivery-recoveries.json";
 const recoveryWorkflows = { crawler: "node-docker", network: "network", "crawler-client": "node-client" };
 const workflowFor = identity => `.github/workflows/${recoveryWorkflows[identity.product]}.yml`;
@@ -511,55 +524,54 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
 
   try {
     const diagnosis = diagnoseFailure(context);
-    onProgress("=================================================");
-    onProgress("VRCP Delivery Failure Recovery Console");
-    onProgress("=================================================");
-    onProgress(`Failure Category: ${diagnosis.category.toUpperCase()} (Severity: ${diagnosis.severity})`);
-    onProgress(`Root Cause: ${diagnosis.rootCause}`);
-    onProgress(`Continuity Impact: ${diagnosis.continuity}`);
-    onProgress(`Suggested Action(s): ${diagnosis.suggestedActions.join(", ")}`);
-    onProgress("-------------------------------------------------");
-    onProgress("Available Remediation Options:");
-    onProgress("  1) Rerun failed CI jobs (transient failure)");
-    onProgress("  2) Revert delivery tag locally (collision/abort)");
-    onProgress("  3) Switch to temporary patch branch (release/patch/*) and revert tag");
-    onProgress("  4) Merge and clean up temporary patch branch");
-    onProgress("  5) Abort and exit");
-    onProgress("-------------------------------------------------");
+    onProgress(`\n${c.bold}${c.cyan}◆ VRCP Delivery Failure Recovery Console${c.reset}`);
+    onProgress(`${c.dim}  Interactive incident remediation, tag rollback, and patch branch orchestration${c.reset}\n`);
+    onProgress(`${c.bold}┌── 🩺 Failure Diagnosis${c.reset}`);
+    onProgress(`│  Failure Category:   ${c.bold}${diagnosis.category.toUpperCase()}${c.reset} (Severity: ${diagnosis.severity})`);
+    onProgress(`│  Root Cause:          ${c.yellow}${diagnosis.rootCause}${c.reset}`);
+    onProgress(`│  Continuity Impact:   ${diagnosis.continuity}`);
+    onProgress(`│  Suggested Action(s): ${c.cyan}${diagnosis.suggestedActions.join(", ")}${c.reset}`);
+    onProgress(`│`);
+    onProgress(`${c.bold}└── 🛠  Available Remediation Options${c.reset}`);
+    onProgress(`   ${c.yellow}1)${c.reset} Rerun failed CI jobs (transient failure)`);
+    onProgress(`   ${c.yellow}2)${c.reset} Revert delivery tag locally (collision/abort)`);
+    onProgress(`   ${c.yellow}3)${c.reset} Switch to temporary patch branch (release/patch/*) and revert tag`);
+    onProgress(`   ${c.yellow}4)${c.reset} Merge and clean up temporary patch branch`);
+    onProgress(`   ${c.yellow}5)${c.reset} Abort and exit\n`);
 
     const choice = await ask("Select remediation option [1-5]: ");
     if (choice === "1") {
       if (!context.runId) throw new Error("No runId available in context to rerun.");
-      onProgress(`Rerunning failed jobs for workflow run #${context.runId}...`);
+      onProgress(`  ${c.cyan}◆${c.reset} Rerunning failed jobs for workflow run #${context.runId}...`);
       const res = await rerunWorkflowRun(repository, context.runId, { failedJobsOnly: true, token, fetchFn });
-      onProgress("Rerun dispatched successfully.");
+      onProgress(`  ${c.green}✓${c.reset} Rerun dispatched successfully.`);
       return res;
     } else if (choice === "2") {
       if (!context.tag) throw new Error("No tag specified in context to revert.");
-      onProgress(`Reverting delivery tag ${context.tag}...`);
+      onProgress(`  ${c.cyan}◆${c.reset} Reverting delivery tag ${context.tag}...`);
       const res = await revertDeliveryTag(context.tag, { workspace, readGit, deleteRemote: false, repository, token, fetchFn });
-      onProgress(`Local tag ${context.tag} deleted.`);
+      onProgress(`  ${c.green}✓${c.reset} Local tag ${context.tag} deleted.`);
       return res;
     } else if (choice === "3") {
       const product = context.product || (await ask("Enter product name: "));
       const version = context.version || (await ask("Enter version string: "));
       const tag = context.tag || (productTagPrefixes[product] ? `${productTagPrefixes[product]}/v${version}` : undefined);
-      onProgress(`Switching to patch branch for ${product} v${version} and cleaning up tag ${tag || ""}...`);
+      onProgress(`  ${c.cyan}◆${c.reset} Switching to patch branch for ${product} v${version} and cleaning up tag ${tag || ""}...`);
       const res = createPatchBranch(product, version, { workspace, readGit, tag });
       if (res.tagDeleted) {
-        onProgress(`✓ Reverted premature delivery tag ${res.tagDeleted}`);
+        onProgress(`  ${c.green}✓${c.reset} Reverted premature delivery tag ${res.tagDeleted}`);
       }
       onProgress(res.instruction);
       return res;
     } else if (choice === "4") {
       const product = context.product || (await ask("Enter product name: "));
       const version = context.version || (await ask("Enter version string: "));
-      onProgress(`Merging and cleaning up patch branch for ${product} v${version}...`);
+      onProgress(`  ${c.cyan}◆${c.reset} Merging and cleaning up patch branch for ${product} v${version}...`);
       const res = mergeAndCleanupPatchBranch(product, version, { workspace, readGit });
       onProgress(res.prompt);
       return res;
     } else {
-      onProgress("Recovery cancelled by user.");
+      onProgress(`  ${c.dim}Recovery cancelled by user.${c.reset}`);
       return { status: "recovery-aborted" };
     }
   } finally {

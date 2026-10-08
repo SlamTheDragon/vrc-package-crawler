@@ -16,8 +16,14 @@
     - Bad code repaired: Fixed critical test bug in `tests/delivery-chain.test.ts` where unmocked git was creating real commits named "y" on the repository; added `mockCleanGit` fixtures. Fixed `GIT_TERMINAL_PROMPT: 0` and `GCM_INTERACTIVE: Never` across git spawns. Added `semver.valid` checks in `checkSync`.
     - Circular dependency eliminated: Removed downward imports of `delivery-chain.mjs` in foundational modules `versioning.mjs` and `delivery-recovery.mjs`, breaking cyclic coupling and restoring 100% passing tests in `tests/delivery.test.ts` (48/48 pass).
     - Optimizations and standardizations: Case-insensitive arguments in `build.mjs` and `delivery-chain.mjs`; updated `scripts/help.mjs` with comprehensive CLI documentation for all newly provisioned tools.
+  - `SCRIPT-PROPAGATION-AND-CONSOLE-PRETTIFICATION` (2026-10-08):
+    - Propagated script renames: Added `publish:preview` and `publish:release` forwarders to all 6 subproject `package.json` manifests (`src-crawler`, `src-crawler-client`, `src-package`, `src-web`, `src-worker`, `src-worker/packages/network`) alongside legacy `delivery:*` aliases for full backward compatibility with CI workflows and tests. Preserved root `onboard` alias for `setup.mjs --interactive`.
+    - Binary prompt defaults: Implemented `askBinary(ask, query, defaultYes)` supporting explicit `(Y/n)` (default true) and `(y/N)` (default false) notation where pressing Enter adopts the indicated default value. Added unit test in `tests/delivery-chain.test.ts` (44/44 pass).
+    - Purged static documentation in `scripts/help.mjs`: Removed 400 lines of static text blocks; implemented a clean, ANSI-styled, hierarchical CLI dispatcher with Unicode glyphs (`◆`, `❯`, `✔`, box drawings).
+    - Console response prettification: Added styled headers, clear visual hierarchies, and glyphs across `scripts/help.mjs`, `scripts/setup.mjs`, `scripts/delivery-recovery.mjs`, and `scripts/delivery-chain.mjs`.
+    - Evaluated modern CLI help framework candidates (`citty`, `cac`, `commander`, `@clack/prompts`).
   - `GATE-VERIFICATION-PASS`:
-    - Full repository test suite (`bun test ./tests`): all targeted test suites passing green across build, delivery, recovery, setup, and sync (85 pass across 5 files, 1,348 assertions).
+    - Full repository test suite (`bun test ./tests`): all targeted test suites passing green across build, delivery, recovery, setup, and sync (86 pass across 5 files, 1,417 assertions).
 
 - Active Working Theories & Architectural Covenants:
   1. Entry Point for Deployment/Release (R64):

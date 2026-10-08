@@ -46,6 +46,8 @@
     }
   },
   "scripts": {
+    "publish:preview": "bun run --cwd .. publish:preview package",
+    "publish:release": "bun run --cwd .. publish:release package",
     "delivery:preview": "bun run --cwd .. delivery:preview package",
     "delivery:release": "bun run --cwd .. delivery:release package",
     "typecheck": "tsc --noEmit",

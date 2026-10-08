@@ -15,6 +15,36 @@ import { extractProductChangelog } from "./changelog.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
+const isColorSupported = !process.env.NO_COLOR && (process.stdout?.isTTY || process.env.FORCE_COLOR);
+export const style = {
+  reset: isColorSupported ? "\x1b[0m" : "",
+  bold: isColorSupported ? "\x1b[1m" : "",
+  dim: isColorSupported ? "\x1b[2m" : "",
+  cyan: isColorSupported ? "\x1b[36m" : "",
+  blue: isColorSupported ? "\x1b[34m" : "",
+  green: isColorSupported ? "\x1b[32m" : "",
+  yellow: isColorSupported ? "\x1b[33m" : "",
+  red: isColorSupported ? "\x1b[31m" : "",
+  magenta: isColorSupported ? "\x1b[35m" : ""
+};
+
+export const symbols = {
+  diamond: "◆",
+  pointer: "❯",
+  check: "✔",
+  cross: "✖",
+  warn: "⚠",
+  info: "ℹ"
+};
+
+export async function askBinary(ask, query, defaultYes = true) {
+  const hint = defaultYes ? "(Y/n)" : "(y/N)";
+  const raw = await ask(`${query} ${hint}: `);
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed) return defaultYes;
+  return trimmed === "y" || trimmed === "yes";
+}
+
 export function loadRootEnv(workspace = root) {
   const envFile = resolve(workspace, ".env");
   if (existsSync(envFile) && typeof process.loadEnvFile === "function") {
@@ -909,9 +939,9 @@ export async function promptInteractiveDelivery(options = {}) {
   });
 
   try {
-    onProgress("=================================================");
-    onProgress("VRCP Interactive Delivery & Release Console");
-    onProgress("=================================================");
+    onProgress(`${style.cyan}${style.bold}┌─────────────────────────────────────────────────────────────┐${style.reset}`);
+    onProgress(`${style.cyan}${style.bold}│  ◆ VRCP Interactive Publish & Release Console              │${style.reset}`);
+    onProgress(`${style.cyan}${style.bold}└─────────────────────────────────────────────────────────────┘${style.reset}`);
 
     const availableProducts = Object.keys(workflows);
     const firstArgLower = firstArg?.toLowerCase();
@@ -971,10 +1001,9 @@ export async function promptInteractiveDelivery(options = {}) {
             }
           }
           if (isAuthorized) {
-            onProgress(`Verified repository admin/owner credentials for ${user.login}.`);
+            onProgress(`  ${style.green}✔${style.reset} Verified repository admin/owner credentials for ${style.bold}@${user.login}${style.reset}.`);
             if (channel === "release" && !force) {
-              const forceAns = (await ask("Apply single-pass direct release (--force)? (y/n, default: y): ")).toLowerCase();
-              force = forceAns !== "n" && forceAns !== "no";
+              force = await askBinary(ask, "Apply single-pass direct release (--force)?", true);
             }
           }
         }
@@ -986,30 +1015,30 @@ export async function promptInteractiveDelivery(options = {}) {
     // Clean tree checkpoint
     const dirty = git(workspace, "status", "--porcelain");
     if (dirty) {
-      const commitAns = (await ask("Working tree has uncommitted changes. Commit remaining work for a clean tree? (y/n): ")).toLowerCase();
-      if (commitAns === "y" || commitAns === "yes") {
+      const commitAns = await askBinary(ask, "Working tree has uncommitted changes. Commit remaining work for a clean tree?", true);
+      if (commitAns) {
         const defaultMsg = `Checkpoint uncommitted changes before ${product} ${channel} delivery`;
         const commitMsg = (await ask(`Enter commit message (default: "${defaultMsg}"): `)) || defaultMsg;
         git(workspace, "add", "-A");
         git(workspace, "commit", "-m", commitMsg);
-        onProgress("Committed remaining work for a clean tree.");
+        onProgress(`  ${style.green}✔${style.reset} Committed remaining work for a clean tree.`);
       } else {
         throw new Error("Delivery aborted: Worktree is dirty. Please commit or stash changes before delivering.");
       }
     }
 
     // Interactive changelog preparedness review
-    onProgress("--- Changelog Preparedness Self-Check ---");
-    const summaryWritten = (await ask(`Is the section summary for ${product} written in CHANGELOG.md? (y/n): `)).toLowerCase();
-    if (summaryWritten !== "y" && summaryWritten !== "yes") {
+    onProgress(`${style.dim}─── ${style.reset}${style.cyan}❯ Changelog Preparedness Self-Check${style.reset} ${style.dim}───────────────────────────${style.reset}`);
+    const summaryWritten = await askBinary(ask, `Is the section summary for ${product} written in CHANGELOG.md?`, true);
+    if (!summaryWritten) {
       throw new Error("Delivery aborted: Please write a summary for the release in CHANGELOG.md before proceeding.");
     }
 
-    const hasFeatures = (await ask("Were there new features added? (y/n): ")).toLowerCase();
-    const hasFixes = (await ask("Were there bug fixes? (y/n): ")).toLowerCase();
-    const hasChanges = (await ask("Were there other changes or refactors made? (y/n): ")).toLowerCase();
+    const hasFeatures = await askBinary(ask, "Were there new features added?", false);
+    const hasFixes = await askBinary(ask, "Were there bug fixes?", false);
+    const hasChanges = await askBinary(ask, "Were there other changes or refactors made?", false);
 
-    const anyChangesConfirmed = [hasFeatures, hasFixes, hasChanges].some(ans => ans === "y" || ans === "yes");
+    const anyChangesConfirmed = hasFeatures || hasFixes || hasChanges;
     if (!anyChangesConfirmed) {
       throw new Error("Delivery aborted: Preparedness self-check failed (no features, bug fixes, or changes recorded).");
     }
@@ -1029,7 +1058,7 @@ export async function promptInteractiveDelivery(options = {}) {
       throw new Error("Release delivery requires main after reviewed promotion");
     }
 
-    onProgress(`Proceeding with delivery: ${product} (${channel}, increment: ${increment}, force: ${force})...`);
+    onProgress(`${style.cyan}◆${style.reset} Proceeding with publication: ${style.bold}${product}${style.reset} (${channel}, increment: ${increment}, force: ${force})...`);
     return executeDelivery(product, channel, {
       ...options,
       force,

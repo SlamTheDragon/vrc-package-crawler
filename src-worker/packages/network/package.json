@@ -54,6 +54,7 @@
 		}
 	},
 	"scripts": {
+		"publish:preview": "bun run --cwd ../../.. publish:preview network",
 		"delivery:preview": "bun run --cwd ../../.. delivery:preview network",
 		"typecheck": "tsc --noEmit",
 		"test:distribution": "node test/distribution_smoke.mjs",

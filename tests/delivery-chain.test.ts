@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
-import { executeDelivery, finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, loadRootEnv, planDelivery, promptInteractiveDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, resolveGitHubToken, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun, trackDeliveryPipeline, triggerReconcile, verifyPredecessor } from "../scripts/delivery-chain.mjs";
+import { askBinary, executeDelivery, finalizeRelease as checkedFinalizeRelease, inspectConfiguredDeliveries, inspectDelivery, loadRootEnv, planDelivery, promptInteractiveDelivery, readHostedAsset, readNetworkDistribution, repositoryFromRemote, requirePublicationProof, resolveGitHubToken, retryDelivery, retryReleasePreparation, startDelivery as checkedStartDelivery, summarizeRun, trackDeliveryPipeline, triggerReconcile, verifyPredecessor } from "../scripts/delivery-chain.mjs";
 import { networkArchiveURL, productDirectories, productTagPrefixes } from "../scripts/versioning.mjs";
 import { checkReleaseMetadata } from "../scripts/delivery.mjs";
 import { createHash } from "node:crypto";
@@ -1287,5 +1287,36 @@ test("promptInteractiveDelivery accepts case-insensitive initial arguments", asy
   await expect(promptInteractiveDelivery({ firstArg: "Crawler", secondArg: "Preview", askFn, git: mockCleanGit, onProgress: () => {} }))
     .rejects.toThrow("Delivery aborted: Please write a summary for the release in CHANGELOG.md before proceeding.");
 });
+
+test("askBinary formats prompt with (Y/n) or (y/N) and respects defaults and explicit input", async () => {
+  const queries: string[] = [];
+
+  // Default true: empty input returns true
+  const askDefaultTrue = async (q: string) => { queries.push(q); return ""; };
+  expect(await askBinary(askDefaultTrue, "Proceed?", true)).toBe(true);
+  expect(queries[0]).toContain("Proceed? (Y/n): ");
+
+  // Default false: empty input returns false
+  const askDefaultFalse = async (q: string) => { queries.push(q); return ""; };
+  expect(await askBinary(askDefaultFalse, "Continue?", false)).toBe(false);
+  expect(queries[1]).toContain("Continue? (y/N): ");
+
+  // Explicit yes on default false returns true
+  const askYes = async (_q: string) => "yes";
+  expect(await askBinary(askYes, "Continue?", false)).toBe(true);
+
+  // Explicit uppercase Y returns true
+  const askUpperY = async (_q: string) => "Y";
+  expect(await askBinary(askUpperY, "Continue?", false)).toBe(true);
+
+  // Explicit no on default true returns false
+  const askNo = async (_q: string) => "no";
+  expect(await askBinary(askNo, "Proceed?", true)).toBe(false);
+
+  // Explicit uppercase N returns false
+  const askUpperN = async (_q: string) => "N";
+  expect(await askBinary(askUpperN, "Proceed?", true)).toBe(false);
+});
+
 
 

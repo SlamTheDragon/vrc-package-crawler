@@ -6,6 +6,8 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "publish:preview": "bun run --cwd .. publish:preview web",
+    "publish:release": "bun run --cwd .. publish:release web",
     "delivery:preview": "bun run --cwd .. delivery:preview web",
     "delivery:release": "bun run --cwd .. delivery:release web",
     "prepare:dev": "bun run --cwd .. prepare:dev preview web",

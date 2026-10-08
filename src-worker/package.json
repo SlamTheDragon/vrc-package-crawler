@@ -4,6 +4,8 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"publish:preview": "bun run --cwd .. publish:preview worker",
+		"publish:release": "bun run --cwd .. publish:release worker",
 		"delivery:preview": "bun run --cwd .. delivery:preview worker",
 		"delivery:release": "bun run --cwd .. delivery:release worker",
 		"preview:init": "bun run --cwd .. worker:preview:init",

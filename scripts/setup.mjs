@@ -6,6 +6,18 @@ import { productDirectories } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
+const useColor = !process.env.NO_COLOR && (process.stdout.isTTY ?? true);
+const c = {
+  reset: useColor ? "\x1b[0m" : "",
+  bold: useColor ? "\x1b[1m" : "",
+  dim: useColor ? "\x1b[2m" : "",
+  cyan: useColor ? "\x1b[36m" : "",
+  green: useColor ? "\x1b[32m" : "",
+  yellow: useColor ? "\x1b[33m" : "",
+  red: useColor ? "\x1b[31m" : "",
+  magenta: useColor ? "\x1b[35m" : ""
+};
+
 export const setupProjects = {
   root: ".",
   ...productDirectories,
@@ -121,6 +133,7 @@ export async function interactiveSetup(options = {}) {
 
   let rl;
   const ask = askFn || (async query => {
+    if (process.env.CI || !process.stdin.isTTY) return "";
     if (!rl) {
       const readline = await import("node:readline/promises");
       rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -129,9 +142,8 @@ export async function interactiveSetup(options = {}) {
   });
 
   try {
-    onProgress("=================================================");
-    onProgress("VRCP Monorepo Setup & Onboarding Wizard");
-    onProgress("=================================================");
+    onProgress(`\n${c.bold}${c.cyan}◆ VRCP Monorepo Setup & Onboarding Wizard${c.reset}`);
+    onProgress(`${c.dim}  Automated credential onboarding and dependency bootstrap${c.reset}\n`);
 
     const envPath = resolve(workspace, ".env");
     let envEntries = {};
@@ -141,63 +153,65 @@ export async function interactiveSetup(options = {}) {
 
     // 1. Inspect and configure GITHUB_TOKEN
     let ghToken = envEntries.GITHUB_TOKEN || envEntries.GH_TOKEN || (workspace === root ? (env.GH_TOKEN || env.GITHUB_TOKEN) : undefined);
+    onProgress(`${c.bold}┌── 🔑 GitHub Personal Access Token (PAT)${c.reset}`);
     if (ghToken) {
-      onProgress("Verifying existing GitHub Personal Access Token...");
+      onProgress(`│  Verifying existing GitHub Personal Access Token...`);
       const check = await validateGitHubToken(ghToken, fetchFn);
       if (check.valid) {
-        onProgress(`✓ Authenticated as GitHub user: @${check.login}`);
+        onProgress(`│  ${c.green}✓ Authenticated as GitHub user: @${check.login}${c.reset}`);
       } else {
-        onProgress(`⚠ Existing GitHub token is invalid (${check.error}).`);
+        onProgress(`│  ${c.yellow}⚠ Existing GitHub token is invalid (${check.error}).${c.reset}`);
         ghToken = "";
       }
     }
 
     if (!ghToken) {
-      onProgress("\nA GitHub Personal Access Token (PAT) with repo and workflow permissions");
-      onProgress("is required to authenticate release pipelines and API queries.");
-      const inputToken = await ask("Enter your GitHub Token (or press Enter to skip): ");
+      onProgress(`│  ${c.dim}A GitHub Personal Access Token (PAT) with repo and workflow permissions is required.${c.reset}`);
+      const inputToken = await ask("│  Enter your GitHub Token (or press Enter to skip): ");
       if (inputToken) {
         const check = await validateGitHubToken(inputToken, fetchFn);
         if (check.valid) {
-          onProgress(`✓ Verified! Authenticated as: @${check.login}`);
+          onProgress(`│  ${c.green}✓ Verified! Authenticated as: @${check.login}${c.reset}`);
           writeEnvEntry(envPath, "GITHUB_TOKEN", inputToken);
           ghToken = inputToken;
         } else {
-          onProgress(`⚠ Token verification failed (${check.error}). Saving anyway...`);
+          onProgress(`│  ${c.yellow}⚠ Token verification failed (${check.error}). Saving anyway...${c.reset}`);
           writeEnvEntry(envPath, "GITHUB_TOKEN", inputToken);
           ghToken = inputToken;
         }
       } else {
-        onProgress("Skipped GitHub token configuration.");
+        onProgress(`│  ${c.dim}Skipped GitHub token configuration.${c.reset}`);
       }
     }
 
     // 2. Inspect optional Cloudflare token
+    onProgress(`\n${c.bold}├── ☁️  Cloudflare API Token (Optional)${c.reset}`);
     const cfExisting = envEntries.CLOUDFLARE_API_TOKEN || (workspace === root ? env.CLOUDFLARE_API_TOKEN : undefined);
     if (!cfExisting) {
-      const cfToken = await ask("Enter CLOUDFLARE_API_TOKEN (optional, press Enter to skip): ");
+      const cfToken = await ask("│  Enter CLOUDFLARE_API_TOKEN (optional, press Enter to skip): ");
       if (cfToken) {
         writeEnvEntry(envPath, "CLOUDFLARE_API_TOKEN", cfToken);
-        onProgress("✓ Cloudflare API token saved to .env");
+        onProgress(`│  ${c.green}✓ Cloudflare API token saved to .env${c.reset}`);
+      } else {
+        onProgress(`│  ${c.dim}Skipped Cloudflare token configuration.${c.reset}`);
       }
+    } else {
+      onProgress(`│  ${c.green}✓ Cloudflare API token already configured.${c.reset}`);
     }
 
     // 3. Project Selection
-    onProgress("\nAvailable target projects:");
+    onProgress(`\n${c.bold}└── 📦 Project Target Selection${c.reset}`);
     const projectKeys = Object.keys(setupProjects);
-    onProgress(`  - all (installs root and all 7 subprojects: ${projectKeys.join(", ")})`);
-    projectKeys.forEach(p => onProgress(`  - ${p}`));
+    onProgress(`   ${c.dim}Available targets: all, ${projectKeys.join(", ")}${c.reset}`);
 
     const targetChoice = (await ask("\nSelect target project to set up [all]: ")) || "all";
     const selectedTarget = projectKeys.includes(targetChoice) || targetChoice === "all" ? targetChoice : "all";
 
-    onProgress(`\nStarting dependency installation for target: "${selectedTarget}"...`);
+    onProgress(`\n${c.cyan}◆${c.reset} Starting dependency installation for target: "${c.bold}${selectedTarget}${c.reset}"...`);
     await setup(selectedTarget, { workspace, quiet: false, exec });
 
-    onProgress("\n=================================================");
-    onProgress("✓ Setup and onboarding complete!");
-    onProgress("Run `bun run help` for common commands and operational workflows.");
-    onProgress("=================================================");
+    onProgress(`\n${c.green}${c.bold}✓ Setup and onboarding complete!${c.reset}`);
+    onProgress(`${c.dim}Run 'bun run help' for common commands and operational workflows.${c.reset}\n`);
     return { status: "setup-complete", target: selectedTarget, ghTokenConfigured: Boolean(ghToken) };
   } finally {
     if (rl) rl.close();
