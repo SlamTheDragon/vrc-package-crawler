@@ -1002,7 +1002,7 @@ test("external workflow guards separate the two npm approvals from preview-only 
   expect(clientArtifact).toContain("/bundle/msi/*.msi");
   expect(clientArtifact).toContain("/bundle/nsis/*-setup.exe");
   const root = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  expect(root.scripts.setup).toBe("bun run setup:root && bun run setup:interactive");
+  expect(root.scripts.setup).toBe("bun run setup:root && bun run setup:interactive && bun run versions:sync:preview && bun run help");
   expect(root.scripts["setup:root"]).toBe("node scripts/setup.mjs root");
   expect(readFileSync(new URL("../.github/workflows/vrc-packages-api.yml", import.meta.url), "utf8"))
     .toContain("group: sdk-${{ contains(github.ref_name, '-pre') && 'preview' || 'release' }}");

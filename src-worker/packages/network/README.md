@@ -33,7 +33,7 @@ Existing published tags and receipts stay unchanged.
 The package remains `private: true` because GitHub tarball distribution does not require npm publication.
 The SDK v0.1.0 owner-review hold remains. Neither installation nor artifact publication authorizes live source access.
 
-Use [the delivery guide](../../../docs/source/DELIVERY.md) to prepare development artifacts and independent consumers.
+Use [the publishing guide](../../../docs/source/PUBLISHING.md) to prepare development artifacts and independent consumers.
 From the repository root, run `npm run prepare:dev -- preview worker` after preview metadata sync and network archive publication.
 The 23-file package passed isolated Node, Bun, declarations and native Worker checks on 2026-10-04.
 Those checks do not select a registry or authorize publication.

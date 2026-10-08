@@ -115,7 +115,7 @@ LEGAL.md states draft covenants, not measured implementation. Terms headers are 
 
 ## 5. Development and Tagged Delivery
 
-Use [DELIVERY.md](docs/source/DELIVERY.md) for command syntax, version authority, CI targets and owner panel setup.
+Use [PUBLISHING.md](docs/source/PUBLISHING.md) for command syntax, version authority, CI targets and owner panel setup.
 Root setup installs orchestration dependencies only. Prepare a selected consumer from development tarballs before building.
 Each src-* remains independent. No sibling link, source copy or unpublished registry coordinate supplies shared contracts.
 
@@ -137,5 +137,5 @@ The cleanup allowlist covers current product build and test outputs. The nested 
 Reset all includes root tools and every product dependency directory. Run root setup again after a root reset.
 Do not clear shared dependency downloads or add whole runtime state directories as cleanup targets.
 Keep node databases, secrets, bin, logs and local D1 state outside generated output cleanup.
-Use [the setup and cleanup procedure](docs/source/DELIVERY.md#local-development).
+Use [the setup and cleanup procedure](docs/source/PUBLISHING.md#local-development).
 Isolated safety fixtures do not eliminate concurrent-filesystem or partial-deletion risks.

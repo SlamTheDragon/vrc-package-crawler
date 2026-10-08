@@ -92,7 +92,7 @@ test("owner-approved main advancement accepts only bounded tracker-only commits"
     files: [{ filename: "docs/scratch/task_tracker.md", status: "modified" }] };
   expect((await checkReviewedRelease(f.selected, f.proof, f.api)).trackerParent).toBe(parent);
   for (const filename of ["config.versions.json", "scripts/delivery.mjs", ".github/workflows/node-docker.yml",
-    "src-worker/src/worker_entry.ts", "docs/source/DELIVERY.md"]) {
+    "src-worker/src/worker_entry.ts", "docs/source/PUBLISHING.md"]) {
     f.responses[`${f.prefix}/commits/${parent}`].files[0].filename = filename;
     await expect(checkReviewedRelease(f.selected, f.proof, f.api)).rejects.toThrow("approved task tracker");
   }

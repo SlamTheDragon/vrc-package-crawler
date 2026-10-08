@@ -34,30 +34,39 @@ Every task must strictly adhere to the following sequence of rules:
 5. **Execute the slice via the task tracker**:
    - Obtain a single slice from the true implementation plan ledger.
    - Rewrite `docs/scratch/task_tracker.md` specifically for the current slice iteration.
-   - Commit locally each implemented slice as a scoped checkpoint. Keep its status unverified until the capability gate checks pass.
+   - **Slices mean local commit, completed gates mean push**: Commit locally each implemented slice as a scoped checkpoint. Do not push incomplete slices. Push to the remote branch only when the capability gate checks pass.
+   - **Repository branch layout**: Operate on designated product branches:
+     - `main` (production / release)
+     - `preview/crawler-network` (`src-worker`, `src-crawler`, `src-worker/packages/network`)
+     - `preview/desktop-client` (`src-crawler-client`)
+     - `preview/web` (`src-web`, `src-web-search`)
+     - `preview/workers-api` (`src-package`)
+     - `release/patch/*` (short-lived patch branches)
+     - `release/candidate/*` (short-lived candidate PRs on main, can be overridden with `--force`)
    - Preserve unrelated owner edits. Commit only the slice's files unless the owner explicitly requests a combined checkpoint.
    - Implement the capability gate or related gate group before running its checks and checkpoint write-ups.
    - Keep incomplete changes marked unverified. Run the relevant tests, typechecks and runtime/build checks together at that checkpoint.
    - When the gate passes, commit its evidence and push the checked commits to the task branch.
-   - Owner update, 2026-10-06: normal source and preview commits may push to synchronized main. Preview allocation stays on the current branch and does not require a promotion PR.
+   - Owner update, 2026-10-06: normal source and preview commits may push to synchronized main or feature branches. Preview publishing stays on the current ahead branch and does not require a promotion PR.
    - If a connector cannot create the PR, supply a comparison link. Do not expand credentials or bypass protection to finish the gate.
    - Never disable rulesets, add a bypass, force-push main or merge for the owner. A gate pass authorizes a branch push, not a merge.
    - After promotion, fetch and inspect the merged main commit before release preparation or tag-only finalization.
    - A slice commit alone does not authorize a tag, publication or deployment. Preserve protected-main and product release approvals.
 
-6. **Practice delivery at capability milestones (R57-C57B)**:
+6. **Practice publishing at capability milestones (R57-C57B)**:
    - After the gate checks pass, select only the products whose delivered behavior or contracts changed.
-   - Use each selected product's root delivery chain. It allocates the next configured patch, synchronizes metadata, commits, tags and pushes.
-   - Check dependency producers first. An SDK peer change needs a checked network archive before dependent crawler or Worker delivery.
+   - Use each selected product's root publishing chain (`publish:preview`, `publish:release`). It allocates the next configured patch, synchronizes metadata, commits, tags and pushes.
+   - Check dependency producers first. An SDK peer change needs a checked network archive before dependent crawler or Worker publishing.
    - Keep artifact channels separate from SDK channels. Crawler/Worker use preview SDK. Desktop/web use release SDK. Network has one archive stream.
    - Use preview for iterative verification. Release publication retains its owner approvals. Do not approve protected jobs or npm stages for the owner.
    - Keep SDK v0.1.0 held for full owner API review. Keep website delivery disabled and Worker release build-only.
    - Check the tagged CI run, original artifact bytes, receipts, registry identities and deployment links before recording delivery as verified.
    - Keep failed and published tags fixed. Require publication/artifact proof for the configured predecessor before another bump or release tag finalization.
-   - CI reruns remain manual. Broken tagged workflows require manual resolution. Never bump unrelated products to align versions.
+   - CI reruns execute the frozen tagged commit. Use reruns only for transient errors. Code fixes require tag reversion (`recovery:revert-tag`) or patch branches (`recovery:patch`), followed by publishing from the ahead branch.
+   - Never bump unrelated products to align versions.
    - Do not publish a product for a documentation-only gate, an unchanged runtime, or an unresolved safety boundary. Record the reason.
    - Record the run/tag, dependency versions, checks and remaining uncertainty. A successful deployment does not complete the full goal.
-   - Follow [the agent delivery procedure](../../docs/decisions/AGENT_DELIVERY_PROCEDURE.md). Human commands are in [DELIVERY.md](../../docs/source/DELIVERY.md).
+   - Follow [the agent publishing procedure](../../docs/scratch/research/decisions/AGENT_PUBLISHING_PROCEDURE.md). Human commands are in [PUBLISHING.md](../../docs/source/PUBLISHING.md).
 
 7. **Reconcile and repeat**:
    - Once finished, check the implementation plan ledger and mark completed items as done based on the task tracker.

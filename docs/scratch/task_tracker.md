@@ -56,6 +56,15 @@
       2) The true root causes of CI failures in `repository-tests.yml`: (a) `actions/checkout@v4` defaulted to `fetch-depth: 1` (shallow clone without tags), causing `tests/delivery-recovery.test.ts` to crash with `fatal: Needed a single revision` when verifying tag refs; (b) missing `submodules: recursive` caused `src-web-search` submodule to clone as an empty directory, causing `tests/build.test.ts` (6 of 7 products) and `tests/setup.test.ts` to fail.
       3) Critical importance: `repository-tests.yml` is the sole CI workflow triggered on PRs and pushes to `main` that validates monorepo root governance, version configs, build order, cleanup, sync, and recovery CLI tooling (`bun test ./tests`). All other workflows only run on tag pushes.
     - Updated `.github/workflows/repository-tests.yml` to specify `fetch-depth: 0` and `submodules: recursive`, and purged the FIXME comment.
+  - `PUBLISHING-DISCIPLINE-AND-DOCS-UNIVERSALIZATION` (2026-10-08):
+    - Converted all operational and agent documentation from "delivery" to "publishing".
+    - Universalized `docs/source/PUBLISHING.md` (renamed from `PUBLISHING.md`) removing hardcoded historical builds/versions and providing universal checklists, branch layout, diagnosis pathways, and unhandled manual procedures under ASD-STE100 rules (zero em-dashes, zero semicolons).
+    - Upgraded Agent Publishing Rules: updated `AGENTS.md`, `.agents/rules/01-small-vertical-slices.md`, `.agents/skills/incremental-delivery/SKILL.md`, and `docs/scratch/research/decisionsAGENT_PUBLISHING_PROCEDURE.md` (renamed from `AGENT_DELIVERY_PROCEDURE.md`) to codify:
+      1) "Slices mean local commit, completed gates mean push".
+      2) Repository branch layout (`main`, `preview/crawler-network`, `preview/desktop-client`, `preview/web`, `preview/workers-api`, `release/patch/*`, `release/candidate/*`).
+      3) Preview publishing rule: any branch ahead of origin can publish previews without a PR.
+      4) Frozen tag rerun boundary: workflow reruns execute the frozen tag (transient failures only); code fixes require tag reversion (`recovery:revert-tag`) or patch branches (`recovery:patch`), followed by publishing from the ahead branch.
+    - Updated `scripts/help.mjs` and `tests/help.test.ts` to document the new branch layout, canonical publishing terminology, and manual operator procedures.
   - `GATE-VERIFICATION-PASS`:
     - Full repository test suite (`bun test ./tests`): all targeted test suites passing green across build, delivery, recovery, setup, and sync (86 pass across 5 files, 1,417 assertions; 225 total monorepo governance tests pass across 18 files).
 
@@ -684,7 +693,7 @@ PR #4 was owner-merged at e8f1bfb. Existing task branches remain until sign-off 
 
 Local implementation checkpoints: 9ad6d94, f9aaa1f, d452345, e6fb556 and 7c4cbc2.
 Owner vision/UI commit 39c509b is preserved. Its desktop runtime was not built in this root gate.
-Human procedures are in docs/source/DELIVERY.md. Agent procedures are in docs/decisions/AGENT_DELIVERY_PROCEDURE.md.
+Human procedures are in docs/source/PUBLISHING.md. Agent procedures are in docs/scratch/research/decisionsAGENT_DELIVERY_PROCEDURE.md.
 Keep three scratch files and preserve owner-comment cells.
 
 Preview: root plan → optional pending checkpoint/push → configured patch → metadata sync → commit/tag → atomic push.

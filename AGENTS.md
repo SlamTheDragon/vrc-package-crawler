@@ -4,7 +4,7 @@ This is the current entry point for agents working in this repository. `DELEGATE
 
 ## Read before changing code
 
-0. Read [`docs/decisions/VISION.md`](docs/decisions/VISION.md) for the owner's terminology (Crawler Node, Crawler Client, Coordinator, SDK, Web), responsibilities and target layout.
+0. Read [`docs/scratch/research/decisions/VISION.md`](docs/scratch/research/decisions/VISION.md) for the owner's terminology (Crawler Node, Crawler Client, Coordinator, SDK, Web), responsibilities and target layout.
 1. Read [`docs/scratch/IMPLEMENTATION_PLAN.md`](docs/scratch/IMPLEMENTATION_PLAN.md) for core architectural covenants, gate orders, delivered baselines, and recovered canonical decisions; read [`LEGAL.md`](LEGAL.md) for legal covenants and platform access boundaries.
 2. Read [`docs/scratch/UNMERGED_IMPLEMENTATION_PLAN.md`](docs/scratch/UNMERGED_IMPLEMENTATION_PLAN.md) for proposed iterations, milestone gates, and accepted owner decisions.
 3. Read [`docs/scratch/task_tracker.md`](docs/scratch/task_tracker.md) for the active bounded vertical slice before making edits.
@@ -18,12 +18,16 @@ This is the current entry point for agents working in this repository. `DELEGATE
 - **Credential Protection**: Node credentials use capability-encoded tokens (`vrcp_<token><capability>`) stored strictly as SHA-256 hashes. GitHub tokens serve only scoped API requests. Never expose secrets or hardcode tokens into fixtures or logs.
 - **Provenance & Zero Binary Downloads**: Third-party directories serve as discovery leads, not authoritative product records. Zero executable or archive binary crawling (`.zip`, `.unitypackage`).
 
-## Delivery discipline
+## Publishing discipline
 
-- Owner update, 2026-10-06: main permits normal source and preview pushes. Commit each slice locally and push checked gates. Preview allocation stays on its current synchronized branch, including main; do not create a branch or require a PR just for preview delivery.
-- Release preparation and finalization remain main-only and require the owner's manually reviewed metadata PR and protected publication approvals. Do not merge or approve for the owner.
+- Slices mean local commit. Completed gates mean push. Commit each slice locally as a checkpoint. Push to the remote tracking branch only when the capability gate passes all checks.
+- Repository branches: `main` (production), `preview/crawler-network` (`src-worker`, `src-crawler`, `src-worker/packages/network`), `preview/desktop-client` (`src-crawler-client`), `preview/web` (`src-web`, `src-web-search`), `preview/workers-api` (`src-package`), `release/patch/*` (short-lived patch branches), `release/candidate/*` (short-lived candidate PRs on main, can be overridden with `--force`).
+- Preview publishing stays on its current ahead branch, including main; any branch ahead of origin can publish a preview without a PR.
+- Release preparation and finalization require clean main, an owner-reviewed metadata PR, and protected publication approvals. Never merge or approve for the owner.
+- Reruns execute the frozen tagged commit (for transient network/CDN issues only). Code fixes require tag reversion (`bun run recovery:revert-tag <tag> --remote`) or a patch branch (`bun run recovery:patch <product> <version>`), then publishing from the ahead branch.
+- Human operations are in [`docs/source/PUBLISHING.md`](docs/source/PUBLISHING.md). Detailed agent rules are in [`docs/scratch/research/decisions/AGENT_PUBLISHING_PROCEDURE.md`](docs/scratch/research/decisions/AGENT_PUBLISHING_PROCEDURE.md).
 - Do not disable protection, add a bypass, force-push main, or merge a PR on the owner's behalf. A gate pass is not merge approval.
-- After promotion, fetch and inspect merged main before release preparation or finalization. Keep the preview App outside main bypass and release allocation.
+- After promotion, fetch and inspect merged main before release preparation or finalization.
 
 - Canonical brand: **VRC Packages**, abbreviated **VRCP**. P means Packages. Use `VRCP*`, `vrcp-`, `vrcp_`, or `vrc-packages*`/`vrc_packages*` for project-owned names. Do not use bare VRC/Vrc component names. Preserve actual upstream names and repository URLs. Exact SDK names are `VRCPackageClient`, `VRCPackageClientOptions`, and `VRCPApiError`, not doubled-P variants. The approved bot target is `VRCPDiscoveryBot/{version}`. Coordinate its robots matching and snapshot transition before claiming that rename complete.
 

@@ -43,7 +43,10 @@ Execute this procedure on every development iteration to enforce the slice and g
 ## Step 5: Slice Extraction & Task Tracker Execution
 1. Extract exactly one bounded slice from the true implementation plan ledger.
 2. Rewrite `docs/scratch/task_tracker.md` specifically for the current slice iteration.
-3. Execute the slice (strictly bounded to 2–3 files), verifying boundaries and running targeted tests.
+3. Slices mean local commit, completed gates mean push:
+   - Execute the slice (strictly bounded to 2–3 files in scratch).
+   - Commit each implemented slice locally as a checkpoint.
+   - Push to the remote branch only after all capability gate tests pass.
 
 ## Step 6: Reconciliation & Iteration Loop
 1. Verify the slice results against test baselines.

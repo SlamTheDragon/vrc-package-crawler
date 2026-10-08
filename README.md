@@ -1,6 +1,6 @@
 <!-- LOCKED DOCUMENTATION - DO NOT CHANGE -->
 
-# VRC Packages (WIP⚠️)
+# VRC Packages (WIP)
 
 VRC Packages (VRCP) is an open-source discovery and indexing network engine for public VRChat creator packages (Tools, Assets, & Avatars).
 
@@ -80,7 +80,7 @@ See repository documentation at [docs/source](docs/source).
 
 ## Prerequisites & Development
 
-Use [the delivery guide](docs/source/DELIVERY.md) for config-driven builds, packed development dependencies and tagged CI paths.
+Use [the publishing guide](docs/source/PUBLISHING.md) for config-driven builds, packed development dependencies and tagged CI paths.
 Local commands do not publish or deploy. Worker preview/production routing is separate from UI artifact versions.
 
 - **Bun** >= 1.4.0 (required for runtime, compilation, and testing)

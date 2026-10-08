@@ -5,10 +5,10 @@
   "packageManager": "bun@1.4.2",
   "scripts": {
     "help": "node scripts/help.mjs",
-    "init": "node scripts/setup.mjs --interactive",
-    "setup": "bun run setup:root && bun run setup:interactive",
+    "init": "node scripts/setup.mjs --interactive && bun run versions:sync:preview && bun run help",
+    "setup": "bun run setup:root && bun run setup:interactive && bun run versions:sync:preview && bun run help",
     "setup:root": "node scripts/setup.mjs root",
-    "setup:interactive": "node scripts/setup.mjs --interactive",
+    "setup:interactive": "node scripts/setup.mjs --interactive && bun run versions:sync:preview && bun run help",
     "build": "node scripts/build.mjs",
     "test": "bun test ./tests",
     "publish": "node scripts/delivery-chain.mjs execute",

@@ -35,23 +35,4 @@ This is version 0. Nothing is "legacy". Purge superseded code instead of wrappin
 
 **Web:** ToS and legal pages, node binary distribution and registry, downstream application registry, database statistics. It uses the system's API endpoints.
 
-## Target layout
-
-```
-.agents/
-AGENTS.md  DELEGATES.md  LEGAL.md
-docs/      scratch/ (proposals)  research/  source/ (current capabilities)  decisions/
-src-package/
-src-web/            scratch/
-src-crawler-client/
-src-crawler/        src/  tests/  scratch/  Dockerfile
-src-worker/
-```
-
 There must be no build or test artifacts in the repository root.
-
-## Current focus
-
-`src-crawler` and `src-worker`, ready for Cloudflare staging.
-Pre-production exit: real data ingestion through the full local system (node → coordinator → D1-compatible store) before online staging.
-Owner directions: remove local loopback test scaffolding before staging, and remove import/export layers that only re-export.
