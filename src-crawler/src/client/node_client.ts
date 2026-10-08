@@ -1,6 +1,6 @@
 import {
   ClaimRequestSchema, ClaimResponseSchema, HeartbeatRequestSchema, HeartbeatResponseSchema,
-  ResultRequestSchema, ResultResponseSchema, PROTOCOL_VERSION,
+  ResultRequestSchema, ResultResponseSchema, PROTOCOL_VERSION, MAX_COORDINATOR_RESPONSE_BYTES,
   type Platform, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse,
   type ResultRequest, type ResultResponse
 } from "vrc-packages-network/node";
@@ -84,7 +84,48 @@ export class CoordinatorClient {
         });
 
         if (response.ok) {
-          return await response.json();
+          const contentLengthHeader = response.headers.get("content-length");
+          if (contentLengthHeader !== null) {
+            const parsedLength = parseInt(contentLengthHeader, 10);
+            if (Number.isFinite(parsedLength) && parsedLength > MAX_COORDINATOR_RESPONSE_BYTES) {
+              await response.body?.cancel().catch(() => {});
+              throw new Error(`Coordinator response exceeds maximum byte limit of ${MAX_COORDINATOR_RESPONSE_BYTES} bytes`);
+            }
+          }
+
+          if (response.body && typeof response.body.getReader === "function") {
+            const reader = response.body.getReader();
+            const chunks: Uint8Array[] = [];
+            let totalBytes = 0;
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                totalBytes += value.byteLength;
+                if (totalBytes > MAX_COORDINATOR_RESPONSE_BYTES) {
+                  await reader.cancel();
+                  throw new Error(`Coordinator response exceeds maximum byte limit of ${MAX_COORDINATOR_RESPONSE_BYTES} bytes`);
+                }
+                chunks.push(value);
+              }
+            } finally {
+              reader.releaseLock();
+            }
+            const merged = new Uint8Array(totalBytes);
+            let offset = 0;
+            for (const chunk of chunks) {
+              merged.set(chunk, offset);
+              offset += chunk.byteLength;
+            }
+            const text = new TextDecoder().decode(merged);
+            return JSON.parse(text);
+          }
+
+          const text = await response.text();
+          if (new TextEncoder().encode(text).byteLength > MAX_COORDINATOR_RESPONSE_BYTES) {
+            throw new Error(`Coordinator response exceeds maximum byte limit of ${MAX_COORDINATOR_RESPONSE_BYTES} bytes`);
+          }
+          return JSON.parse(text);
         }
 
         await response.body?.cancel().catch(() => {});

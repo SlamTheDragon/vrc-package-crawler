@@ -20,6 +20,12 @@ export const NodeIdSchema = IssueNodeCredentialSchema.shape.nodeId;
 const JobIdSchema = z.string().min(1).max(120);
 const HttpsUrlSchema = z.url().refine((value) => new URL(value).protocol === "https:", "HTTPS URL required");
 
+export const MAX_JOB_URL_LENGTH = 2048;
+export const MAX_ORIGIN_URL_LENGTH = 255;
+export const MAX_ETAG_LENGTH = 256;
+export const MAX_LAST_MODIFIED_LENGTH = 128;
+export const MAX_COORDINATOR_RESPONSE_BYTES = 2 * 1024 * 1024; // 2 MiB
+
 export const ClaimRequestSchema = z.strictObject({
   schemaVersion: z.literal(PROTOCOL_VERSION),
   nodeId: NodeIdSchema,
@@ -32,12 +38,12 @@ export const CrawlJobSchema = z.strictObject({
   leaseId: z.uuid(),
   platform: PlatformSchema,
   purpose: JobPurposeSchema,
-  url: HttpsUrlSchema,
-  origin: HttpsUrlSchema,
+  url: HttpsUrlSchema.refine((value) => value.length <= MAX_JOB_URL_LENGTH, `URL exceeds max length of ${MAX_JOB_URL_LENGTH}`),
+  origin: HttpsUrlSchema.refine((value) => value.length <= MAX_ORIGIN_URL_LENGTH, `Origin exceeds max length of ${MAX_ORIGIN_URL_LENGTH}`),
   leaseExpiresAt: z.iso.datetime(),
   retainClasses: z.array(EvidenceClassSchema).min(1).max(4),
-  etag: z.string().nullable(),
-  lastModified: z.string().nullable()
+  etag: z.string().max(MAX_ETAG_LENGTH).nullable(),
+  lastModified: z.string().max(MAX_LAST_MODIFIED_LENGTH).nullable()
 });
 export type CrawlJob = z.infer<typeof CrawlJobSchema>;
 

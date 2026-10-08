@@ -2,7 +2,11 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { CoordinatorClient } from "../src/client/node_client.ts";
 import { logger } from "../src/utils/logging/logger.ts";
 import { CRAWLER_USER_AGENT } from "../src/shared/robots/crawler_identity.ts";
-import { ResultRequestSchema, type ResultRequest, type ResultResponse } from "vrc-packages-network/node";
+import {
+  ResultRequestSchema, CrawlJobSchema, MAX_COORDINATOR_RESPONSE_BYTES,
+  MAX_JOB_URL_LENGTH, MAX_ORIGIN_URL_LENGTH, MAX_ETAG_LENGTH, MAX_LAST_MODIFIED_LENGTH,
+  type ResultRequest, type ResultResponse
+} from "vrc-packages-network/node";
 
 function fixture() {
   const nodeId = "result-client-fixture";
@@ -175,5 +179,71 @@ describe("Node result receipt validation", () => {
         });
       }
     }
+  });
+
+  test("rejects coordinator responses exceeding maximum response byte limit via content-length", async () => {
+    const { request, client } = fixture();
+    let bodyCancels = 0;
+    await withTransport(async () => {
+      const response = new Response(new ReadableStream({ cancel() { bodyCancels++; } }), {
+        status: 200,
+        headers: { "content-length": String(MAX_COORDINATOR_RESPONSE_BYTES + 1) }
+      });
+      return response;
+    }, async () => {
+      await expect(client.submit(request)).rejects.toThrow("Coordinator response exceeds maximum byte limit");
+      expect(bodyCancels).toBe(1);
+    });
+  });
+
+  test("rejects streaming coordinator responses exceeding byte limit and cancels stream", async () => {
+    const { request, client } = fixture();
+    let streamCancelled = false;
+    const oversizedChunk = new Uint8Array(1024 * 1024); // 1 MiB chunk
+    await withTransport(async () => {
+      const stream = new ReadableStream({
+        pull(controller) {
+          controller.enqueue(oversizedChunk);
+        },
+        cancel() {
+          streamCancelled = true;
+        }
+      });
+      return new Response(stream, { status: 200 });
+    }, async () => {
+      await expect(client.submit(request)).rejects.toThrow("Coordinator response exceeds maximum byte limit");
+      expect(streamCancelled).toBe(true);
+    });
+  });
+
+  test("CrawlJobSchema enforces field length bounds for url, origin, etag, and lastModified", () => {
+    const baseJob = {
+      jobId: "valid-job-id",
+      leaseId: crypto.randomUUID(),
+      platform: "vpm",
+      purpose: "metadata",
+      url: "https://example.org/test",
+      origin: "https://example.org",
+      leaseExpiresAt: "2099-01-01T00:00:00.000Z",
+      retainClasses: ["normalized_facts"],
+      etag: "valid-etag",
+      lastModified: "Wed, 21 Oct 2026 07:28:00 GMT"
+    };
+
+    expect(() => CrawlJobSchema.parse(baseJob)).not.toThrow();
+
+    // Oversized URL (> 2048 chars)
+    const longUrl = "https://example.org/" + "a".repeat(MAX_JOB_URL_LENGTH);
+    expect(() => CrawlJobSchema.parse({ ...baseJob, url: longUrl })).toThrow();
+
+    // Oversized origin (> 255 chars)
+    const longOrigin = "https://" + "a".repeat(MAX_ORIGIN_URL_LENGTH) + ".org";
+    expect(() => CrawlJobSchema.parse({ ...baseJob, origin: longOrigin })).toThrow();
+
+    // Oversized ETag (> 256 chars)
+    expect(() => CrawlJobSchema.parse({ ...baseJob, etag: "e".repeat(MAX_ETAG_LENGTH + 1) })).toThrow();
+
+    // Oversized lastModified (> 128 chars)
+    expect(() => CrawlJobSchema.parse({ ...baseJob, lastModified: "m".repeat(MAX_LAST_MODIFIED_LENGTH + 1) })).toThrow();
   });
 });
