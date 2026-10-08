@@ -183,7 +183,7 @@ test("stagingEmbed formats amber staging notification and ping correctly", () =>
   const withoutPing = stagingEmbed({ version: "0.0.7", runId: 12345, repository: "SlamTheDragon/vrc-packages" });
   expect(withoutPing.content).toBeUndefined();
   expect(withoutPing.embeds[0].color).toBe(0xf1c40f);
-  expect(withoutPing.embeds[0].title).toBe("📦 VRC Packages API 0.0.7 — Publication Approval Pending");
+  expect(withoutPing.embeds[0].title).toBe("📦 VRC Packages API 0.0.7 - Publication Approval Pending");
   expect(withoutPing.embeds[0].url).toBe("https://www.npmjs.com/package/vrc-packages-api");
   expect(withoutPing.allowed_mentions).toEqual({ parse: ["roles", "users", "everyone"] });
   expect(withoutPing.components[0].components[0].label).toBe("Approve on npm");
@@ -193,7 +193,7 @@ test("stagingEmbed formats amber staging notification and ping correctly", () =>
   expect(withPing.allowed_mentions).toEqual({ parse: ["roles", "users", "everyone"] });
 
   const crawler = stagingEmbed({ product: "crawler", version: "0.0.12", runId: 12345, repository: "SlamTheDragon/vrc-packages" });
-  expect(crawler.embeds[0].title).toBe("📦 VRCP Crawler 0.0.12 — Publication Approval Pending");
+  expect(crawler.embeds[0].title).toBe("📦 VRCP Crawler 0.0.12 - Publication Approval Pending");
   expect(crawler.components[0].components.some((c: any) => c.label === "Release Page")).toBe(true);
 });
 

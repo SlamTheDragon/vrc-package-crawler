@@ -109,7 +109,7 @@ export function stagingEmbed(options) {
   const payload = {
     allowed_mentions: { parse: ["roles", "users", "everyone"] },
     embeds: [{
-      title: `📦 ${prod.title} ${version} — Publication Approval Pending`,
+      title: `📦 ${prod.title} ${version} - Publication Approval Pending`,
       url: targetUrl,
       description,
       color: 0xf1c40f,

@@ -15,7 +15,8 @@ The failures mean there needs to be an investigation processed as to why such fa
 
 ## Attempt 2
 
-| name    | channel | status | single-run-results | resolutions | warnings                                                                                                                         |
-| ------- | ------- | ------ | ------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| package | release | done   | passed             |             | - no discord webhook was attached on local notification upon pre-delivery, a native notification hook workaround might be needed |
-| crawler | release |        |                    |             |                                                                                                                                  |
+| name           | channel | status | single-run-results | resolutions | warnings                                                                                                                         |
+| -------------- | ------- | ------ | ------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| package        | release | done   | passed             |             | - no discord webhook was attached on local notification upon pre-delivery, a native notification hook workaround might be needed |
+| crawler        | release | done   | passed             |             | - same as above                                                                                                                  |
+| crawler-client | release | done   |                    |             |                                                                                                                                  |
