@@ -223,4 +223,105 @@ describe("node-owned daemon lifecycle through serialized contracts", () => {
       // This diagnoses missing durable recovery. It does not prove coordinator idempotency.
     } finally { daemon.stop(); store.close(); removeFixture(directory); }
   });
+
+  test("durable outbox restart recovery: daemon autonomously replays pending outbox on restart", async () => {
+    const directory = fixtureDirectory();
+    const databasePath = join(directory, "node_recovery.db");
+    let store: LocalNodeStore | null = null;
+    let daemon1: CrawlerNodeDaemon | null = null;
+    let daemon2: CrawlerNodeDaemon | null = null;
+    try {
+      store = new LocalNodeStore(databasePath);
+      daemon1 = new CrawlerNodeDaemon({ ...config, databasePath }, store, client(), { fetchFn: source });
+      let originalIdempotencyKey = "";
+
+      // Step fails due to transient 503 on submission
+      await withWire(leased, async () => {
+        await expect(daemon1!.step()).rejects.toThrow("Coordinator 503");
+      }, async (payload) => {
+        originalIdempotencyKey = payload.idempotencyKey;
+        return new Response(null, { status: 503 });
+      });
+
+      // Verify outbox entry was durably staged with status 'pending'
+      const tasks = store.listTasksForRun(daemon1!.currentRunId);
+      expect(tasks.length).toBe(1);
+      const taskId = tasks[0]!.taskId;
+      const outboxEntry = store.getOutboxEntryByTaskId(taskId);
+      expect(outboxEntry).not.toBeNull();
+      expect(outboxEntry?.idempotencyKey).toBe(originalIdempotencyKey);
+      expect(outboxEntry?.status).toBe("pending");
+      expect(outboxEntry?.retryCount).toBe(1);
+
+      daemon1!.stop();
+      store.close();
+      store = null;
+
+      // Restart node daemon with the same SQLite database
+      store = new LocalNodeStore(databasePath);
+      // Fast-forward retry backoff time so entry is immediately eligible
+      const pending = store.getOutboxEntryByTaskId(taskId)!;
+      store.markOutboxFailed(pending.outboxId, "fast-forward", -10_000);
+
+      // Now it appears in pending outbox entries
+      const eligibleEntries = store.getPendingOutboxEntries();
+      expect(eligibleEntries.length).toBe(1);
+
+      daemon2 = new CrawlerNodeDaemon({ ...config, databasePath }, store, client(), { fetchFn: source });
+      let replaySawSameKey = false;
+
+      // Replay via daemon flush
+      await withWire(empty, async () => {
+        const flushed = await daemon2!.flushOutbox();
+        expect(flushed).toBe(1);
+      }, async (payload) => {
+        if (payload.idempotencyKey === originalIdempotencyKey) {
+          replaySawSameKey = true;
+        }
+        return Response.json(ResultResponseSchema.parse({
+          schemaVersion: 1,
+          status: "accepted",
+          jobId: payload.jobId,
+          duplicate: false,
+          sourceVersionCreated: true
+        }));
+      });
+
+      expect(replaySawSameKey).toBe(true);
+      const deliveredEntry = store.getOutboxEntryByTaskId(taskId)!;
+      expect(deliveredEntry.status).toBe("sent");
+      expect(deliveredEntry.receipt).toMatchObject({ status: "accepted", jobId: job.jobId });
+      expect(store.getTask(taskId)?.status).toBe("completed");
+      expect(store.getTask(taskId)?.accepted).toBe(1);
+    } finally {
+      daemon1?.stop();
+      daemon2?.stop();
+      try { store?.close(); } catch {}
+      removeFixture(directory);
+    }
+  });
+
+  test("durable outbox terminal failure: non-retryable 403 transitions outbox entry to dead", async () => {
+    const store = new LocalNodeStore(":memory:");
+    const daemon = new CrawlerNodeDaemon(config, store, client(), { fetchFn: source });
+    try {
+      await withWire(leased, async () => {
+        await expect(daemon.step()).rejects.toThrow("Coordinator 403");
+      }, async () => Response.json({ error: "Lease expired or forbidden" }, { status: 403 }));
+
+      const tasks = store.listTasksForRun(daemon.currentRunId);
+      expect(tasks.length).toBe(1);
+      const outboxEntry = store.getOutboxEntryByTaskId(tasks[0]!.taskId);
+      expect(outboxEntry).not.toBeNull();
+      expect(outboxEntry?.status).toBe("dead");
+      expect(outboxEntry?.lastError).toContain("Coordinator 403");
+
+      // Verify that flushOutbox ignores dead entries
+      const flushed = await daemon.flushOutbox();
+      expect(flushed).toBe(0);
+    } finally {
+      daemon.stop();
+      store.close();
+    }
+  });
 });

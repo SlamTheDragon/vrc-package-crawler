@@ -2,12 +2,17 @@ import type { CrawlJob, ResultRequest, ResultResponse } from "vrc-packages-netwo
 import { fetchJobOutcome } from "../adapters/observation_adapter.ts";
 import { logger } from "../utils/logging/logger.ts";
 
-type Outcome = ResultRequest["outcome"];
-type LeaseClient = {
+export type Outcome = ResultRequest["outcome"];
+export type LeaseClient = {
   heartbeat: (state: "fetching", activeJobId: string, activeLeaseId: string) => Promise<unknown>;
   submit: (request: Omit<ResultRequest, "schemaVersion" | "nodeId">) => Promise<ResultResponse>;
 };
-type MetadataFetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+export type MetadataFetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+export interface RunLeasedJobOptions {
+  onOutcome?: (outcome: Outcome, idempotencyKey: string) => Promise<void> | void;
+  idempotencyKey?: string;
+}
 
 function minimizeOutcome(job: CrawlJob, outcome: Outcome): Outcome {
   if (job.retainClasses.includes("creator_prose")) return outcome;
@@ -20,8 +25,12 @@ function minimizeOutcome(job: CrawlJob, outcome: Outcome): Outcome {
 
 /** An active lease must remain observable throughout egress, not just at submission. */
 export async function runLeasedJob(
-  job: CrawlJob, client: LeaseClient, fetcher: MetadataFetcher, heartbeatIntervalMs = 5_000,
-  stopSignal?: AbortSignal
+  job: CrawlJob,
+  client: LeaseClient,
+  fetcher: MetadataFetcher,
+  heartbeatIntervalMs = 5_000,
+  stopSignal?: AbortSignal,
+  options?: RunLeasedJobOptions
 ): Promise<{ outcome: Outcome; result: ResultResponse }> {
   if (!Number.isInteger(heartbeatIntervalMs) || heartbeatIntervalMs < 1) throw new Error("Invalid heartbeat interval");
   stopSignal?.throwIfAborted();
@@ -52,8 +61,18 @@ export async function runLeasedJob(
     // A final lease check closes the race between the last periodic pulse and submission.
     await client.heartbeat("fetching", job.jobId, job.leaseId);
     signal.throwIfAborted();
-    const result = await client.submit({ jobId: job.jobId, leaseId: job.leaseId,
-      idempotencyKey: crypto.randomUUID(), outcome });
+
+    const idempotencyKey = options?.idempotencyKey ?? crypto.randomUUID();
+    if (options?.onOutcome) {
+      await options.onOutcome(outcome, idempotencyKey);
+    }
+
+    const result = await client.submit({
+      jobId: job.jobId,
+      leaseId: job.leaseId,
+      idempotencyKey,
+      outcome
+    });
     return { outcome, result };
   } catch (error) {
     throw authorityError || (stopSignal?.aborted ? stopSignal.reason : error);

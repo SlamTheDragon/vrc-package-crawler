@@ -13,6 +13,8 @@ export interface CrawlerNodeDaemonOptions {
   stopFilePath?: string;
   sleepFn?: (ms: number) => Promise<void>;
   heartbeatIntervalMs?: number;
+  maxPendingOutboxQuota?: number;
+  outboxTtlMs?: number;
 }
 
 /**
@@ -26,6 +28,7 @@ export class CrawlerNodeDaemon {
   private lastHeartbeatAt: number = 0;
   private lastRetryAfterMs: number = 5_000;
   private runId: string;
+  private isFlushingOutbox: boolean = false;
 
   constructor(
     private readonly config: NodeRuntimeConfig,
@@ -75,6 +78,65 @@ export class CrawlerNodeDaemon {
     }
   }
 
+  public isTerminalOutboxError(error: unknown): boolean {
+    if (error instanceof Error) {
+      const match = error.message.match(/Coordinator (\d{3})/);
+      if (match) {
+        const status = parseInt(match[1], 10);
+        if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+          return true;
+        }
+      }
+      const lower = error.message.toLowerCase();
+      if (lower.includes("expired") || lower.includes("forbidden") || lower.includes("unauthorized")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public async flushOutbox(batchLimit: number = 50): Promise<number> {
+    if (this.stopping || this.isFlushingOutbox) return 0;
+    this.isFlushingOutbox = true;
+    try {
+      const entries = this.nodeStore.getPendingOutboxEntries(batchLimit);
+      if (entries.length === 0) return 0;
+
+      logger.info(`Flushing ${entries.length} pending outbox entries...`);
+      let flushedCount = 0;
+
+      for (const entry of entries) {
+        if (this.stopping) break;
+        try {
+          const outcome = entry.outcome;
+          const result = await this.client.submit({
+            jobId: entry.jobId,
+            leaseId: entry.leaseId,
+            idempotencyKey: entry.idempotencyKey,
+            outcome
+          });
+          this.nodeStore.markOutboxDelivered(entry.outboxId, result);
+          flushedCount++;
+          logger.info(`Outbox entry ${entry.outboxId} successfully delivered for job ${entry.jobId}`);
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          if (this.isTerminalOutboxError(error)) {
+            logger.warn(`Terminal rejection for outbox entry ${entry.outboxId}: ${errorMsg}`);
+            this.nodeStore.markOutboxTerminal(entry.outboxId, errorMsg);
+          } else {
+            logger.warn(`Failed to deliver outbox entry ${entry.outboxId}, scheduling retry: ${errorMsg}`);
+            const delayMs = Math.min(5_000 * Math.pow(2, entry.retryCount), 60_000);
+            this.nodeStore.markOutboxFailed(entry.outboxId, errorMsg, delayMs);
+          }
+        }
+      }
+
+      return flushedCount;
+    } finally {
+      this.isFlushingOutbox = false;
+    }
+  }
+
   public async step(): Promise<"claimed" | "empty" | "stopped"> {
     if (this.stopping) {
       return "stopped";
@@ -89,6 +151,10 @@ export class CrawlerNodeDaemon {
       await this.heartbeat();
     }
 
+    if (this.stopping) return "stopped";
+
+    // Flush pending outbox entries before claiming new leases
+    await this.flushOutbox();
     if (this.stopping) return "stopped";
 
     const claim = await this.client.claim();
@@ -117,10 +183,34 @@ export class CrawlerNodeDaemon {
     const startTime = performance.now();
     const fetchFn = this.options.fetchFn ?? fetchPublicMetadata;
 
+    let stagedOutboxId: string | null = null;
+    const idempotencyKey = crypto.randomUUID();
+
     try {
-      const { outcome, result } = await runLeasedJob(job, this.client, fetchFn, 5_000, this.stopController.signal);
+      const { outcome, result } = await runLeasedJob(
+        job,
+        this.client,
+        fetchFn,
+        this.options.heartbeatIntervalMs ?? 5_000,
+        this.stopController.signal,
+        {
+          idempotencyKey,
+          onOutcome: (outcome, idKey) => {
+            stagedOutboxId = this.nodeStore.stageOutboxOutcome(
+              taskId,
+              outcome,
+              idKey,
+              this.options.maxPendingOutboxQuota ?? 1000
+            );
+          }
+        }
+      );
       const durationMs = Math.round(performance.now() - startTime);
-      this.nodeStore.recordTaskSuccess(taskId, outcome.kind, result, { durationMs });
+      if (stagedOutboxId) {
+        this.nodeStore.markOutboxDelivered(stagedOutboxId, result, { durationMs });
+      } else {
+        this.nodeStore.recordTaskSuccess(taskId, outcome.kind, result, { durationMs });
+      }
       logger.info("Task completed successfully", {
         jobId: job.jobId,
         outcome: outcome.kind,
@@ -130,7 +220,15 @@ export class CrawlerNodeDaemon {
       });
     } catch (error) {
       const durationMs = Math.round(performance.now() - startTime);
-      this.nodeStore.recordTaskFailure(taskId, error instanceof Error ? error.message : String(error), { durationMs });
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.nodeStore.recordTaskFailure(taskId, errorMsg, { durationMs });
+      if (stagedOutboxId) {
+        if (this.isTerminalOutboxError(error)) {
+          this.nodeStore.markOutboxTerminal(stagedOutboxId, errorMsg);
+        } else {
+          this.nodeStore.markOutboxFailed(stagedOutboxId, errorMsg);
+        }
+      }
       logger.error(`Task execution failed for job ${job.jobId} (${durationMs}ms)`, error);
       throw error;
     }
@@ -149,7 +247,9 @@ export class CrawlerNodeDaemon {
     }, 100) : undefined;
 
     try {
+      this.nodeStore.pruneOutbox(this.options.outboxTtlMs ?? 86_400_000);
       await this.heartbeat();
+      await this.flushOutbox();
       while (!this.stopping) {
         try {
           const outcome = await this.step();
