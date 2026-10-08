@@ -33,6 +33,14 @@
     - Preserved test harness compatibility: In headless test mode where `askFn` or mock executions are passed, all scripts preserve test hooks and pass without regressions.
     - Binary option UX: Enhanced `askBinary` and `p.confirm` with explicit `(Y/n)` / `(y/N)` notation and arrows.
     - Reserved help architecture: Emptied `scripts/help.mjs` reserved for the upcoming proposal.
+  - `AUDIT-DIAGNOSIS-AND-UI-ENHANCEMENT` (2026-10-08):
+    - Audit Diagnosis (`PUBLICATION_PIPELINE_READINESS.md`):
+      - Attempt 1.1 `package preview` failure in CI run 37719073408: npm OIDC publish successfully created `vrc-packages-api-preview@2026.10.9-pre`, but the npm edge CDN readback loop timed out after 63 seconds before `latest` alias replicated. Version is confirmed live on npm; rerun of failed jobs resolves green.
+      - Attempt 1.2 `release` warnings regarding lack of local Discord webhook: `DISCORD_STAGING_WEBHOOK` is a protected CI/CD secret. Implemented `notifyNative` in `delivery-chain.mjs` (PowerShell toast/balloon notification on Windows + terminal bell `\x07`) to notify developers locally during staging delays without requiring webhook tokens.
+    - CLI Visual Enhancement & Loading/Progress Indicators:
+      - Artifact progress bar: Added `renderProgressBar(current, total, label)` to `scripts/delivery-chain.mjs`, displaying dynamic ASCII/Unicode progress bars during hosted artifact downloads and hash verification.
+      - Boxed Table & Card Views: Added `renderTable` (Unicode multi-column box table) and `renderCardTable` (compact boxed card tables with status badges and next steps) across `scripts/delivery-chain.mjs` and `scripts/delivery-recovery.mjs`. Supported `--json` flag on all commands for tooling backward-compatibility.
+      - Per-project Setup Progress: Updated `scripts/setup.mjs` interactive mode to display step-by-step spinners (`[i/n] Installing dependencies for <project> (<dir>)...`) detailing individual installation status per subproject.
   - `GATE-VERIFICATION-PASS`:
     - Full repository test suite (`bun test ./tests`): all targeted test suites passing green across build, delivery, recovery, setup, and sync (86 pass across 5 files, 1,417 assertions).
 

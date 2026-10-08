@@ -303,9 +303,14 @@ export async function interactiveSetup(options = {}) {
 
     if (isInteractiveTTY) {
       const s = p.spinner();
-      s.start(`Installing dependencies for target: "${selectedTarget}"...`);
-      await setup(selectedTarget, { workspace, quiet: true, exec });
-      s.stop(`Dependency installation for "${selectedTarget}" completed successfully.`);
+      const targets = selectedTarget === "all" ? Object.keys(setupProjects) : [selectedTarget];
+      for (let i = 0; i < targets.length; i++) {
+        const name = targets[i];
+        const dir = setupProjects[name];
+        s.start(`[${i + 1}/${targets.length}] Installing dependencies for ${name} (${dir})...`);
+        await setup(name, { workspace, quiet: true, exec });
+        s.stop(`[${i + 1}/${targets.length}] Installed dependencies for ${name} (${dir})`);
+      }
       p.outro(`${c.green}${c.bold}Setup and onboarding complete!${c.reset}`);
     } else {
       onProgress(`\n${c.cyan}◆${c.reset} Starting dependency installation for target: "${c.bold}${selectedTarget}${c.reset}"...`);

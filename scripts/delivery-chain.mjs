@@ -47,6 +47,99 @@ export async function askBinary(ask, query, defaultYes = true) {
   return trimmed === "y" || trimmed === "yes";
 }
 
+export function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+export function renderProgressBar(current, total, label = "", barWidth = 24) {
+  const percent = Math.min(100, Math.round((current / total) * 100));
+  const filled = Math.min(barWidth, Math.round((current / total) * barWidth));
+  const empty = Math.max(0, barWidth - filled);
+  const bar = "█".repeat(filled) + "░".repeat(empty);
+  const line = `  ${style.cyan}[${bar}]${style.reset} ${String(percent).padStart(3)}% (${current}/${total}) ${style.dim}${label}${style.reset}`;
+  if (process.stdout.isTTY && !process.env.CI) {
+    process.stdout.write(`\r\x1b[K${line}`);
+    if (current >= total) process.stdout.write("\n");
+  } else {
+    console.log(line);
+  }
+}
+
+export function renderTable(headers, rows) {
+  if (!rows || !rows.length) return;
+  const stripAnsi = str => String(str ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+  const colWidths = headers.map((h, i) => {
+    const cellLens = rows.map(r => stripAnsi(r[i]).length);
+    return Math.max(stripAnsi(h).length, ...cellLens);
+  });
+
+  const sep = (left, mid, right, line) =>
+    left + colWidths.map(w => line.repeat(w + 2)).join(mid) + right;
+
+  const top = sep("┌", "┬", "┐", "─");
+  const mid = sep("├", "┼", "┤", "─");
+  const bot = sep("└", "┴", "┘", "─");
+
+  const formatRow = cells =>
+    "│ " + cells.map((c, i) => {
+      const pad = " ".repeat(Math.max(0, colWidths[i] - stripAnsi(c).length));
+      return `${c}${pad} │`;
+    }).join(" ");
+
+  console.log(top);
+  console.log(formatRow(headers.map(h => `${style.bold}${h}${style.reset}`)));
+  console.log(mid);
+  for (const row of rows) {
+    console.log(formatRow(row));
+  }
+  console.log(bot);
+}
+
+export function renderCardTable(title, entries) {
+  const stripAnsi = str => String(str ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+  const maxKeyLen = Math.max(4, ...entries.map(([k]) => stripAnsi(k).length));
+  const maxValLen = Math.max(4, ...entries.map(([_, v]) => stripAnsi(v).length));
+  const totalInner = Math.max(stripAnsi(title).length + 4, maxKeyLen + maxValLen + 5);
+
+  console.log(`\n┌─ ${style.bold}${style.cyan}${title}${style.reset} ${"─".repeat(Math.max(0, totalInner - stripAnsi(title).length - 3))}┐`);
+  for (const [k, v] of entries) {
+    const padKey = " ".repeat(Math.max(0, maxKeyLen - stripAnsi(k).length));
+    const padVal = " ".repeat(Math.max(0, totalInner - maxKeyLen - stripAnsi(v).length - 5));
+    console.log(`│  ${style.dim}${k}${style.reset}${padKey} : ${v}${padVal} │`);
+  }
+  console.log(`└${"─".repeat(totalInner + 2)}┘\n`);
+}
+
+export function notifyNative(title, message) {
+  try { process.stdout.write("\x07"); } catch {}
+  if (process.platform === "win32") {
+    try {
+      const script = `
+        Add-Type -AssemblyName System.Windows.Forms
+        $notify = New-Object System.Windows.Forms.NotifyIcon
+        $notify.Icon = [System.Drawing.SystemIcons]::Information
+        $notify.Visible = $true
+        $notify.ShowBalloonTip(5000, '${title.replace(/'/g, "''")}', '${message.replace(/'/g, "''")}', [System.Windows.Forms.ToolTipIcon]::Info)
+      `.replace(/\n\s*/g, " ");
+      execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], {
+        stdio: "ignore",
+        timeout: 5000
+      });
+    } catch {}
+  } else if (process.platform === "linux") {
+    try {
+      execFileSync("notify-send", [title, message], { stdio: "ignore", timeout: 5000 });
+    } catch {}
+  } else if (process.platform === "darwin") {
+    try {
+      execFileSync("osascript", ["-e", `display notification "${message.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}"`], { stdio: "ignore", timeout: 5000 });
+    } catch {}
+  }
+}
+
 export function loadRootEnv(workspace = root) {
   const envFile = resolve(workspace, ".env");
   if (existsSync(envFile) && typeof process.loadEnvFile === "function") {
@@ -716,7 +809,8 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
   if (!Array.isArray(assets) || !assets.length || assets.length > 10) throw new Error("Unexpected release asset count");
   const files = new Map(), digests = new Map(), binaryDigests = new Map();
   let totalSize = 0, bufferedSize = 0;
-  for (const asset of assets) {
+  for (let i = 0; i < assets.length; i++) {
+    const asset = assets[i];
     if (digests.has(asset.name)) throw new Error("Duplicate hosted asset name");
     const url = new URL(asset.browser_download_url);
     if (url.origin !== "https://github.com" || !url.pathname.startsWith(`/${repository}/releases/download/`)) {
@@ -727,6 +821,7 @@ export async function inspectDelivery(tag, check = false, workspace = root, api 
     totalSize += asset.size;
     if (!binary) bufferedSize += asset.size;
     if (totalSize > 4 * 1024 ** 3 || bufferedSize > 256 * 1024 ** 2) throw new Error("Hosted artifacts exceed the bounded readback budget");
+    renderProgressBar(i + 1, assets.length, `${asset.name} (${formatBytes(asset.size)})`);
     const { bytes, size, sha256 } = await readHostedAsset(asset, binary);
     digests.set(asset.name, sha256);
     if (binary) binaryDigests.set(asset.name, { size, sha256 });
@@ -907,6 +1002,7 @@ export async function trackDeliveryPipeline(tag, options = {}) {
         }
       } else {
         onProgress(`Package not yet approved on npm. Draft release will be reconciled automatically once approved.`);
+        notifyNative("VRCP Staging Approval Required", `Package vrc-packages-api@${selected.version} staged on npm. Action required.`);
         return { status: "awaiting-npm-approval", tag, run: run.id, url: run.html_url, draft: true };
       }
     }
@@ -915,6 +1011,7 @@ export async function trackDeliveryPipeline(tag, options = {}) {
   onProgress(`Verifying published artifacts for ${tag}...`);
   const inspected = await inspect(tag, true, workspace, api);
   onProgress(`Verification complete: ${tag} (${inspected.status})`);
+  notifyNative("VRCP Delivery Complete", `Verification complete: ${tag} (${inspected.status})`);
   return inspected;
 }
 
@@ -1288,17 +1385,33 @@ export const main = defineCommand({
   async run() {
     const [rawAction = "execute", first, second, ...extra] = process.argv.slice(2);
     const action = rawAction.toLowerCase();
+    const asJson = extra.includes("--json") || process.argv.includes("--json");
     try {
       let result;
       if (["diagnose-configured", "check-configured"].includes(action) && !first && !second && !extra.length) {
         result = await inspectConfiguredDeliveries(action === "check-configured");
+        if (asJson) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          const rows = result.results.map(r => [
+            r.product,
+            r.channel,
+            r.version,
+            r.status.includes("verified") ? `${style.green}✔ ${r.status}${style.reset}` : `${style.yellow}⏳ ${r.status}${style.reset}`,
+            r.artifactsVerified ? `${style.green}✔ Verified${style.reset}` : `${style.red}✖ Unverified${style.reset}`
+          ]);
+          renderTable(["Product", "Channel", "Version", "Status", "Artifacts"], rows);
+          const verifiedCount = result.results.filter(r => r.artifactsVerified).length;
+          console.log(`\n  ${style.bold}Total Channels:${style.reset} ${result.results.length} | ${style.bold}Verified:${style.reset} ${verifiedCount === result.results.length ? style.green : style.yellow}${verifiedCount}/${result.results.length}${style.reset}\n`);
+        }
         if (action === "check-configured" && !result.verified) process.exitCode = 1;
+        return;
       } else if (action === "execute" || action === "publish") {
         const force = extra.includes("--force");
         const skipTests = extra.includes("--skip-tests");
         const noWatch = extra.includes("--no-watch");
         const interactive = extra.includes("--interactive") || extra.includes("-i");
-        const unknownFlags = extra.filter(arg => !["--force", "--skip-tests", "--no-watch", "--watch", "--interactive", "-i"].includes(arg));
+        const unknownFlags = extra.filter(arg => !["--force", "--skip-tests", "--no-watch", "--watch", "--interactive", "-i", "--json"].includes(arg));
         if (unknownFlags.length) throw new Error(`Unknown option(s): ${unknownFlags.join(", ")}`);
         result = await executeDelivery(first, second, { force, skipTests, watch: !noWatch, interactive: !first || !second || interactive });
       } else if (action === "reconcile" && !first && !second && !extra.length) {
@@ -1307,7 +1420,7 @@ export const main = defineCommand({
         const force = extra.includes("--force");
         const execute = extra.includes("--execute");
         const skipTests = extra.includes("--skip-tests");
-        const unknownFlags = extra.filter(arg => !["--force", "--execute", "--skip-tests"].includes(arg));
+        const unknownFlags = extra.filter(arg => !["--force", "--execute", "--skip-tests", "--json"].includes(arg));
         if (unknownFlags.length) throw new Error(`Unknown option(s): ${unknownFlags.join(", ")}`);
         result = await startDelivery(first, second, execute, root, new Date(), runGit, inspectDelivery, force, skipTests);
       } else if (action === "finalize" && (extra.length === 1 || extra.length === 2 && extra[1] === "--execute") && /^[1-9][0-9]*$/.test(second ?? "")) {
@@ -1320,7 +1433,34 @@ export const main = defineCommand({
         result = action === "retry" ? await retryDelivery(first) : await inspectDelivery(first, action === "check");
         if (action === "diagnose") result = { ...result, ...deliveryTroubleshooting(result) };
       } else throw new Error("Use execute <product> <channel> [--force] [--skip-tests] [--no-watch], reconcile, start <preview|release> <product> [--execute], finalize <product> <pr-number> <merged-main-commit> [--execute], retry-preparation <branch>, verify-predecessor <tag>, or status|check|diagnose|retry <tag>");
-      console.log(JSON.stringify(result, null, 2));
+
+      if (asJson) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        const statusBadge = (result.status || "").includes("verified")
+          ? `${style.green}✔ ${result.status}${style.reset}`
+          : (result.status || "").includes("fail")
+            ? `${style.red}✖ ${result.status}${style.reset}`
+            : `${style.yellow}⏳ ${result.status || "completed"}${style.reset}`;
+
+        const entries = [
+          ["Target Tag", result.tag || first || "N/A"],
+          ["Product", result.product || "N/A"],
+          ["Channel", result.channel || "N/A"],
+          ["Version", result.version || "N/A"],
+          ["Status", statusBadge]
+        ];
+        if (result.run) entries.push(["Workflow Run", `#${result.run}`]);
+        if (result.artifactsVerified !== undefined) {
+          entries.push(["Artifacts", result.artifactsVerified ? `${style.green}✔ Verified${style.reset}` : `${style.yellow}⏳ Unverified / None${style.reset}`]);
+        }
+        if (result.url) entries.push(["CI Run URL", result.url]);
+        if (result.stage) entries.push(["Diagnosed Stage", result.stage]);
+        if (result.failedJobs?.length) entries.push(["Failed Jobs", `${style.red}${result.failedJobs.join(", ")}${style.reset}`]);
+        if (result.next?.length) entries.push(["Suggested Next", result.next.join(" | ")]);
+        if (result.limits) entries.push(["Policy Limits", result.limits]);
+        renderCardTable("Delivery Verification Summary", entries);
+      }
       if (result.status === "ci-failed") process.exitCode = 1;
     } catch (error) {
       // Native errors can include credential-helper or authenticated transport details.

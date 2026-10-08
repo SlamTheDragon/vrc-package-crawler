@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { checkReleaseSource, readGitHubAPI, selectTag } from "./delivery.mjs";
 import { productDirectories, productTagPrefixes } from "./versioning.mjs";
 import { checkRemoteTag } from "./release-assets.mjs";
+import { renderCardTable } from "./delivery-chain.mjs";
 import * as p from "@clack/prompts";
 import { defineCommand, runMain } from "citty";
 
@@ -708,54 +709,132 @@ export const main = defineCommand({
   async run() {
     const [rawSubcommand, ...rest] = process.argv.slice(2);
     const subcommand = rawSubcommand ? rawSubcommand.toLowerCase() : "interactive";
+    const asJson = rest.includes("--json") || process.argv.includes("--json");
     try {
       if (subcommand === "authorize") {
-        const [tag, ...flags] = rest;
+        const [tag, ...flags] = rest.filter(arg => arg !== "--json");
         if (!tag || new Set(flags).size !== flags.length ||
             flags.some(flag => !["--execute", "--failed-run"].includes(flag) && !/^[1-9][0-9]*$/.test(flag))) {
-          throw new Error("Use: delivery-recovery.mjs authorize <exact-tag> [--failed-run <runId>] [--execute]");
+          throw new Error("Use: delivery-recovery.mjs authorize <exact-tag> [--failed-run <runId>] [--execute] [--json]");
         }
         const failedRunIdx = flags.indexOf("--failed-run");
         const failedRunId = failedRunIdx >= 0 ? Number(flags[failedRunIdx + 1]) : undefined;
         const result = await authorizeRecovery(tag, { execute: flags.includes("--execute"), failedRunId }, root, readGitHubAPI());
-        console.log(JSON.stringify(result, null, 2));
+        if (asJson) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          renderCardTable("Recovery Authorization", [
+            ["Target Tag", result.tag || "N/A"],
+            ["Status", result.status || "N/A"],
+            ["Read-Only", String(result.readOnly)],
+            ["Next Action", result.next || "N/A"]
+          ]);
+        }
       } else if (subcommand === "patch-branch") {
-        const [action, product, version] = rest;
+        const [action, product, version] = rest.filter(arg => arg !== "--json");
         if (action === "create") {
           const res = createPatchBranch(product, version);
-          console.log(JSON.stringify(res, null, 2));
+          if (asJson) {
+            console.log(JSON.stringify(res, null, 2));
+          } else {
+            renderCardTable("Recovery Patch Branch Created", [
+              ["Action", "create"],
+              ["Branch", res.branch || "N/A"],
+              ["Base Branch", res.base || "N/A"],
+              ["Status", `${c.green}✔ ${res.status || "created"}${c.reset}`],
+              ["Next Steps", "Make fixes, commit, merge with: patch-branch merge <product> <version>"]
+            ]);
+          }
         } else if (action === "merge") {
           const res = mergeAndCleanupPatchBranch(product, version);
-          console.log(JSON.stringify(res, null, 2));
+          if (asJson) {
+            console.log(JSON.stringify(res, null, 2));
+          } else {
+            renderCardTable("Recovery Patch Branch Merged", [
+              ["Action", "merge"],
+              ["Merged Branch", res.branch || "N/A"],
+              ["Target Branch", res.target || "N/A"],
+              ["Status", `${c.green}✔ ${res.status || "merged & deleted"}${c.reset}`],
+              ["Next Steps", "Restart delivery pipeline with clean tree"]
+            ]);
+          }
         } else {
           throw new Error("Use: delivery-recovery.mjs patch-branch <create|merge> <product> <version>");
         }
       } else if (subcommand === "rerun") {
-        const [runId, ...flags] = rest;
+        const [runId, ...flags] = rest.filter(arg => arg !== "--json");
         if (!runId || !/^[1-9][0-9]*$/.test(runId)) throw new Error("Use: delivery-recovery.mjs rerun <runId> [--all]");
         const res = await rerunWorkflowRun("SlamTheDragon/vrc-packages", Number(runId), { failedJobsOnly: !flags.includes("--all") });
-        console.log(JSON.stringify(res, null, 2));
+        if (asJson) {
+          console.log(JSON.stringify(res, null, 2));
+        } else {
+          renderCardTable("Workflow Run Dispatch", [
+            ["Run ID", `#${runId}`],
+            ["Scope", flags.includes("--all") ? "All jobs" : "Failed jobs only"],
+            ["Status", `${c.green}✔ ${res.status || "dispatched"}${c.reset}`],
+            ["URL", res.url || `https://github.com/SlamTheDragon/vrc-packages/actions/runs/${runId}`]
+          ]);
+        }
       } else if (subcommand === "revert-tag") {
-        const [tag, ...flags] = rest;
+        const [tag, ...flags] = rest.filter(arg => arg !== "--json");
         if (!tag) throw new Error("Use: delivery-recovery.mjs revert-tag <tag> [--remote]");
         const res = await revertDeliveryTag(tag, { deleteRemote: flags.includes("--remote") });
-        console.log(JSON.stringify(res, null, 2));
+        if (asJson) {
+          console.log(JSON.stringify(res, null, 2));
+        } else {
+          renderCardTable("Reverted Delivery Tag", [
+            ["Tag", tag],
+            ["Local Tag", res.localDeleted ? `${c.green}✔ Deleted${c.reset}` : `${c.yellow}Not found${c.reset}`],
+            ["Remote Tag", res.remoteDeleted ? `${c.green}✔ Deleted${c.reset}` : flags.includes("--remote") ? `${c.red}Failed / Not found${c.reset}` : `${c.dim}Skipped (no --remote)${c.reset}`],
+            ["Status", `${c.green}✔ ${res.status || "completed"}${c.reset}`]
+          ]);
+        }
       } else if (subcommand === "interactive" || subcommand === "recover-interactive") {
-        const [tag, runId] = rest;
+        const [tag, runId] = rest.filter(arg => arg !== "--json");
         const res = await promptInteractiveRecovery({ tag, runId: runId ? Number(runId) : undefined });
-        console.log(JSON.stringify(res, null, 2));
+        if (asJson) {
+          console.log(JSON.stringify(res, null, 2));
+        } else {
+          renderCardTable("Interactive Recovery Result", [
+            ["Action", res.action || "N/A"],
+            ["Target", res.tag || tag || "N/A"],
+            ["Status", `${c.green}✔ ${res.status || "completed"}${c.reset}`]
+          ]);
+        }
       } else if (subcommand === "diagnose") {
-        const [tag] = rest;
+        const [tag] = rest.filter(arg => arg !== "--json");
         const res = diagnoseFailure({ tag, error: tag });
-        console.log(JSON.stringify(res, null, 2));
+        if (asJson) {
+          console.log(JSON.stringify(res, null, 2));
+        } else {
+          renderCardTable("Failure Diagnosis", [
+            ["Target", tag || "N/A"],
+            ["Category", res.category || "N/A"],
+            ["Severity", res.severity || "N/A"],
+            ["Suggested Action", res.action || "N/A"],
+            ["Description", res.description || "N/A"]
+          ]);
+        }
       } else if (subcommand === "recover" || subcommand?.includes("/v")) {
         const tag = subcommand === "recover" ? rest[0] : rawSubcommand;
         const flags = subcommand === "recover" ? rest.slice(1) : rest;
-        if (!tag || new Set(flags).size !== flags.length || flags.some(flag => !["--execute", "--retry"].includes(flag))) {
-          throw new Error("Use: delivery-recovery.mjs recover <exact-tag> [--retry] [--execute]");
+        const cleanFlags = flags.filter(arg => arg !== "--json");
+        if (!tag || new Set(cleanFlags).size !== cleanFlags.length || cleanFlags.some(flag => !["--execute", "--retry"].includes(flag))) {
+          throw new Error("Use: delivery-recovery.mjs recover <exact-tag> [--retry] [--execute] [--json]");
         }
-        const result = await recoverDelivery(tag, flags.includes("--execute"), root, readGitHubAPI(), dispatchRecovery, flags.includes("--retry"));
-        console.log(JSON.stringify(result, null, 2));
+        const result = await recoverDelivery(tag, cleanFlags.includes("--execute"), root, readGitHubAPI(), dispatchRecovery, cleanFlags.includes("--retry"));
+        if (asJson) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          renderCardTable("Delivery Recovery Plan", [
+            ["Target Tag", result.tag || tag || "N/A"],
+            ["Product", result.product || "N/A"],
+            ["Status", result.status || "N/A"],
+            ["Read-Only", String(result.readOnly)],
+            ["Workflow", result.workflow || "N/A"],
+            ["Next Action", result.next || "N/A"]
+          ]);
+        }
         if (result.status === "tooling-promotion-required") process.exitCode = 1;
       } else {
         throw new Error("Unknown recovery command. Use: recover, authorize, patch-branch, rerun, revert-tag, diagnose, or interactive.");
