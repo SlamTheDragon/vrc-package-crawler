@@ -25,7 +25,7 @@
     "publish:retry": "node scripts/delivery-chain.mjs retry",
     "publish:recover": "node scripts/delivery-recovery.mjs",
     "publish:authorize-recovery": "node scripts/delivery-recovery.mjs authorize",
-    "onboard": "node scripts/setup.mjs --interactive",
+    "onboard": "bun run setup:interactive",
     "recovery": "node scripts/delivery-recovery.mjs recover-interactive",
     "recovery:patch": "node scripts/delivery-recovery.mjs patch-branch",
     "recovery:rerun": "node scripts/delivery-recovery.mjs rerun",
