@@ -1,7 +1,8 @@
 import {
   ClaimRequestSchema, ClaimResponseSchema, HeartbeatRequestSchema, HeartbeatResponseSchema, PROTOCOL_VERSION,
-  ResultRequestSchema, ResultResponseSchema,
-  type ClaimRequest, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse, type ResultRequest, type ResultResponse,
+  ResultRequestSchema, ResultResponseSchema, BatchResultRequestSchema, BatchResultResponseSchema,
+  type ClaimRequest, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse,
+  type ResultRequest, type ResultResponse, type BatchResultRequest, type BatchResultResponse,
   type Platform
 } from "vrc-packages-network/node";
 
@@ -18,6 +19,7 @@ export interface CoordinatorStore {
   claim(request: ClaimRequest, principal: NodePrincipal): Promise<ClaimResponse> | ClaimResponse;
   heartbeat(request: HeartbeatRequest, principal: NodePrincipal): Promise<HeartbeatResponse> | HeartbeatResponse;
   submit(request: ResultRequest, principal: NodePrincipal): Promise<ResultResponse> | ResultResponse;
+  submitBatch(request: BatchResultRequest, principal: NodePrincipal): Promise<BatchResultResponse> | BatchResultResponse;
 }
 
 export class CoordinatorConflict extends Error {
@@ -65,7 +67,7 @@ import { workerLogger } from "../worker_logger.ts";
 /** Same handler is used in-process, by local Bun HTTP, and later by a Worker adapter. */
 export async function handleNodeRequest(request: Request, store: CoordinatorStore): Promise<Response> {
   const path = new URL(request.url).pathname;
-  if (request.method !== "POST" || !["/v1/node/jobs/claim", "/v1/node/jobs/result", "/v1/node/heartbeat"].includes(path)) {
+  if (request.method !== "POST" || !["/v1/node/jobs/claim", "/v1/node/jobs/result", "/v1/node/jobs/results", "/v1/node/heartbeat"].includes(path)) {
     return failure(404, "not_found", "Route not found");
   }
 
@@ -81,8 +83,11 @@ export async function handleNodeRequest(request: Request, store: CoordinatorStor
 
   const isClaim = path.endsWith("/claim");
   const isHeartbeat = path.endsWith("/heartbeat");
+  const isBatchResult = path.endsWith("/results") || (path.endsWith("/result") && Array.isArray((payload as Record<string, unknown> | null)?.results));
   const parsed = isClaim ? ClaimRequestSchema.safeParse(payload) :
-    isHeartbeat ? HeartbeatRequestSchema.safeParse(payload) : ResultRequestSchema.safeParse(payload);
+    isHeartbeat ? HeartbeatRequestSchema.safeParse(payload) :
+    isBatchResult ? BatchResultRequestSchema.safeParse(payload) :
+    ResultRequestSchema.safeParse(payload);
   if (!parsed.success) {
     workerLogger.warn("Invalid payload schema for node request", { path, issues: parsed.error.issues });
     return failure(400, "invalid_payload", parsed.error.issues.map((issue) => issue.path.join(".") || "body").join(", "));
@@ -109,6 +114,11 @@ export async function handleNodeRequest(request: Request, store: CoordinatorStor
     if (isHeartbeat) {
       const response = await store.heartbeat(parsed.data as HeartbeatRequest, principal);
       return json(HeartbeatResponseSchema.parse(response));
+    }
+    if (isBatchResult) {
+      const response = await store.submitBatch(parsed.data as BatchResultRequest, principal);
+      workerLogger.info("Node submitted batch results", { nodeId: principal.nodeId, count: (parsed.data as BatchResultRequest).results.length });
+      return json(BatchResultResponseSchema.parse(response));
     }
     const response = await store.submit(parsed.data as ResultRequest, principal);
     workerLogger.info("Node submitted job result", { nodeId: principal.nodeId, jobId: (parsed.data as ResultRequest).jobId });

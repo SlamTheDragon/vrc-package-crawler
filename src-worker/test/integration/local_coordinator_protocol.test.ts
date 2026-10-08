@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { handleNodeRequest } from "../../src/api/handler.ts";
 import { LocalCoordinatorStore } from "../support/local_sqlite.ts";
-import { ClaimResponseSchema, NODE_API_JSON_SCHEMAS, PROTOCOL_VERSION, ResultResponseSchema, PlatformSchema } from "vrc-packages-network/node";
+import { ClaimResponseSchema, NODE_API_JSON_SCHEMAS, PROTOCOL_VERSION, ResultResponseSchema, PlatformSchema,
+  BatchResultRequestSchema, BatchResultResponseSchema } from "vrc-packages-network/node";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -1214,5 +1215,190 @@ describe("local coordinator protocol", () => {
       expect(store.db.query("SELECT * FROM origin_robots").all()).toEqual(robots);
       expect(store.db.query("SELECT * FROM crawl_jobs ORDER BY url").all()).toEqual(jobs);
     } finally { store.close(); }
+  });
+
+  test("batched claim with maxJobs enforces per-origin reservations and anti-contention", async () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      // Seed 2 jobs on origin 1, and 1 job each on origin 2 and 3
+      seedApprovedFixtureJob(store, "https://origin1.example.org/item1", "vpm", 1000);
+      seedApprovedFixtureJob(store, "https://origin1.example.org/item2", "vpm", 1000);
+      seedApprovedFixtureJob(store, "https://origin2.example.org/item1", "vpm", 1000);
+      seedApprovedFixtureJob(store, "https://origin3.example.org/item1", "vpm", 1000);
+      allowFixtureOrigin(store, "https://origin1.example.org", "https://origin2.example.org", "https://origin3.example.org");
+
+      const token = store.createNodeCredential("batch-node", ["vpm"]);
+      const res = await handleNodeRequest(request("/v1/node/jobs/claim", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "batch-node",
+        capabilities: ["vpm"],
+        maxJobs: 5
+      }, token), store);
+
+      expect(res.status).toBe(200);
+      const parsed = ClaimResponseSchema.parse(await res.json());
+      expect(parsed.status).toBe("leased");
+      if (parsed.status !== "leased") throw new Error("Expected leased status");
+
+      // We expect 3 leased jobs: 1 from origin1, 1 from origin2, 1 from origin3.
+      // The second job from origin1 must NOT be leased in the same batch (origin reservation fairness).
+      expect(parsed.jobs?.length).toBe(3);
+      expect(parsed.job).toEqual(parsed.jobs![0]!);
+      const origins = parsed.jobs!.map((j) => j.origin);
+      expect(new Set(origins).size).toBe(3);
+      expect(origins).toContain("https://origin1.example.org");
+      expect(origins).toContain("https://origin2.example.org");
+      expect(origins).toContain("https://origin3.example.org");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("batched result submission delivers atomic per-item receipts and isolates partial failures", async () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      seedApprovedFixtureJob(store, "https://batch-sub1.example.org/index.json", "vpm", 1000);
+      seedApprovedFixtureJob(store, "https://batch-sub2.example.org/index.json", "vpm", 1000);
+      allowFixtureOrigin(store, "https://batch-sub1.example.org", "https://batch-sub2.example.org");
+
+      const token = store.createNodeCredential("batch-sub-node", ["vpm"]);
+      const claimRes = await handleNodeRequest(request("/v1/node/jobs/claim", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "batch-sub-node",
+        capabilities: ["vpm"],
+        maxJobs: 2
+      }, token), store);
+      const claim = ClaimResponseSchema.parse(await claimRes.json());
+      if (claim.status !== "leased" || !claim.jobs || claim.jobs.length !== 2) {
+        throw new Error("Expected 2 leased jobs");
+      }
+
+      const job1 = claim.jobs[0]!;
+      const job2 = claim.jobs[1]!;
+      const key1 = "idemp-" + crypto.randomUUID();
+      const key2 = "idemp-" + crypto.randomUUID();
+
+      // Submit both in a single batch
+      const batchRes = await handleNodeRequest(request("/v1/node/jobs/results", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "batch-sub-node",
+        results: [
+          {
+            jobId: job1.jobId,
+            leaseId: job1.leaseId,
+            idempotencyKey: key1,
+            outcome: {
+              kind: "changed",
+              observation: {
+                sourceItemKey: "pkg1",
+                title: "Package One",
+                author: "Author One",
+                summary: "Summary One",
+                outboundLinks: [],
+                originUpdatedAt: null
+              }
+            }
+          },
+          {
+            jobId: job2.jobId,
+            leaseId: job2.leaseId,
+            idempotencyKey: key2,
+            outcome: {
+              kind: "changed",
+              observation: {
+                sourceItemKey: "pkg2",
+                title: "Package Two",
+                author: "Author Two",
+                summary: "Summary Two",
+                outboundLinks: [],
+                originUpdatedAt: null
+              }
+            }
+          }
+        ]
+      }, token), store);
+
+      expect(batchRes.status).toBe(200);
+      const batchParsed = BatchResultResponseSchema.parse(await batchRes.json());
+      expect(batchParsed.receipts.length).toBe(2);
+      expect(batchParsed.receipts[0]).toMatchObject({ status: "accepted", jobId: job1.jobId, duplicate: false });
+      expect(batchParsed.receipts[1]).toMatchObject({ status: "accepted", jobId: job2.jobId, duplicate: false });
+
+      // Duplicate replay of the same batch returns accepted receipts with duplicate: true
+      const replayRes = await handleNodeRequest(request("/v1/node/jobs/results", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "batch-sub-node",
+        results: [
+          {
+            jobId: job1.jobId,
+            leaseId: job1.leaseId,
+            idempotencyKey: key1,
+            outcome: {
+              kind: "changed",
+              observation: {
+                sourceItemKey: "pkg1",
+                title: "Package One",
+                author: "Author One",
+                summary: "Summary One",
+                outboundLinks: [],
+                originUpdatedAt: null
+              }
+            }
+          }
+        ]
+      }, token), store);
+      const replayParsed = BatchResultResponseSchema.parse(await replayRes.json());
+      expect(replayParsed.receipts[0]).toMatchObject({ status: "accepted", jobId: job1.jobId, duplicate: true });
+
+      // Mixed batch with invalid/expired lease and valid new job
+      seedApprovedFixtureJob(store, "https://batch-sub3.example.org/index.json", "vpm", 1000);
+      allowFixtureOrigin(store, "https://batch-sub3.example.org");
+      const claim3Res = await handleNodeRequest(request("/v1/node/jobs/claim", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "batch-sub-node",
+        capabilities: ["vpm"],
+        maxJobs: 1
+      }, token), store);
+      const claim3 = ClaimResponseSchema.parse(await claim3Res.json());
+      if (claim3.status !== "leased") throw new Error("Expected job 3 leased");
+      const job3 = claim3.job;
+
+      const mixedRes = await handleNodeRequest(request("/v1/node/jobs/results", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "batch-sub-node",
+        results: [
+          {
+            jobId: crypto.randomUUID(),
+            leaseId: crypto.randomUUID(),
+            idempotencyKey: "bad-lease-key-" + crypto.randomUUID(),
+            outcome: { kind: "rate_limited", retryAfterSeconds: 60 }
+          },
+          {
+            jobId: job3.jobId,
+            leaseId: job3.leaseId,
+            idempotencyKey: "valid-key-" + crypto.randomUUID(),
+            outcome: {
+              kind: "changed",
+              observation: {
+                sourceItemKey: "pkg3",
+                title: "Package Three",
+                author: "Author Three",
+                summary: "Summary Three",
+                outboundLinks: [],
+                originUpdatedAt: null
+              }
+            }
+          }
+        ]
+      }, token), store);
+
+      expect(mixedRes.status).toBe(200);
+      const mixedParsed = BatchResultResponseSchema.parse(await mixedRes.json());
+      expect(mixedParsed.receipts.length).toBe(2);
+      expect(mixedParsed.receipts[0]).toMatchObject({ status: "rejected", terminal: true, code: "not_found" });
+      expect(mixedParsed.receipts[1]).toMatchObject({ status: "accepted", jobId: job3.jobId });
+    } finally {
+      store.close();
+    }
   });
 });

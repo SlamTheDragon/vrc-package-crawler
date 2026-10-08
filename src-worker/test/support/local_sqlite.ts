@@ -11,8 +11,9 @@ import { isIP } from "node:net";
 import { dirname, resolve } from "node:path";
 import {
   ClaimRequestSchema, ObservationSchema, PlatformSchema, PROTOCOL_VERSION, STOREFRONT_PLATFORMS, observationMatchesPlatform,
-  type ClaimRequest, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse,
-  type Observation, type Platform, type ResultRequest, type ResultResponse
+  type ClaimRequest, type ClaimResponse, type CrawlJob, type HeartbeatRequest, type HeartbeatResponse,
+  type Observation, type Platform, type ResultRequest, type ResultResponse,
+  type BatchResultRequest, type BatchResultResponse, type BatchResultReceipt
 } from "vrc-packages-network/node";
 import { CoordinatorConflict, type CoordinatorStore, type NodePrincipal } from "../../src/api/handler.ts";
 import { type PublicCatalogStore } from "../../src/api/public_handler.ts";
@@ -1151,6 +1152,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     if (request.capabilities.some((capability) => !principal.capabilities.includes(capability))) {
       throw new CoordinatorConflict("Capability not granted to node", 403);
     }
+    const maxJobs = Math.min(Math.max(request.maxJobs ?? 1, 1), 10);
     const nowMs = this.now();
     const now = new Date(nowMs).toISOString();
     return this.db.transaction(() => {
@@ -1183,6 +1185,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       `);
       // Disallowed ready rows are deferred in bounded batches so they cannot hide
       // a later allowed origin behind the first 100 rows.
+      const leasedJobs: CrawlJob[] = [];
+      const reservedOrigins = new Set<string>();
       let offset = 0;
       for (;;) {
         const candidates = selectCandidates.all(now, now, ...request.capabilities, now, now, now, now, now,
@@ -1192,6 +1196,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         if (candidates.length === 0) break;
         let deferred = false;
         for (const job of candidates) {
+          if (reservedOrigins.has(job.origin)) continue;
           const profile = this.activeSourceAccessProfileForTarget(job.platform, job.url, job.job_purpose);
           if (!profile) continue;
           if (!this.robotsAllows(job)) {
@@ -1215,16 +1220,30 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
             .run(principal.nodeId, leaseId, expires, profile.profileId, job.job_id);
           this.db.prepare("UPDATE origin_leases SET active_job_id=?,lease_expires_at=?,next_allowed_at=? WHERE origin=?")
             .run(job.job_id, expires, nextAllowed, job.origin);
-          return {
-            schemaVersion: PROTOCOL_VERSION, status: "leased" as const,
-            job: { jobId: job.job_id, leaseId, platform: job.platform, purpose: job.job_purpose,
-              url: job.url, origin: job.origin,
-              leaseExpiresAt: expires, retainClasses: profile.retainClasses,
-              etag: job.etag, lastModified: job.last_modified }
-          };
+          reservedOrigins.add(job.origin);
+          leasedJobs.push({
+            jobId: job.job_id, leaseId, platform: job.platform, purpose: job.job_purpose,
+            url: job.url, origin: job.origin,
+            leaseExpiresAt: expires, retainClasses: profile.retainClasses,
+            etag: job.etag, lastModified: job.last_modified
+          });
+          if (leasedJobs.length >= maxJobs) {
+            return {
+              schemaVersion: PROTOCOL_VERSION, status: "leased" as const,
+              job: leasedJobs[0],
+              jobs: leasedJobs
+            };
+          }
         }
         if (deferred) offset = 0;
         else offset += candidates.length;
+      }
+      if (leasedJobs.length > 0) {
+        return {
+          schemaVersion: PROTOCOL_VERSION, status: "leased" as const,
+          job: leasedJobs[0],
+          jobs: leasedJobs
+        };
       }
       return { schemaVersion: PROTOCOL_VERSION, status: "empty" as const, retryAfterMs: 5000 };
     }).immediate();
@@ -1706,6 +1725,54 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         .run(request.leaseId, job.job_id, principal.nodeId, request.idempotencyKey, requestDigest, JSON.stringify(response), now);
       return response;
     }).immediate();
+  }
+
+  submitBatch(request: BatchResultRequest, principal: NodePrincipal): BatchResultResponse {
+    if (request.nodeId !== principal.nodeId) throw new CoordinatorConflict("Node identity mismatch", 403);
+    const receipts: BatchResultReceipt[] = [];
+    for (const item of request.results) {
+      try {
+        const res = this.submit({
+          schemaVersion: request.schemaVersion,
+          nodeId: request.nodeId,
+          jobId: item.jobId,
+          leaseId: item.leaseId,
+          idempotencyKey: item.idempotencyKey,
+          outcome: item.outcome
+        }, principal);
+        receipts.push({
+          status: "accepted",
+          jobId: item.jobId,
+          duplicate: res.duplicate,
+          sourceVersionCreated: res.sourceVersionCreated
+        });
+      } catch (error) {
+        if (error instanceof CoordinatorConflict) {
+          const isTerminal = error.status === 403 || error.status === 404 ||
+            error.message.includes("lease") || error.message.includes("not found");
+          const code = error.status === 403 ? "forbidden" : error.status === 404 ? "not_found" : "conflict";
+          receipts.push({
+            status: "rejected",
+            jobId: item.jobId,
+            terminal: isTerminal,
+            error: error.message,
+            code
+          });
+        } else {
+          receipts.push({
+            status: "rejected",
+            jobId: item.jobId,
+            terminal: false,
+            error: error instanceof Error ? error.message : "Internal error",
+            code: "internal_error"
+          });
+        }
+      }
+    }
+    return {
+      schemaVersion: PROTOCOL_VERSION,
+      receipts
+    };
   }
 
   upsertSourceItem(item: {

@@ -1,8 +1,9 @@
 import {
   ClaimRequestSchema, ClaimResponseSchema, HeartbeatRequestSchema, HeartbeatResponseSchema,
-  ResultRequestSchema, ResultResponseSchema, PROTOCOL_VERSION, MAX_COORDINATOR_RESPONSE_BYTES,
+  ResultRequestSchema, ResultResponseSchema, BatchResultRequestSchema, BatchResultResponseSchema,
+  PROTOCOL_VERSION, MAX_COORDINATOR_RESPONSE_BYTES,
   type Platform, type ClaimResponse, type HeartbeatRequest, type HeartbeatResponse,
-  type ResultRequest, type ResultResponse
+  type ResultRequest, type ResultResponse, type BatchResultItem, type BatchResultResponse
 } from "vrc-packages-network/node";
 
 import { logger } from "../utils/logging/logger.ts";
@@ -161,10 +162,14 @@ export class CoordinatorClient {
     }
   }
 
-  async claim(): Promise<ClaimResponse> {
-    return ClaimResponseSchema.parse(await this.post("/v1/node/jobs/claim", {
-      schemaVersion: PROTOCOL_VERSION, nodeId: this.nodeId, capabilities: this.capabilities
-    }));
+  async claim(maxJobs?: number): Promise<ClaimResponse> {
+    const payload = ClaimRequestSchema.parse({
+      schemaVersion: PROTOCOL_VERSION,
+      nodeId: this.nodeId,
+      capabilities: this.capabilities,
+      ...(maxJobs !== undefined ? { maxJobs } : {})
+    });
+    return ClaimResponseSchema.parse(await this.post("/v1/node/jobs/claim", payload));
   }
 
   async heartbeat(state: HeartbeatRequest["state"], activeJobId?: string, activeLeaseId?: string): Promise<HeartbeatResponse> {
@@ -179,6 +184,15 @@ export class CoordinatorClient {
     const response = ResultResponseSchema.parse(await this.post("/v1/node/jobs/result", payload));
     if (response.jobId !== payload.jobId) throw new Error("Result receipt does not match submitted job");
     return response;
+  }
+
+  async submitBatch(results: Array<Omit<BatchResultItem, "schemaVersion" | "nodeId">>): Promise<BatchResultResponse> {
+    const payload = BatchResultRequestSchema.parse({
+      schemaVersion: PROTOCOL_VERSION,
+      nodeId: this.nodeId,
+      results
+    });
+    return BatchResultResponseSchema.parse(await this.post("/v1/node/jobs/results", payload));
   }
 }
 

@@ -8,7 +8,7 @@ import { EnqueueJobRequestSchema, type EnqueueJobRequest,
   encodeCatalogDeltaCursor } from "vrc-packages-api";
 import { ROBOTS_RESTRICTION_TOKENS } from "vrc-packages-network/identity";
 import { isPrivateOrReservedIp } from "vrc-packages-network/ip-policy";
-import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "vrc-packages-network/node";
+import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, type CrawlJob, type BatchResultRequest, type BatchResultResponse, type BatchResultReceipt, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "vrc-packages-network/node";
 import { type LeadCursor, type LeadRow, encodeLeadCursor,
   encodeTakedownCursor, type TakedownCursor, type TakedownRecord } from "../../api/protocol/operator_protocol.js";
 import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "vrc-packages-network/robots";
@@ -332,6 +332,10 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       r.body AS robots_body,r.expires_at AS robots_expires_at ${eligibleFrom}
       ORDER BY j.next_fetch_at ASC, j.created_at ASC, j.job_id ASC LIMIT 100 OFFSET ?`;
 
+    const maxJobs = Math.max(1, Math.min(request.maxJobs ?? 1, 10));
+    const leasedJobs: CrawlJob[] = [];
+    const reservedOrigins = new Set<string>();
+
     let offset = 0;
     for (; ;) {
       const bindParams = [...eligibilityParams(now), offset];
@@ -342,6 +346,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       if (candidates.length === 0) break;
       let deferred = false;
       for (const job of candidates) {
+        if (reservedOrigins.has(job.origin)) continue;
         const profile = await this.activeSourceAccessProfileForTarget(job.platform, job.url, job.job_purpose);
         if (!profile) continue;
         if (!this.robotsAllows(job)) {
@@ -385,18 +390,30 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
             .bind(job.job_id, expires, nextAllowed, job.origin, job.job_id, leaseId, principal.nodeId)
         ]);
         if ((reservation[0]?.meta as { changes?: number } | undefined)?.changes !== 1) continue;
-        return {
-          schemaVersion: PROTOCOL_VERSION, status: "leased" as const,
-          job: {
-            jobId: job.job_id, leaseId, platform: job.platform, purpose: job.job_purpose,
-            url: job.url, origin: job.origin,
-            leaseExpiresAt: expires, retainClasses: profile.retainClasses,
-            etag: job.etag, lastModified: job.last_modified
-          }
-        };
+        reservedOrigins.add(job.origin);
+        leasedJobs.push({
+          jobId: job.job_id, leaseId, platform: job.platform, purpose: job.job_purpose,
+          url: job.url, origin: job.origin,
+          leaseExpiresAt: expires, retainClasses: profile.retainClasses,
+          etag: job.etag, lastModified: job.last_modified
+        });
+        if (leasedJobs.length >= maxJobs) {
+          return {
+            schemaVersion: PROTOCOL_VERSION, status: "leased" as const,
+            job: leasedJobs[0],
+            jobs: leasedJobs
+          };
+        }
       }
       if (deferred) offset = 0;
       else offset += candidates.length;
+    }
+    if (leasedJobs.length > 0) {
+      return {
+        schemaVersion: PROTOCOL_VERSION, status: "leased" as const,
+        job: leasedJobs[0],
+        jobs: leasedJobs
+      };
     }
     return { schemaVersion: PROTOCOL_VERSION, status: "empty" as const, retryAfterMs: 5000 };
   }
@@ -962,6 +979,54 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     }
 
     return response;
+  }
+
+  async submitBatch(request: BatchResultRequest, principal: NodePrincipal): Promise<BatchResultResponse> {
+    if (request.nodeId !== principal.nodeId) throw new CoordinatorConflict("Node identity mismatch", 403);
+    const receipts: BatchResultReceipt[] = [];
+    for (const item of request.results) {
+      try {
+        const res = await this.submit({
+          schemaVersion: request.schemaVersion,
+          nodeId: request.nodeId,
+          jobId: item.jobId,
+          leaseId: item.leaseId,
+          idempotencyKey: item.idempotencyKey,
+          outcome: item.outcome
+        }, principal);
+        receipts.push({
+          status: "accepted",
+          jobId: item.jobId,
+          duplicate: res.duplicate,
+          sourceVersionCreated: res.sourceVersionCreated
+        });
+      } catch (error) {
+        if (error instanceof CoordinatorConflict) {
+          const isTerminal = error.status === 403 || error.status === 404 ||
+            error.message.includes("lease") || error.message.includes("not found");
+          const code = error.status === 403 ? "forbidden" : error.status === 404 ? "not_found" : "conflict";
+          receipts.push({
+            status: "rejected",
+            jobId: item.jobId,
+            terminal: isTerminal,
+            error: error.message,
+            code
+          });
+        } else {
+          receipts.push({
+            status: "rejected",
+            jobId: item.jobId,
+            terminal: false,
+            error: error instanceof Error ? error.message : "Internal error",
+            code: "internal_error"
+          });
+        }
+      }
+    }
+    return {
+      schemaVersion: PROTOCOL_VERSION,
+      receipts
+    };
   }
 
   // --- OperatorStore Methods ---

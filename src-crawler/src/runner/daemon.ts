@@ -4,7 +4,7 @@ import { runLeasedJob } from "./lease_runner.ts";
 import { fetchPublicMetadata } from "../client/public_metadata_fetch.ts";
 import type { NodeRuntimeConfig } from "../config/runtime_config.ts";
 import type { LocalNodeStore } from "../storage/local_sqlite.ts";
-import type { HeartbeatRequest } from "vrc-packages-network/node";
+import { PROTOCOL_VERSION, MAX_BATCH_RESULTS, type HeartbeatRequest } from "vrc-packages-network/node";
 import { logger } from "../utils/logging/logger.ts";
 
 export interface CrawlerNodeDaemonOptions {
@@ -141,28 +141,58 @@ export class CrawlerNodeDaemon {
       logger.info(`Flushing ${entries.length} pending outbox entries...`);
       let flushedCount = 0;
 
-      for (const entry of entries) {
+      for (let i = 0; i < entries.length; i += MAX_BATCH_RESULTS) {
         if (this.stopping) break;
+        const chunk = entries.slice(i, i + MAX_BATCH_RESULTS);
         try {
-          const outcome = entry.outcome;
-          const result = await this.client.submit({
-            jobId: entry.jobId,
-            leaseId: entry.leaseId,
-            idempotencyKey: entry.idempotencyKey,
-            outcome
-          });
-          this.nodeStore.markOutboxDelivered(entry.outboxId, result);
-          flushedCount++;
-          logger.info(`Outbox entry ${entry.outboxId} successfully delivered for job ${entry.jobId}`);
+          const batchResponse = await this.client.submitBatch(
+            chunk.map((entry) => ({
+              jobId: entry.jobId,
+              leaseId: entry.leaseId,
+              idempotencyKey: entry.idempotencyKey,
+              outcome: entry.outcome
+            }))
+          );
+          const receiptMap = new Map(batchResponse.receipts.map((r) => [r.jobId, r]));
+          for (const entry of chunk) {
+            const receipt = receiptMap.get(entry.jobId);
+            if (!receipt) {
+              const delayMs = Math.min(5_000 * Math.pow(2, entry.retryCount), 60_000);
+              this.nodeStore.markOutboxFailed(entry.outboxId, "Missing receipt in coordinator batch response", delayMs);
+              continue;
+            }
+            if (receipt.status === "accepted") {
+              this.nodeStore.markOutboxDelivered(entry.outboxId, {
+                schemaVersion: PROTOCOL_VERSION,
+                status: "accepted",
+                jobId: receipt.jobId,
+                duplicate: receipt.duplicate,
+                sourceVersionCreated: receipt.sourceVersionCreated
+              });
+              flushedCount++;
+              logger.info(`Outbox entry ${entry.outboxId} successfully delivered for job ${entry.jobId}`);
+            } else {
+              if (receipt.terminal) {
+                logger.warn(`Terminal rejection for outbox entry ${entry.outboxId}: ${receipt.error}`);
+                this.nodeStore.markOutboxTerminal(entry.outboxId, receipt.error);
+              } else {
+                logger.warn(`Failed to deliver outbox entry ${entry.outboxId}, scheduling retry: ${receipt.error}`);
+                const delayMs = Math.min(5_000 * Math.pow(2, entry.retryCount), 60_000);
+                this.nodeStore.markOutboxFailed(entry.outboxId, receipt.error, delayMs);
+              }
+            }
+          }
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
-          if (this.isTerminalOutboxError(error)) {
-            logger.warn(`Terminal rejection for outbox entry ${entry.outboxId}: ${errorMsg}`);
-            this.nodeStore.markOutboxTerminal(entry.outboxId, errorMsg);
-          } else {
-            logger.warn(`Failed to deliver outbox entry ${entry.outboxId}, scheduling retry: ${errorMsg}`);
-            const delayMs = Math.min(5_000 * Math.pow(2, entry.retryCount), 60_000);
-            this.nodeStore.markOutboxFailed(entry.outboxId, errorMsg, delayMs);
+          for (const entry of chunk) {
+            if (this.isTerminalOutboxError(error)) {
+              logger.warn(`Terminal rejection for outbox entry ${entry.outboxId}: ${errorMsg}`);
+              this.nodeStore.markOutboxTerminal(entry.outboxId, errorMsg);
+            } else {
+              logger.warn(`Failed to deliver outbox entry ${entry.outboxId}, scheduling retry: ${errorMsg}`);
+              const delayMs = Math.min(5_000 * Math.pow(2, entry.retryCount), 60_000);
+              this.nodeStore.markOutboxFailed(entry.outboxId, errorMsg, delayMs);
+            }
           }
         }
       }

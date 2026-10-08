@@ -7,8 +7,9 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-- **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Transitioned to a pure headless daemon running directly from `.env`/environment variables (removed CLI `init`/`help` commands and `node.config.json` scaffolding); added durable SQLite outbox staging and restart recovery for crawled job results; implemented an adaptive idle backoff ladder (5s–60s) with ±20% bounded jitter to eliminate fleet request hammering.
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Aligned coordinator default empty claim `retryAfterMs` to 5,000ms (from 1,000ms) to coordinate fleet-wide polling pacing and prevent daily request quota exhaustion.
+- **VRC Packages Network (`vrcp-packages-network`)**: Added batched claim and multi-result submission schemas with per-item receipts and bounded limits.
+- **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Implemented batched outbox result flush with partial failure isolation and per-item receipt tracking.
+- **VRC Packages Worker (`vrcp-worker-preview`)**: Added multi-job claim with per-origin reservations and atomic batched result endpoint (`/v1/node/jobs/results`).
 <!-- MASTER_SUMMARY -->
 
 ## Table of Contents
@@ -145,10 +146,13 @@ See full history at [docs/changelogs/vrcp-crawler-client/preview](docs/changelog
 ## VRC Packages Crawler - `vrcp-crawler-node-preview`
 
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
-Headless crawler node daemon improvements including pure `.env`-driven configuration, durable SQLite outbox result staging with crash-restart recovery, and adaptive idle polling backoff with jitter.
+Crawler node updates for batched outbox result flushing, per-item receipts, and partial failure isolation.
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Batched Outbox Flush**: Updated `flushOutbox` to submit up to 10 results in one request using `submitBatch`.
+- **Per-Item Receipt Tracking**: Processed individual accepted and rejected receipts to isolate failures during batch flushes.
+- **Batched Claim Support**: Added optional `maxJobs` parameter to `CoordinatorClient.claim` to request multiple jobs.
 - **Durable Result Outbox**: Added SQLite WAL-backed `node_outbox` table in `LocalNodeStore` with automatic 24-hour TTL and 50MB disk quota pruning.
 - **Crash Recovery & Replay**: Added startup and reconnection outbox flush in `CrawlerNodeDaemon` to replay unacknowledged results without data loss across process crashes or network interruptions.
 - **Adaptive Idle Backoff Ladder**: Implemented dynamic backoff ladder scaling from 5s to 60s (`1.5x` multiplier) with configurable `±20%` bounded jitter, resetting immediately to base interval upon leasing a job.
@@ -190,10 +194,13 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator D1 storage updates aligning fleet claim pacing and empty queue backoff intervals.
+Coordinator D1 updates adding batched claims with per-origin fairness and batched result processing with per-item receipts.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Batched Claim Route**: Added multi-job claims up to 10 items with per-origin reservations to prevent single-origin contention.
+- **Batched Result Endpoint**: Implemented `/v1/node/jobs/results` with per-item idempotency and atomic transactional commits.
+- **Partial Failure Isolation**: Added per-item accepted and rejected receipts with terminal error classification.
 - **Fleet Pacing Support**: Aligned coordinator response contracts to coordinate minimum polling retry intervals across distributed crawler nodes.
 
 ### Bugs Fixed
@@ -211,9 +218,12 @@ See full history at [docs/changelogs/vrcp-worker/preview](docs/changelogs/vrcp-w
 ## VRC Packages Network `vrcp-packages-network`
 
 <!-- vrcp-packages-network-DESCRIPTION_SUMMARY -->
-test
+Node protocol contracts adding batched job claims and batched result submission schemas with receipts.
 <!-- vrcp-packages-network-DESCRIPTION_SUMMARY -->
 
-test
+### Added
+- **Batched Claim Schema**: Added `maxJobs` parameter to `ClaimRequestSchema` and `jobs` array to `ClaimResponseSchema`.
+- **Batched Result Schemas**: Added `BatchResultRequestSchema`, `BatchResultResponseSchema`, and `BatchResultReceiptSchema`.
+- **Batch Size Limits**: Pinned `MAX_CLAIM_JOBS` and `MAX_BATCH_RESULTS` constants to 10 items.
 
 See full history at [docs/changelogs/vrcp-packages-network/](docs/changelogs/vrcp-packages-network/)

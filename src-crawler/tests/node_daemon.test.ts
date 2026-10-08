@@ -6,8 +6,8 @@ import { CrawlerNodeDaemon } from "../src/runner/daemon.ts";
 import { LocalNodeStore } from "../src/storage/local_sqlite.ts";
 import type { NodeRuntimeConfig } from "../src/config/runtime_config.ts";
 import { ClaimRequestSchema, ClaimResponseSchema, CrawlJobSchema, HeartbeatRequestSchema,
-  HeartbeatResponseSchema, ResultRequestSchema, ResultResponseSchema,
-  type ClaimResponse, type ResultRequest } from "vrc-packages-network/node";
+  HeartbeatResponseSchema, ResultRequestSchema, ResultResponseSchema, BatchResultRequestSchema, BatchResultResponseSchema,
+  type ClaimResponse, type ResultRequest, type BatchResultRequest } from "vrc-packages-network/node";
 
 const config: NodeRuntimeConfig = { nodeId: "daemon-fixture", token: "fixture-only-not-a-live-credential",
   capabilities: ["vpm"], baseUrl: "https://coordinator.invalid", databasePath: ":memory:" };
@@ -47,6 +47,55 @@ async function withWire(
         expect(parsed.nodeId).toBe(config.nodeId);
         return result ? result(parsed, wire) : Response.json(ResultResponseSchema.parse({ schemaVersion: 1,
           status: "accepted", jobId: parsed.jobId, duplicate: false, sourceVersionCreated: true }));
+      }
+      case "/v1/node/jobs/results": {
+        const parsed = BatchResultRequestSchema.parse(payload);
+        expect(parsed.nodeId).toBe(config.nodeId);
+        if (result) {
+          const receipts = [];
+          for (const item of parsed.results) {
+            const singlePayload = {
+              schemaVersion: parsed.schemaVersion,
+              nodeId: parsed.nodeId,
+              jobId: item.jobId,
+              leaseId: item.leaseId,
+              idempotencyKey: item.idempotencyKey,
+              outcome: item.outcome
+            };
+            const singleRes = await result(singlePayload, JSON.stringify(singlePayload));
+            if (singleRes.ok) {
+              const resJson = await singleRes.json() as any;
+              receipts.push({
+                status: "accepted" as const,
+                jobId: item.jobId,
+                duplicate: resJson.duplicate ?? false,
+                sourceVersionCreated: resJson.sourceVersionCreated ?? true
+              });
+            } else {
+              const resJson = await singleRes.json().catch(() => ({})) as any;
+              receipts.push({
+                status: "rejected" as const,
+                jobId: item.jobId,
+                terminal: singleRes.status === 403 || singleRes.status === 404,
+                error: resJson.error ?? `Coordinator ${singleRes.status}`,
+                code: singleRes.status === 403 ? ("forbidden" as const) : ("conflict" as const)
+              });
+            }
+          }
+          return Response.json(BatchResultResponseSchema.parse({
+            schemaVersion: 1,
+            receipts
+          }));
+        }
+        return Response.json(BatchResultResponseSchema.parse({
+          schemaVersion: 1,
+          receipts: parsed.results.map((r) => ({
+            status: "accepted" as const,
+            jobId: r.jobId,
+            duplicate: false,
+            sourceVersionCreated: true
+          }))
+        }));
       }
       default: throw new Error("Unexpected node protocol route");
     }
@@ -319,6 +368,68 @@ describe("node-owned daemon lifecycle through serialized contracts", () => {
       // Verify that flushOutbox ignores dead entries
       const flushed = await daemon.flushOutbox();
       expect(flushed).toBe(0);
+    } finally {
+      daemon.stop();
+      store.close();
+    }
+  });
+
+  test("durable outbox batched flush processes per-item receipts and isolates terminal and transient failures", async () => {
+    const store = new LocalNodeStore(":memory:");
+    const daemon = new CrawlerNodeDaemon(config, store, client(), { fetchFn: source });
+    try {
+      const runId = daemon.currentRunId;
+      const job1 = CrawlJobSchema.parse({ ...job, jobId: "job-1", leaseId: crypto.randomUUID(), url: "https://example.org/1" });
+      const job2 = CrawlJobSchema.parse({ ...job, jobId: "job-2", leaseId: crypto.randomUUID(), url: "https://example.org/2" });
+      const job3 = CrawlJobSchema.parse({ ...job, jobId: "job-3", leaseId: crypto.randomUUID(), url: "https://example.org/3" });
+
+      const task1 = store.recordClaimedJob(runId, job1);
+      const task2 = store.recordClaimedJob(runId, job2);
+      const task3 = store.recordClaimedJob(runId, job3);
+
+      const outbox1 = store.stageOutboxOutcome(task1, { kind: "unchanged" }, crypto.randomUUID());
+      const outbox2 = store.stageOutboxOutcome(task2, { kind: "unchanged" }, crypto.randomUUID());
+      const outbox3 = store.stageOutboxOutcome(task3, { kind: "unchanged" }, crypto.randomUUID());
+
+      expect(store.getPendingOutboxEntries().length).toBe(3);
+
+      // Custom batch response: job1 accepted, job2 terminal rejection, job3 retryable failure
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async (input, init) => {
+        const req = new Request(input.toString(), init);
+        if (new URL(req.url).pathname === "/v1/node/jobs/results") {
+          return Response.json(BatchResultResponseSchema.parse({
+            schemaVersion: 1,
+            receipts: [
+              { status: "accepted", jobId: "job-1", duplicate: false, sourceVersionCreated: true },
+              { status: "rejected", jobId: "job-2", terminal: true, error: "Lease expired", code: "lease_expired" },
+              { status: "rejected", jobId: "job-3", terminal: false, error: "Origin temporary failure", code: "conflict" }
+            ]
+          }));
+        }
+        return Response.error();
+      }) as typeof fetch;
+
+      try {
+        const flushed = await daemon.flushOutbox(10);
+        expect(flushed).toBe(1);
+
+        // Job 1 is sent and completed
+        expect(store.getOutboxEntry(outbox1)?.status).toBe("sent");
+        expect(store.getTask(task1)?.status).toBe("completed");
+
+        // Job 2 is dead and failed terminally
+        expect(store.getOutboxEntry(outbox2)?.status).toBe("dead");
+        expect(store.getOutboxEntry(outbox2)?.lastError).toBe("Lease expired");
+        expect(store.getTask(task2)?.status).toBe("failed");
+
+        // Job 3 is still pending retry
+        expect(store.getOutboxEntry(outbox3)?.status).toBe("pending");
+        expect(store.getOutboxEntry(outbox3)?.retryCount).toBe(1);
+        expect(store.getOutboxEntry(outbox3)?.lastError).toBe("Origin temporary failure");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     } finally {
       daemon.stop();
       store.close();
