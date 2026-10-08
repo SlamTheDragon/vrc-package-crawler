@@ -1114,29 +1114,12 @@ export async function promptInteractiveDelivery(options = {}) {
         throw new Error("Delivery aborted: Please write a summary for the release in CHANGELOG.md before proceeding.");
       }
 
-      const hasFeatures = await p.confirm({
-        message: "Were there new features added?",
+      const writtenChanges = await p.confirm({
+        message: "Were there changes (e.g. Added, Bugs Fixed, Changes) recorded?",
         initialValue: false
       });
-      if (p.isCancel(hasFeatures)) { p.cancel("Delivery cancelled."); process.exit(0); }
+      if (p.isCancel(writtenChanges)) { p.cancel("Delivery cancelled."); process.exit(0); }
 
-      const hasFixes = await p.confirm({
-        message: "Were there bug fixes?",
-        initialValue: false
-      });
-      if (p.isCancel(hasFixes)) { p.cancel("Delivery cancelled."); process.exit(0); }
-
-      const hasChanges = await p.confirm({
-        message: "Were there other changes or refactors made?",
-        initialValue: false
-      });
-      if (p.isCancel(hasChanges)) { p.cancel("Delivery cancelled."); process.exit(0); }
-
-      const anyChangesConfirmed = hasFeatures || hasFixes || hasChanges;
-      if (!anyChangesConfirmed) {
-        p.cancel("Delivery aborted: Preparedness self-check failed.");
-        throw new Error("Delivery aborted: Preparedness self-check failed (no features, bug fixes, or changes recorded).");
-      }
     } else {
       onProgress(`${style.dim}─── ${style.reset}${style.cyan}❯ Changelog Preparedness Self-Check${style.reset} ${style.dim}───────────────────────────${style.reset}`);
       const summaryWritten = await askBinary(ask, `Is the section summary for ${product} written in CHANGELOG.md?`, true);
