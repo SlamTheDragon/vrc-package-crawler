@@ -7,7 +7,7 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Added fail-fast bearer authentication and redacted query parameters in error logs.
+- **VRC Packages Worker (`vrcp-worker-preview`)**: Added Web Crypto delegation verification benchmarks under the 10 ms CPU limit.
 - **VRC Packages API (`vrcp-packages-api-preview`)**: Added streaming response byte bounds to protect client memory.
 - **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
 - **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
@@ -199,10 +199,11 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator updates for fail-fast bearer authentication, query parameter log redaction, and expired lease policies.
+Coordinator updates for fail-fast authentication, query log redaction, and cryptographic delegation verification benchmarks.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Cryptographic Delegation Benchmark**: Measured Web Crypto verification budgets under the 10 ms CPU limit for HMAC and ECDSA.
 - **Query Log Redaction**: Redacted full request URLs in error logs to prevent query parameter leaks.
 - **Fail-Fast Bearer Authentication**: Validated node authorization headers before body streaming and schema parsing to prevent resource exhaustion.
 - **Expired Lease Classification**: Tagged late result submissions with the terminal rejection code `lease_expired`.
