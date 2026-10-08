@@ -7,8 +7,8 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
+- **VRC Packages Worker (`vrcp-worker-preview`)**: Added fail-fast bearer authentication before JSON payload reading and schema parsing.
 - **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Added terminal lease expired receipts and post-expiry submission idempotency.
 - **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
 <!-- MASTER_SUMMARY -->
 
@@ -197,10 +197,11 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator updates for expired lease rejection codes and idempotent post-expiry result replays.
+Coordinator updates for fail-fast bearer authentication, expired lease rejection codes, and idempotent result replays.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Fail-Fast Bearer Authentication**: Validated node authorization headers before body streaming and schema parsing to prevent resource exhaustion.
 - **Expired Lease Classification**: Tagged late result submissions with the terminal rejection code `lease_expired`.
 - **Post-Expiry Replay Idempotency**: Returned accepted duplicate receipts when clients replay previously accepted jobs after lease expiry.
 - **Batched Claim Route**: Added multi-job claims up to 10 items with per-origin reservations to prevent single-origin contention.

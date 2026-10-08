@@ -559,6 +559,12 @@ describe("local coordinator protocol", () => {
       return { status: response.status, body: await response.json() as any };
     };
     try {
+      const unauthMalformed = new Request("http://127.0.0.1/v1/node/jobs/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "invalid json {{{"
+      });
+      expect((await handleNodeRequest(unauthMalformed, store)).status).toBe(401);
       expect((await post("/v1/node/jobs/claim", claimBody("node-a"), "bad-token")).status).toBe(401);
       expect((await post("/v1/node/jobs/claim", { ...claimBody("node-a"), capabilities: ["booth"] }, aToken)).status).toBe(403);
       const first = await post("/v1/node/jobs/claim", claimBody("node-a"), aToken);

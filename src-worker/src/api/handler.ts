@@ -71,6 +71,12 @@ export async function handleNodeRequest(request: Request, store: CoordinatorStor
     return failure(404, "not_found", "Route not found");
   }
 
+  const auth = request.headers.get("authorization") || "";
+  if (!auth.startsWith("Bearer ") || !auth.slice(7).trim()) {
+    workerLogger.warn("Node bearer credential required", { path });
+    return failure(401, "unauthorized", "Node bearer credential required");
+  }
+
   let payload: unknown;
   try {
     payload = await readJson(request);
@@ -93,11 +99,6 @@ export async function handleNodeRequest(request: Request, store: CoordinatorStor
     return failure(400, "invalid_payload", parsed.error.issues.map((issue) => issue.path.join(".") || "body").join(", "));
   }
 
-  const auth = request.headers.get("authorization") || "";
-  if (!auth.startsWith("Bearer ") || !auth.slice(7).trim()) {
-    workerLogger.warn("Node bearer credential required", { path });
-    return failure(401, "unauthorized", "Node bearer credential required");
-  }
   const nodeId = parsed.data.nodeId;
   const principal = await store.authenticate(nodeId, auth.slice(7).trim());
   if (!principal) {
