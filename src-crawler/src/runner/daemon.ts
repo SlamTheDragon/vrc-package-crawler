@@ -15,6 +15,11 @@ export interface CrawlerNodeDaemonOptions {
   heartbeatIntervalMs?: number;
   maxPendingOutboxQuota?: number;
   outboxTtlMs?: number;
+  minIdleDelayMs?: number;
+  maxIdleDelayMs?: number;
+  idleBackoffMultiplier?: number;
+  jitterRatio?: number;
+  randomFn?: () => number;
 }
 
 /**
@@ -27,6 +32,8 @@ export class CrawlerNodeDaemon {
   private readonly stopController = new AbortController();
   private lastHeartbeatAt: number = 0;
   private lastRetryAfterMs: number = 5_000;
+  private lastCalculatedDelayMs: number = 5_000;
+  private consecutiveEmptyClaims: number = 0;
   private runId: string;
   private isFlushingOutbox: boolean = false;
 
@@ -49,6 +56,35 @@ export class CrawlerNodeDaemon {
 
   public get lastHeartbeatTimestamp(): number {
     return this.lastHeartbeatAt;
+  }
+
+  public get emptyClaimCount(): number {
+    return this.consecutiveEmptyClaims;
+  }
+
+  public get currentIdleDelayMs(): number {
+    return this.lastCalculatedDelayMs;
+  }
+
+  public calculateIdleDelay(baseRetryAfterMs: number): number {
+    const minIdle = this.options.minIdleDelayMs ?? 5_000;
+    const maxIdle = this.options.maxIdleDelayMs ?? 60_000;
+    const multiplier = this.options.idleBackoffMultiplier ?? 1.5;
+    const jitterRatio = this.options.jitterRatio ?? 0.2;
+    const randomFn = this.options.randomFn ?? Math.random;
+
+    const base = Math.max(baseRetryAfterMs, minIdle);
+    const exponent = Math.max(0, this.consecutiveEmptyClaims - 1);
+    const unjittered = Math.min(maxIdle, Math.round(base * Math.pow(multiplier, exponent)));
+
+    if (jitterRatio <= 0) {
+      return unjittered;
+    }
+
+    const rand = Math.max(0, Math.min(1, randomFn()));
+    const jitterFactor = (1 - jitterRatio) + rand * (2 * jitterRatio);
+    const jittered = Math.round(unjittered * jitterFactor);
+    return Math.max(0, jittered);
   }
 
   public stop(status: "completed" | "failed" = "completed"): void {
@@ -160,8 +196,14 @@ export class CrawlerNodeDaemon {
     const claim = await this.client.claim();
     if (this.stopping) return "stopped";
     if (claim.status === "empty") {
+      this.consecutiveEmptyClaims++;
       this.lastRetryAfterMs = claim.retryAfterMs;
-      logger.debug("No jobs available to claim", { retryAfterMs: this.lastRetryAfterMs });
+      this.lastCalculatedDelayMs = this.calculateIdleDelay(claim.retryAfterMs);
+      logger.debug("No jobs available to claim", {
+        retryAfterMs: this.lastRetryAfterMs,
+        calculatedDelayMs: this.lastCalculatedDelayMs,
+        consecutiveEmptyClaims: this.consecutiveEmptyClaims
+      });
       return "empty";
     }
 
@@ -174,8 +216,12 @@ export class CrawlerNodeDaemon {
       logger.warn(errorMsg);
       const taskId = this.nodeStore.recordClaimedJob(this.runId, job);
       this.nodeStore.recordTaskFailure(taskId, errorMsg, { durationMs: 0 });
+      this.consecutiveEmptyClaims++;
+      this.lastCalculatedDelayMs = this.calculateIdleDelay(5_000);
       return "empty";
     }
+
+    this.consecutiveEmptyClaims = 0;
 
     logger.info(`Fetching ${job.platform} ${job.url}`, { jobId: job.jobId });
     const taskId = this.nodeStore.recordClaimedJob(this.runId, job);
@@ -260,7 +306,8 @@ export class CrawlerNodeDaemon {
             break;
           }
           if (outcome === "empty") {
-            const sleepTarget = Date.now() + (this.lastRetryAfterMs || 5_000);
+            const delayMs = this.lastCalculatedDelayMs || (this.lastRetryAfterMs || 5_000);
+            const sleepTarget = Date.now() + delayMs;
             while (!this.stopping && Date.now() < sleepTarget) {
               await sleepFn(Math.min(100, Math.max(0, sleepTarget - Date.now())));
             }

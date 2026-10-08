@@ -1,43 +1,32 @@
-# Active Checkpoint — Crawler Node Durable Outbox & Envelope Bounds (Milestone M-CRAWLER-OUTBOX)
+# Active Checkpoint — Fleet Idle Backoff, Bounded Jitter, and Clock Alignment (Milestone M-FLEET-CLOCK-JITTER)
 
 ## Active Objective & Bounded Vertical Slice
 
 - Branch: `preview/crawler-network`
-- Active Goal: Implement durable result outbox, crash-restart recovery, and envelope safeguards for Crawler Node and Coordinator integration.
-- Active Slice: `FLEET-OUTBOX-TESTS-AND-VERIFICATION` (Completed - gate verification across crawler, network, and worker suites).
+- Active Goal: Implement coordinator-directed bounded idle backoff, decorrelated jitter, and clock alignment across crawler nodes and coordinator (resolving R50-C31 and R54-C39B).
+- Active Slice: `FLEET-IDLE-BACKOFF-JITTER-DAEMON` (Implementing adaptive backoff ladder and bounded jitter in CrawlerNodeDaemon).
 - Owner Instruction (2026-10-08): Never run root level tests (`bun test ./tests`) unless root level tooling (`scripts/`, `tests/`, `package.json`, root configs) is modified. Product-scoped work runs only its own domain test/typecheck suite.
 - Slices mean local commit, completed gates mean push.
 
 ## Active Working Theories & Architectural Covenants
 
-1. **Durable Outbox Invariant (VISION.md §5 & R15-C17 / R54-C39D)**:
-   - Crawler nodes must never discard crawled metadata outcomes on submission failure or network partition.
-   - Outcome payloads and their generated `idempotencyKey` must be staged durably into SQLite WAL before any coordinator HTTP submission.
-   - On coordinator communication failure, the outbox record retains `pending` status with backoff and retry scheduling.
-   - On coordinator success (HTTP 200 with matching `jobId`), the outbox record transitions to `sent` and the task transitions to `completed`.
-   - On terminal rejection (e.g., expired lease, non-retryable 4xx), the outbox record transitions to `dead` to prevent indefinite retries.
-2. **Crash-Restart Recovery Lifecycle**:
-   - When `CrawlerNodeDaemon` starts up, it flushes unacknowledged pending outbox records to the coordinator before or alongside claiming new leases.
-   - Replaying identical `idempotencyKey` and `jobId` ensures coordinator D1 idempotent deduplication.
-3. **Outbox Quota and TTL Boundaries**:
-   - The local store must enforce a max pending outbox capacity (e.g., 1,000 entries) and a maximum outbox TTL (e.g., 24 hours / 86,400s) to prevent unbounded local disk growth during prolonged partitions.
-4. **Envelope Bounds & Streaming Defense (Q-NODE-ENVELOPE)**:
-   - `CrawlJobSchema` enforces explicit length ceilings on wire fields: `url` (max 2,048), `origin` (max 255), `etag` (max 256), `lastModified` (max 128).
-   - `CoordinatorClient.post` enforces a strict 2 MiB response byte cap and cancels oversized response bodies before JSON deserialization.
+1. **Fleet Quota Defense & Idle Pacing (R50-C31 & R54-C39B)**:
+   - On empty claim queues, polling every 1,000ms without jitter would consume 864,000 requests/day for 10 nodes, violating Cloudflare Free daily limits (100k requests/day).
+   - An adaptive backoff ladder starting at base 5,000ms and scaling up to 60,000ms (1 min) reduces steady-state idle polling to ~14,400 requests/day across 10 nodes (~14.4% of daily quota).
+   - Randomizing delays with bounded jitter (±20%) breaks phase-locking across fleet nodes and prevents thundering herd bursts.
+2. **Instant Responsiveness on Available Work**:
+   - The idle backoff ladder must reset to 0 immediately upon receiving a claimed job (`status === "claimed"`), allowing the node to execute subsequent claims at full speed without delay penalty.
+3. **Shutdown Responsiveness**:
+   - Sleep intervals must remain responsive to abort/stop signals by sleeping in small increments (e.g., <=100ms) or observing the stop controller, ensuring crawler shutdowns complete within milliseconds even when idle delay is 60s.
+4. **Coordinator Pacing Contract**:
+   - The coordinator `claim` handler suggests a baseline `retryAfterMs` of 5,000ms (within protocol bounds of 0-300,000ms) when no jobs are eligible.
 
-## Slice Execution Plan (Milestone M-CRAWLER-OUTBOX)
+## Slice Execution Plan (Milestone M-FLEET-CLOCK-JITTER)
 
-- `CRAWLER-OUTBOX-SCHEMA` [COMPLETED - commit 9fa818a]: Added `node_outbox` table, indices, staging, delivery status tracking, and pruning to `src-crawler/src/storage/local_sqlite.ts`.
-- `NODE-ENVELOPE-BOUNDS` [COMPLETED - commit 4b3feb3]: Added wire field ceilings to `CrawlJobSchema` in `vrc-packages-network` and 2 MiB streaming cap to `CoordinatorClient.post` in `src-crawler`.
-- `CRAWLER-OUTBOX-DAEMON-RECOVERY` [COMPLETED - commit 7f5bbfc]: Integrated outbox staging and restart flushing into `src-crawler/src/runner/lease_runner.ts` and `src-crawler/src/runner/daemon.ts`.
-- `FLEET-OUTBOX-TESTS-AND-VERIFICATION` [COMPLETED]: Verified local sqlite tests, lifecycle tests, coordinator client tests, daemon crash-restart recovery, and coordinator runtime smoke suite.
+- `FLEET-IDLE-BACKOFF-JITTER-DAEMON` [IN PROGRESS]: Add `minIdleDelayMs`, `maxIdleDelayMs`, `idleBackoffMultiplier`, `jitterRatio`, `randomFn`, backoff calculation, and jitter application to `src-crawler/src/runner/daemon.ts`.
+- `COORDINATOR-EMPTY-DELAY-ALIGNMENT` [PENDING]: Align coordinator empty `retryAfterMs` default to 5,000ms in `src-worker/src/storage/d1/coordinator.ts` and test fixture.
+- `FLEET-CLOCK-TESTS-AND-VERIFICATION` [PENDING]: Add deterministic tests for jitter bounds, ladder scaling, ladder reset, and verify crawler and worker suites.
 
 ## Verification Evidence & Retained Baselines
 
-- `src-crawler` unit & lifecycle test suite: 148 pass, 0 fail (963 assertions) across 24 files (`bun test --cwd src-crawler`).
-- `src-crawler` TypeScript typecheck: clean, 0 errors (`bun run --cwd src-crawler typecheck`).
-- `src-worker/packages/network` TypeScript typecheck: clean, 0 errors (`bun run --cwd src-worker/packages/network typecheck`).
-- `src-worker` typecheck & typegen: clean, 0 errors (`bun run --cwd src-worker check`).
-- `src-worker` unit test suite: 235 pass, 0 fail (2062 assertions) across 19 files (`bun test --cwd src-worker ./test`).
-- `src-worker` Vitest workerd runtime test suite: 3 pass, 0 fail (`bun run --cwd src-worker test:workers`).
-- `src-worker` coordinator runtime smoke suite: 100% pass across initialization, registration, enqueue, refresh, discovery, and claim races (`bun run --cwd src-worker test:runtime`).
+- Retained M-CRAWLER-OUTBOX baseline: crawler 148 pass, worker 235 pass, worker vitest 3 pass, coordinator smoke 100% pass.
