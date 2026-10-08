@@ -26,11 +26,20 @@
 ## Verification Evidence & Retained Baselines
 
 - Baseline: Commit `99f9739` verified `src-package` 55/55 tests and `src-worker` 247/247 tests.
-- Slice `R54-C38C` Verification:
+- Slice `R54-C38C` Delivered & Committed (Commit `cf1867d`):
   - `src-package`: 56/56 tests passed (`bun test --cwd src-package`), typecheck clean (`tsc --noEmit`), `dist/` built and validated.
   - `src-worker`: 249/249 tests passed (`bun test --cwd src-worker`, 2283 assertions), worker runtime tests passed (`test:workers`, 3/3 vitest), runtime smoke passed (`test:runtime`), full typecheck and bindings clean (`bun run --cwd src-worker check`).
   - `src-crawler`: 158/158 tests passed (`bun test --cwd src-crawler`, 1088 assertions), typecheck clean (`tsc --noEmit`).
   - Replay protection verified: duplicate submission returns 202 idempotently, altered payload/signature returns 409 conflict, expired returns 400, appId mismatch returns 403.
   - Operator audit verified: keyset pagination, status filtering, and verify verdict transitions tested with schema adherence.
   - Documentation updated: `API_ROUTES.md` (§2.2, §2.4, Access Matrix) and `CHANGELOG.md` (Preview channel, ASD-STE100).
+  - Merged to canonical `IMPLEMENTATION_PLAN.md` ledger.
+
+## Queued Slices & Next Iterations (Awaiting Review in UNMERGED_IMPLEMENTATION_PLAN.md)
+
+1. **`R56-C56B1`**: Content rating taxonomy enum & `CatalogPackageSchema` wire field in `src-package`.
+2. **`R56-C56B2`**: Coordinator D1 storage persistence, `content_rating` column, and delivery across catalog/search/delta handlers.
+3. **`R56-C56C1`**: Moderator review route & explicit content report dispute resolution receipts.
+4. **`R54-C38A1`**: Registered application delegation authority pre-review flag & operator grant endpoint.
+
 
