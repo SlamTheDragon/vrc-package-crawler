@@ -8,7 +8,7 @@ This is the current entry point for agents working in this repository. `DELEGATE
 1. Read [`docs/scratch/IMPLEMENTATION_PLAN.md`](docs/scratch/IMPLEMENTATION_PLAN.md) for core architectural covenants, gate orders, delivered baselines, and recovered canonical decisions; read [`LEGAL.md`](LEGAL.md) for legal covenants and platform access boundaries.
 2. Read [`docs/scratch/UNMERGED_IMPLEMENTATION_PLAN.md`](docs/scratch/UNMERGED_IMPLEMENTATION_PLAN.md) for proposed iterations, milestone gates, and accepted owner decisions.
 3. Read [`docs/scratch/task_tracker.md`](docs/scratch/task_tracker.md) for the active bounded vertical slice before making edits.
-4. Follow `.agents/rules/` (`00` through `04`) for authority, bounded slices, review discipline, stop integrity, and context preservation. The owner's correction limits the 2–3-file constraint to `docs/scratch`, not source or test edits.
+4. Follow `.agents/rules/` (`00` through `05`) for authority, bounded slices, review discipline, stop integrity, context preservation, and changelog management. The owner's correction limits the 2–3-file constraint to `docs/scratch`, not source or test edits.
 
 ## Current target and safety boundaries
 
