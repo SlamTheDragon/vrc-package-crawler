@@ -8,7 +8,7 @@ Here are the latest changelogs of each package and applications. For a full hist
 
 <!-- MASTER_SUMMARY -->
 - **VRC Packages Worker (`vrcp-worker-preview`)**: Added Web Crypto delegation verification benchmarks under the 10 ms CPU limit.
-- **VRC Packages API (`vrcp-packages-api-preview`)**: Added streaming response byte bounds to protect client memory.
+- **VRC Packages API (`vrcp-packages-api-preview`)**: Added explicit content reporting sub-categories for content rating review.
 - **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
 - **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
 <!-- MASTER_SUMMARY -->
@@ -174,10 +174,11 @@ See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
-API client updates for streaming response byte bounds and memory protection.
+API client updates for explicit content report sub-categories and streaming response byte bounds.
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Explicit Content Report Sub-Categories**: Added `explicit_false_positive` and `explicit_false_negative` sub-categories to `IssueReportKindSchema` for content rating review.
 - **Bounded Response Reading**: Added streaming byte limits (64 KiB for errors, 4 MiB for responses) to prevent excessive memory use.
 
 See full history at [docs/changelogs/vrcp-packages-api/preview](docs/changelogs/vrcp-packages-api/preview)

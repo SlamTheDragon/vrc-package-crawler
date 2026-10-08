@@ -83,7 +83,14 @@ export type ConsolidatedReportType = z.infer<typeof ConsolidatedReportTypeSchema
 export const DemandSignalKindSchema = z.enum(["search_miss", "refresh_demand", "popularity_signal"]);
 export type DemandSignalKind = z.infer<typeof DemandSignalKindSchema>;
 
-export const IssueReportKindSchema = z.enum(["broken_link", "wrong_metadata", "misclassified", "inappropriate"]);
+export const IssueReportKindSchema = z.enum([
+  "broken_link",
+  "wrong_metadata",
+  "misclassified",
+  "inappropriate",
+  "explicit_false_positive",
+  "explicit_false_negative"
+]);
 export type IssueReportKind = z.infer<typeof IssueReportKindSchema>;
 
 export const ReportSubmissionRequestSchema = z.strictObject({

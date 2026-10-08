@@ -145,6 +145,31 @@ describe("src-package wire protocols", () => {
       canonicalId: "pkg-123"
     };
     expect(() => ReportSubmissionRequestSchema.parse(issue)).not.toThrow();
+
+    // Explicit content report sub-categories (R56-C56C)
+    const falsePositive = {
+      schemaVersion: 1,
+      reportType: "issue_report" as const,
+      reportKind: "explicit_false_positive" as const,
+      canonicalId: "pkg-safe-model",
+      reason: "Safe avatar asset flagged incorrectly as explicit"
+    };
+    expect(() => ReportSubmissionRequestSchema.parse(falsePositive)).not.toThrow();
+
+    const falseNegative = {
+      schemaVersion: 1,
+      reportType: "issue_report" as const,
+      reportKind: "explicit_false_negative" as const,
+      targetUrl: "https://booth.pm/ja/items/999999",
+      reason: "Unrated asset contains unflagged explicit adult content"
+    };
+    expect(() => ReportSubmissionRequestSchema.parse(falseNegative)).not.toThrow();
+
+    // Unknown report kinds are rejected
+    expect(ReportSubmissionRequestSchema.safeParse({
+      ...issue,
+      reportKind: "unauthorized_kind" as any
+    }).success).toBe(false);
   });
 
   it("encodes, decodes, and validates operator cursors", () => {
