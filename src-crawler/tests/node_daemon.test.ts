@@ -324,4 +324,161 @@ describe("node-owned daemon lifecycle through serialized contracts", () => {
       store.close();
     }
   });
+
+  describe("idle backoff ladder and bounded jitter (R50-C31, R54-C39B)", () => {
+    test("calculateIdleDelay enforces bounded jitter range [1 - r, 1 + r]", () => {
+      const store = new LocalNodeStore(":memory:");
+      try {
+        const daemonMin = new CrawlerNodeDaemon(config, store, client(), {
+          minIdleDelayMs: 5_000,
+          maxIdleDelayMs: 60_000,
+          jitterRatio: 0.2,
+          randomFn: () => 0.0,
+        });
+        const daemonMid = new CrawlerNodeDaemon(config, store, client(), {
+          minIdleDelayMs: 5_000,
+          maxIdleDelayMs: 60_000,
+          jitterRatio: 0.2,
+          randomFn: () => 0.5,
+        });
+        const daemonMax = new CrawlerNodeDaemon(config, store, client(), {
+          minIdleDelayMs: 5_000,
+          maxIdleDelayMs: 60_000,
+          jitterRatio: 0.2,
+          randomFn: () => 1.0,
+        });
+        const daemonNoJitter = new CrawlerNodeDaemon(config, store, client(), {
+          minIdleDelayMs: 5_000,
+          maxIdleDelayMs: 60_000,
+          jitterRatio: 0,
+        });
+
+        // First empty claim (consecutive = 0 or 1 -> base = 5000)
+        expect(daemonMin.calculateIdleDelay(5_000)).toBe(4_000); // 5000 * 0.8
+        expect(daemonMid.calculateIdleDelay(5_000)).toBe(5_000); // 5000 * 1.0
+        expect(daemonMax.calculateIdleDelay(5_000)).toBe(6_000); // 5000 * 1.2
+        expect(daemonNoJitter.calculateIdleDelay(5_000)).toBe(5_000);
+      } finally {
+        store.close();
+      }
+    });
+
+    test("idle backoff ladder scales exponentially and caps at maxIdleDelayMs", async () => {
+      const store = new LocalNodeStore(":memory:");
+      const daemon = new CrawlerNodeDaemon(config, store, client(), {
+        minIdleDelayMs: 5_000,
+        maxIdleDelayMs: 60_000,
+        idleBackoffMultiplier: 2.0,
+        jitterRatio: 0.2,
+        randomFn: () => 0.5, // unjittered midpoint
+      });
+      try {
+        expect(daemon.emptyClaimCount).toBe(0);
+
+        // Step 1: empty -> 5,000ms
+        await withWire(empty, async () => { expect(await daemon.step()).toBe("empty"); });
+        expect(daemon.emptyClaimCount).toBe(1);
+        expect(daemon.currentIdleDelayMs).toBe(5_000);
+
+        // Step 2: empty -> 10,000ms
+        await withWire(empty, async () => { expect(await daemon.step()).toBe("empty"); });
+        expect(daemon.emptyClaimCount).toBe(2);
+        expect(daemon.currentIdleDelayMs).toBe(10_000);
+
+        // Step 3: empty -> 20,000ms
+        await withWire(empty, async () => { expect(await daemon.step()).toBe("empty"); });
+        expect(daemon.emptyClaimCount).toBe(3);
+        expect(daemon.currentIdleDelayMs).toBe(20_000);
+
+        // Step 4: empty -> 40,000ms
+        await withWire(empty, async () => { expect(await daemon.step()).toBe("empty"); });
+        expect(daemon.emptyClaimCount).toBe(4);
+        expect(daemon.currentIdleDelayMs).toBe(40_000);
+
+        // Step 5: empty -> 60,000ms (capped at maxIdleDelayMs)
+        await withWire(empty, async () => { expect(await daemon.step()).toBe("empty"); });
+        expect(daemon.emptyClaimCount).toBe(5);
+        expect(daemon.currentIdleDelayMs).toBe(60_000);
+
+        // Step 6: empty -> 60,000ms (still capped)
+        await withWire(empty, async () => { expect(await daemon.step()).toBe("empty"); });
+        expect(daemon.emptyClaimCount).toBe(6);
+        expect(daemon.currentIdleDelayMs).toBe(60_000);
+      } finally {
+        daemon.stop();
+        store.close();
+      }
+    });
+
+    test("claiming a leased job immediately resets backoff ladder and empty count", async () => {
+      const store = new LocalNodeStore(":memory:");
+      const daemon = new CrawlerNodeDaemon(config, store, client(), {
+        fetchFn: source,
+        minIdleDelayMs: 5_000,
+        maxIdleDelayMs: 60_000,
+        idleBackoffMultiplier: 2.0,
+        randomFn: () => 0.5,
+      });
+      try {
+        // Accumulate 3 consecutive empty claims
+        await withWire(empty, async () => { await daemon.step(); });
+        await withWire(empty, async () => { await daemon.step(); });
+        await withWire(empty, async () => { await daemon.step(); });
+        expect(daemon.emptyClaimCount).toBe(3);
+        expect(daemon.currentIdleDelayMs).toBe(20_000);
+
+        // Claim a real job: resets ladder
+        await withWire(leased, async () => { expect(await daemon.step()).toBe("claimed"); });
+        expect(daemon.emptyClaimCount).toBe(0);
+
+        // Next empty claim begins back at base 5,000ms
+        await withWire(empty, async () => { expect(await daemon.step()).toBe("empty"); });
+        expect(daemon.emptyClaimCount).toBe(1);
+        expect(daemon.currentIdleDelayMs).toBe(5_000);
+      } finally {
+        daemon.stop();
+        store.close();
+      }
+    });
+
+    test("coordinator higher retryAfterMs takes precedence over minIdleDelayMs", async () => {
+      const store = new LocalNodeStore(":memory:");
+      const highDelayClaim: ClaimResponse = { schemaVersion: 1, status: "empty", retryAfterMs: 30_000 };
+      const daemon = new CrawlerNodeDaemon(config, store, client(), {
+        minIdleDelayMs: 5_000,
+        maxIdleDelayMs: 60_000,
+        randomFn: () => 0.5,
+      });
+      try {
+        await withWire(highDelayClaim, async () => { expect(await daemon.step()).toBe("empty"); });
+        expect(daemon.emptyClaimCount).toBe(1);
+        expect(daemon.currentIdleDelayMs).toBe(30_000);
+      } finally {
+        daemon.stop();
+        store.close();
+      }
+    });
+
+    test("daemon sleeping on idle delay terminates promptly when stop() is invoked", async () => {
+      const store = new LocalNodeStore(":memory:");
+      let sleepCalls = 0;
+      const daemon = new CrawlerNodeDaemon(config, store, client(), {
+        minIdleDelayMs: 60_000,
+        sleepFn: async (ms) => {
+          sleepCalls++;
+          daemon.stop();
+          await Bun.sleep(5);
+        },
+      });
+      try {
+        const startPromise = withWire(empty, async () => { await daemon.start(); });
+        await startPromise;
+        expect(daemon.isStopping).toBe(true);
+        expect(sleepCalls).toBeGreaterThanOrEqual(1);
+      } finally {
+        daemon.stop();
+        store.close();
+      }
+    });
+  });
 });
