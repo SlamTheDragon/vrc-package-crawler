@@ -1116,7 +1116,7 @@ export async function promptInteractiveDelivery(options = {}) {
       }
 
       const writtenChanges = await p.confirm({
-        message: "Were there changes (e.g. Added, Bugs Fixed, Changes) recorded?",
+        message: "Were there any changes (e.g. Added, Bugs Fixed, Changes) recorded?",
         initialValue: false
       });
       if (p.isCancel(writtenChanges)) { p.cancel("Delivery cancelled."); process.exit(0); }
