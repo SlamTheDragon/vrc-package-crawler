@@ -99,7 +99,6 @@ test("interactiveSetup prompts for missing configuration and runs target setup",
     const answers: Record<string, string> = {
       "GitHub Token": "ghp_mock_token",
       "CLOUDFLARE_API_TOKEN": "cf_fake_token",
-      "DISCORD_STAGING_WEBHOOK": "https://discord.com/api/webhooks/mock",
       "Select target project": "root"
     };
 
@@ -134,7 +133,6 @@ test("interactiveSetup prompts for missing configuration and runs target setup",
     const envContent = readFileSync(join(dir, ".env"), "utf8");
     expect(envContent).toContain("GITHUB_TOKEN=ghp_mock_token");
     expect(envContent).toContain("CLOUDFLARE_API_TOKEN=cf_fake_token");
-    expect(envContent).toContain("DISCORD_STAGING_WEBHOOK=https://discord.com/api/webhooks/mock");
     expect(executed).toContain("bun install --no-save --ignore-scripts");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -150,7 +148,7 @@ test("interactiveSetup skips prompts when tokens already configured in .env", as
       return "";
     };
 
-    writeFileSync(join(dir, ".env"), "GITHUB_TOKEN=ghp_existing_token\nCLOUDFLARE_API_TOKEN=cf_existing\nDISCORD_STAGING_WEBHOOK=disc_existing\n");
+    writeFileSync(join(dir, ".env"), "GITHUB_TOKEN=ghp_existing_token\nCLOUDFLARE_API_TOKEN=cf_existing\n");
     writeFileSync(join(dir, "package.json"), "{}");
 
     const askedQueries: string[] = [];
@@ -179,7 +177,6 @@ test("interactiveSetup skips prompts when tokens already configured in .env", as
     expect(res.ghTokenConfigured).toBe(true);
     expect(askedQueries.some(q => q.includes("Enter your GitHub Token"))).toBe(false);
     expect(askedQueries.some(q => q.includes("Enter CLOUDFLARE_API_TOKEN"))).toBe(false);
-    expect(askedQueries.some(q => q.includes("Enter DISCORD_STAGING_WEBHOOK"))).toBe(false);
     expect(askedQueries.some(q => q.includes("Select target project"))).toBe(true);
   } finally {
     rmSync(dir, { recursive: true, force: true });

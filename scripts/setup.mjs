@@ -182,17 +182,7 @@ export async function interactiveSetup(options = {}) {
       }
     }
 
-    // 3. Inspect optional Discord webhook
-    const discordExisting = envEntries.DISCORD_STAGING_WEBHOOK || (workspace === root ? env.DISCORD_STAGING_WEBHOOK : undefined);
-    if (!discordExisting) {
-      const discordWebhook = await ask("Enter DISCORD_STAGING_WEBHOOK (optional, press Enter to skip): ");
-      if (discordWebhook) {
-        writeEnvEntry(envPath, "DISCORD_STAGING_WEBHOOK", discordWebhook);
-        onProgress("✓ Discord webhook saved to .env");
-      }
-    }
-
-    // 4. Project Selection
+    // 3. Project Selection
     onProgress("\nAvailable target projects:");
     const projectKeys = Object.keys(setupProjects);
     onProgress(`  - all (installs root and all 7 subprojects: ${projectKeys.join(", ")})`);
