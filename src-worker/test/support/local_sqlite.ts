@@ -1226,7 +1226,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         if (deferred) offset = 0;
         else offset += candidates.length;
       }
-      return { schemaVersion: PROTOCOL_VERSION, status: "empty" as const, retryAfterMs: 1000 };
+      return { schemaVersion: PROTOCOL_VERSION, status: "empty" as const, retryAfterMs: 5000 };
     }).immediate();
   }
 

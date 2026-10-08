@@ -4,7 +4,7 @@
 
 - Branch: `preview/crawler-network`
 - Active Goal: Implement coordinator-directed bounded idle backoff, decorrelated jitter, and clock alignment across crawler nodes and coordinator (resolving R50-C31 and R54-C39B).
-- Active Slice: `FLEET-IDLE-BACKOFF-JITTER-DAEMON` (Implementing adaptive backoff ladder and bounded jitter in CrawlerNodeDaemon).
+- Active Slice: `FLEET-CLOCK-TESTS-AND-VERIFICATION` (Comprehensive tests for backoff scaling, jitter limits, ladder reset, and cross-domain verification).
 - Owner Instruction (2026-10-08): Never run root level tests (`bun test ./tests`) unless root level tooling (`scripts/`, `tests/`, `package.json`, root configs) is modified. Product-scoped work runs only its own domain test/typecheck suite.
 - Slices mean local commit, completed gates mean push.
 
@@ -23,10 +23,16 @@
 
 ## Slice Execution Plan (Milestone M-FLEET-CLOCK-JITTER)
 
-- `FLEET-IDLE-BACKOFF-JITTER-DAEMON` [IN PROGRESS]: Add `minIdleDelayMs`, `maxIdleDelayMs`, `idleBackoffMultiplier`, `jitterRatio`, `randomFn`, backoff calculation, and jitter application to `src-crawler/src/runner/daemon.ts`.
-- `COORDINATOR-EMPTY-DELAY-ALIGNMENT` [PENDING]: Align coordinator empty `retryAfterMs` default to 5,000ms in `src-worker/src/storage/d1/coordinator.ts` and test fixture.
-- `FLEET-CLOCK-TESTS-AND-VERIFICATION` [PENDING]: Add deterministic tests for jitter bounds, ladder scaling, ladder reset, and verify crawler and worker suites.
+- `FLEET-IDLE-BACKOFF-JITTER-DAEMON` [COMPLETED - commit 861945f]: Added `minIdleDelayMs`, `maxIdleDelayMs`, `idleBackoffMultiplier`, `jitterRatio`, `randomFn`, backoff calculation, and jitter application to `src-crawler/src/runner/daemon.ts`.
+- `COORDINATOR-EMPTY-DELAY-ALIGNMENT` [COMPLETED]: Aligned coordinator empty `retryAfterMs` default to 5,000ms in `src-worker/src/storage/d1/coordinator.ts` and `local_sqlite.ts`.
+- `FLEET-CLOCK-TESTS-AND-VERIFICATION` [IN PROGRESS]: Add deterministic tests for jitter bounds, ladder scaling, ladder reset, and verify crawler and worker suites.
 
 ## Verification Evidence & Retained Baselines
 
-- Retained M-CRAWLER-OUTBOX baseline: crawler 148 pass, worker 235 pass, worker vitest 3 pass, coordinator smoke 100% pass.
+- `src-crawler` unit & lifecycle test suite: 148 pass, 0 fail (963 assertions) across 24 files (`bun test --cwd src-crawler`).
+- `src-crawler` TypeScript typecheck: clean, 0 errors (`bun run --cwd src-crawler typecheck`).
+- `src-worker/packages/network` TypeScript typecheck: clean, 0 errors (`bun run --cwd src-worker/packages/network typecheck`).
+- `src-worker` typecheck & typegen: clean, 0 errors (`bun run --cwd src-worker check`).
+- `src-worker` unit test suite: 235 pass, 0 fail (2062 assertions) across 19 files (`bun test --cwd src-worker ./test`).
+- `src-worker` Vitest workerd runtime test suite: 3 pass, 0 fail (`bun run --cwd src-worker test:workers`).
+- `src-worker` coordinator runtime smoke suite: 100% pass across initialization, registration, enqueue, refresh, discovery, and claim races (`bun run --cwd src-worker test:runtime`).

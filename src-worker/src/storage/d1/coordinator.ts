@@ -398,7 +398,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       if (deferred) offset = 0;
       else offset += candidates.length;
     }
-    return { schemaVersion: PROTOCOL_VERSION, status: "empty" as const, retryAfterMs: 1000 };
+    return { schemaVersion: PROTOCOL_VERSION, status: "empty" as const, retryAfterMs: 5000 };
   }
 
   async submit(request: ResultRequest, principal: NodePrincipal): Promise<ResultResponse> {
