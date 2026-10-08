@@ -2,7 +2,9 @@ import { Database } from "bun:sqlite";
 import crypto from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { ResultResponseSchema, type CrawlJob, type ResultResponse } from "vrc-packages-network/node";
+import {
+  ResultResponseSchema, type CrawlJob, type ResultRequest, type ResultResponse
+} from "vrc-packages-network/node";
 
 export interface NodeRunRecord {
   runId: string;
@@ -11,6 +13,22 @@ export interface NodeRunRecord {
   status: "running" | "completed" | "failed";
   tasksCompleted: number;
   tasksFailed: number;
+}
+
+export interface NodeOutboxRecord {
+  outboxId: string;
+  runId: string;
+  taskId: string;
+  jobId: string;
+  leaseId: string;
+  idempotencyKey: string;
+  outcome: ResultRequest["outcome"];
+  createdAt: string;
+  retryCount: number;
+  nextRetryAt: string;
+  status: "pending" | "submitting" | "sent" | "dead";
+  lastError: string | null;
+  receipt: ResultResponse | null;
 }
 
 export interface NodeTaskRecord {
@@ -80,8 +98,26 @@ export class LocalNodeStore {
       );
       CREATE INDEX IF NOT EXISTS idx_node_tasks_job ON node_tasks(job_id);
       CREATE INDEX IF NOT EXISTS idx_node_tasks_run ON node_tasks(run_id);
+      CREATE TABLE IF NOT EXISTS node_outbox (
+        outbox_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES node_runs(run_id) ON DELETE CASCADE,
+        task_id TEXT NOT NULL REFERENCES node_tasks(task_id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL,
+        lease_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        outcome_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        next_retry_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        last_error TEXT,
+        receipt_json TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_node_outbox_status_retry ON node_outbox(status, next_retry_at);
+      CREATE INDEX IF NOT EXISTS idx_node_outbox_job ON node_outbox(job_id);
+      CREATE INDEX IF NOT EXISTS idx_node_outbox_task ON node_outbox(task_id);
     `);
-    this.db.prepare("INSERT OR IGNORE INTO node_metadata (key, value) VALUES ('schema_version', '1')").run();
+    this.db.prepare("INSERT OR REPLACE INTO node_metadata (key, value) VALUES ('schema_version', '2')").run();
   }
 
   public startRun(nodeId: string): string {
@@ -221,6 +257,165 @@ export class LocalNodeStore {
       accepted: row.accepted,
       errorMessage: row.error_message,
     }));
+  }
+
+  public stageOutboxOutcome(
+    taskId: string,
+    outcome: ResultRequest["outcome"],
+    idempotencyKey: string = crypto.randomUUID(),
+    maxPendingQuota: number = 1000
+  ): string {
+    const outboxId = `outbox_${this.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const createdAt = new Date(this.now()).toISOString();
+    return this.db.transaction(() => {
+      const task = this.db.prepare("SELECT run_id, job_id, lease_id, status FROM node_tasks WHERE task_id = ?").get(taskId) as
+        { run_id: string; job_id: string; lease_id: string; status: string } | null;
+      if (!task) throw new Error(`Task ${taskId} not found`);
+
+      const pendingCount = (this.db.prepare(
+        "SELECT COUNT(*) as count FROM node_outbox WHERE status IN ('pending', 'submitting')"
+      ).get() as { count: number }).count;
+
+      if (pendingCount >= maxPendingQuota) {
+        throw new Error(`Outbox quota exceeded: ${pendingCount} pending items (limit: ${maxPendingQuota})`);
+      }
+
+      this.db.prepare(`
+        UPDATE node_tasks
+        SET status = 'submitting', outcome_kind = ?
+        WHERE task_id = ?
+      `).run(outcome.kind, taskId);
+
+      this.db.prepare(`
+        INSERT INTO node_outbox (
+          outbox_id, run_id, task_id, job_id, lease_id, idempotency_key,
+          outcome_json, created_at, retry_count, next_retry_at, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'pending')
+      `).run(
+        outboxId, task.run_id, taskId, task.job_id, task.lease_id,
+        idempotencyKey, JSON.stringify(outcome), createdAt, createdAt
+      );
+
+      return outboxId;
+    }).immediate();
+  }
+
+  public getPendingOutboxEntries(limit: number = 50): NodeOutboxRecord[] {
+    const nowIso = new Date(this.now()).toISOString();
+    const rows = this.db.prepare(`
+      SELECT * FROM node_outbox
+      WHERE status IN ('pending', 'submitting') AND next_retry_at <= ?
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(nowIso, limit) as any[];
+
+    return rows.map((row) => this.mapOutboxRecord(row));
+  }
+
+  public getOutboxEntry(outboxId: string): NodeOutboxRecord | null {
+    const row = this.db.prepare("SELECT * FROM node_outbox WHERE outbox_id = ?").get(outboxId) as any;
+    if (!row) return null;
+    return this.mapOutboxRecord(row);
+  }
+
+  public getOutboxEntryByTaskId(taskId: string): NodeOutboxRecord | null {
+    const row = this.db.prepare("SELECT * FROM node_outbox WHERE task_id = ?").get(taskId) as any;
+    if (!row) return null;
+    return this.mapOutboxRecord(row);
+  }
+
+  public markOutboxDelivered(
+    outboxId: string,
+    result: ResultResponse,
+    metrics?: { durationMs?: number; httpStatus?: number; bytesFetched?: number }
+  ): void {
+    const receipt = ResultResponseSchema.parse(result);
+    this.db.transaction(() => {
+      const outbox = this.db.prepare("SELECT * FROM node_outbox WHERE outbox_id = ?").get(outboxId) as any;
+      if (!outbox) return;
+      if (receipt.jobId !== outbox.job_id) {
+        throw new Error("Result receipt does not match outbox job");
+      }
+      this.db.prepare(`
+        UPDATE node_outbox
+        SET status = 'sent', receipt_json = ?, last_error = NULL
+        WHERE outbox_id = ?
+      `).run(JSON.stringify(receipt), outboxId);
+
+      const outcome = JSON.parse(outbox.outcome_json);
+      this.recordTaskSuccess(outbox.task_id, outcome.kind, receipt, metrics);
+    }).immediate();
+  }
+
+  public markOutboxFailed(outboxId: string, errorMessage: string, retryDelayMs: number = 5_000): void {
+    this.db.transaction(() => {
+      const nextRetryAt = new Date(this.now() + Math.max(0, retryDelayMs)).toISOString();
+      this.db.prepare(`
+        UPDATE node_outbox
+        SET status = 'pending', retry_count = retry_count + 1, next_retry_at = ?, last_error = ?
+        WHERE outbox_id = ?
+      `).run(nextRetryAt, errorMessage, outboxId);
+
+      const outbox = this.db.prepare("SELECT task_id FROM node_outbox WHERE outbox_id = ?").get(outboxId) as { task_id: string } | null;
+      if (outbox) {
+        this.db.prepare("UPDATE node_tasks SET error_message = ? WHERE task_id = ?").run(errorMessage, outbox.task_id);
+      }
+    }).immediate();
+  }
+
+  public markOutboxTerminal(outboxId: string, terminalReason: string): void {
+    this.db.transaction(() => {
+      this.db.prepare(`
+        UPDATE node_outbox
+        SET status = 'dead', last_error = ?
+        WHERE outbox_id = ?
+      `).run(terminalReason, outboxId);
+
+      const outbox = this.db.prepare("SELECT task_id FROM node_outbox WHERE outbox_id = ?").get(outboxId) as { task_id: string } | null;
+      if (outbox) {
+        this.recordTaskFailure(outbox.task_id, terminalReason);
+      }
+    }).immediate();
+  }
+
+  public pruneOutbox(ttlMs: number = 86_400_000): { expiredDead: number; deleted: number } {
+    const cutoffIso = new Date(this.now() - ttlMs).toISOString();
+    return this.db.transaction(() => {
+      const expiredPending = this.db.prepare(`
+        SELECT task_id, outbox_id FROM node_outbox
+        WHERE status IN ('pending', 'submitting') AND created_at < ?
+      `).all(cutoffIso) as { task_id: string; outbox_id: string }[];
+
+      for (const row of expiredPending) {
+        this.markOutboxTerminal(row.outbox_id, "Outbox TTL expired");
+      }
+
+      const deleted = this.db.prepare(`
+        DELETE FROM node_outbox
+        WHERE status IN ('sent', 'dead') AND created_at < ?
+      `).run(cutoffIso).changes;
+
+      return { expiredDead: expiredPending.length, deleted };
+    }).immediate();
+  }
+
+  private mapOutboxRecord(row: any): NodeOutboxRecord {
+    return {
+      outboxId: row.outbox_id,
+      runId: row.run_id,
+      taskId: row.task_id,
+      jobId: row.job_id,
+      leaseId: row.lease_id,
+      idempotencyKey: row.idempotency_key,
+      outcome: JSON.parse(row.outcome_json),
+      createdAt: row.created_at,
+      retryCount: row.retry_count,
+      nextRetryAt: row.next_retry_at,
+      status: row.status,
+      lastError: row.last_error,
+      receipt: row.receipt_json ? JSON.parse(row.receipt_json) : null,
+    };
   }
 
   public close(): void {
