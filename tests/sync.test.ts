@@ -142,3 +142,48 @@ test("syncInternalDependencies updates network package url in crawler and worker
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("checkSync detects preview CalVer version drift", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "vrcp-sync-preview-drift-"));
+  try {
+    const relVersions = {
+      "release-crawler": "0.0.1",
+      "release-crawler-client": "0.0.1",
+      "release-package": "0.0.1",
+      "release-web": "0.0.1",
+      "release-worker": "0.0.1"
+    };
+    const localPrev = {
+      "preview-crawler": "2026.10.1-pre",
+      "preview-crawler-client": "26.10.1-pre",
+      "preview-package": "2026.10.1-pre",
+      "preview-web": "0.0.1",
+      "preview-worker": "2026.10.1-pre",
+      "preview-network": "2026.10.1"
+    };
+    const remotePrev = {
+      ...localPrev,
+      "preview-crawler": "2026.10.2-pre"
+    };
+
+    writeFileSync(join(dir, "config.versions.json"), JSON.stringify(relVersions, null, 2));
+    writeFileSync(join(dir, "config.preview.versions.json"), JSON.stringify(localPrev, null, 2));
+
+    const mockGit = (...args: string[]) => {
+      const cmd = args.join(" ");
+      if (cmd.startsWith("symbolic-ref")) return "main";
+      if (cmd.startsWith("rev-list --left-right")) return "0\t0";
+      if (cmd === "show origin/main:config.versions.json") return JSON.stringify(relVersions);
+      if (cmd === "show origin/main:config.preview.versions.json") return JSON.stringify(remotePrev);
+      return "";
+    };
+
+    const res = await checkSync({ workspace: dir, git: mockGit as any });
+    expect(res.status).toBe("drift-detected");
+    expect(res.versions.preview.inSync).toBe(false);
+    expect(res.drifts.some(d => d.includes("preview-crawler: local (2026.10.1-pre) is behind origin/main (2026.10.2-pre)"))).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+

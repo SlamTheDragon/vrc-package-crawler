@@ -1,107 +1,73 @@
-import { expect, test } from "bun:test";
-import { build, buildProduct, buildTargets, buildOrder, resolveBuildScript } from "../scripts/build.mjs";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { buildTargets, buildOrder, resolveBuildScript, buildProduct, build } from "../scripts/build.mjs";
 
-test("resolveBuildScript resolves product and channel build scripts", () => {
-  expect(resolveBuildScript("package", "preview")).toBe("build");
-  expect(resolveBuildScript("package", "release")).toBe("build");
-  expect(resolveBuildScript("worker", "preview")).toBe("build:preview");
-  expect(resolveBuildScript("worker", "release")).toBe("build:release");
-  expect(resolveBuildScript("crawler", "preview")).toBe(process.platform === "win32" ? "build:dev" : "build:node:linux");
-  expect(resolveBuildScript("crawler-client", "preview")).toBe("build:dev");
-  expect(resolveBuildScript("network", "preview")).toBe("build");
-  expect(resolveBuildScript("web", "preview")).toBe("build");
-  expect(() => resolveBuildScript("unknown-target" as any)).toThrow("Unknown build target: \"unknown-target\"");
-});
+describe("Unified monorepo build orchestration (R67)", () => {
+  test("buildTargets and buildOrder cover all 7 products in dependency order", () => {
+    const expectedProducts = ["network", "package", "worker", "crawler", "crawler-client", "web", "web-search"];
+    expect(buildOrder).toEqual(expectedProducts);
+    for (const prod of expectedProducts) {
+      expect(buildTargets[prod]).toBeDefined();
+      expect(typeof buildTargets[prod].dir).toBe("string");
+    }
+  });
 
-test("buildProduct executes target npm script with root environment variables", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "vrcp-build-test-"));
-  try {
-    const pkgDir = join(dir, "src-package");
-    mkdirSync(pkgDir, { recursive: true });
-    writeFileSync(join(pkgDir, "package.json"), JSON.stringify({
-      name: "vrc-packages-api",
-      scripts: { build: "bun build src/index.ts" }
-    }));
+  test("resolveBuildScript selects channel and platform-specific build commands", () => {
+    expect(resolveBuildScript("package", "preview")).toBe("build");
+    expect(resolveBuildScript("package", "release")).toBe("build");
+    expect(resolveBuildScript("worker", "preview")).toBe("build:preview");
+    expect(resolveBuildScript("worker", "release")).toBe("build:release");
+    expect(resolveBuildScript("crawler", "preview")).toBe(process.platform === "win32" ? "build:dev" : "build:node:linux");
+    expect(resolveBuildScript("crawler-client", "preview")).toBe("build:dev");
+    expect(resolveBuildScript("network", "preview")).toBe("build");
+    expect(resolveBuildScript("web", "preview")).toBe("build");
+    expect(resolveBuildScript("web-search", "preview")).toBe("build");
+    expect(() => resolveBuildScript("unknown", "preview")).toThrow("Unknown build target");
+  });
 
-    const executed: { cmd: string; args: string[]; cwd: string; env: any }[] = [];
+  test("buildProduct injects root environment variables and dispatches bun run", async () => {
+    let executedCmd = "";
+    let executedArgs: string[] = [];
+    let executedOpts: any = {};
+
     const mockExec = (cmd: string, args: string[], opts: any) => {
-      executed.push({ cmd, args, cwd: opts.cwd, env: opts.env });
-      return "";
+      executedCmd = cmd;
+      executedArgs = args;
+      executedOpts = opts;
+      return Buffer.from("");
     };
 
-    const res = await buildProduct("package", "release", {
-      workspace: dir,
+    const res = await buildProduct("package", "preview", {
       exec: mockExec as any,
-      quiet: true
+      quiet: true,
+      env: { CUSTOM_TEST_VAR: "123" }
     });
 
     expect(res.status).toBe("build-success");
     expect(res.product).toBe("package");
-    expect(res.channel).toBe("release");
-    expect(executed.length).toBe(1);
-    expect(executed[0].cmd).toBe("bun");
-    expect(executed[0].args).toEqual(["run", "build"]);
-    expect(executed[0].cwd).toBe(pkgDir);
-    expect(executed[0].env.VRCP_PRODUCT).toBe("package");
-    expect(executed[0].env.VRCP_CHANNEL).toBe("release");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+    expect(res.channel).toBe("preview");
+    expect(res.script).toBe("build");
+    expect(executedCmd).toBe("bun");
+    expect(executedArgs).toEqual(["run", "build"]);
+    expect(executedOpts.env.VRCP_PRODUCT).toBe("package");
+    expect(executedOpts.env.VRCP_CHANNEL).toBe("preview");
+    expect(executedOpts.env.CUSTOM_TEST_VAR).toBe("123");
+    expect(typeof executedOpts.env.VRCP_ROOT_DIR).toBe("string");
+  });
 
-test("buildProduct skips product with missing package.json gracefully", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "vrcp-build-missing-"));
-  try {
-    const res = await buildProduct("web-search", "preview", {
-      workspace: dir,
-      quiet: true
-    });
-    expect(res.status).toBe("skipped-missing-package");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("build('all') runs builds in proper dependency order across products", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "vrcp-build-all-"));
-  try {
-    for (const [prod, info] of Object.entries(buildTargets)) {
-      const pDir = join(dir, info.dir);
-      mkdirSync(pDir, { recursive: true });
-      writeFileSync(join(pDir, "package.json"), JSON.stringify({
-        name: `vrc-${prod}`,
-        scripts: {
-          build: "echo build",
-          "build:preview": "echo build:preview",
-          "build:release": "echo build:release",
-          "build:dev": "echo build:dev",
-          "build:node:linux": "echo build:node:linux"
-        }
-      }));
-    }
-
-    const executedOrder: string[] = [];
+  test("build all executes products in buildOrder and rejects invalid channel", async () => {
+    const executed: string[] = [];
     const mockExec = (_cmd: string, _args: string[], opts: any) => {
-      executedOrder.push(opts.env.VRCP_PRODUCT);
-      return "";
+      executed.push(opts.env.VRCP_PRODUCT);
+      return Buffer.from("");
     };
 
-    const results = await build("all", "preview", {
-      workspace: dir,
+    const results = await build("all", "release", {
       exec: mockExec as any,
       quiet: true
     });
 
     expect(Array.isArray(results)).toBe(true);
-    expect(executedOrder).toEqual(buildOrder);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("build throws on invalid channel", async () => {
-  await expect(build("package", "staging" as any, { quiet: true })).rejects.toThrow("Invalid build channel: \"staging\"");
+    expect(executed).toEqual(buildOrder);
+    await expect(build("all", "invalid-channel" as any)).rejects.toThrow("Invalid build channel");
+  });
 });

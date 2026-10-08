@@ -231,7 +231,10 @@ export async function versionFiles(mode, channel, product = "all", workspace = r
 export async function checkSync(options = {}) {
   const {
     workspace = root,
-    git = (...args) => execFileSync("git", args, { cwd: workspace, encoding: "utf8", stdio: "pipe" })
+    git = (...args) => execFileSync("git", args, {
+      cwd: workspace, encoding: "utf8", stdio: "pipe",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" }
+    })
   } = options;
 
   let currentBranch = "main";
@@ -270,7 +273,7 @@ export async function checkSync(options = {}) {
   const releaseDrifts = [];
   if (remoteRelease) {
     for (const [k, v] of Object.entries(localRelease)) {
-      if (remoteRelease[k] && semver.lt(v, remoteRelease[k])) {
+      if (remoteRelease[k] && semver.valid(v) && semver.valid(remoteRelease[k]) && semver.lt(v, remoteRelease[k])) {
         releaseDrifts.push(`${k}: local (${v}) is behind origin/main (${remoteRelease[k]})`);
       }
     }
@@ -278,7 +281,7 @@ export async function checkSync(options = {}) {
   const previewDrifts = [];
   if (remotePreview) {
     for (const [k, v] of Object.entries(localPreview)) {
-      if (remotePreview[k] && semver.lt(v, remotePreview[k])) {
+      if (remotePreview[k] && semver.valid(v) && semver.valid(remotePreview[k]) && semver.lt(v, remotePreview[k])) {
         previewDrifts.push(`${k}: local (${v}) is behind origin/main (${remotePreview[k]})`);
       }
     }

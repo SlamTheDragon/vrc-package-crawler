@@ -6,6 +6,17 @@ import { productDirectories } from "./versioning.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
+function loadRootEnv(workspace = root) {
+  const envFile = resolve(workspace, ".env");
+  if (existsSync(envFile) && typeof process.loadEnvFile === "function") {
+    try { process.loadEnvFile(envFile); } catch {}
+  } else if (typeof process.loadEnvFile === "function") {
+    try { process.loadEnvFile(); } catch {}
+  }
+}
+
+loadRootEnv(root);
+
 export const buildTargets = {
   package: {
     dir: "src-package",
@@ -145,10 +156,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   let channel = "preview";
 
   for (const arg of args) {
-    if (["preview", "release"].includes(arg.toLowerCase())) {
-      channel = arg.toLowerCase();
-    } else if (Object.keys(buildTargets).includes(arg) || arg === "all") {
-      product = arg;
+    const argLower = arg.toLowerCase();
+    if (["preview", "release"].includes(argLower)) {
+      channel = argLower;
+    } else if (Object.keys(buildTargets).includes(argLower) || argLower === "all") {
+      product = argLower;
     }
   }
 

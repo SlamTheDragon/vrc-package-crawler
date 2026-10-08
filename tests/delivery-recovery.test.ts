@@ -491,4 +491,52 @@ test("promptInteractiveRecovery presents menu and dispatches chosen recovery act
   expect(messages.some(m => m.includes("VRCP Delivery Failure Recovery Console"))).toBe(true);
 });
 
+test("checkRecoveryRun accepts Test crawler node step name for test-failed stage", async () => {
+  const f = fixture("vrcp-crawler/v0.0.9");
+  const path = `${f.prefix}/actions/runs/${f.identity.failedRun}/jobs?per_page=100`;
+  const steps = [
+    { name: "Checkout repository", number: 1, status: "completed", conclusion: "success" },
+    { name: "Test crawler node", number: 5, status: "completed", conclusion: "failure" },
+    { name: "Post Checkout repository", number: 20, status: "completed", conclusion: "success" }
+  ];
+  const jobs = [
+    { name: "route", conclusion: "success" },
+    ...["build-linux", "standalone-windows"].map(name => {
+      const cloned = structuredClone(steps);
+      if (name === "standalone-windows") cloned[2].name = "Post Run actions/checkout@v4";
+      return { name, conclusion: "failure", steps: cloned };
+    }),
+    { name: "publish-container", conclusion: "skipped" },
+    { name: "release-assets", conclusion: "skipped" }
+  ];
+  f.responses[path] = { total_count: jobs.length, jobs };
+  const res = await checkRecoveryRun(f.run, f.identity, f.api);
+  expect(res.failedStage).toBe("test-failed");
+});
+
+test("promptInteractiveRecovery option 3 switches to temporary patch branch and deletes tag", async () => {
+  const messages: string[] = [];
+  const askFn = async (_q: string) => "3"; // Choose option 3: patch branch
+  const mockGit = (_cwd: string, ...args: string[]) => {
+    if (args[0] === "symbolic-ref") return "main";
+    return "";
+  };
+
+  const res = await promptInteractiveRecovery({
+    product: "crawler",
+    version: "0.0.12",
+    tag: "vrcp-crawler/v0.0.12",
+    error: "Critical compilation error"
+  }, {
+    askFn,
+    readGit: mockGit as any,
+    onProgress: (msg: string) => messages.push(msg)
+  });
+
+  expect(res.status).toBe("patch-branch-created");
+  expect(res.branch).toBe("release/patch/crawler/v0.0.12");
+  expect(messages.some(m => m.includes("release/patch/crawler/v0.0.12"))).toBe(true);
+});
+
+
 

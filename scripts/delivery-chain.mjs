@@ -914,11 +914,13 @@ export async function promptInteractiveDelivery(options = {}) {
     onProgress("=================================================");
 
     const availableProducts = Object.keys(workflows);
+    const firstArgLower = firstArg?.toLowerCase();
+    const secondArgLower = secondArg?.toLowerCase();
     let product;
-    if (firstArg && availableProducts.includes(firstArg)) {
-      product = firstArg;
-    } else if (secondArg && availableProducts.includes(secondArg)) {
-      product = secondArg;
+    if (firstArgLower && availableProducts.includes(firstArgLower)) {
+      product = firstArgLower;
+    } else if (secondArgLower && availableProducts.includes(secondArgLower)) {
+      product = secondArgLower;
     } else {
       product = (await ask(`Select product to deliver (${availableProducts.join(", ")}): `)).toLowerCase();
       while (!availableProducts.includes(product)) {
@@ -928,10 +930,10 @@ export async function promptInteractiveDelivery(options = {}) {
     }
 
     let channel;
-    if (firstArg && ["preview", "release"].includes(firstArg)) {
-      channel = firstArg;
-    } else if (secondArg && ["preview", "release"].includes(secondArg)) {
-      channel = secondArg;
+    if (firstArgLower && ["preview", "release"].includes(firstArgLower)) {
+      channel = firstArgLower;
+    } else if (secondArgLower && ["preview", "release"].includes(secondArgLower)) {
+      channel = secondArgLower;
     } else {
       channel = (await ask("Select deployment channel (preview, release): ")).toLowerCase();
       while (!["preview", "release"].includes(channel)) {
@@ -1065,13 +1067,15 @@ export async function executeDelivery(firstArg, secondArg, options = {}) {
     return promptInteractiveDelivery({ ...options, firstArg, secondArg });
   }
 
+  const firstArgLower = firstArg?.toLowerCase();
+  const secondArgLower = secondArg?.toLowerCase();
   let channel, product;
-  if (["release", "preview"].includes(firstArg)) {
-    channel = firstArg;
-    product = secondArg;
-  } else if (["release", "preview"].includes(secondArg)) {
-    channel = secondArg;
-    product = firstArg;
+  if (["release", "preview"].includes(firstArgLower)) {
+    channel = firstArgLower;
+    product = secondArgLower;
+  } else if (["release", "preview"].includes(secondArgLower)) {
+    channel = secondArgLower;
+    product = firstArgLower;
   } else {
     throw new Error(`Invalid arguments: expected channel ('release' | 'preview') and product (${Object.keys(workflows).join(", ")}), got: ${firstArg}, ${secondArg}`);
   }

@@ -1207,6 +1207,11 @@ test("resolveGitHubToken resolves from env and workspace .env", async () => {
 });
 
 test("promptInteractiveDelivery aborts if changelog summary is not written", async () => {
+  const mockCleanGit = (_cwd: string, ...args: string[]) => {
+    if (args[0] === "status" && args.includes("--porcelain")) return "";
+    if (args[0] === "symbolic-ref") return "main";
+    return "";
+  };
   const answers: Record<string, string> = {
     "Select product": "package",
     "Select deployment channel": "preview",
@@ -1218,11 +1223,16 @@ test("promptInteractiveDelivery aborts if changelog summary is not written", asy
     }
     return "y";
   };
-  await expect(promptInteractiveDelivery({ askFn, onProgress: () => {} }))
+  await expect(promptInteractiveDelivery({ askFn, git: mockCleanGit, onProgress: () => {} }))
     .rejects.toThrow("Delivery aborted: Please write a summary for the release in CHANGELOG.md before proceeding.");
 });
 
 test("promptInteractiveDelivery aborts if no changes are confirmed in preparedness self-check", async () => {
+  const mockCleanGit = (_cwd: string, ...args: string[]) => {
+    if (args[0] === "status" && args.includes("--porcelain")) return "";
+    if (args[0] === "symbolic-ref") return "main";
+    return "";
+  };
   const answers: Record<string, string> = {
     "Select product": "package",
     "Select deployment channel": "preview",
@@ -1237,7 +1247,7 @@ test("promptInteractiveDelivery aborts if no changes are confirmed in preparedne
     }
     return "n";
   };
-  await expect(promptInteractiveDelivery({ askFn, onProgress: () => {} }))
+  await expect(promptInteractiveDelivery({ askFn, git: mockCleanGit, onProgress: () => {} }))
     .rejects.toThrow("Delivery aborted: Preparedness self-check failed (no features, bug fixes, or changes recorded).");
 });
 
@@ -1261,4 +1271,21 @@ test("promptInteractiveDelivery aborts if dirty worktree commit is declined", as
   await expect(promptInteractiveDelivery({ askFn, git: mockGit, onProgress: () => {} }))
     .rejects.toThrow("Delivery aborted: Worktree is dirty. Please commit or stash changes before delivering.");
 });
+
+test("executeDelivery accepts case-insensitive product and channel arguments", async () => {
+  await expect(executeDelivery("UnknownProduct", "Preview", { interactive: false }))
+    .rejects.toThrow("Unknown or unsupported product: unknownproduct");
+});
+
+test("promptInteractiveDelivery accepts case-insensitive initial arguments", async () => {
+  const mockCleanGit = (_cwd: string, ...args: string[]) => {
+    if (args[0] === "status" && args.includes("--porcelain")) return "";
+    if (args[0] === "symbolic-ref") return "main";
+    return "";
+  };
+  const askFn = async (_q: string) => "n"; // abort on changelog summary
+  await expect(promptInteractiveDelivery({ firstArg: "Crawler", secondArg: "Preview", askFn, git: mockCleanGit, onProgress: () => {} }))
+    .rejects.toThrow("Delivery aborted: Please write a summary for the release in CHANGELOG.md before proceeding.");
+});
+
 

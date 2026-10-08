@@ -58,6 +58,33 @@ Pipeline Stages (Sequenced Automatically):
   7. Finalization: Verifies published assets, registry digests, and announcements.
 `,
 
+  build: `
+=============================================
+Unified Monorepo Build (bun run build [prod])
+=============================================
+
+Executes unified local builds across subprojects and submodules directly in
+dependency order (network -> package -> worker -> crawler -> crawler-client -> web -> web-search).
+
+Commands:
+  bun run build                         Build all products for preview channel
+  bun run build all [channel]           Build all products for specified channel (preview | release)
+  bun run build <product> [channel]     Build a single product (preview | release)
+
+Available Products:
+  package, crawler, crawler-client, worker, network, web, web-search
+
+Concrete Examples:
+  # Build all products for preview:
+  bun run build
+
+  # Build crawler node for current platform:
+  bun run build crawler
+
+  # Build worker coordinator for release:
+  bun run build worker release
+`,
+
   setup: `
 ========================================================
 Monorepo Setup Walkthrough & Dependency Management
@@ -92,6 +119,8 @@ Setup Commands:
   bun run setup:all                 Same as bun run setup
   bun run setup <project>           Install dependencies for a specific product
   bun run setup:root                Install root workspace dependencies only
+  bun run onboard                   Interactive onboarding wizard (.env credentials & project setup)
+  bun run setup:interactive         Same as bun run onboard
   bun run setup:crawler             Install Crawler Node dependencies (src-crawler)
   bun run setup:crawler-client      Install Desktop Shell dependencies (src-crawler-client)
   bun run setup:package             Install SDK dependencies (src-package)
@@ -173,13 +202,18 @@ Concrete Examples:
 `,
 
   recovery: `
-============================================
-Delivery Recovery (bun run delivery:recover)
-============================================
+======================================================
+Delivery Recovery & Diagnosis (bun run recovery)
+======================================================
 
-Operational recovery procedures for interrupted or failed delivery runs.
+Interactive console and operational recovery for interrupted or failed delivery runs.
 
 Commands:
+  bun run recovery                            Interactive recovery console & failure diagnosis
+  bun run recovery:patch create <prod> <ver>  Create temporary release/patch/* branch & revert tag
+  bun run recovery:patch merge <prod> <ver>   Merge patch fixes into source branch & delete patch branch
+  bun run recovery:rerun <runId> [--all]      Rerun failed CI jobs or full workflow run
+  bun run recovery:revert-tag <tag> [--remote] Revert local (and optional remote) delivery tag
   bun run delivery:recover <tag>              Trigger authorized CI recovery
   bun run delivery:authorize-recovery <tag>   Authorize recovery token locally
 
@@ -187,14 +221,25 @@ Purpose:
   If a CI workflow fails due to transient infrastructure issues (e.g. registry rate limits,
   temporary runner network failures) after an immutable tag has already been pushed, recovery
   replays the exact original source and tag without incrementing version numbers.
-  Authorized recovery configurations are maintained in .github/delivery-recoveries.json.
+  For critical code defects mid-pipeline, the recovery CLI automatically creates a temporary
+  branch (release/patch/<product>/v<version>), reverts the tag, merges fixes back, and deletes
+  the temporary branch.
 
 Concrete Examples:
+  # Launch interactive recovery console:
+  bun run recovery
+
+  # Create temporary patch branch for Crawler v0.0.12:
+  bun run recovery:patch create crawler 0.0.12
+
+  # Merge patch branch back to main and clean up:
+  bun run recovery:patch merge crawler 0.0.12
+
+  # Rerun failed jobs for a workflow run:
+  bun run recovery:rerun 37624229765
+
   # Dispatches recovery run for interrupted Crawler build:
   bun run delivery:recover vrcp-crawler/v0.0.9
-
-  # Authorize recovery token locally:
-  bun run delivery:authorize-recovery vrcp-crawler/v0.0.9
 `,
 
   cleaning: `
@@ -242,6 +287,8 @@ Manages authoritative versions declared in config.versions.json and
 config.preview.versions.json.
 
 Commands:
+  bun run sync:check                     Evaluate git ahead/behind and version config drift against origin
+  bun run sync:deps                      Synchronize internal vrc-packages-network across consumers
   bun run versions:check:release         Check release manifest alignment against config
   bun run versions:check:preview         Check preview manifest alignment against config
   bun run versions:sync:release          Synchronize manifests to config.versions.json
@@ -249,6 +296,12 @@ Commands:
   bun run versions:bump <product>        Plan next version bump
 
 Concrete Examples:
+  # Check synchronization state against origin/main:
+  bun run sync:check
+
+  # Synchronize internal vrc-packages-network dependencies across consumers:
+  bun run sync:deps
+
   # Validate that all product package.json files match the release config:
   bun run versions:check:release
 
@@ -309,7 +362,12 @@ Quickstart Setup Walkthrough:
 Primary Operational Commands:
   bun run execute <product> <channel>    Run unified delivery pipeline (e.g. bun run execute package release --force)
   bun run delivery:reconcile             Trigger on-demand SDK staged package reconciliation
+  bun run build [product] [channel]      Execute unified local builds across subprojects
   bun run setup                          Install dependencies across root and all 8 subprojects
+  bun run onboard                        Interactive onboarding wizard (.env credentials & project setup)
+  bun run recovery                       Interactive failure diagnosis and recovery console
+  bun run sync:check                     Evaluate git ahead/behind and version config drift
+  bun run sync:deps                      Synchronize internal network dependencies
   bun run delivery:check <tag>           Verify published artifacts against remote checksums
   bun run delivery:check:all             Check all 9 configured preview and release delivery paths
   bun run delivery:status                Check active delivery status across products
@@ -326,6 +384,7 @@ Products:
 
 Help Topics (run 'bun run help <topic>'):
   bun run help execute                   Detailed options and examples for unified execute pipeline
+  bun run help build                     Unified monorepo build orchestration across products
   bun run help setup                     Comprehensive monorepo setup walkthrough & project targets
   bun run help reconcile                 Staged npm package reconciliation and approval workflow
   bun run help delivery                  Granular delivery inspection, check, and lifecycle subcommands

@@ -53,8 +53,6 @@
     "test:distribution": "node tests/distribution_smoke.mjs",
     "build": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\" && tsc --project tsconfig.build.json",
     "prepack": "bun run build",
-    "publish:release": "bun run --cwd .. publish:release:package",
-    "publish:preview": "bun run --cwd .. publish:preview:package",
     "preview": "bun run build"
   },
   "dependencies": {

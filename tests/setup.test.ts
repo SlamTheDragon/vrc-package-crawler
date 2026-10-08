@@ -140,3 +140,49 @@ test("interactiveSetup prompts for missing configuration and runs target setup",
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("interactiveSetup skips prompts when tokens already configured in .env", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "vrcp-interactive-setup-existing-"));
+  try {
+    const executed: string[] = [];
+    const fakeExec = (cmd: string, args: string[]) => {
+      executed.push(`${cmd} ${args.join(" ")}`);
+      return "";
+    };
+
+    writeFileSync(join(dir, ".env"), "GITHUB_TOKEN=ghp_existing_token\nCLOUDFLARE_API_TOKEN=cf_existing\nDISCORD_STAGING_WEBHOOK=disc_existing\n");
+    writeFileSync(join(dir, "package.json"), "{}");
+
+    const askedQueries: string[] = [];
+    const askFn = async (query: string) => {
+      askedQueries.push(query);
+      if (query.includes("Select target project")) return "root";
+      return "";
+    };
+
+    const fetchMock = async (url: string) => {
+      if (url.includes("/user")) return new Response(JSON.stringify({ login: "existingDev" }), { status: 200 });
+      return new Response(null, { status: 404 });
+    };
+
+    const res = await interactiveSetup({
+      workspace: dir,
+      env: {},
+      askFn,
+      onProgress: () => {},
+      fetchFn: fetchMock as any,
+      exec: fakeExec as any
+    });
+
+    expect(res.status).toBe("setup-complete");
+    expect(res.target).toBe("root");
+    expect(res.ghTokenConfigured).toBe(true);
+    expect(askedQueries.some(q => q.includes("Enter your GitHub Token"))).toBe(false);
+    expect(askedQueries.some(q => q.includes("Enter CLOUDFLARE_API_TOKEN"))).toBe(false);
+    expect(askedQueries.some(q => q.includes("Enter DISCORD_STAGING_WEBHOOK"))).toBe(false);
+    expect(askedQueries.some(q => q.includes("Select target project"))).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+

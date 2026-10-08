@@ -12,9 +12,31 @@ const recoveryWorkflows = { crawler: "node-docker", network: "network", "crawler
 const workflowFor = identity => `.github/workflows/${recoveryWorkflows[identity.product]}.yml`;
 const sha = value => /^[a-f0-9]{40}$/.test(value ?? "");
 const git = (workspace, ...args) => execFileSync("git", args, {
-  cwd: workspace, encoding: "utf8", timeout: 30_000, stdio: "pipe" });
+  cwd: workspace, encoding: "utf8", timeout: 30_000, stdio: "pipe",
+  env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" } });
+
+function getGitHubToken(workspace = root) {
+  if (process.env.GH_TOKEN) return process.env.GH_TOKEN;
+  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
+  if (process.env.RELEASE_TOKEN) return process.env.RELEASE_TOKEN;
+  try {
+    const out = execFileSync("git", ["credential", "fill"], {
+      cwd: workspace,
+      input: "protocol=https\nhost=github.com\n\n",
+      stdio: ["pipe", "pipe", "ignore"],
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" }
+    });
+    const token = out.split("\n").find(l => l.startsWith("password="))?.slice(9).trim();
+    if (token) return token;
+  } catch {}
+  return undefined;
+}
 
 function builderStepFailed(jobs, expectedStepName) {
+  const isExpectedStep = typeof expectedStepName === "function"
+    ? expectedStepName
+    : name => name === expectedStepName || (expectedStepName === "Run bun test ./tests" && name === "Test crawler node");
   const expected = new Map([["route", "success"], ["build-linux", "failure"],
     ["standalone-windows", "failure"], ["publish-container", "skipped"], ["release-assets", "skipped"]]);
   return jobs.length === expected.size && jobs.every(job => {
@@ -26,8 +48,8 @@ function builderStepFailed(jobs, expectedStepName) {
     const failures = steps.filter(step => step.conclusion === "failure");
     const failedStep = failures[0];
     const cleanup = job.name === "build-linux" ? "Post Checkout repository" : "Post Run actions/checkout@v4";
-    return failures.length === 1 && failedStep.name === expectedStepName && failedStep.number > 1 &&
-      steps.filter(step => step.name === expectedStepName).length === 1 &&
+    return failures.length === 1 && isExpectedStep(failedStep.name) && failedStep.number > 1 &&
+      steps.filter(step => isExpectedStep(step.name)).length === 1 &&
       steps.every(step => step.status === "completed" &&
         (step.number < failedStep.number
           ? (step.name === "Restore reviewed recovery tooling only" ? ["skipped", "success"].includes(step.conclusion) : step.conclusion === "success")
@@ -221,7 +243,7 @@ export async function recoverDelivery(tag, execute = false, workspace = root, ap
 
 async function dispatchRecovery(repository, tag) {
   const identity = recoveryIdentity(tag);
-  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  const token = getGitHubToken();
   if (!token) throw new Error("Recovery dispatch needs an explicit GitHub credential with repository Actions write permission.");
   const response = await fetch(`https://api.github.com/repos/${repository}/actions/workflows/${recoveryWorkflows[identity.product]}.yml/dispatches`, {
     method: "POST", redirect: "error", signal: AbortSignal.timeout(30_000),
@@ -354,7 +376,7 @@ export function diagnoseFailure(context = {}) {
 }
 
 export async function rerunWorkflowRun(repository, runId, options = {}) {
-  const { failedJobsOnly = true, token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN, fetchFn = fetch } = options;
+  const { failedJobsOnly = true, token = options.token || getGitHubToken(), fetchFn = fetch } = options;
   if (!token) throw new Error("Workflow rerun requires GitHub credential with actions write permission.");
   const endpoint = failedJobsOnly
     ? `https://api.github.com/repos/${repository}/actions/runs/${runId}/rerun-failed-jobs`
@@ -374,7 +396,7 @@ export async function rerunWorkflowRun(repository, runId, options = {}) {
 }
 
 export async function revertDeliveryTag(tag, options = {}) {
-  const { workspace = root, readGit = git, deleteRemote = false, repository = "SlamTheDragon/vrc-packages", token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN, fetchFn = fetch } = options;
+  const { workspace = root, readGit = git, deleteRemote = false, repository = "SlamTheDragon/vrc-packages", token = options.token || getGitHubToken(workspace), fetchFn = fetch } = options;
   let localDeleted = false;
   let remoteDeleted = false;
   try {
@@ -474,7 +496,7 @@ export async function promptInteractiveRecovery(context = {}, options = {}) {
     workspace = root,
     readGit = git,
     repository = "SlamTheDragon/vrc-packages",
-    token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
+    token = options.token || getGitHubToken(workspace),
     fetchFn = fetch
   } = options;
 
