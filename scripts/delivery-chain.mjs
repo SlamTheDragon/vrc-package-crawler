@@ -1087,6 +1087,7 @@ export async function promptInteractiveDelivery(options = {}) {
         }
         git(workspace, "add", "-A");
         git(workspace, "commit", "-m", commitMsg || defaultMsg);
+        git(workspace, "push")
         p.note("Committed remaining work for a clean tree.", "Clean Tree");
       } else {
         const commitAns = await askBinary(ask, "Working tree has uncommitted changes. Commit remaining work for a clean tree?", true);
