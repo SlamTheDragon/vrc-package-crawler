@@ -67,6 +67,43 @@ import {
   VerifyTakedownResponseSchema
 } from "./protocol/operator.ts";
 
+export const MAX_SDK_ERROR_BYTES = 64 * 1024;
+export const MAX_SDK_SUCCESS_BYTES = 4 * 1024 * 1024;
+
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maxBytes) {
+      throw new VRCPApiError(response.status, `Response exceeds maximum byte limit of ${maxBytes} bytes`);
+    }
+    return text;
+  }
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throw new VRCPApiError(response.status, `Response exceeds maximum byte limit of ${maxBytes} bytes`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const merged = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
+
 export class VRCPApiError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -183,7 +220,7 @@ export class VRCPackageClient {
     }
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await readBoundedText(response, MAX_SDK_ERROR_BYTES);
       let errorBody: any = errorText;
       try {
         errorBody = JSON.parse(errorText);
@@ -195,7 +232,8 @@ export class VRCPackageClient {
       throw new VRCPApiError(response.status, message, code, errorBody);
     }
 
-    return (await response.json()) as T;
+    const responseText = await readBoundedText(response, MAX_SDK_SUCCESS_BYTES);
+    return JSON.parse(responseText) as T;
   }
 
   /* ------------------------------------------------------------------------ */

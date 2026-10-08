@@ -7,7 +7,8 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Added fail-fast bearer authentication before JSON payload reading and schema parsing.
+- **VRC Packages Worker (`vrcp-worker-preview`)**: Added fail-fast bearer authentication and redacted query parameters in error logs.
+- **VRC Packages API (`vrcp-packages-api-preview`)**: Added streaming response byte bounds to protect client memory.
 - **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
 - **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
 <!-- MASTER_SUMMARY -->
@@ -173,10 +174,11 @@ See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
-test
+API client updates for streaming response byte bounds and memory protection.
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
 
-test
+### Added
+- **Bounded Response Reading**: Added streaming byte limits (64 KiB for errors, 4 MiB for responses) to prevent excessive memory use.
 
 See full history at [docs/changelogs/vrcp-packages-api/preview](docs/changelogs/vrcp-packages-api/preview)
 
@@ -197,10 +199,11 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator updates for fail-fast bearer authentication, expired lease rejection codes, and idempotent result replays.
+Coordinator updates for fail-fast bearer authentication, query parameter log redaction, and expired lease policies.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Query Log Redaction**: Redacted full request URLs in error logs to prevent query parameter leaks.
 - **Fail-Fast Bearer Authentication**: Validated node authorization headers before body streaming and schema parsing to prevent resource exhaustion.
 - **Expired Lease Classification**: Tagged late result submissions with the terminal rejection code `lease_expired`.
 - **Post-Expiry Replay Idempotency**: Returned accepted duplicate receipts when clients replay previously accepted jobs after lease expiry.

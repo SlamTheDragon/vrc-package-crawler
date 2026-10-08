@@ -670,5 +670,19 @@ describe("VRCPackageClient SDK", () => {
     await expect(client.operator.catalog.list()).rejects.toThrow(VRCPApiError);
     await expect(client.operator.takedowns.list()).rejects.toThrow(VRCPApiError);
   });
+
+  it("rejects responses exceeding SDK byte limits", async () => {
+    const largeErrorClient = new VRCPackageClient({
+      baseUrl: "https://api.vrc-packages.example",
+      fetch: (async () => new Response("x".repeat(65 * 1024), { status: 500 })) as unknown as typeof fetch
+    });
+    await expect(largeErrorClient.index.query()).rejects.toThrow(/exceeds maximum byte limit/);
+
+    const largeSuccessClient = new VRCPackageClient({
+      baseUrl: "https://api.vrc-packages.example",
+      fetch: (async () => new Response("x".repeat(5 * 1024 * 1024), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch
+    });
+    await expect(largeSuccessClient.index.query()).rejects.toThrow(/exceeds maximum byte limit/);
+  });
 });
 

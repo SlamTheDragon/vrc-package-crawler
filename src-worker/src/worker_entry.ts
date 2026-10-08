@@ -67,13 +67,14 @@ export default {
         (await operatorHandler(request));
       if (handled) return handled;
 
-      workerLogger.warn("Route not found in worker fetch", { url: request.url, method: request.method });
+      workerLogger.warn("Route not found in worker fetch", { path: url.pathname, method: request.method });
       return new Response(JSON.stringify({ error: "Not Found" }), {
         status: 404,
         headers: { "Content-Type": "application/json" }
       });
     } catch (error) {
-      workerLogger.error("Unhandled exception in worker fetch", error, { url: request.url });
+      const path = new URL(request.url).pathname;
+      workerLogger.error("Unhandled exception in worker fetch", error, { path });
       return new Response(JSON.stringify({ error: "Internal Server Error" }), {
         status: 500,
         headers: { "Content-Type": "application/json" }
