@@ -94,4 +94,8 @@ CREATE INDEX IF NOT EXISTS idx_user_app_ownership_user ON user_app_ownership(use
 CREATE TABLE IF NOT EXISTS creator_opt_outs ( takedown_id TEXT PRIMARY KEY, target_url TEXT, canonical_id TEXT, requester_type TEXT NOT NULL CHECK(requester_type IN ('unauthenticated_creator','user','admin_operator')), requester_id TEXT, reason TEXT NOT NULL, proof_kind TEXT CHECK(proof_kind IN ('storefront_bio_token','dns_txt','manual_notice')), proof_value TEXT, contact_email TEXT, recorded_at TEXT NOT NULL, review_status TEXT NOT NULL DEFAULT 'accepted' CHECK(review_status IN ('pending','accepted','rejected')), review_notes TEXT );
 CREATE INDEX IF NOT EXISTS idx_opt_outs_target_url ON creator_opt_outs(target_url);
 CREATE INDEX IF NOT EXISTS idx_opt_outs_canonical_id ON creator_opt_outs(canonical_id);
+CREATE TABLE IF NOT EXISTS delegated_creator_claims ( claim_id TEXT PRIMARY KEY, app_id TEXT NOT NULL REFERENCES registered_apps(app_id), action TEXT NOT NULL CHECK(action = 'creator_ownership_claim'), front_url TEXT NOT NULL, creator_id TEXT NOT NULL, challenge_token TEXT NOT NULL, expires_at INTEGER NOT NULL, nonce TEXT NOT NULL, signature TEXT NOT NULL, payload_json TEXT NOT NULL, reason TEXT, contact_email TEXT, review_status TEXT NOT NULL DEFAULT 'pending' CHECK(review_status IN ('pending','accepted','rejected')), review_notes TEXT, recorded_at TEXT NOT NULL );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_delegated_claims_nonce ON delegated_creator_claims(app_id, nonce);
+CREATE INDEX IF NOT EXISTS idx_delegated_claims_status ON delegated_creator_claims(review_status, recorded_at, claim_id);
 `;
+

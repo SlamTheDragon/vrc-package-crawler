@@ -23,7 +23,7 @@ export interface CoordinatorStore {
 }
 
 export class CoordinatorConflict extends Error {
-  constructor(message: string, public readonly status: 403 | 404 | 409 = 409) { super(message); }
+  constructor(message: string, public readonly status: 400 | 403 | 404 | 409 = 409) { super(message); }
 }
 
 function json(body: unknown, status = 200): Response {

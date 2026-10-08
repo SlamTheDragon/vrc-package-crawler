@@ -4,13 +4,16 @@ import { RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeReque
   AutoQueueRuleListResponseSchema, AutoQueueRuleResponseSchema,
   CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, decodeRuleCursor, RuleCursorSchema,
   IssueNodeCredentialSchema, NodeCredentialResponseSchema, CatalogListResponseSchema,
-  decodeCatalogCursor, type IssueNodeCredential, type AutoQueueRule, type CreateAutoQueueRule,
+  decodeCatalogCursor, OperatorClaimListQuerySchema, type IssueNodeCredential, type AutoQueueRule, type CreateAutoQueueRule,
   type RuleCursor, type CatalogCursor, type CatalogPackage } from "vrc-packages-api";
 import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, LeadStatusSchema,
   OPERATOR_PROTOCOL_VERSION, RejectLeadSchema, decodeLeadCursor,
   decodeTakedownCursor, TakedownListResponseSchema, TakedownCursorSchema,
   VerifyTakedownRequestSchema, VerifyTakedownResponseSchema,
-  type LeadCursor, type LeadRow, type TakedownCursor, type TakedownRecord } from "./protocol/operator_protocol.js";
+  decodeDelegatedClaimCursor, DelegatedClaimListResponseSchema, DelegatedClaimCursorSchema,
+  VerifyDelegatedClaimRequestSchema, VerifyDelegatedClaimResponseSchema,
+  type LeadCursor, type LeadRow, type TakedownCursor, type TakedownRecord,
+  type DelegatedClaimCursor, type DelegatedClaimRecord } from "./protocol/operator_protocol.js";
 import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   SourceAccessProfileListResponseSchema, SourceAccessProfileResponseSchema,
   decodeProfileCursor, ProfileCursorSchema, type CreateSourceAccessProfile, type SourceAccessProfile,
@@ -49,6 +52,12 @@ export interface OperatorStore {
   verifyTakedown(takedownId: string, verdict: "accepted" | "rejected", actor: string, notes?: string):
     Promise<{ takedownId: string; status: "accepted" | "rejected"; updatedAt: string }> |
       { takedownId: string; status: "accepted" | "rejected"; updatedAt: string };
+  listDelegatedClaimsPage(reviewStatus?: string, limit?: number, cursor?: DelegatedClaimCursor | null):
+    Promise<{ records: DelegatedClaimRecord[]; nextCursor: string | null }> |
+      { records: DelegatedClaimRecord[]; nextCursor: string | null };
+  verifyDelegatedClaim(claimId: string, verdict: "accepted" | "rejected", actor: string, notes?: string):
+    Promise<{ claimId: string; status: "accepted" | "rejected"; updatedAt: string }> |
+      { claimId: string; status: "accepted" | "rejected"; updatedAt: string };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -98,8 +107,11 @@ export async function handleOperatorRequest(
   const takedownListing = request.method === "GET" && url.pathname === "/v1/operator/takedowns";
   const takedownVerify = request.method === "POST" &&
     /^\/v1\/operator\/takedowns\/([^/]+)\/verify$/.exec(url.pathname);
+  const claimListing = request.method === "GET" && url.pathname === "/v1/operator/claims";
+  const claimVerify = request.method === "POST" &&
+    /^\/v1\/operator\/claims\/([^/]+)\/verify$/.exec(url.pathname);
   if (!nodeRevoke && !jobEnqueue && !listing && !ruleListing && !ruleCreate && !ruleDisable && !profileListing && !profileCreate && !nodeIssue &&
-      !profileDisable && !catalogListing && !takedownListing && !takedownVerify && !(request.method === "POST" && leadAction)) {
+      !profileDisable && !catalogListing && !takedownListing && !takedownVerify && !claimListing && !claimVerify && !(request.method === "POST" && leadAction)) {
     return failure(404, "not_found", "Route not found");
   }
   if (!await authorized(request, configuredToken)) {
@@ -108,7 +120,8 @@ export async function handleOperatorRequest(
   }
   if ((ruleDisable && !RuleCursorSchema.shape.ruleId.safeParse(ruleDisable[1]).success) ||
       (profileDisable && !ProfileCursorSchema.shape.profileId.safeParse(profileDisable[1]).success) ||
-      (takedownVerify && !TakedownCursorSchema.shape.takedownId.safeParse(takedownVerify[1]).success)) {
+      (takedownVerify && !TakedownCursorSchema.shape.takedownId.safeParse(takedownVerify[1]).success) ||
+      (claimVerify && !DelegatedClaimCursorSchema.shape.claimId.safeParse(claimVerify[1]).success)) {
     return failure(404, "not_found", "Route not found");
   }
   if (listing) {
@@ -184,6 +197,29 @@ export async function handleOperatorRequest(
     return json(TakedownListResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
       ...await store.listTakedownsPage(requesterTypeParam || undefined, limit, cursor ? { ...cursor, takedownId: cursor.takedownId.toLowerCase() } : null) }));
   }
+  if (claimListing) {
+    const rawLimit = Number(url.searchParams.get("limit") || "100");
+    const rawCursor = url.searchParams.get("cursor");
+    const reviewStatusParam = url.searchParams.get("reviewStatus");
+    const query = OperatorClaimListQuerySchema.safeParse({
+      limit: rawLimit,
+      cursor: rawCursor || undefined,
+      reviewStatus: reviewStatusParam || undefined
+    });
+    if (!query.success ||
+        url.searchParams.getAll("limit").length > 1 ||
+        url.searchParams.getAll("cursor").length > 1 ||
+        url.searchParams.getAll("reviewStatus").length > 1 ||
+        [...url.searchParams.keys()].some(key => !["limit", "cursor", "reviewStatus"].includes(key))) {
+      return failure(400, "invalid_query", query.success ? "Unknown query keys" : "Claim query parameters are invalid");
+    }
+    const limit = query.data.limit;
+    const cursor = query.data.cursor ? decodeDelegatedClaimCursor(query.data.cursor) : null;
+    return json(DelegatedClaimListResponseSchema.parse({
+      schemaVersion: OPERATOR_PROTOCOL_VERSION,
+      ...await store.listDelegatedClaimsPage(query.data.reviewStatus, limit, cursor ? { ...cursor, claimId: cursor.claimId.toLowerCase() } : null)
+    }));
+  }
   let body: unknown;
   try { body = await readJson(request); }
   catch (error) {
@@ -246,6 +282,13 @@ export async function handleOperatorRequest(
       return json(VerifyTakedownResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
         ...result }));
     }
+    if (claimVerify) {
+      const parsed = VerifyDelegatedClaimRequestSchema.safeParse(body);
+      if (!parsed.success) return failure(400, "invalid_payload", "Verify claim body is invalid");
+      const result = await store.verifyDelegatedClaim(claimVerify[1].toLowerCase(), parsed.data.verdict, "operator-api", parsed.data.notes);
+      return json(VerifyDelegatedClaimResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
+        ...result }));
+    }
     const [, leadKey, action] = leadAction!;
     if (action === "approve") {
       const parsed = ApproveLeadSchema.safeParse(body);
@@ -263,7 +306,8 @@ export async function handleOperatorRequest(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Operator action failed";
     const missing = message === "Lead not found" || message === "Rule not found" ||
-      message === "Source profile not found" || message === "Takedown not found" || message === "Node not found";
+      message === "Source profile not found" || message === "Takedown not found" || message === "Node not found" ||
+      message === "Claim not found";
     workerLogger.warn("Operator action failed", { path: url.pathname, message, missing }, error);
     return failure(missing ? 404 : 409, missing ? "not_found" : "conflict", message);
   }

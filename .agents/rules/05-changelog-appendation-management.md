@@ -40,3 +40,7 @@ description: "Rules for appending changelog entries and maintaining root CHANGEL
    - Write short sentences: maximum 20 words for instructions, maximum 25 words for descriptions.
    - Do not use em dashes in prose. Use colons, parentheses, or periods instead.
    - Avoid marketing adjectives. State only factual, measurable technical changes.
+
+7. **Preview publication routine**:
+   - If changes require schema or dependency synchronization, execute preview publication and synchronization procedures.
+   - When preview publication finishes and verification passes, clear stale contents in the root `CHANGELOG.md`.

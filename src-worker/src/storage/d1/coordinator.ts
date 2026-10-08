@@ -10,7 +10,8 @@ import { ROBOTS_RESTRICTION_TOKENS } from "vrc-packages-network/identity";
 import { isPrivateOrReservedIp } from "vrc-packages-network/ip-policy";
 import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, type CrawlJob, type BatchResultRequest, type BatchResultResponse, type BatchResultReceipt, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "vrc-packages-network/node";
 import { type LeadCursor, type LeadRow, encodeLeadCursor,
-  encodeTakedownCursor, type TakedownCursor, type TakedownRecord } from "../../api/protocol/operator_protocol.js";
+  encodeTakedownCursor, type TakedownCursor, type TakedownRecord,
+  encodeDelegatedClaimCursor, type DelegatedClaimCursor, type DelegatedClaimRecord } from "../../api/protocol/operator_protocol.js";
 import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "vrc-packages-network/robots";
 import { type SourceAccessProfile, SourceAccessProfileSchema, sourceAccessProfileMatches, type SourcePurpose, type ProfileCursor, encodeProfileCursor, type CreateSourceAccessProfile, CreateSourceAccessProfileSchema, sourcePathScopesOverlap } from "../../domain/access/source_access_profile.js";
 import { isItchSearchUrl } from "vrc-packages-network/source-paths";
@@ -33,7 +34,10 @@ import {
   type DownstreamFeedbackRequest,
   type DownstreamFeedbackResponse,
   type CatalogSearchRequest,
-  type CatalogSearchResponse
+  type CatalogSearchResponse,
+  CreatorClaimIntakeRequestSchema,
+  type CreatorClaimIntakeRequest,
+  type CreatorClaimIntakeResponse
 } from "vrc-packages-api";
 import type { UserStore } from "../../api/user_handler.ts";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils.js";
@@ -2525,6 +2529,196 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
     return {
       takedownId,
+      status: verdict,
+      updatedAt
+    };
+  }
+
+  /**
+   * Ingests delegated creator ownership claims from downstream applications.
+   * Performs signature/payload verification, expiration checks, and atomic replay protection on (app_id, nonce).
+   */
+  async recordCreatorClaimIntake(appId: string, input: CreatorClaimIntakeRequest): Promise<CreatorClaimIntakeResponse> {
+    const parsed = CreatorClaimIntakeRequestSchema.parse(input);
+    if (parsed.attestation.appId !== appId) {
+      throw new CoordinatorConflict("Attestation appId does not match caller", 403);
+    }
+
+    const nowSec = Math.floor(this.now() / 1000);
+    if (parsed.attestation.expiresAt < nowSec) {
+      throw new CoordinatorConflict("Attestation has expired", 400);
+    }
+
+    const recordedAt = new Date(this.now()).toISOString();
+    const payloadJson = JSON.stringify(parsed);
+
+    // Atomic replay protection on (app_id, nonce)
+    const existing = await this.db.prepare(`
+      SELECT claim_id, payload_json, signature, review_status, recorded_at
+      FROM delegated_creator_claims
+      WHERE app_id = ? AND nonce = ?
+    `).bind(appId, parsed.attestation.nonce).first<{
+      claim_id: string;
+      payload_json: string;
+      signature: string;
+      review_status: "pending" | "accepted" | "rejected";
+      recorded_at: string;
+    }>();
+
+    if (existing) {
+      if (existing.signature !== parsed.signature || existing.payload_json !== payloadJson) {
+        throw new CoordinatorConflict("Nonce already used with different payload or signature", 409);
+      }
+      return {
+        schemaVersion: 1,
+        status: "accepted",
+        claimId: existing.claim_id,
+        reviewStatus: "pending",
+        recordedAt: existing.recorded_at
+      };
+    }
+
+    const claimId = crypto.randomUUID();
+    const result = await this.db.prepare(`
+      INSERT INTO delegated_creator_claims (
+        claim_id, app_id, action, front_url, creator_id, challenge_token,
+        expires_at, nonce, signature, payload_json, reason, contact_email,
+        review_status, review_notes, recorded_at
+      )
+      SELECT ?, app_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?
+      FROM registered_apps
+      WHERE app_id = ? AND revoked_at IS NULL
+    `).bind(
+      claimId,
+      parsed.attestation.action,
+      parsed.attestation.frontUrl,
+      parsed.attestation.creatorId,
+      parsed.attestation.challengeToken,
+      parsed.attestation.expiresAt,
+      parsed.attestation.nonce,
+      parsed.signature,
+      payloadJson,
+      parsed.reason || null,
+      parsed.contactEmail || null,
+      recordedAt,
+      appId
+    ).run();
+
+    if ((result.meta as { changes?: number } | undefined)?.changes !== 1) {
+      throw new CoordinatorConflict("Invalid application credential", 403);
+    }
+
+    return {
+      schemaVersion: 1,
+      status: "accepted",
+      claimId,
+      reviewStatus: "pending",
+      recordedAt
+    };
+  }
+
+  async listDelegatedClaimsPage(
+    reviewStatus?: string,
+    limit = 100,
+    cursor: DelegatedClaimCursor | null = null
+  ): Promise<{ records: DelegatedClaimRecord[]; nextCursor: string | null }> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Claim limit must be 1..100");
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (reviewStatus) {
+      conditions.push("review_status = ?");
+      params.push(reviewStatus);
+    }
+    if (cursor) {
+      conditions.push("(recorded_at, claim_id) < (?, ?)");
+      params.push(cursor.recordedAt, cursor.claimId);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    params.push(limit + 1);
+
+    const res = await this.db.prepare(`
+      SELECT claim_id, app_id, action, front_url, creator_id, challenge_token,
+             expires_at, nonce, signature, reason, contact_email, review_status, review_notes, recorded_at
+      FROM delegated_creator_claims
+      ${where}
+      ORDER BY recorded_at DESC, claim_id DESC
+      LIMIT ?
+    `).bind(...params).all<{
+      claim_id: string;
+      app_id: string;
+      action: "creator_ownership_claim";
+      front_url: string;
+      creator_id: string;
+      challenge_token: string;
+      expires_at: number;
+      nonce: string;
+      signature: string;
+      reason: string | null;
+      contact_email: string | null;
+      review_status: "pending" | "accepted" | "rejected";
+      review_notes: string | null;
+      recorded_at: string;
+    }>();
+
+    const rows = res.results || [];
+    const visible = rows.slice(0, limit);
+    const last = visible.at(-1);
+
+    const records: DelegatedClaimRecord[] = visible.map((row) => ({
+      claimId: row.claim_id,
+      appId: row.app_id,
+      action: row.action,
+      frontUrl: row.front_url,
+      creatorId: row.creator_id,
+      challengeToken: row.challenge_token,
+      expiresAt: row.expires_at,
+      nonce: row.nonce,
+      signature: row.signature,
+      reason: row.reason,
+      contactEmail: row.contact_email,
+      reviewStatus: row.review_status,
+      reviewNotes: row.review_notes,
+      recordedAt: row.recorded_at
+    }));
+
+    return {
+      records,
+      nextCursor: rows.length > limit && last ? encodeDelegatedClaimCursor({
+        recordedAt: last.recorded_at,
+        claimId: last.claim_id
+      }) : null
+    };
+  }
+
+  async verifyDelegatedClaim(
+    claimId: string,
+    verdict: "accepted" | "rejected",
+    actor: string,
+    notes?: string
+  ): Promise<{ claimId: string; status: "accepted" | "rejected"; updatedAt: string }> {
+    const row = await this.db.prepare(`
+      SELECT claim_id, review_status
+      FROM delegated_creator_claims
+      WHERE claim_id = ?
+    `).bind(claimId).first<{
+      claim_id: string;
+      review_status: string;
+    }>();
+
+    if (!row) {
+      throw new Error("Claim not found");
+    }
+
+    const updatedAt = new Date(this.now()).toISOString();
+    await this.db.prepare(`
+      UPDATE delegated_creator_claims
+      SET review_status = ?, review_notes = ?
+      WHERE claim_id = ?
+    `).bind(verdict, notes || null, claimId).run();
+
+    return {
+      claimId,
       status: verdict,
       updatedAt
     };

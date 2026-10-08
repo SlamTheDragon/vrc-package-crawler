@@ -432,3 +432,73 @@ export const OperatorCatalogListQuerySchema = OperatorPageQuerySchema.refine(
 export const OperatorTakedownListQuerySchema = OperatorPageQuerySchema.extend({
   requesterType: TakedownRecordSchema.shape.requesterType.optional()
 }).refine(query => query.cursor === undefined || decodeTakedownCursor(query.cursor) !== null, "Invalid takedown cursor");
+
+/* -------------------------------------------------------------------------- */
+/* Delegated Creator Claims Audit (R54-C38C)                                  */
+/* -------------------------------------------------------------------------- */
+
+export const DelegatedClaimRecordSchema = z.strictObject({
+  claimId: z.string().uuid(),
+  appId: z.string().uuid(),
+  action: z.literal("creator_ownership_claim"),
+  frontUrl: z.string(),
+  creatorId: z.string(),
+  challengeToken: z.string(),
+  expiresAt: z.number().int(),
+  nonce: z.string(),
+  signature: z.string(),
+  reason: z.string().nullable().optional(),
+  contactEmail: z.string().nullable().optional(),
+  reviewStatus: z.enum(["pending", "accepted", "rejected"]),
+  reviewNotes: z.string().nullable().optional(),
+  recordedAt: z.string().datetime()
+});
+export type DelegatedClaimRecord = z.infer<typeof DelegatedClaimRecordSchema>;
+
+export const DelegatedClaimCursorSchema = z.strictObject({
+  recordedAt: z.string().datetime(),
+  claimId: z.string().uuid()
+});
+export type DelegatedClaimCursor = z.infer<typeof DelegatedClaimCursorSchema>;
+
+export function encodeDelegatedClaimCursor(cursor: DelegatedClaimCursor): string {
+  return btoa(JSON.stringify(DelegatedClaimCursorSchema.parse(cursor)))
+    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+export function decodeDelegatedClaimCursor(value: string): DelegatedClaimCursor | null {
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) return null;
+  try {
+    const cursor = DelegatedClaimCursorSchema.parse(JSON.parse(atob(value.replaceAll("-", "+").replaceAll("_", "/"))));
+    return encodeDelegatedClaimCursor(cursor) === value ? cursor : null;
+  } catch {
+    return null;
+  }
+}
+
+export const DelegatedClaimListResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  records: z.array(DelegatedClaimRecordSchema),
+  nextCursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).nullable()
+});
+export type DelegatedClaimListResponse = z.infer<typeof DelegatedClaimListResponseSchema>;
+
+export const VerifyDelegatedClaimRequestSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  verdict: z.enum(["accepted", "rejected"]),
+  notes: z.string().trim().max(1000).optional()
+});
+export type VerifyDelegatedClaimRequest = z.infer<typeof VerifyDelegatedClaimRequestSchema>;
+
+export const VerifyDelegatedClaimResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  claimId: z.string().uuid(),
+  status: z.enum(["accepted", "rejected"]),
+  updatedAt: z.string().datetime()
+});
+export type VerifyDelegatedClaimResponse = z.infer<typeof VerifyDelegatedClaimResponseSchema>;
+
+export const OperatorClaimListQuerySchema = OperatorPageQuerySchema.extend({
+  reviewStatus: DelegatedClaimRecordSchema.shape.reviewStatus.optional()
+}).refine(query => query.cursor === undefined || decodeDelegatedClaimCursor(query.cursor) !== null, "Invalid claim cursor");
+

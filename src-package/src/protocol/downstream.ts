@@ -117,3 +117,37 @@ export const ReportSubmissionResponseSchema = z.strictObject({
   recordedAt: z.string().datetime()
 });
 export type ReportSubmissionResponse = z.infer<typeof ReportSubmissionResponseSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Delegated Creator Attestation Intake (R54-C38C)                            */
+/* -------------------------------------------------------------------------- */
+
+export const CreatorDelegationAttestationSchema = z.strictObject({
+  appId: z.string().uuid(),
+  action: z.literal("creator_ownership_claim"),
+  frontUrl: HttpsUrlSchema,
+  creatorId: z.string().trim().min(1).max(200),
+  challengeToken: z.string().trim().min(16).max(128),
+  expiresAt: z.number().int().positive(),
+  nonce: z.string().trim().min(16).max(128)
+});
+export type CreatorDelegationAttestation = z.infer<typeof CreatorDelegationAttestationSchema>;
+
+export const CreatorClaimIntakeRequestSchema = z.strictObject({
+  schemaVersion: z.literal(DOWNSTREAM_PROTOCOL_VERSION),
+  attestation: CreatorDelegationAttestationSchema,
+  signature: z.string().trim().min(1).max(512),
+  reason: z.string().trim().min(1).max(1000).optional(),
+  contactEmail: z.string().email().max(200).optional()
+});
+export type CreatorClaimIntakeRequest = z.infer<typeof CreatorClaimIntakeRequestSchema>;
+
+export const CreatorClaimIntakeResponseSchema = z.strictObject({
+  schemaVersion: z.literal(DOWNSTREAM_PROTOCOL_VERSION),
+  status: z.literal("accepted"),
+  claimId: z.string().uuid(),
+  reviewStatus: z.literal("pending"),
+  recordedAt: z.string().datetime()
+});
+export type CreatorClaimIntakeResponse = z.infer<typeof CreatorClaimIntakeResponseSchema>;
+

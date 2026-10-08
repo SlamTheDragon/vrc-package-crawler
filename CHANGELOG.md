@@ -7,8 +7,8 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Added Web Crypto delegation verification benchmarks under the 10 ms CPU limit.
-- **VRC Packages API (`vrcp-packages-api-preview`)**: Added explicit content reporting sub-categories for content rating review.
+- **VRC Packages Worker (`vrcp-worker-preview`)**: Added delegated creator attestation intake, atomic replay protection, and operator claim review routes.
+- **VRC Packages API (`vrcp-packages-api-preview`)**: Added delegated creator attestation intake schemas, operator claim review schemas, and client methods.
 - **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
 - **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
 <!-- MASTER_SUMMARY -->
@@ -174,10 +174,13 @@ See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
-API client updates for explicit content report sub-categories and streaming response byte bounds.
+API client updates for explicit content reporting sub-categories, response byte bounds, and delegated creator claim intake.
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Delegated Creator Claim Intake Schemas**: Added `CreatorClaimIntakeRequestSchema`, `CreatorClaimIntakeResponseSchema`, and `CreatorDelegationAttestationSchema`.
+- **Operator Claim Review Schemas**: Added `DelegatedClaimRecordSchema`, `DelegatedClaimListResponseSchema`, `VerifyDelegatedClaimRequestSchema`, and `VerifyDelegatedClaimResponseSchema`.
+- **SDK Claim Methods**: Added `client.claims.submitIntake()`, `client.operator.claims.list()`, and `client.operator.claims.verify()` methods.
 - **Explicit Content Report Sub-Categories**: Added `explicit_false_positive` and `explicit_false_negative` sub-categories to `IssueReportKindSchema` for content rating review.
 - **Bounded Response Reading**: Added streaming byte limits (64 KiB for errors, 4 MiB for responses) to prevent excessive memory use.
 
@@ -200,10 +203,12 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator updates for fail-fast authentication, query log redaction, and cryptographic delegation verification benchmarks.
+Coordinator updates for fail-fast authentication, query log redaction, cryptographic benchmarks, and delegated creator claim intake.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Delegated Creator Claim Intake**: Added `/v1/app/claims/intake` with atomic replay protection on application ID and nonce.
+- **Operator Claim Review Endpoints**: Added `/v1/operator/claims` and `/v1/operator/claims/{id}/verify` for listing and reviewing stored claims.
 - **Cryptographic Delegation Benchmark**: Measured Web Crypto verification budgets under the 10 ms CPU limit for HMAC and ECDSA.
 - **Query Log Redaction**: Redacted full request URLs in error logs to prevent query parameter leaks.
 - **Fail-Fast Bearer Authentication**: Validated node authorization headers before body streaming and schema parsing to prevent resource exhaustion.

@@ -294,4 +294,138 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     );
     expect(legacySearch.status).toBe(404);
   });
+
+  test("delegated creator attestation intake accepts valid claims and enforces replay protection", async () => {
+    const reg = await handleDownstreamRequest(
+      request("/v1/app/register", "POST", {
+        schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
+        appName: "VRChat Creator Companion",
+        contactEmail: "creator@companion.test"
+      }),
+      store
+    );
+    expect(reg.status).toBe(201);
+    const { appId, appToken } = await reg.json() as { appId: string; appToken: string };
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const validAttestation = {
+      appId,
+      action: "creator_ownership_claim" as const,
+      frontUrl: "https://shop.booth.pm/items/999888",
+      creatorId: "creator_booth_123",
+      challengeToken: "chal_valid_tok_123456",
+      expiresAt: nowSec + 3600,
+      nonce: "nonce_unique_123456"
+    };
+    const validSignature = "sig_ed25519_valid_signature_123";
+
+    // 1. Rejects unauthenticated requests
+    const anonRes = await handleDownstreamRequest(
+      request("/v1/app/claims/intake", "POST", {
+        schemaVersion: 1,
+        attestation: validAttestation,
+        signature: validSignature
+      }),
+      store
+    );
+    expect(anonRes.status).toBe(401);
+
+    // 2. Rejects attestation appId mismatch
+    const mismatchRes = await handleDownstreamRequest(
+      request("/v1/app/claims/intake", "POST", {
+        schemaVersion: 1,
+        attestation: {
+          ...validAttestation,
+          appId: "00000000-0000-4000-8000-000000000000"
+        },
+        signature: validSignature
+      }, appToken),
+      store
+    );
+    expect(mismatchRes.status).toBe(403);
+
+    // 3. Rejects expired attestation (400)
+    const expiredRes = await handleDownstreamRequest(
+      request("/v1/app/claims/intake", "POST", {
+        schemaVersion: 1,
+        attestation: {
+          ...validAttestation,
+          nonce: "nonce_expired_123456",
+          expiresAt: nowSec - 10
+        },
+        signature: validSignature
+      }, appToken),
+      store
+    );
+    expect(expiredRes.status).toBe(400);
+
+    // 4. Accepts valid claim intake (202)
+    const acceptRes = await handleDownstreamRequest(
+      request("/v1/app/claims/intake", "POST", {
+        schemaVersion: 1,
+        attestation: validAttestation,
+        signature: validSignature,
+        reason: "Authoritative storefront claim",
+        contactEmail: "creator@booth.test"
+      }, appToken),
+      store
+    );
+    expect(acceptRes.status).toBe(202);
+    const acceptData = await acceptRes.json() as any;
+    expect(acceptData.schemaVersion).toBe(1);
+    expect(acceptData.status).toBe("accepted");
+    expect(acceptData.claimId).toBeDefined();
+    expect(acceptData.reviewStatus).toBe("pending");
+    expect(acceptData.recordedAt).toBeDefined();
+
+    // Verify row in DB
+    const claimRow = store.db.prepare("SELECT * FROM delegated_creator_claims WHERE claim_id = ?")
+      .get(acceptData.claimId) as any;
+    expect(claimRow.app_id).toBe(appId);
+    expect(claimRow.action).toBe("creator_ownership_claim");
+    expect(claimRow.front_url).toBe("https://shop.booth.pm/items/999888");
+    expect(claimRow.creator_id).toBe("creator_booth_123");
+    expect(claimRow.challenge_token).toBe("chal_valid_tok_123456");
+    expect(claimRow.expires_at).toBe(validAttestation.expiresAt);
+    expect(claimRow.nonce).toBe("nonce_unique_123456");
+    expect(claimRow.signature).toBe(validSignature);
+    expect(claimRow.review_status).toBe("pending");
+    expect(claimRow.reason).toBe("Authoritative storefront claim");
+    expect(claimRow.contact_email).toBe("creator@booth.test");
+
+    // Zero crawl egress invariant: no crawl jobs, origin leases, or suppressed URLs queued
+    expect((store.db.prepare("SELECT COUNT(*) AS c FROM crawl_jobs").get() as any).c).toBe(0);
+    expect((store.db.prepare("SELECT COUNT(*) AS c FROM suppressed_urls").get() as any).c).toBe(0);
+
+    // 5. Exact duplicate replay returns same receipt idempotently (202)
+    const duplicateRes = await handleDownstreamRequest(
+      request("/v1/app/claims/intake", "POST", {
+        schemaVersion: 1,
+        attestation: validAttestation,
+        signature: validSignature,
+        reason: "Authoritative storefront claim",
+        contactEmail: "creator@booth.test"
+      }, appToken),
+      store
+    );
+    expect(duplicateRes.status).toBe(202);
+    const duplicateData = await duplicateRes.json() as any;
+    expect(duplicateData.claimId).toBe(acceptData.claimId);
+    expect(duplicateData.recordedAt).toBe(acceptData.recordedAt);
+
+    // 6. Replay attack with same nonce but altered payload/signature is rejected with 409 conflict
+    const tamperedRes = await handleDownstreamRequest(
+      request("/v1/app/claims/intake", "POST", {
+        schemaVersion: 1,
+        attestation: validAttestation,
+        signature: "tampered_signature_xyz_123456",
+        reason: "Authoritative storefront claim",
+        contactEmail: "creator@booth.test"
+      }, appToken),
+      store
+    );
+    expect(tamperedRes.status).toBe(409);
+    const tamperedData = await tamperedRes.json() as any;
+    expect(tamperedData.code).toBe("conflict");
+  });
 });

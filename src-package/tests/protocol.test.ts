@@ -15,7 +15,10 @@ import {
 } from "../src/protocol/catalog.ts";
 import {
   CatalogSearchRequestSchema,
-  ReportSubmissionRequestSchema
+  ReportSubmissionRequestSchema,
+  CreatorDelegationAttestationSchema,
+  CreatorClaimIntakeRequestSchema,
+  CreatorClaimIntakeResponseSchema
 } from "../src/protocol/downstream.ts";
 import {
   LeadRowSchema,
@@ -41,7 +44,12 @@ import {
   encodeTakedownCursor,
   decodeTakedownCursor,
   VerifyTakedownRequestSchema,
-  VerifyTakedownResponseSchema
+  VerifyTakedownResponseSchema,
+  DelegatedClaimRecordSchema,
+  encodeDelegatedClaimCursor,
+  decodeDelegatedClaimCursor,
+  VerifyDelegatedClaimRequestSchema,
+  VerifyDelegatedClaimResponseSchema
 } from "../src/protocol/operator.ts";
 
 describe("src-package wire protocols", () => {
@@ -359,6 +367,77 @@ describe("src-package wire protocols", () => {
     expect(() => VerifyTakedownResponseSchema.parse({
       schemaVersion: 1,
       takedownId: "123e4567-e89b-12d3-a456-426614174000",
+      status: "accepted",
+      updatedAt: "2026-10-01T12:00:00.000Z"
+    })).not.toThrow();
+
+    // Delegated Creator Claim Attestation (R54-C38C)
+    const validAttestation = {
+      appId: "123e4567-e89b-12d3-a456-426614174000",
+      action: "creator_ownership_claim" as const,
+      frontUrl: "https://creator.booth.pm",
+      creatorId: "booth_creator_123",
+      challengeToken: "vrcp_chal_0123456789abcdef",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      nonce: "nonce_abcdef0123456789"
+    };
+    expect(() => CreatorDelegationAttestationSchema.parse(validAttestation)).not.toThrow();
+
+    const claimRequest = {
+      schemaVersion: 1,
+      attestation: validAttestation,
+      signature: "sig_abc123456789",
+      reason: "Creator requested storefront claim",
+      contactEmail: "creator@example.com"
+    };
+    expect(() => CreatorClaimIntakeRequestSchema.parse(claimRequest)).not.toThrow();
+
+    const claimResponse = {
+      schemaVersion: 1,
+      status: "accepted" as const,
+      claimId: "123e4567-e89b-12d3-a456-426614174001",
+      reviewStatus: "pending" as const,
+      recordedAt: new Date().toISOString()
+    };
+    expect(() => CreatorClaimIntakeResponseSchema.parse(claimResponse)).not.toThrow();
+
+    // Delegated Claim Record & Cursor
+    const claimRecord = {
+      claimId: "123e4567-e89b-12d3-a456-426614174001",
+      appId: "123e4567-e89b-12d3-a456-426614174000",
+      action: "creator_ownership_claim" as const,
+      frontUrl: "https://creator.booth.pm",
+      creatorId: "booth_creator_123",
+      challengeToken: "vrcp_chal_0123456789abcdef",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      nonce: "nonce_abcdef0123456789",
+      signature: "sig_abc123456789",
+      reason: "Creator requested storefront claim",
+      contactEmail: "creator@example.com",
+      reviewStatus: "pending" as const,
+      reviewNotes: null,
+      recordedAt: "2026-10-01T12:00:00.000Z"
+    };
+    expect(() => DelegatedClaimRecordSchema.parse(claimRecord)).not.toThrow();
+
+    const claimCursor = {
+      recordedAt: "2026-10-01T12:00:00.000Z",
+      claimId: "123e4567-e89b-12d3-a456-426614174001"
+    };
+    const encClaimCursor = encodeDelegatedClaimCursor(claimCursor);
+    expect(decodeDelegatedClaimCursor(encClaimCursor)).toEqual(claimCursor);
+    expect(decodeDelegatedClaimCursor("invalid-cursor")).toBeNull();
+
+    // Verify Delegated Claim
+    expect(() => VerifyDelegatedClaimRequestSchema.parse({
+      schemaVersion: 1,
+      verdict: "accepted",
+      notes: "Attestation signature and storefront check verified"
+    })).not.toThrow();
+
+    expect(() => VerifyDelegatedClaimResponseSchema.parse({
+      schemaVersion: 1,
+      claimId: "123e4567-e89b-12d3-a456-426614174001",
       status: "accepted",
       updatedAt: "2026-10-01T12:00:00.000Z"
     })).not.toThrow();

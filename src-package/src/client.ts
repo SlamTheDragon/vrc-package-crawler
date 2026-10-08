@@ -23,6 +23,10 @@ import {
   ReportSubmissionRequestSchema,
   type ReportSubmissionResponse,
   ReportSubmissionResponseSchema,
+  type CreatorClaimIntakeRequest,
+  CreatorClaimIntakeRequestSchema,
+  type CreatorClaimIntakeResponse,
+  CreatorClaimIntakeResponseSchema,
   type QueryOrigin
 } from "./protocol/downstream.ts";
 import { UserAppListQuerySchema, UserAppListResponseSchema, UserAppResponseSchema, UserAppSchema,
@@ -30,12 +34,15 @@ import { UserAppListQuerySchema, UserAppListResponseSchema, UserAppResponseSchem
 import {
   type LeadStatus,
   OperatorLeadListQuerySchema, OperatorProfileListQuerySchema, OperatorRuleListQuerySchema,
-  OperatorCatalogListQuerySchema, OperatorTakedownListQuerySchema,
-  LeadCursorSchema, ProfileCursorSchema, RuleCursorSchema, TakedownCursorSchema,
+  OperatorCatalogListQuerySchema, OperatorTakedownListQuerySchema, OperatorClaimListQuerySchema,
+  LeadCursorSchema, ProfileCursorSchema, RuleCursorSchema, TakedownCursorSchema, DelegatedClaimCursorSchema,
   ApproveLeadSchema, RejectLeadSchema,
   CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema,
   IssueNodeCredentialSchema, VerifyTakedownRequestSchema,
+  VerifyDelegatedClaimRequestSchema, VerifyDelegatedClaimResponseSchema,
+  type VerifyDelegatedClaimResponse,
+  DelegatedClaimListResponseSchema, type DelegatedClaimListResponse,
   RevokeNodeRequestSchema, RevokeNodeResponseSchema, type RevokeNodeResponse,
   EnqueueJobRequestSchema, EnqueueJobResponseSchema,
   type EnqueueJobRequest, type EnqueueJobResponse,
@@ -325,6 +332,20 @@ export class VRCPackageClient {
     }
   };
 
+  readonly claims = {
+    /**
+     * Submits signed creator ownership claim attestation for review (POST /v1/app/claims/intake).
+     * Requires downstream application token.
+     */
+    submitIntake: async (request: CreatorClaimIntakeRequest): Promise<CreatorClaimIntakeResponse> => {
+      const res = await this.request<unknown>("/v1/app/claims/intake", "POST", {
+        auth: "app",
+        body: CreatorClaimIntakeRequestSchema.parse(request)
+      });
+      return CreatorClaimIntakeResponseSchema.parse(res);
+    }
+  };
+
   /* ------------------------------------------------------------------------ */
   /* User Namespace (/v1/user/*)                                              */
   /* ------------------------------------------------------------------------ */
@@ -569,6 +590,47 @@ export class VRCPackageClient {
           })
         });
         return VerifyTakedownResponseSchema.parse(res);
+      }
+    },
+
+    claims: {
+      /**
+       * Audits recorded delegated creator claims (GET /v1/operator/claims).
+       */
+      list: async (params: {
+        reviewStatus?: "pending" | "accepted" | "rejected";
+        limit?: number;
+        cursor?: string;
+      } = {}): Promise<DelegatedClaimListResponse> => {
+        const query = OperatorClaimListQuerySchema.parse(params);
+        const res = await this.request<unknown>("/v1/operator/claims", "GET", {
+          auth: "operator",
+          queryParams: {
+            reviewStatus: query.reviewStatus,
+            limit: query.limit,
+            cursor: query.cursor
+          }
+        });
+        return DelegatedClaimListResponseSchema.parse(res);
+      },
+
+      /**
+       * Records an operator verdict on a stored delegated creator claim (POST /v1/operator/claims/{id}/verify).
+       */
+      verify: async (
+        claimId: string,
+        request: { verdict: "accepted" | "rejected"; notes?: string }
+      ): Promise<VerifyDelegatedClaimResponse> => {
+        const id = DelegatedClaimCursorSchema.shape.claimId.parse(claimId).toLowerCase();
+        const res = await this.request<unknown>(`/v1/operator/claims/${id}/verify`, "POST", {
+          auth: "operator",
+          body: VerifyDelegatedClaimRequestSchema.parse({
+            schemaVersion: 1,
+            verdict: request.verdict,
+            notes: request.notes
+          })
+        });
+        return VerifyDelegatedClaimResponseSchema.parse(res);
       }
     }
   };

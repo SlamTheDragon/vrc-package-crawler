@@ -102,6 +102,67 @@ export const VerifyTakedownResponseSchema = z.strictObject({
 });
 export type VerifyTakedownResponse = z.infer<typeof VerifyTakedownResponseSchema>;
 
+export const VerifyDelegatedClaimRequestSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  verdict: z.enum(["accepted", "rejected"]),
+  notes: z.string().trim().max(1000).optional()
+});
+export type VerifyDelegatedClaimRequest = z.infer<typeof VerifyDelegatedClaimRequestSchema>;
+
+export const VerifyDelegatedClaimResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  claimId: z.string().uuid(),
+  status: z.enum(["accepted", "rejected"]),
+  updatedAt: z.iso.datetime()
+});
+export type VerifyDelegatedClaimResponse = z.infer<typeof VerifyDelegatedClaimResponseSchema>;
+
+export const DelegatedClaimRecordSchema = z.strictObject({
+  claimId: z.string().uuid(),
+  appId: z.string().uuid(),
+  action: z.literal("creator_ownership_claim"),
+  frontUrl: z.string(),
+  creatorId: z.string(),
+  challengeToken: z.string(),
+  expiresAt: z.number().int(),
+  nonce: z.string(),
+  signature: z.string(),
+  reason: z.string().nullable().optional(),
+  contactEmail: z.string().nullable().optional(),
+  reviewStatus: z.enum(["pending", "accepted", "rejected"]),
+  reviewNotes: z.string().nullable().optional(),
+  recordedAt: z.iso.datetime()
+});
+export type DelegatedClaimRecord = z.infer<typeof DelegatedClaimRecordSchema>;
+
+export const DelegatedClaimCursorSchema = z.strictObject({
+  recordedAt: z.iso.datetime(),
+  claimId: z.string().uuid()
+});
+export type DelegatedClaimCursor = z.infer<typeof DelegatedClaimCursorSchema>;
+
+export function encodeDelegatedClaimCursor(cursor: DelegatedClaimCursor): string {
+  return btoa(JSON.stringify(DelegatedClaimCursorSchema.parse(cursor)))
+    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+export function decodeDelegatedClaimCursor(value: string): DelegatedClaimCursor | null {
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) return null;
+  try {
+    const cursor = DelegatedClaimCursorSchema.parse(JSON.parse(atob(value.replaceAll("-", "+").replaceAll("_", "/"))));
+    return encodeDelegatedClaimCursor(cursor) === value ? cursor : null;
+  } catch {
+    return null;
+  }
+}
+
+export const DelegatedClaimListResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  records: z.array(DelegatedClaimRecordSchema),
+  nextCursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).nullable()
+});
+export type DelegatedClaimListResponse = z.infer<typeof DelegatedClaimListResponseSchema>;
+
 export const OPERATOR_API_JSON_SCHEMAS = {
   approveLead: z.toJSONSchema(ApproveLeadSchema),
   rejectLead: z.toJSONSchema(RejectLeadSchema),
@@ -116,5 +177,8 @@ export const OPERATOR_API_JSON_SCHEMAS = {
   catalogListResponse: z.toJSONSchema(CatalogListResponseSchema),
   takedownListResponse: z.toJSONSchema(TakedownListResponseSchema),
   verifyTakedownRequest: z.toJSONSchema(VerifyTakedownRequestSchema),
-  verifyTakedownResponse: z.toJSONSchema(VerifyTakedownResponseSchema)
+  verifyTakedownResponse: z.toJSONSchema(VerifyTakedownResponseSchema),
+  delegatedClaimListResponse: z.toJSONSchema(DelegatedClaimListResponseSchema),
+  verifyDelegatedClaimRequest: z.toJSONSchema(VerifyDelegatedClaimRequestSchema),
+  verifyDelegatedClaimResponse: z.toJSONSchema(VerifyDelegatedClaimResponseSchema)
 };

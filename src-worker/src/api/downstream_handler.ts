@@ -8,6 +8,8 @@ import {
   ReportSubmissionResponseSchema,
   CatalogSearchRequestSchema,
   CatalogSearchResponseSchema,
+  CreatorClaimIntakeRequestSchema,
+  CreatorClaimIntakeResponseSchema,
   type RegisterAppRequest,
   type RegisterAppResponse,
   type DownstreamFeedbackRequest,
@@ -15,7 +17,9 @@ import {
   type ReportSubmissionRequest,
   type ReportSubmissionResponse,
   type CatalogSearchRequest,
-  type CatalogSearchResponse
+  type CatalogSearchResponse,
+  type CreatorClaimIntakeRequest,
+  type CreatorClaimIntakeResponse
 } from "vrc-packages-api";
 import { readJson, CoordinatorConflict } from "./handler.js";
 import { workerLogger } from "../worker_logger.ts";
@@ -23,6 +27,7 @@ import { timingSafeEqual } from "../storage/d1/utils.ts";
 
 export interface DownstreamStore {
   recordRemovalReport(appId: string, input: ReportSubmissionRequest): Promise<ReportSubmissionResponse> | ReportSubmissionResponse;
+  recordCreatorClaimIntake(appId: string, input: CreatorClaimIntakeRequest): Promise<CreatorClaimIntakeResponse> | CreatorClaimIntakeResponse;
   registerApp(input: RegisterAppRequest, ownerUserId?: string): Promise<RegisterAppResponse> | RegisterAppResponse;
   authenticateUser(token: string): Promise<{ userId: string; userName: string } | null> | { userId: string; userName: string } | null;
   authenticateApp(appToken: string): Promise<{ appId: string; appName: string; permissions: string[] } | null> |
@@ -58,8 +63,9 @@ export async function handleDownstreamRequest(
   const isRegister = request.method === "POST" && path === "/v1/app/register";
   const isFeedback = request.method === "POST" && path === "/v1/app/report";
   const isSearch = request.method === "POST" && path === "/v1/app/index/search";
+  const isClaimIntake = request.method === "POST" && path === "/v1/app/claims/intake";
 
-  if (!isRegister && !isFeedback && !isSearch) {
+  if (!isRegister && !isFeedback && !isSearch && !isClaimIntake) {
     return failure(404, "not_found", "Route not found");
   }
 
@@ -175,7 +181,40 @@ export async function handleDownstreamRequest(
     }
   }
 
-  // 4. Configurable Multi-Facet Search
+  // 4. Delegated Creator Attestation Intake (R54-C38C)
+  if (isClaimIntake) {
+    let body: unknown;
+    try {
+      body = await readJson(request);
+    } catch (error) {
+      if (error instanceof RangeError) return failure(413, "invalid_payload", error.message);
+      if (error instanceof CoordinatorConflict) return failure(415, "invalid_payload", error.message);
+      return failure(400, "bad_json", "Request body must be valid JSON");
+    }
+
+    const parsed = CreatorClaimIntakeRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return failure(400, "invalid_payload", parsed.error.issues.map((i) => i.path.join(".") || "body").join(", "));
+    }
+
+    if (parsed.data.attestation.appId !== app.appId) {
+      return failure(403, "forbidden", "Attestation appId does not match caller");
+    }
+
+    try {
+      const response = await store.recordCreatorClaimIntake(app.appId, parsed.data);
+      return json(CreatorClaimIntakeResponseSchema.parse(response), 202);
+    } catch (error) {
+      if (error instanceof CoordinatorConflict) {
+        return failure(error.status, "conflict", error.message);
+      }
+      const msg = error instanceof Error ? error.message : "Claim intake failed";
+      workerLogger.error("Failed to record creator claim intake", error, { path, appId: app.appId });
+      return failure(500, "internal_error", msg);
+    }
+  }
+
+  // 5. Configurable Multi-Facet Search
   if (isSearch) {
     let body: unknown;
     try {
@@ -210,6 +249,7 @@ export function createDownstreamHandler(store: DownstreamStore, operatorToken = 
     if (
       path === "/v1/app/register" ||
       path === "/v1/app/report" ||
+      path === "/v1/app/claims/intake" ||
       path === "/v1/app/index/search"
     ) {
       return handleDownstreamRequest(request, store, operatorToken);

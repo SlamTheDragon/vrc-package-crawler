@@ -92,6 +92,8 @@ There is no GET `/v1/node/jobs` route. Claim lets the coordinator select authori
 | `GET`  | `/v1/operator/catalog`                      |   ✅    | Lists canonical packages with cursor pagination. Uses the public index projection.                                                                                                                     | Query: `limit`, `cursor`                                                                                                                                                    | `200` `{ schemaVersion: 1, packages[], nextCursor }`                                |
 | `GET`  | `/v1/operator/takedowns`                    |   ✅    | Lists creator opt-out records, not pending removal reports.                                                                                                                                            | Query: `requesterType`, `limit`, `cursor`                                                                                                                                   | `200` `{ schemaVersion: 1, records[], nextCursor }`                                 |
 | `POST` | `/v1/operator/takedowns/{id}/verify`        |   ✅    | Records a verdict on a stored opt-out. Automated proof checks and persisted actor audit are absent.                                                                                                    | `{ schemaVersion: 1, verdict: "accepted" \| "rejected", notes? }`                                                                                                           | `200` `{ schemaVersion: 1, takedownId, status, updatedAt }`                         |
+| `GET`  | `/v1/operator/claims`                       |   ✅    | Lists recorded delegated creator claims with reviewStatus filter and keyset pagination.                                                                                                                | Query: `reviewStatus?`, `limit?`, `cursor`                                                                                                                                  | `200` `{ schemaVersion: 1, records[], nextCursor }`                                 |
+| `POST` | `/v1/operator/claims/{id}/verify`           |   ✅    | Records an operator review verdict on a stored delegated creator claim.                                                                                                                                | `{ schemaVersion: 1, verdict: "accepted" \| "rejected", notes? }`                                                                                                           | `200` `{ schemaVersion: 1, claimId, status, updatedAt }`                            |
 
 ---
 
@@ -137,6 +139,7 @@ SDK delta and operator list methods now check strict query schemas before transp
 | `GET` | `/v1/app/index/delta` | Public | ✅ | Pages current rows by update time. Emits `upsert` or `delist`. This is not a durable event stream. | Query: `cursor?`, `limit?` (1–100, default 50) | `200` `{ schemaVersion: 1, epoch, deltas[], nextCursor }` |
 | `POST` | `/v1/app/index/search` | `vrcp_app_` | ⚠️ | Bounded substring search. Attribution is accepted but unused. Tags use heuristics, not canonical tag data. | `{ schemaVersion: 1, query?, queryOrigin?, category?, umbrella?, platform?, tags[]?, limit?, cursor? }` | `200` `{ schemaVersion: 1, items[], nextCursor, totalEstimated }` |
 | `POST` | `/v1/app/report` | `vrcp_app_` | ✅ | Records demand, issue reports or pending removal requests. Removal does not alter the catalog. | `{ schemaVersion: 1, reportType: "demand_signal" \| "issue_report" \| "removal_request", signalKind?, reportKind?, targetUrl?, canonicalId?, query?, zeroHits?, reason?, metadata? }` | `{ schemaVersion: 1, status: "accepted", reportId, recordedAt }`. demand/issue `200`, removal `202`. |
+| `POST` | `/v1/app/claims/intake` | `vrcp_app_` | ✅ | Ingests delegated creator ownership claims with atomic replay protection on `(app_id, nonce)`. Records as pending review. Zero external crawl egress. | `{ schemaVersion: 1, attestation: { appId, action, frontUrl, creatorId, challengeToken, expiresAt, nonce }, signature, reason?, contactEmail? }` | `202` `{ schemaVersion: 1, status: "accepted", claimId, reviewStatus: "pending", recordedAt }` |
 
 ---
 
@@ -163,6 +166,8 @@ SDK delta and operator list methods now check strict query schemas before transp
 | `GET /v1/operator/catalog`                       |       ✅        |  —   |       —        |      —       |        —         |
 | `GET /v1/operator/takedowns`                     |       ✅        |  —   |       —        |      —       |        —         |
 | `POST /v1/operator/takedowns/{id}/verify`        |       ✅        |  —   |       —        |      —       |        —         |
+| `GET /v1/operator/claims`                        |       ✅        |  —   |       —        |      —       |        —         |
+| `POST /v1/operator/claims/{id}/verify`           |       ✅        |  —   |       —        |      —       |        —         |
 | `GET /v1/user/apps`                              |       —        |  ✅   |       —        |      —       |        —         |
 | `GET /v1/user/apps/{appId}`                      |       —        |  ✅   |       —        |      —       |        —         |
 | `GET /v1/user/nodes` 🔲                          |       —        |  ✅   |       —        |      —       |        —         |
@@ -175,6 +180,7 @@ SDK delta and operator list methods now check strict query schemas before transp
 | `GET /v1/app/index/delta`                        |       —        |  —   |       —        |      —       |        ✅         |
 | `POST /v1/app/index/search`                      |       —        |  —   |       ✅        |      —       |        —         |
 | `POST /v1/app/report`                            |       —        |  —   |       ✅        |      —       |        —         |
+| `POST /v1/app/claims/intake`                     |       —        |  —   |       ✅        |      —       |        —         |
 
 ---
 

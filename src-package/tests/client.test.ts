@@ -659,6 +659,103 @@ describe("VRCPackageClient SDK", () => {
     expect(verifyRes.takedownId).toBe(takedownId);
   });
 
+  it("submits delegated creator claim intake with appToken and audits via operator.claims", async () => {
+    let capturedHeaders: HeadersInit | undefined;
+    let capturedUrl = "";
+    let capturedMethod = "";
+    const claimId = "123e4567-e89b-12d3-a456-426614174000";
+    const operatorToken = "e".repeat(64);
+
+    const mockFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      capturedUrl = String(input);
+      capturedMethod = init?.method || "GET";
+      capturedHeaders = init?.headers;
+
+      if (capturedUrl.includes("/v1/app/claims/intake")) {
+        return new Response(JSON.stringify({
+          schemaVersion: 1,
+          status: "accepted",
+          claimId,
+          reviewStatus: "pending",
+          recordedAt: new Date().toISOString()
+        }), { status: 202, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (capturedUrl.includes(`/v1/operator/claims/${claimId}/verify`)) {
+        return new Response(JSON.stringify({
+          schemaVersion: 1,
+          claimId,
+          status: "accepted",
+          updatedAt: new Date().toISOString()
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (capturedUrl.includes("/v1/operator/claims")) {
+        return new Response(JSON.stringify({
+          schemaVersion: 1,
+          records: [{
+            claimId,
+            appId: "123e4567-e89b-12d3-a456-426614174000",
+            action: "creator_ownership_claim",
+            frontUrl: "https://creator.booth.pm",
+            creatorId: "creator-123",
+            challengeToken: "vrcp_chal_0123456789abcdef",
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            nonce: "nonce_abcdef0123456789",
+            signature: "sig_abc123456789",
+            reason: "Storefront ownership verification",
+            contactEmail: "creator@example.com",
+            reviewStatus: "pending",
+            reviewNotes: null,
+            recordedAt: new Date().toISOString()
+          }],
+          nextCursor: null
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      return new Response("Not found", { status: 404 });
+    };
+
+    const client = new VRCPackageClient({
+      baseUrl: "https://api.vrc-packages.example",
+      appToken: dummyAppToken,
+      operatorToken,
+      fetch: mockFetch as unknown as typeof fetch
+    });
+
+    const intakeRes = await client.claims.submitIntake({
+      schemaVersion: 1,
+      attestation: {
+        appId: "123e4567-e89b-12d3-a456-426614174000",
+        action: "creator_ownership_claim",
+        frontUrl: "https://creator.booth.pm",
+        creatorId: "creator-123",
+        challengeToken: "vrcp_chal_0123456789abcdef",
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        nonce: "nonce_abcdef0123456789"
+      },
+      signature: "sig_abc123456789",
+      reason: "Storefront ownership verification",
+      contactEmail: "creator@example.com"
+    });
+
+    expect((capturedHeaders as Record<string, string>)["Authorization"]).toBe(`Bearer ${dummyAppToken}`);
+    expect(intakeRes.status).toBe("accepted");
+    expect(intakeRes.claimId).toBe(claimId);
+    expect(intakeRes.reviewStatus).toBe("pending");
+
+    const listRes = await client.operator.claims.list({ reviewStatus: "pending" });
+    expect(listRes.records.length).toBe(1);
+    expect(listRes.records[0]?.claimId).toBe(claimId);
+
+    const verifyRes = await client.operator.claims.verify(claimId, {
+      verdict: "accepted",
+      notes: "Confirmed ownership"
+    });
+    expect(verifyRes.status).toBe("accepted");
+    expect(verifyRes.claimId).toBe(claimId);
+  });
+
   it("throws VRCPApiError if operator methods called without operatorToken", async () => {
     const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example"
@@ -669,6 +766,7 @@ describe("VRCPackageClient SDK", () => {
     await expect(client.operator.autoQueueRules.list()).rejects.toThrow(VRCPApiError);
     await expect(client.operator.catalog.list()).rejects.toThrow(VRCPApiError);
     await expect(client.operator.takedowns.list()).rejects.toThrow(VRCPApiError);
+    await expect(client.operator.claims.list()).rejects.toThrow(VRCPApiError);
   });
 
   it("rejects responses exceeding SDK byte limits", async () => {
