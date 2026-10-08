@@ -301,6 +301,22 @@ export class LocalNodeStore {
     }).immediate();
   }
 
+  public getPendingOutboxCount(): number {
+    const row = this.db.prepare(
+      "SELECT COUNT(*) as count FROM node_outbox WHERE status IN ('pending', 'submitting')"
+    ).get() as { count: number };
+    return row.count;
+  }
+
+  public recoverInterruptedOutboxEntries(): number {
+    return this.db.transaction(() => {
+      const result = this.db.prepare(
+        "UPDATE node_outbox SET status = 'pending' WHERE status = 'submitting'"
+      ).run();
+      return result.changes;
+    }).immediate();
+  }
+
   public getPendingOutboxEntries(limit: number = 50): NodeOutboxRecord[] {
     const nowIso = new Date(this.now()).toISOString();
     const rows = this.db.prepare(`

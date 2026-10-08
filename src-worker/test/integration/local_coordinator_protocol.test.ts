@@ -1401,4 +1401,148 @@ describe("local coordinator protocol", () => {
       store.close();
     }
   });
+
+  test("prior receipt replay post-lease-expiry vs first late-result rejection (R54-C39D)", async () => {
+    let now = Date.parse("2026-09-27T00:00:00.000Z");
+    const store = new LocalCoordinatorStore(":memory:", () => now);
+    try {
+      const token = store.createNodeCredential("late-node", ["vpm"]);
+      seedApprovedFixtureJob(store, "https://late-test1.example.org/pkg1.json", "vpm", 1000);
+      seedApprovedFixtureJob(store, "https://late-test2.example.org/pkg2.json", "vpm", 1000);
+      allowFixtureOrigin(store, "https://late-test1.example.org");
+      allowFixtureOrigin(store, "https://late-test2.example.org");
+
+      // Claim job 1
+      const claim1Res = await handleNodeRequest(request("/v1/node/jobs/claim", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "late-node",
+        capabilities: ["vpm"]
+      }, token), store);
+      const claim1 = ClaimResponseSchema.parse(await claim1Res.json());
+      if (claim1.status !== "leased") throw new Error("Expected job 1 leased");
+      const job1 = claim1.job;
+
+      // Submit job 1 while lease is still live (valid submission)
+      const idKey1 = "idemp-key-ontime-" + crypto.randomUUID();
+      const sub1Res = await handleNodeRequest(request("/v1/node/jobs/results", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "late-node",
+        results: [{
+          jobId: job1.jobId,
+          leaseId: job1.leaseId,
+          idempotencyKey: idKey1,
+          outcome: {
+            kind: "changed",
+            observation: {
+              sourceItemKey: "ontime-pkg",
+              title: "On Time Package",
+              author: "Author",
+              summary: "Summary",
+              outboundLinks: [],
+              originUpdatedAt: null
+            }
+          }
+        }]
+      }, token), store);
+      expect(sub1Res.status).toBe(200);
+      const sub1Parsed = BatchResultResponseSchema.parse(await sub1Res.json());
+      expect(sub1Parsed.receipts[0]).toMatchObject({ status: "accepted", jobId: job1.jobId, duplicate: false });
+
+      // Claim job 2
+      const claim2Res = await handleNodeRequest(request("/v1/node/jobs/claim", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "late-node",
+        capabilities: ["vpm"]
+      }, token), store);
+      const claim2 = ClaimResponseSchema.parse(await claim2Res.json());
+      if (claim2.status !== "leased") throw new Error("Expected job 2 leased");
+      const job2 = claim2.job;
+
+      // Advance clock past lease expiration (both leases are now expired)
+      now += 600_000; // 10 minutes later
+
+      // Test Case A: Prior receipt replay post-lease-expiry succeeds (exact idempotency preserved)
+      const replayRes = await handleNodeRequest(request("/v1/node/jobs/results", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "late-node",
+        results: [{
+          jobId: job1.jobId,
+          leaseId: job1.leaseId,
+          idempotencyKey: idKey1,
+          outcome: {
+            kind: "changed",
+            observation: {
+              sourceItemKey: "ontime-pkg",
+              title: "On Time Package",
+              author: "Author",
+              summary: "Summary",
+              outboundLinks: [],
+              originUpdatedAt: null
+            }
+          }
+        }]
+      }, token), store);
+      expect(replayRes.status).toBe(200);
+      const replayParsed = BatchResultResponseSchema.parse(await replayRes.json());
+      expect(replayParsed.receipts[0]).toMatchObject({
+        status: "accepted",
+        jobId: job1.jobId,
+        duplicate: true
+      });
+
+      // Test Case B: First late submission for job 2 (no prior submission) is rejected with lease_expired
+      const idKey2 = "idemp-key-late-" + crypto.randomUUID();
+      const lateRes = await handleNodeRequest(request("/v1/node/jobs/results", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "late-node",
+        results: [{
+          jobId: job2.jobId,
+          leaseId: job2.leaseId,
+          idempotencyKey: idKey2,
+          outcome: {
+            kind: "changed",
+            observation: {
+              sourceItemKey: "late-pkg",
+              title: "Late Package",
+              author: "Author",
+              summary: "Summary",
+              outboundLinks: [],
+              originUpdatedAt: null
+            }
+          }
+        }]
+      }, token), store);
+      expect(lateRes.status).toBe(200);
+      const lateParsed = BatchResultResponseSchema.parse(await lateRes.json());
+      expect(lateParsed.receipts[0]).toMatchObject({
+        status: "rejected",
+        jobId: job2.jobId,
+        terminal: true,
+        code: "lease_expired"
+      });
+
+      // Test Case C: Single endpoint /v1/node/jobs/result also rejects first late submission with 403
+      const singleLateRes = await handleNodeRequest(request("/v1/node/jobs/result", {
+        schemaVersion: PROTOCOL_VERSION,
+        nodeId: "late-node",
+        jobId: job2.jobId,
+        leaseId: job2.leaseId,
+        idempotencyKey: "single-late-" + crypto.randomUUID(),
+        outcome: {
+          kind: "changed",
+          observation: {
+            sourceItemKey: "late-pkg-2",
+            title: "Late Package 2",
+            author: "Author",
+            summary: "Summary",
+            outboundLinks: [],
+            originUpdatedAt: null
+          }
+        }
+      }, token), store);
+      expect(singleLateRes.status).toBe(403);
+    } finally {
+      store.close();
+    }
+  });
 });

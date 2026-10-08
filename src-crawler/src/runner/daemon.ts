@@ -15,6 +15,7 @@ export interface CrawlerNodeDaemonOptions {
   heartbeatIntervalMs?: number;
   maxPendingOutboxQuota?: number;
   outboxTtlMs?: number;
+  outboxPruneIntervalMs?: number;
   minIdleDelayMs?: number;
   maxIdleDelayMs?: number;
   idleBackoffMultiplier?: number;
@@ -31,6 +32,7 @@ export class CrawlerNodeDaemon {
   private stopping: boolean = false;
   private readonly stopController = new AbortController();
   private lastHeartbeatAt: number = 0;
+  private lastPruneAt: number = 0;
   private lastRetryAfterMs: number = 5_000;
   private lastCalculatedDelayMs: number = 5_000;
   private consecutiveEmptyClaims: number = 0;
@@ -44,6 +46,7 @@ export class CrawlerNodeDaemon {
     private readonly options: CrawlerNodeDaemonOptions = {}
   ) {
     this.runId = this.nodeStore.startRun(this.config.nodeId);
+    this.lastPruneAt = Date.now();
   }
 
   public get currentRunId(): string {
@@ -219,9 +222,26 @@ export class CrawlerNodeDaemon {
 
     if (this.stopping) return "stopped";
 
+    // Periodic background outbox maintenance
+    const pruneInterval = this.options.outboxPruneIntervalMs ?? 3_600_000;
+    if (Date.now() - this.lastPruneAt >= pruneInterval) {
+      this.nodeStore.pruneOutbox(this.options.outboxTtlMs ?? 86_400_000);
+      this.lastPruneAt = Date.now();
+    }
+
     // Flush pending outbox entries before claiming new leases
     await this.flushOutbox();
     if (this.stopping) return "stopped";
+
+    // Flow control: pause claims when outbox quota is exhausted
+    const maxQuota = this.options.maxPendingOutboxQuota ?? 1000;
+    const pendingCount = this.nodeStore.getPendingOutboxCount();
+    if (pendingCount >= maxQuota) {
+      logger.warn(`Outbox pending quota reached (${pendingCount}/${maxQuota}). Pausing job claims until outbox drains.`);
+      this.consecutiveEmptyClaims++;
+      this.lastCalculatedDelayMs = this.calculateIdleDelay(5_000);
+      return "empty";
+    }
 
     const claim = await this.client.claim();
     if (this.stopping) return "stopped";
@@ -323,7 +343,9 @@ export class CrawlerNodeDaemon {
     }, 100) : undefined;
 
     try {
+      this.nodeStore.recoverInterruptedOutboxEntries();
       this.nodeStore.pruneOutbox(this.options.outboxTtlMs ?? 86_400_000);
+      this.lastPruneAt = Date.now();
       await this.heartbeat();
       await this.flushOutbox();
       while (!this.stopping) {

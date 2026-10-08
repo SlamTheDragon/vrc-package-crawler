@@ -7,9 +7,9 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-- **VRC Packages Network (`vrcp-packages-network`)**: Added batched claim and multi-result submission schemas with per-item receipts and bounded limits.
-- **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Implemented batched outbox result flush with partial failure isolation and per-item receipt tracking.
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Added multi-job claim with per-origin reservations and atomic batched result endpoint (`/v1/node/jobs/results`).
+- **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
+- **VRC Packages Worker (`vrcp-worker-preview`)**: Added terminal lease expired receipts and post-expiry submission idempotency.
+- **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
 <!-- MASTER_SUMMARY -->
 
 ## Table of Contents
@@ -146,10 +146,13 @@ See full history at [docs/changelogs/vrcp-crawler-client/preview](docs/changelog
 ## VRC Packages Crawler - `vrcp-crawler-node-preview`
 
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
-Crawler node updates for batched outbox result flushing, per-item receipts, and partial failure isolation.
+Crawler node updates for outbox quota flow control, crash recovery, and periodic storage maintenance.
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Outbox Quota Flow Control**: Paused job claims when pending outbox entries exceed configured limits to avoid memory and disk saturation.
+- **Startup Crash Recovery**: Reset interrupted outbox submissions to pending status on daemon start to resume deliveries safely.
+- **Periodic Storage Pruning**: Added background TTL maintenance intervals to remove old acknowledged entries during active runs.
 - **Batched Outbox Flush**: Updated `flushOutbox` to submit up to 10 results in one request using `submitBatch`.
 - **Per-Item Receipt Tracking**: Processed individual accepted and rejected receipts to isolate failures during batch flushes.
 - **Batched Claim Support**: Added optional `maxJobs` parameter to `CoordinatorClient.claim` to request multiple jobs.
@@ -194,10 +197,12 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator D1 updates adding batched claims with per-origin fairness and batched result processing with per-item receipts.
+Coordinator updates for expired lease rejection codes and idempotent post-expiry result replays.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Expired Lease Classification**: Tagged late result submissions with the terminal rejection code `lease_expired`.
+- **Post-Expiry Replay Idempotency**: Returned accepted duplicate receipts when clients replay previously accepted jobs after lease expiry.
 - **Batched Claim Route**: Added multi-job claims up to 10 items with per-origin reservations to prevent single-origin contention.
 - **Batched Result Endpoint**: Implemented `/v1/node/jobs/results` with per-item idempotency and atomic transactional commits.
 - **Partial Failure Isolation**: Added per-item accepted and rejected receipts with terminal error classification.

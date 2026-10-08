@@ -1002,9 +1002,10 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
         });
       } catch (error) {
         if (error instanceof CoordinatorConflict) {
+          const isLeaseExpired = error.message.includes("lease") || error.message.includes("live lease");
           const isTerminal = error.status === 403 || error.status === 404 ||
-            error.message.includes("lease") || error.message.includes("not found");
-          const code = error.status === 403 ? "forbidden" : error.status === 404 ? "not_found" : "conflict";
+            isLeaseExpired || error.message.includes("not found");
+          const code = isLeaseExpired ? "lease_expired" : error.status === 403 ? "forbidden" : error.status === 404 ? "not_found" : "conflict";
           receipts.push({
             status: "rejected",
             jobId: item.jobId,

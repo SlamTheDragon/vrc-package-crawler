@@ -7,7 +7,7 @@ import { LocalNodeStore } from "../src/storage/local_sqlite.ts";
 import type { NodeRuntimeConfig } from "../src/config/runtime_config.ts";
 import { ClaimRequestSchema, ClaimResponseSchema, CrawlJobSchema, HeartbeatRequestSchema,
   HeartbeatResponseSchema, ResultRequestSchema, ResultResponseSchema, BatchResultRequestSchema, BatchResultResponseSchema,
-  type ClaimResponse, type ResultRequest, type BatchResultRequest } from "vrc-packages-network/node";
+  type ClaimResponse, type ResultRequest, type BatchResultRequest, type CrawlJob } from "vrc-packages-network/node";
 
 const config: NodeRuntimeConfig = { nodeId: "daemon-fixture", token: "fixture-only-not-a-live-credential",
   capabilities: ["vpm"], baseUrl: "https://coordinator.invalid", databasePath: ":memory:" };
@@ -586,6 +586,151 @@ describe("node-owned daemon lifecycle through serialized contracts", () => {
         await startPromise;
         expect(daemon.isStopping).toBe(true);
         expect(sleepCalls).toBeGreaterThanOrEqual(1);
+      } finally {
+        daemon.stop();
+        store.close();
+      }
+    });
+  });
+
+  describe("outbox flow control, crash recovery, and TTL lifecycle (R54-C39D)", () => {
+    test("pauses claims and enters backoff when outbox pending quota is reached", async () => {
+      const store = new LocalNodeStore(":memory:");
+      const runId = store.startRun("quota-node");
+      const testJob: CrawlJob = {
+        jobId: "quota-job-1",
+        leaseId: crypto.randomUUID(),
+        platform: "vpm",
+        purpose: "metadata",
+        url: "https://example.org/pkg1.json",
+        origin: "https://example.org",
+        leaseExpiresAt: new Date(Date.now() + 60000).toISOString(),
+        retainClasses: ["normalized_facts"],
+        etag: null,
+        lastModified: null,
+      };
+      const t1 = store.recordClaimedJob(runId, testJob);
+      const t2 = store.recordClaimedJob(runId, { ...testJob, jobId: "quota-job-2", leaseId: crypto.randomUUID() });
+
+      // Stage 2 pending items
+      store.stageOutboxOutcome(t1, { kind: "unchanged" }, "idemp-quota-00001", 10);
+      store.stageOutboxOutcome(t2, { kind: "unchanged" }, "idemp-quota-00002", 10);
+
+      expect(store.getPendingOutboxCount()).toBe(2);
+
+      let claimsAttempted = 0;
+      const testClient = client();
+      const origClaim = testClient.claim.bind(testClient);
+      testClient.claim = async (...args) => {
+        claimsAttempted++;
+        return origClaim(...args);
+      };
+
+      const daemon = new CrawlerNodeDaemon(config, store, testClient, {
+        maxPendingOutboxQuota: 2,
+        minIdleDelayMs: 5_000,
+      });
+
+      try {
+        // Since outbox is at quota (2 >= 2) and flush fails (wire throws offline), daemon should pause claims
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = Object.assign(async () => { throw new Error("Coordinator offline"); }, { preconnect() {} });
+        try {
+          const outcome = await daemon.step();
+          expect(outcome).toBe("empty");
+          expect(claimsAttempted).toBe(0); // client.claim was never called!
+          expect(daemon.emptyClaimCount).toBe(1);
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      } finally {
+        daemon.stop();
+        store.close();
+      }
+    });
+
+    test("recovers interrupted 'submitting' outbox entries on daemon startup", async () => {
+      const store = new LocalNodeStore(":memory:");
+      const runId = store.startRun("recover-node");
+      const testJob: CrawlJob = {
+        jobId: "recover-job-1",
+        leaseId: crypto.randomUUID(),
+        platform: "vpm",
+        purpose: "metadata",
+        url: "https://example.org/pkg3.json",
+        origin: "https://example.org",
+        leaseExpiresAt: new Date(Date.now() + 60000).toISOString(),
+        retainClasses: ["normalized_facts"],
+        etag: null,
+        lastModified: null,
+      };
+      const taskId = store.recordClaimedJob(runId, testJob);
+      const outboxId = store.stageOutboxOutcome(taskId, { kind: "unchanged" }, "idemp-recover-00001");
+
+      // Simulate mid-crash state by marking outbox entry as 'submitting'
+      (store as any).db.prepare("UPDATE node_outbox SET status = 'submitting' WHERE outbox_id = ?").run(outboxId);
+      expect(store.getOutboxEntry(outboxId)?.status).toBe("submitting");
+
+      // Verify recoverInterruptedOutboxEntries resets it to 'pending'
+      const recovered = store.recoverInterruptedOutboxEntries();
+      expect(recovered).toBe(1);
+      expect(store.getOutboxEntry(outboxId)?.status).toBe("pending");
+
+      // Verify that flush delivers it cleanly
+      const daemon = new CrawlerNodeDaemon(config, store, client(), { runOnce: true });
+      try {
+        await withWire(empty, async () => {
+          const flushed = await daemon.flushOutbox();
+          expect(flushed).toBe(1);
+        });
+        expect(store.getOutboxEntry(outboxId)?.status).toBe("sent");
+        expect(store.getTask(taskId)?.status).toBe("completed");
+      } finally {
+        daemon.stop();
+        store.close();
+      }
+    });
+
+    test("terminal rejection for expired lease marks outbox dead and marks task failed without retry", async () => {
+      const store = new LocalNodeStore(":memory:");
+      const runId = store.startRun("terminal-node");
+      const testJob: CrawlJob = {
+        jobId: "term-job-1",
+        leaseId: crypto.randomUUID(),
+        platform: "vpm",
+        purpose: "metadata",
+        url: "https://example.org/pkg4.json",
+        origin: "https://example.org",
+        leaseExpiresAt: new Date(Date.now() + 60000).toISOString(),
+        retainClasses: ["normalized_facts"],
+        etag: null,
+        lastModified: null,
+      };
+      const taskId = store.recordClaimedJob(runId, testJob);
+      const outboxId = store.stageOutboxOutcome(taskId, { kind: "unchanged" }, "idemp-term-00000001");
+
+      const daemon = new CrawlerNodeDaemon(config, store, client());
+
+      try {
+        await withWire(
+          empty,
+          async () => {
+            const flushed = await daemon.flushOutbox();
+            expect(flushed).toBe(0);
+          },
+          async () => new Response(JSON.stringify({ error: "Node does not hold a live lease for this job" }), { status: 403 })
+        );
+
+        const outbox = store.getOutboxEntry(outboxId);
+        expect(outbox?.status).toBe("dead");
+        expect(outbox?.lastError).toContain("Node does not hold a live lease");
+
+        const task = store.getTask(taskId);
+        expect(task?.status).toBe("failed");
+        expect(task?.errorMessage).toContain("Node does not hold a live lease");
+
+        // Pending outbox entries should now be 0 (dead item is not pending)
+        expect(store.getPendingOutboxEntries().length).toBe(0);
       } finally {
         daemon.stop();
         store.close();
