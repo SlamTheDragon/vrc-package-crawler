@@ -756,6 +756,71 @@ describe("VRCPackageClient SDK", () => {
     expect(verifyRes.claimId).toBe(claimId);
   });
 
+  it("exercises operator apps: list and setDelegation", async () => {
+    let capturedHeaders: HeadersInit | undefined;
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody = "";
+    const operatorToken = "e".repeat(64);
+    const appId = "123e4567-e89b-12d3-a456-426614174000";
+
+    const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      capturedUrl = String(input);
+      capturedMethod = init?.method || "GET";
+      capturedHeaders = init?.headers;
+      capturedBody = typeof init?.body === "string" ? init.body : "";
+
+      if (capturedUrl.includes(`/v1/operator/apps/${appId}/delegation`)) {
+        return new Response(JSON.stringify({
+          schemaVersion: 1,
+          appId,
+          delegationAllowed: true,
+          permissions: ["catalog:read", "catalog:search", "demand:feedback", "claims:delegate"],
+          updatedAt: new Date().toISOString()
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (capturedUrl.includes("/v1/operator/apps")) {
+        return new Response(JSON.stringify({
+          schemaVersion: 1,
+          apps: [{
+            appId,
+            appName: "Trusted Creator Tool",
+            contactEmail: "tool@example.com",
+            permissions: ["catalog:read", "catalog:search", "demand:feedback"],
+            delegationAllowed: false,
+            createdAt: "2026-10-01T10:00:00.000Z",
+            revokedAt: null
+          }],
+          nextCursor: null
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      return new Response("Not found", { status: 404 });
+    };
+
+    const client = new VRCPackageClient({
+      baseUrl: "https://api.vrc-packages.example",
+      operatorToken,
+      fetch: mockFetch as unknown as typeof fetch
+    });
+
+    const listRes = await client.operator.apps.list({ limit: 10 });
+    expect(listRes.apps.length).toBe(1);
+    expect(listRes.apps[0]?.appName).toBe("Trusted Creator Tool");
+    expect(listRes.apps[0]?.delegationAllowed).toBe(false);
+
+    const delegationRes = await client.operator.apps.setDelegation(appId, {
+      delegationAllowed: true,
+      reason: "Verified trusted store partner"
+    });
+    expect(delegationRes.appId).toBe(appId);
+    expect(delegationRes.delegationAllowed).toBe(true);
+    expect(delegationRes.permissions).toContain("claims:delegate");
+    expect(capturedUrl).toContain(`/v1/operator/apps/${appId}/delegation`);
+    expect(capturedMethod).toBe("POST");
+  });
+
   it("throws VRCPApiError if operator methods called without operatorToken", async () => {
     const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example"
@@ -767,6 +832,7 @@ describe("VRCPackageClient SDK", () => {
     await expect(client.operator.catalog.list()).rejects.toThrow(VRCPApiError);
     await expect(client.operator.takedowns.list()).rejects.toThrow(VRCPApiError);
     await expect(client.operator.claims.list()).rejects.toThrow(VRCPApiError);
+    await expect(client.operator.apps.list()).rejects.toThrow(VRCPApiError);
   });
 
   it("rejects responses exceeding SDK byte limits", async () => {

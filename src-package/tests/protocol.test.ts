@@ -49,7 +49,13 @@ import {
   encodeDelegatedClaimCursor,
   decodeDelegatedClaimCursor,
   VerifyDelegatedClaimRequestSchema,
-  VerifyDelegatedClaimResponseSchema
+  VerifyDelegatedClaimResponseSchema,
+  OperatorAppRecordSchema,
+  OperatorAppListResponseSchema,
+  SetAppDelegationRequestSchema,
+  SetAppDelegationResponseSchema,
+  encodeOperatorAppCursor,
+  decodeOperatorAppCursor
 } from "../src/protocol/operator.ts";
 
 describe("src-package wire protocols", () => {
@@ -448,6 +454,45 @@ describe("src-package wire protocols", () => {
       schemaVersion: 1,
       claimId: "123e4567-e89b-12d3-a456-426614174001",
       status: "accepted",
+      updatedAt: "2026-10-01T12:00:00.000Z"
+    })).not.toThrow();
+
+    // Operator Apps & Delegation (R54-C38A)
+    const appRecord = {
+      appId: "123e4567-e89b-12d3-a456-426614174002",
+      appName: "Creator Companion App",
+      contactEmail: "contact@companion.test",
+      permissions: ["catalog:read", "catalog:search", "demand:feedback"],
+      delegationAllowed: false,
+      createdAt: "2026-10-01T12:00:00.000Z",
+      revokedAt: null
+    };
+    expect(() => OperatorAppRecordSchema.parse(appRecord)).not.toThrow();
+    expect(() => OperatorAppListResponseSchema.parse({
+      schemaVersion: 1,
+      apps: [appRecord],
+      nextCursor: null
+    })).not.toThrow();
+
+    const appCursor = {
+      createdAt: "2026-10-01T12:00:00.000Z",
+      appId: "123e4567-e89b-12d3-a456-426614174002"
+    };
+    const encAppCursor = encodeOperatorAppCursor(appCursor);
+    expect(decodeOperatorAppCursor(encAppCursor)).toEqual(appCursor);
+    expect(decodeOperatorAppCursor("invalid-cursor")).toBeNull();
+
+    expect(() => SetAppDelegationRequestSchema.parse({
+      schemaVersion: 1,
+      delegationAllowed: true,
+      reason: "Approved trusted app"
+    })).not.toThrow();
+
+    expect(() => SetAppDelegationResponseSchema.parse({
+      schemaVersion: 1,
+      appId: "123e4567-e89b-12d3-a456-426614174002",
+      delegationAllowed: true,
+      permissions: ["catalog:read", "catalog:search", "demand:feedback", "claims:delegate"],
       updatedAt: "2026-10-01T12:00:00.000Z"
     })).not.toThrow();
   });

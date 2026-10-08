@@ -502,3 +502,68 @@ export const OperatorClaimListQuerySchema = OperatorPageQuerySchema.extend({
   reviewStatus: DelegatedClaimRecordSchema.shape.reviewStatus.optional()
 }).refine(query => query.cursor === undefined || decodeDelegatedClaimCursor(query.cursor) !== null, "Invalid claim cursor");
 
+/* -------------------------------------------------------------------------- */
+/* Registered Applications & Delegation Management (R54-C38A)                 */
+/* -------------------------------------------------------------------------- */
+
+export const OperatorAppRecordSchema = z.strictObject({
+  appId: z.string().uuid(),
+  appName: z.string().min(1).max(100),
+  contactEmail: z.string().nullable().optional(),
+  permissions: z.array(z.string()),
+  delegationAllowed: z.boolean(),
+  createdAt: z.string().datetime(),
+  revokedAt: z.string().datetime().nullable()
+});
+export type OperatorAppRecord = z.infer<typeof OperatorAppRecordSchema>;
+
+export const OperatorAppCursorSchema = z.strictObject({
+  createdAt: z.string().datetime(),
+  appId: z.string().uuid()
+});
+export type OperatorAppCursor = z.infer<typeof OperatorAppCursorSchema>;
+
+export function encodeOperatorAppCursor(cursor: OperatorAppCursor): string {
+  return btoa(JSON.stringify(OperatorAppCursorSchema.parse(cursor)))
+    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+export function decodeOperatorAppCursor(value: string): OperatorAppCursor | null {
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) return null;
+  try {
+    const cursor = OperatorAppCursorSchema.parse(JSON.parse(atob(value.replaceAll("-", "+").replaceAll("_", "/"))));
+    return encodeOperatorAppCursor(cursor) === value ? cursor : null;
+  } catch {
+    return null;
+  }
+}
+
+export const OperatorAppListQuerySchema = OperatorPageQuerySchema.refine(
+  query => query.cursor === undefined || decodeOperatorAppCursor(query.cursor) !== null,
+  "Invalid app cursor"
+);
+export type OperatorAppListQuery = z.infer<typeof OperatorAppListQuerySchema>;
+
+export const OperatorAppListResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  apps: z.array(OperatorAppRecordSchema),
+  nextCursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).nullable()
+});
+export type OperatorAppListResponse = z.infer<typeof OperatorAppListResponseSchema>;
+
+export const SetAppDelegationRequestSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  delegationAllowed: z.boolean(),
+  reason: z.string().trim().min(1).max(300).optional()
+});
+export type SetAppDelegationRequest = z.infer<typeof SetAppDelegationRequestSchema>;
+
+export const SetAppDelegationResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  appId: z.string().uuid(),
+  delegationAllowed: z.boolean(),
+  permissions: z.array(z.string()),
+  updatedAt: z.string().datetime()
+});
+export type SetAppDelegationResponse = z.infer<typeof SetAppDelegationResponseSchema>;
+

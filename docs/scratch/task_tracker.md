@@ -1,50 +1,45 @@
-# Completed Checkpoint — Content Rating Vocabulary & Downstream Metadata Delivery (Gate G17 / R56-C56B)
+# Active Checkpoint — Trusted App Delegation Authority & Operator Management (Slice R54-C38A1)
 
-## Completed Objective & Bounded Vertical Slices
+## Active Objective & Bounded Vertical Slice
 
 - Branch: `preview/crawler-network`
-- Active Gate: Content Rating Vocabulary & Downstream Metadata Delivery (`G17` / `R56-C56B`)
-  - `R56-C56B1`: SDK Taxonomy & Wire Schemas (`src-package`) — Completed & Verified.
-  - `R56-C56B2`: Coordinator D1 Storage & Delivery Gating (`src-worker`) — Completed & Verified.
+- Active Gate: Delegated Creator Removal and Operator Authority Pathways (`G15` / `R54-C38A1`)
+- Active Slice: `R54-C38A1` (Enforce trusted app delegation authority check on `/v1/app/claims/intake`, add operator endpoints `/v1/operator/apps` and `/v1/operator/apps/:appId/delegation`, and add SDK client methods)
 - Owner Instruction (2026-10-08): Never run root level tests (`bun test ./tests`) unless root level tooling (`scripts/`, `tests/`, `package.json`, root configs) is modified. Product-scoped work runs only its own domain test/typecheck suite.
 - Session Constraint: Commits remain local for this session (gate push rule disabled).
 
 ## Active Working Theories & Architectural Covenants
 
-1. **Classification vs Authorization Separation**:
-   - The crawler index is a search engine and library, not an age-gating enforcement point.
-   - Content ratings are descriptive metadata attached per API delivery to downstream applications.
-   - Downstream applications remain responsible for how they interpret, filter, or present content based on local user settings or laws.
-2. **Scaled Rating Taxonomy**:
-   - The vocabulary uses six standardized levels:
-     - `general`: Safe for all audiences. Default fallback for untagged / legacy items.
-     - `mature`: Mild suggestive themes, mild violence, or non-explicit mature assets.
-     - `sexual_suggestive`: Pin-ups, cleavage, provocative outfits without exposed genitalia or explicit sexual acts.
-     - `adult_restricted`: Explicit 18+ sexual content, nude avatars, or genitalia models.
-     - `unknown_restricted`: Disputed, reported, or unverified items held in restricted status pending review.
-     - `prohibited`: Illegal, non-consensual, or malicious content barred from public catalog delivery.
-3. **Fail-Closed Delivery Boundaries**:
-   - Public unauthenticated endpoints (`GET /v1/app/index`, `GET /v1/app/index/delta`) serve strictly `general` rated packages; non-general items are filtered at storage query layer.
-   - Prohibited content is barred unconditionally from all downstream endpoints across the entire system.
-   - Downstream applications without an age-verified owner receive strictly `general` content via `/v1/app/index/search`; querying rated content returns empty results immediately.
-   - Applications owned by age-verified users (`registered_users.age_verified = 1`) may access mature and adult restricted items.
-4. **Future User Auth & Verification Architecture (Owner Clarification 2026-10-09)**:
-   - Account registration envisions using Firebase Auth for multi-provider linking (GitHub, Gumroad, Ko-fi, Jinxxy).
-   - Age verification status will use the unofficial VRChat API (`https://vrchat.community/reference/get-current-user` - `ageVerificationStatus: "18+"`, `ageVerified: boolean`).
-   - Stored in SQLite/D1 `registered_users.age_verified` flag, checked on downstream application authentication.
+1. **Trusted Verifier Admission Boundary (Owner Covenant R54-C38A)**:
+   - "Only trusted/reviewed applications can receive authority to perform removal on their behalf."
+   - Default app registration grants standard consumer permissions (`catalog:read`, `catalog:search`, `demand:feedback`).
+   - Delegation permission (`claims:delegate`) requires explicit operator review and grant.
+2. **Fail-Closed Claims Intake**:
+   - `/v1/app/claims/intake` strictly checks `app.permissions.includes("claims:delegate")`.
+   - Applications lacking this permission receive `403 Forbidden` (`Application is not authorized for delegated creator claims`).
+3. **Operator App Authority Management**:
+   - `GET /v1/operator/apps`: Lists registered applications, metadata, creation/revocation status, and granted permissions with cursor pagination.
+   - `POST /v1/operator/apps/:appId/delegation`: Allows operators to grant or revoke `claims:delegate` permission with optional audit reason.
+4. **Wire Schemas & SDK Interface**:
+   - `OperatorAppRecordSchema`, `OperatorAppListResponseSchema`, `SetAppDelegationRequestSchema`, `SetAppDelegationResponseSchema` defined in `src-package/src/protocol/operator.ts`.
+   - `client.operator.apps.list()` and `client.operator.apps.setDelegation()` in `src-package/src/client.ts`.
 
-## Verification Evidence & Retained Baselines
+## Measured Verification Evidence
 
-- **`src-package` Suite**:
-  - `taxonomy.test.ts`: Verified 6 scaled content rating values and rejection of unapproved strings.
-  - `protocol.test.ts`: Verified `CatalogPackageSchema` parsing with default `contentRating: "general"` and `CatalogSearchRequestSchema` optional `rating` filter.
-  - All 57/57 tests passing. Clean `tsc --noEmit` and clean build in `dist/`.
-- **`src-worker` Suite**:
-  - `public_catalog_protocol.test.ts`: Verified public `/v1/app/index` and `/v1/app/index/delta` never disclose mature, adult, or prohibited packages.
-  - `downstream_client_protocol.test.ts`: Verified `/v1/app/index/search` enforces age rating boundaries based on user age verification status.
-  - `d1_coordinator_store.test.ts`: PRAGMA verification of `content_rating` in `canonical_packages` and `age_verified` in `registered_users`.
-  - All 251/251 tests passing. Clean `bun run check` (typecheck & wrangler types).
-- **`src-crawler` Suite**:
-  - All 158/158 tests passing.
-- **Cross-Package Synchronization**:
-  - `dist` synchronized across subprojects to support local consumption without direct source coupling.
+1. **`src-package`**:
+   - 58/58 tests passed (`bun test`). Validated `OperatorAppRecordSchema`, cursor base64url encode/decode, `client.operator.apps.list()`, `client.operator.apps.setDelegation()`, and operator token requirement.
+   - Clean build via `bun run build`, synced `dist/` into all `node_modules/vrc-packages-api/dist/`.
+2. **`src-worker`**:
+   - 252/252 tests passed (`bun test ./test`).
+   - Verified `/v1/app/claims/intake` rejects un-reviewed applications lacking `claims:delegate` with 403 Forbidden (`Application is not authorized for delegated creator claims`).
+   - Verified `store.setAppDelegation(appId, true)` grants delegation and enables 202 intake.
+   - Verified revoking delegation restores 403 rejection.
+   - Verified `GET /v1/operator/apps` and `POST /v1/operator/apps/:appId/delegation` with pagination, JSON schema export, case-insensitivity, and error cases (401, 404).
+   - `bun run check` cleanly passed (`wrangler types`, `tsc --noEmit`, and `tsc --noEmit -p test/tsconfig.json`).
+3. **`src-crawler`**:
+   - 158/158 tests passed (`bun test`). Domain suite intact.
+
+## Open Risks & Next Steps
+
+1. Next Slice: `R54-C38B` (Creator Ownership Attestation & Signature Verification Protocol).
+2. Commit slice `R54-C38A1` locally (`preview/crawler-network`).

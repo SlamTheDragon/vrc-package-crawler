@@ -12,8 +12,11 @@ import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, Le
   VerifyTakedownRequestSchema, VerifyTakedownResponseSchema,
   decodeDelegatedClaimCursor, DelegatedClaimListResponseSchema, DelegatedClaimCursorSchema,
   VerifyDelegatedClaimRequestSchema, VerifyDelegatedClaimResponseSchema,
+  decodeOperatorAppCursor, OperatorAppListResponseSchema, SetAppDelegationRequestSchema, SetAppDelegationResponseSchema,
+  OperatorAppCursorSchema, OperatorAppListQuerySchema,
   type LeadCursor, type LeadRow, type TakedownCursor, type TakedownRecord,
-  type DelegatedClaimCursor, type DelegatedClaimRecord } from "./protocol/operator_protocol.js";
+  type DelegatedClaimCursor, type DelegatedClaimRecord,
+  type OperatorAppRecord, type OperatorAppCursor } from "./protocol/operator_protocol.js";
 import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   SourceAccessProfileListResponseSchema, SourceAccessProfileResponseSchema,
   decodeProfileCursor, ProfileCursorSchema, type CreateSourceAccessProfile, type SourceAccessProfile,
@@ -62,6 +65,12 @@ export interface OperatorStore {
   verifyDelegatedClaim(claimId: string, verdict: "accepted" | "rejected", actor: string, notes?: string):
     Promise<{ claimId: string; status: "accepted" | "rejected"; updatedAt: string }> |
       { claimId: string; status: "accepted" | "rejected"; updatedAt: string };
+  listOperatorAppsPage(limit?: number, cursor?: OperatorAppCursor | null):
+    Promise<{ apps: OperatorAppRecord[]; nextCursor: string | null }> |
+      { apps: OperatorAppRecord[]; nextCursor: string | null };
+  setAppDelegation(appId: string, allowed: boolean, actor: string, reason?: string):
+    Promise<{ appId: string; delegationAllowed: boolean; permissions: string[]; updatedAt: string }> |
+      { appId: string; delegationAllowed: boolean; permissions: string[]; updatedAt: string };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -114,8 +123,12 @@ export async function handleOperatorRequest(
   const claimListing = request.method === "GET" && url.pathname === "/v1/operator/claims";
   const claimVerify = request.method === "POST" &&
     /^\/v1\/operator\/claims\/([^/]+)\/verify$/.exec(url.pathname);
+  const appListing = request.method === "GET" && url.pathname === "/v1/operator/apps";
+  const appDelegation = request.method === "POST" &&
+    /^\/v1\/operator\/apps\/([^/]+)\/delegation$/.exec(url.pathname);
   if (!nodeRevoke && !jobEnqueue && !listing && !ruleListing && !ruleCreate && !ruleDisable && !profileListing && !profileCreate && !nodeIssue &&
-      !profileDisable && !catalogListing && !takedownListing && !takedownVerify && !claimListing && !claimVerify && !(request.method === "POST" && leadAction)) {
+      !profileDisable && !catalogListing && !takedownListing && !takedownVerify && !claimListing && !claimVerify &&
+      !appListing && !appDelegation && !(request.method === "POST" && leadAction)) {
     return failure(404, "not_found", "Route not found");
   }
   if (!await authorized(request, configuredToken)) {
@@ -125,7 +138,8 @@ export async function handleOperatorRequest(
   if ((ruleDisable && !RuleCursorSchema.shape.ruleId.safeParse(ruleDisable[1]).success) ||
       (profileDisable && !ProfileCursorSchema.shape.profileId.safeParse(profileDisable[1]).success) ||
       (takedownVerify && !TakedownCursorSchema.shape.takedownId.safeParse(takedownVerify[1]).success) ||
-      (claimVerify && !DelegatedClaimCursorSchema.shape.claimId.safeParse(claimVerify[1]).success)) {
+      (claimVerify && !DelegatedClaimCursorSchema.shape.claimId.safeParse(claimVerify[1]).success) ||
+      (appDelegation && !OperatorAppCursorSchema.shape.appId.safeParse(appDelegation[1]).success)) {
     return failure(404, "not_found", "Route not found");
   }
   if (listing) {
@@ -224,6 +238,26 @@ export async function handleOperatorRequest(
       ...await store.listDelegatedClaimsPage(query.data.reviewStatus, limit, cursor ? { ...cursor, claimId: cursor.claimId.toLowerCase() } : null)
     }));
   }
+  if (appListing) {
+    const rawLimit = Number(url.searchParams.get("limit") || "100");
+    const rawCursor = url.searchParams.get("cursor");
+    const query = OperatorAppListQuerySchema.safeParse({
+      limit: rawLimit,
+      cursor: rawCursor || undefined
+    });
+    if (!query.success ||
+        url.searchParams.getAll("limit").length > 1 ||
+        url.searchParams.getAll("cursor").length > 1 ||
+        [...url.searchParams.keys()].some(key => !["limit", "cursor"].includes(key))) {
+      return failure(400, "invalid_query", query.success ? "Unknown query keys" : "App query parameters are invalid");
+    }
+    const limit = query.data.limit;
+    const cursor = query.data.cursor ? decodeOperatorAppCursor(query.data.cursor) : null;
+    return json(OperatorAppListResponseSchema.parse({
+      schemaVersion: OPERATOR_PROTOCOL_VERSION,
+      ...await store.listOperatorAppsPage(limit, cursor ? { ...cursor, appId: cursor.appId.toLowerCase() } : null)
+    }));
+  }
   let body: unknown;
   try { body = await readJson(request); }
   catch (error) {
@@ -293,6 +327,15 @@ export async function handleOperatorRequest(
       return json(VerifyDelegatedClaimResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
         ...result }));
     }
+    if (appDelegation) {
+      const parsed = SetAppDelegationRequestSchema.safeParse(body);
+      if (!parsed.success) return failure(400, "invalid_payload", "Set app delegation body is invalid");
+      const result = await store.setAppDelegation(appDelegation[1].toLowerCase(), parsed.data.delegationAllowed, "operator-api", parsed.data.reason);
+      return json(SetAppDelegationResponseSchema.parse({
+        schemaVersion: OPERATOR_PROTOCOL_VERSION,
+        ...result
+      }));
+    }
     const [, leadKey, action] = leadAction!;
     if (action === "approve") {
       const parsed = ApproveLeadSchema.safeParse(body);
@@ -311,7 +354,7 @@ export async function handleOperatorRequest(
     const message = error instanceof Error ? error.message : "Operator action failed";
     const missing = message === "Lead not found" || message === "Rule not found" ||
       message === "Source profile not found" || message === "Takedown not found" || message === "Node not found" ||
-      message === "Claim not found";
+      message === "Claim not found" || message === "App not found";
     workerLogger.warn("Operator action failed", { path: url.pathname, message, missing }, error);
     return failure(missing ? 404 : 409, missing ? "not_found" : "conflict", message);
   }

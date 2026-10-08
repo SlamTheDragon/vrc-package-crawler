@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, AutoQueueRuleListResponseSchema,
   AutoQueueRuleResponseSchema, IssueNodeCredentialSchema, NodeCredentialResponseSchema,
-  CatalogListResponseSchema
+  CatalogListResponseSchema,
+  OperatorAppRecordSchema, OperatorAppListResponseSchema, SetAppDelegationRequestSchema, SetAppDelegationResponseSchema,
+  decodeOperatorAppCursor, encodeOperatorAppCursor, OperatorAppCursorSchema, OperatorAppListQuerySchema,
+  type OperatorAppRecord, type OperatorAppCursor, type OperatorAppListQuery,
+  type SetAppDelegationRequest, type SetAppDelegationResponse
 } from "vrc-packages-api";
 
 export const OPERATOR_PROTOCOL_VERSION = 1 as const;
@@ -180,5 +184,24 @@ export const OPERATOR_API_JSON_SCHEMAS = {
   verifyTakedownResponse: z.toJSONSchema(VerifyTakedownResponseSchema),
   delegatedClaimListResponse: z.toJSONSchema(DelegatedClaimListResponseSchema),
   verifyDelegatedClaimRequest: z.toJSONSchema(VerifyDelegatedClaimRequestSchema),
-  verifyDelegatedClaimResponse: z.toJSONSchema(VerifyDelegatedClaimResponseSchema)
+  verifyDelegatedClaimResponse: z.toJSONSchema(VerifyDelegatedClaimResponseSchema),
+  operatorAppListResponse: z.toJSONSchema(OperatorAppListResponseSchema),
+  setAppDelegationRequest: z.toJSONSchema(SetAppDelegationRequestSchema),
+  setAppDelegationResponse: z.toJSONSchema(SetAppDelegationResponseSchema)
+};
+
+export {
+  OperatorAppRecordSchema,
+  OperatorAppListResponseSchema,
+  SetAppDelegationRequestSchema,
+  SetAppDelegationResponseSchema,
+  decodeOperatorAppCursor,
+  encodeOperatorAppCursor,
+  OperatorAppCursorSchema,
+  OperatorAppListQuerySchema,
+  type OperatorAppRecord,
+  type OperatorAppCursor,
+  type OperatorAppListQuery,
+  type SetAppDelegationRequest,
+  type SetAppDelegationResponse
 };

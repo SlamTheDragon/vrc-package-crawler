@@ -181,8 +181,11 @@ export async function handleDownstreamRequest(
     }
   }
 
-  // 4. Delegated Creator Attestation Intake (R54-C38C)
+  // 4. Delegated Creator Attestation Intake (R54-C38C / R54-C38A)
   if (isClaimIntake) {
+    if (!app.permissions.includes("claims:delegate")) {
+      return failure(403, "forbidden", "Application is not authorized for delegated creator claims");
+    }
     let body: unknown;
     try {
       body = await readJson(request);

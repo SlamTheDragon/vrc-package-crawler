@@ -35,7 +35,11 @@ import {
   type LeadStatus,
   OperatorLeadListQuerySchema, OperatorProfileListQuerySchema, OperatorRuleListQuerySchema,
   OperatorCatalogListQuerySchema, OperatorTakedownListQuerySchema, OperatorClaimListQuerySchema,
-  LeadCursorSchema, ProfileCursorSchema, RuleCursorSchema, TakedownCursorSchema, DelegatedClaimCursorSchema,
+  OperatorAppListQuerySchema, type OperatorAppListQuery,
+  OperatorAppListResponseSchema, type OperatorAppListResponse,
+  SetAppDelegationRequestSchema, SetAppDelegationResponseSchema,
+  type SetAppDelegationRequest, type SetAppDelegationResponse,
+  LeadCursorSchema, ProfileCursorSchema, RuleCursorSchema, TakedownCursorSchema, DelegatedClaimCursorSchema, OperatorAppCursorSchema,
   ApproveLeadSchema, RejectLeadSchema,
   CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema,
@@ -631,6 +635,42 @@ export class VRCPackageClient {
           })
         });
         return VerifyDelegatedClaimResponseSchema.parse(res);
+      }
+    },
+
+    apps: {
+      /**
+       * Lists registered downstream applications (GET /v1/operator/apps).
+       */
+      list: async (params: { limit?: number; cursor?: string } = {}): Promise<OperatorAppListResponse> => {
+        const query = OperatorAppListQuerySchema.parse(params);
+        const res = await this.request<unknown>("/v1/operator/apps", "GET", {
+          auth: "operator",
+          queryParams: {
+            limit: query.limit,
+            cursor: query.cursor
+          }
+        });
+        return OperatorAppListResponseSchema.parse(res);
+      },
+
+      /**
+       * Sets delegation authority for a registered application (POST /v1/operator/apps/{appId}/delegation).
+       */
+      setDelegation: async (
+        appId: string,
+        request: { delegationAllowed: boolean; reason?: string }
+      ): Promise<SetAppDelegationResponse> => {
+        const id = OperatorAppCursorSchema.shape.appId.parse(appId).toLowerCase();
+        const res = await this.request<unknown>(`/v1/operator/apps/${id}/delegation`, "POST", {
+          auth: "operator",
+          body: SetAppDelegationRequestSchema.parse({
+            schemaVersion: 1,
+            delegationAllowed: request.delegationAllowed,
+            reason: request.reason
+          })
+        });
+        return SetAppDelegationResponseSchema.parse(res);
       }
     }
   };

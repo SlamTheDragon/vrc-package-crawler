@@ -51,6 +51,7 @@ import { cleanTitle, cleanTrackingParams } from "vrc-packages-network/catalog-hy
 import { DEFAULT_SEED_JOBS } from "../../src/storage/default_seeds.ts";
 import { encodeLeadCursor, encodeTakedownCursor, type TakedownCursor, type TakedownRecord,
   encodeDelegatedClaimCursor, type DelegatedClaimCursor, type DelegatedClaimRecord,
+  encodeOperatorAppCursor, type OperatorAppCursor, type OperatorAppRecord,
   type LeadCursor, type LeadRow } from "../../src/api/protocol/operator_protocol.ts";
 import { CreateSourceAccessProfileSchema, SourceAccessProfileSchema, encodeProfileCursor,
   type CreateSourceAccessProfile, type SourceAccessProfile, type ProfileCursor,
@@ -3025,6 +3026,103 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     return {
       claimId,
       status: verdict,
+      updatedAt
+    };
+  }
+
+  listOperatorAppsPage(
+    limit = 100,
+    cursor: OperatorAppCursor | null = null
+  ): { apps: OperatorAppRecord[]; nextCursor: string | null } {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("App limit must be 1..100");
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (cursor) {
+      conditions.push("(created_at, app_id) < (?, ?)");
+      params.push(cursor.createdAt, cursor.appId);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    params.push(limit + 1);
+
+    const rows = this.db.prepare(`
+      SELECT app_id, app_name, contact_email, permissions_json, created_at, revoked_at
+      FROM registered_apps
+      ${where}
+      ORDER BY created_at DESC, app_id DESC
+      LIMIT ?
+    `).all(...params) as {
+      app_id: string;
+      app_name: string;
+      contact_email: string | null;
+      permissions_json: string;
+      created_at: string;
+      revoked_at: string | null;
+    }[];
+
+    const visible = rows.slice(0, limit);
+    const last = visible.at(-1);
+
+    const apps: OperatorAppRecord[] = visible.map((row) => {
+      const perms: string[] = JSON.parse(row.permissions_json);
+      return {
+        appId: row.app_id,
+        appName: row.app_name,
+        contactEmail: row.contact_email ?? null,
+        permissions: perms,
+        delegationAllowed: perms.includes("claims:delegate"),
+        createdAt: row.created_at,
+        revokedAt: row.revoked_at ?? null
+      };
+    });
+
+    return {
+      apps,
+      nextCursor: rows.length > limit && last ? encodeOperatorAppCursor({
+        createdAt: last.created_at,
+        appId: last.app_id
+      }) : null
+    };
+  }
+
+  setAppDelegation(
+    appId: string,
+    allowed: boolean,
+    actor: string,
+    reason?: string
+  ): { appId: string; delegationAllowed: boolean; permissions: string[]; updatedAt: string } {
+    const row = this.db.prepare(`
+      SELECT app_id, permissions_json, revoked_at
+      FROM registered_apps
+      WHERE app_id = ?
+    `).get(appId) as { app_id: string; permissions_json: string; revoked_at: string | null } | undefined;
+
+    if (!row) {
+      throw new Error("App not found");
+    }
+    if (row.revoked_at) {
+      throw new Error("App is revoked");
+    }
+
+    const currentPerms = new Set<string>(JSON.parse(row.permissions_json));
+    if (allowed) {
+      currentPerms.add("claims:delegate");
+    } else {
+      currentPerms.delete("claims:delegate");
+    }
+    const newPerms = Array.from(currentPerms);
+    const updatedAt = new Date(this.now()).toISOString();
+
+    this.db.prepare(`
+      UPDATE registered_apps
+      SET permissions_json = ?
+      WHERE app_id = ?
+    `).run(JSON.stringify(newPerms), appId);
+
+    return {
+      appId,
+      delegationAllowed: allowed,
+      permissions: newPerms,
       updatedAt
     };
   }

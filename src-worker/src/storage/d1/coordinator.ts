@@ -11,7 +11,8 @@ import { isPrivateOrReservedIp } from "vrc-packages-network/ip-policy";
 import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, type CrawlJob, type BatchResultRequest, type BatchResultResponse, type BatchResultReceipt, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "vrc-packages-network/node";
 import { type LeadCursor, type LeadRow, encodeLeadCursor,
   encodeTakedownCursor, type TakedownCursor, type TakedownRecord,
-  encodeDelegatedClaimCursor, type DelegatedClaimCursor, type DelegatedClaimRecord } from "../../api/protocol/operator_protocol.js";
+  encodeDelegatedClaimCursor, type DelegatedClaimCursor, type DelegatedClaimRecord,
+  encodeOperatorAppCursor, type OperatorAppCursor, type OperatorAppRecord } from "../../api/protocol/operator_protocol.js";
 import { robotsResultAllowsMissingFile, OriginRobotsSnapshotSchema, ROBOTS_REFRESH_LEASE_MS, type OriginRobotsSnapshot } from "vrc-packages-network/robots";
 import { type SourceAccessProfile, SourceAccessProfileSchema, sourceAccessProfileMatches, type SourcePurpose, type ProfileCursor, encodeProfileCursor, type CreateSourceAccessProfile, CreateSourceAccessProfileSchema, sourcePathScopesOverlap } from "../../domain/access/source_access_profile.js";
 import { isItchSearchUrl } from "vrc-packages-network/source-paths";
@@ -2782,6 +2783,108 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     return {
       claimId,
       status: verdict,
+      updatedAt
+    };
+  }
+
+  async listOperatorAppsPage(
+    limit = 100,
+    cursor: OperatorAppCursor | null = null
+  ): Promise<{ apps: OperatorAppRecord[]; nextCursor: string | null }> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("App limit must be 1..100");
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (cursor) {
+      conditions.push("(created_at, app_id) < (?, ?)");
+      params.push(cursor.createdAt, cursor.appId);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    params.push(limit + 1);
+
+    const res = await this.db.prepare(`
+      SELECT app_id, app_name, contact_email, permissions_json, created_at, revoked_at
+      FROM registered_apps
+      ${where}
+      ORDER BY created_at DESC, app_id DESC
+      LIMIT ?
+    `).bind(...params).all<{
+      app_id: string;
+      app_name: string;
+      contact_email: string | null;
+      permissions_json: string;
+      created_at: string;
+      revoked_at: string | null;
+    }>();
+
+    const rows = res.results || [];
+    const visible = rows.slice(0, limit);
+    const last = visible.at(-1);
+
+    const apps: OperatorAppRecord[] = visible.map((row) => {
+      const perms: string[] = JSON.parse(row.permissions_json);
+      return {
+        appId: row.app_id,
+        appName: row.app_name,
+        contactEmail: row.contact_email ?? null,
+        permissions: perms,
+        delegationAllowed: perms.includes("claims:delegate"),
+        createdAt: row.created_at,
+        revokedAt: row.revoked_at ?? null
+      };
+    });
+
+    return {
+      apps,
+      nextCursor: rows.length > limit && last ? encodeOperatorAppCursor({
+        createdAt: last.created_at,
+        appId: last.app_id
+      }) : null
+    };
+  }
+
+  async setAppDelegation(
+    appId: string,
+    allowed: boolean,
+    actor: string,
+    reason?: string
+  ): Promise<{ appId: string; delegationAllowed: boolean; permissions: string[]; updatedAt: string }> {
+    const row = await this.db.prepare(`
+      SELECT app_id, permissions_json, revoked_at
+      FROM registered_apps
+      WHERE app_id = ?
+    `).bind(appId).first<{
+      app_id: string;
+      permissions_json: string;
+      revoked_at: string | null;
+    }>();
+
+    if (!row) {
+      throw new Error("App not found");
+    }
+    if (row.revoked_at) {
+      throw new Error("App is revoked");
+    }
+
+    const currentPerms = new Set<string>(JSON.parse(row.permissions_json));
+    if (allowed) {
+      currentPerms.add("claims:delegate");
+    } else {
+      currentPerms.delete("claims:delegate");
+    }
+    const newPerms = Array.from(currentPerms);
+    const updatedAt = new Date(this.now()).toISOString();
+
+    await this.db.prepare(`
+      UPDATE registered_apps
+      SET permissions_json = ?
+      WHERE app_id = ?
+    `).bind(JSON.stringify(newPerms), appId).run();
+
+    return {
+      appId,
+      delegationAllowed: allowed,
+      permissions: newPerms,
       updatedAt
     };
   }

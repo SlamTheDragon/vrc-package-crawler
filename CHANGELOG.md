@@ -7,8 +7,8 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Added package content rating storage, user age verification flags, and age-gated search delivery.
-- **VRC Packages API (`vrcp-packages-api-preview`)**: Added content rating taxonomy schemas and search rating filter parameters.
+- **VRC Packages Worker (`vrcp-worker-preview`)**: Added trusted application delegation authority checks and operator application management endpoints.
+- **VRC Packages API (`vrcp-packages-api-preview`)**: Added operator application management wire schemas and SDK methods.
 - **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
 - **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
 <!-- MASTER_SUMMARY -->
@@ -174,10 +174,13 @@ See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
-API client updates for content rating taxonomy, catalog package schema metadata, and search filter parameters.
+API client updates for operator application management schemas, cursor pagination, and delegation authority client methods.
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Operator Application Schemas**: Added `OperatorAppRecordSchema`, `OperatorAppListResponseSchema`, and `SetAppDelegationRequestSchema`.
+- **SDK Application Methods**: Added `client.operator.apps.list()` and `client.operator.apps.setDelegation()` methods.
+- **Application Cursor Paging**: Added base64url cursor encoding and decoding functions for operator application listing.
 - **Content Rating Taxonomy**: Added `ContentRatingSchema` with six levels from `general` to `prohibited`.
 - **Content Rating Field**: Added optional `contentRating` field to `CatalogPackageSchema` defaulting to `general`.
 - **Search Rating Filter**: Added optional `rating` filter parameter to `CatalogSearchRequestSchema`.
@@ -206,10 +209,13 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator updates for canonical package content rating storage, user age verification, and age-gated catalog search filtering.
+Coordinator updates for trusted application delegation authority enforcement, operator application listing, and delegation permission management.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Delegation Authority Check**: Enforced `claims:delegate` permission check on `/v1/app/claims/intake` to reject un-reviewed applications with 403 Forbidden.
+- **Operator Application Endpoints**: Added `GET /v1/operator/apps` and `POST /v1/operator/apps/:appId/delegation` for application inspection and delegation control.
+- **Storage Delegation Management**: Implemented `listOperatorAppsPage` and `setAppDelegation` on coordinator storage engines.
 - **Content Rating Storage**: Added `content_rating` column to `canonical_packages` with default `general`.
 - **User Age Verification Storage**: Added `age_verified` integer flag to `registered_users` schema.
 - **Fail-Closed Public Index**: Filtered public catalog and delta feeds to serve only `general` rated packages.

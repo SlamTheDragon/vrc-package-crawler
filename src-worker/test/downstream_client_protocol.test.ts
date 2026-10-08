@@ -330,7 +330,23 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     );
     expect(anonRes.status).toBe(401);
 
-    // 2. Rejects attestation appId mismatch
+    // 2. Rejects application lacking 'claims:delegate' permission (403)
+    const unauthorizedAppRes = await handleDownstreamRequest(
+      request("/v1/app/claims/intake", "POST", {
+        schemaVersion: 1,
+        attestation: validAttestation,
+        signature: validSignature
+      }, appToken),
+      store
+    );
+    expect(unauthorizedAppRes.status).toBe(403);
+    const unauthData = await unauthorizedAppRes.json() as any;
+    expect(unauthData.error).toBe("Application is not authorized for delegated creator claims");
+
+    // Grant delegation authority to the application
+    store.setAppDelegation(appId, true, "operator");
+
+    // 3. Rejects attestation appId mismatch
     const mismatchRes = await handleDownstreamRequest(
       request("/v1/app/claims/intake", "POST", {
         schemaVersion: 1,
@@ -427,6 +443,18 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     expect(tamperedRes.status).toBe(409);
     const tamperedData = await tamperedRes.json() as any;
     expect(tamperedData.code).toBe("conflict");
+
+    // 7. Revoking delegation authority restores 403 rejection
+    store.setAppDelegation(appId, false, "operator");
+    const revokedRes = await handleDownstreamRequest(
+      request("/v1/app/claims/intake", "POST", {
+        schemaVersion: 1,
+        attestation: validAttestation,
+        signature: validSignature
+      }, appToken),
+      store
+    );
+    expect(revokedRes.status).toBe(403);
   });
 
   test("catalog search enforces age rating boundary based on user age verification", async () => {
