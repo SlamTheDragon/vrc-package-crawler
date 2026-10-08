@@ -5,16 +5,17 @@ The failures mean there needs to be an investigation processed as to why such fa
 
 ## Attempt 1
 
-| name           | channel | status | single-run-results                                                               | resolutions            |
-| -------------- | ------- | ------ | -------------------------------------------------------------------------------- | ---------------------- |
-| package        | preview | done   | [failed](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37719073408) | deferred, else invalid |
-| crawler        | preview | done   | passed                                                                           |                        |
-| crawler-client | preview | done   | passed                                                                           |                        |
-| worker (web)   | preview | done   | passed                                                                           |                        |
-| network        | preview | done   | passed                                                                           |                        |
+| name           | channel | status | single-run-results                                                               | resolutions                    |
+| -------------- | ------- | ------ | -------------------------------------------------------------------------------- | ------------------------------ |
+| package        | preview | done   | [failed](https://github.com/SlamTheDragon/vrc-packages/actions/runs/37719073408) | deferred, else attempt invalid |
+| crawler        | preview | done   | passed                                                                           |                                |
+| crawler-client | preview | done   | passed                                                                           |                                |
+| worker (web)   | preview | done   | passed                                                                           |                                |
+| network        | preview | done   | passed                                                                           |                                |
 
 ## Attempt 2
 
-| name    | channel | status | single-run-results | resolutions |
-| ------- | ------- | ------ | ------------------ | ----------- |
-| package |         |        |                    |             |
+| name    | channel | status | single-run-results | resolutions | warnings                                                                                                                         |
+| ------- | ------- | ------ | ------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| package | release | done   | passed             |             | - no discord webhook was attached on local notification upon pre-delivery, a native notification hook workaround might be needed |
+| crawler | release |        |                    |             |                                                                                                                                  |
