@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { NodeIdSchema, PlatformSchema, type Platform } from "vrc-packages-network/node";
@@ -22,20 +22,6 @@ export type NodeRuntimeConfig = {
   token: string;
   databasePath: string;
 };
-
-/** Creates a non-secret launch-directory config once; an existing operator file is never replaced. */
-export function initializeNodeConfig(
-  cwd: string,
-  nodeId: string,
-  coordinatorUrl = "http://127.0.0.1:8787",
-  capabilities: Platform[] = [...PlatformSchema.options],
-  databaseFile = "node.db"
-): string {
-  const value = NodeRuntimeConfigSchema.parse({ schemaVersion: 1, nodeId, coordinatorUrl, capabilities, databaseFile });
-  const path = join(cwd, "node.config.json");
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-  return path;
-}
 
 /** A launch-directory config contains no credential; NODE_TOKEN remains a separate secret. */
 export function loadNodeRuntimeConfig(cwd: string, env: NodeJS.ProcessEnv): NodeRuntimeConfig {
@@ -70,7 +56,7 @@ export function loadNodeRuntimeConfig(cwd: string, env: NodeJS.ProcessEnv): Node
     capabilities: (env.NODE_CAPABILITIES || PlatformSchema.options.join(",")).split(","),
     databaseFile: "node.db",
   });
-  if (!envConfig.success) throw new Error("Set NODE_ID and valid NODE_CAPABILITIES/COORDINATOR_URL, or provide node.config.json");
+  if (!envConfig.success) throw new Error("Set NODE_ID and valid NODE_CAPABILITIES/COORDINATOR_URL in .env");
   const databasePath = env.NODE_DB_PATH || join(cwd, "node.db");
   return {
     nodeId: envConfig.data.nodeId,

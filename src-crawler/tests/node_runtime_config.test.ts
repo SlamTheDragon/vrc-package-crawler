@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { initializeNodeConfig, loadNodeRuntimeConfig, NodeRuntimeConfigSchema } from "../src/config/runtime_config.ts";
+import { loadNodeRuntimeConfig, NodeRuntimeConfigSchema } from "../src/config/runtime_config.ts";
 import { ClaimRequestSchema, HeartbeatRequestSchema } from "vrc-packages-network/node";
 import { coordinatorEndpointAllowed, resolveCoordinatorUrl, isTransientEdgeStatus, CoordinatorClient } from "../src/client/node_client.ts";
 import { loadScopedGitHubTokenFromEnvFile } from "../src/adapters/observation_adapter.ts";
@@ -42,17 +42,23 @@ describe("standalone node runtime configuration", () => {
     } finally { removeFixtureDirectory(directory); }
   });
 
-  test("initialization creates one non-secret config without replacing operator edits", () => {
+  test("loads configuration directly from environment without requiring a config file", () => {
     const directory = fixtureDirectory();
     try {
-      const path = initializeNodeConfig(directory, "desktop-1", "http://127.0.0.1:8787", ["vpm"]);
-      const saved = readFileSync(path, "utf8");
-      expect(JSON.parse(saved)).toEqual({ schemaVersion: 1, nodeId: "desktop-1",
-        coordinatorUrl: "http://127.0.0.1:8787", capabilities: ["vpm"], databaseFile: "node.db" });
-      expect(saved).not.toContain(secret);
-      expect(() => initializeNodeConfig(directory, "replacement", "http://127.0.0.1:8787", ["vpm"]))
-        .toThrow();
-      expect(readFileSync(path, "utf8")).toBe(saved);
+      const config = loadNodeRuntimeConfig(directory, {
+        NODE_ID: "env-node-1",
+        NODE_TOKEN: secret,
+        COORDINATOR_URL: "http://127.0.0.1:8787",
+        NODE_CAPABILITIES: "vpm,github",
+        NODE_DB_PATH: join(directory, "env_node.db")
+      });
+      expect(config).toEqual({
+        nodeId: "env-node-1",
+        baseUrl: "http://127.0.0.1:8787",
+        capabilities: ["vpm", "github"],
+        token: secret,
+        databasePath: join(directory, "env_node.db")
+      });
     } finally { removeFixtureDirectory(directory); }
   });
 
