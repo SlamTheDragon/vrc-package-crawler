@@ -1,45 +1,51 @@
-# Active Checkpoint — Trusted App Delegation Authority & Operator Management (Slice R54-C38A1)
+# Active Checkpoint — Content Rating Moderator Pathways & Review Endpoints (Slice R56-C56C1)
 
 ## Active Objective & Bounded Vertical Slice
 
 - Branch: `preview/crawler-network`
-- Active Gate: Delegated Creator Removal and Operator Authority Pathways (`G15` / `R54-C38A1`)
-- Active Slice: `R54-C38A1` (Enforce trusted app delegation authority check on `/v1/app/claims/intake`, add operator endpoints `/v1/operator/apps` and `/v1/operator/apps/:appId/delegation`, and add SDK client methods)
+- Active Gate: Content Rating Moderation Pathways & Dispute Review (`G17` / `R56-C56C1`)
+- Active Slice: `R56-C56C1` (Implement `/v1/moderator/ratings` endpoints for listing and adjusting canonical package content ratings by age-verified moderator staff, define wire protocols and SDK client methods, and enforce strict boundary against prohibited content)
 - Owner Instruction (2026-10-08): Never run root level tests (`bun test ./tests`) unless root level tooling (`scripts/`, `tests/`, `package.json`, root configs) is modified. Product-scoped work runs only its own domain test/typecheck suite.
 - Session Constraint: Commits remain local for this session (gate push rule disabled).
 
 ## Active Working Theories & Architectural Covenants
 
-1. **Trusted Verifier Admission Boundary (Owner Covenant R54-C38A)**:
-   - "Only trusted/reviewed applications can receive authority to perform removal on their behalf."
-   - Default app registration grants standard consumer permissions (`catalog:read`, `catalog:search`, `demand:feedback`).
-   - Delegation permission (`claims:delegate`) requires explicit operator review and grant.
-2. **Fail-Closed Claims Intake**:
-   - `/v1/app/claims/intake` strictly checks `app.permissions.includes("claims:delegate")`.
-   - Applications lacking this permission receive `403 Forbidden` (`Application is not authorized for delegated creator claims`).
-3. **Operator App Authority Management**:
-   - `GET /v1/operator/apps`: Lists registered applications, metadata, creation/revocation status, and granted permissions with cursor pagination.
-   - `POST /v1/operator/apps/:appId/delegation`: Allows operators to grant or revoke `claims:delegate` permission with optional audit reason.
+1. **Separation of Moderation and Ingestion Infrastructure (Owner Covenant R56-C56C)**:
+   - Moderation endpoints live under `/v1/moderator/`, completely distinct from node crawler operator controls under `/v1/operator/`.
+   - Age-verified volunteer staff ("second hand operators") review indexed items that were marked restricted or reported for false positives/negatives.
+2. **Fail-Closed Moderator Authorization**:
+   - `/v1/moderator/*` routes authenticate users via Bearer token (`vrcp_usr_<token>`).
+   - Callers must have `age_verified === 1` and `is_moderator === 1`.
+   - Callers lacking either condition receive `403 Forbidden` (`Moderator authority with verified age required`).
+   - Unauthenticated callers receive `401 Unauthorized`.
+3. **Rating Review & Adjustment Lifecycle**:
+   - `GET /v1/moderator/ratings`: Lists packages with their current `contentRating`, report count, and metadata, supporting filtering by `rating` and cursor-based pagination.
+   - `POST /v1/moderator/ratings/:canonicalId`: Allows moderators to adjust a package's `content_rating` (e.g. general, mature, sexual_suggestive, adult_restricted, prohibited) with mandatory reason.
+   - Updates `content_rating` and `updated_at` on `canonical_packages`.
+   - Prohibited packages remain strictly excluded from public and delta feeds.
 4. **Wire Schemas & SDK Interface**:
-   - `OperatorAppRecordSchema`, `OperatorAppListResponseSchema`, `SetAppDelegationRequestSchema`, `SetAppDelegationResponseSchema` defined in `src-package/src/protocol/operator.ts`.
-   - `client.operator.apps.list()` and `client.operator.apps.setDelegation()` in `src-package/src/client.ts`.
+   - `ModeratorRatingRecordSchema`, `ModeratorRatingListQuerySchema`, `ModeratorRatingListResponseSchema`, `SetRatingAdjustmentRequestSchema`, `SetRatingAdjustmentResponseSchema` defined in `src-package/src/protocol/moderator.ts`.
+   - `client.moderator.ratings.list()` and `client.moderator.ratings.adjust()` in `src-package/src/client.ts`.
 
-## Measured Verification Evidence
+## Verification Evidence Plan & Results
 
-1. **`src-package`**:
-   - 58/58 tests passed (`bun test`). Validated `OperatorAppRecordSchema`, cursor base64url encode/decode, `client.operator.apps.list()`, `client.operator.apps.setDelegation()`, and operator token requirement.
-   - Clean build via `bun run build`, synced `dist/` into all `node_modules/vrc-packages-api/dist/`.
-2. **`src-worker`**:
-   - 252/252 tests passed (`bun test ./test`).
-   - Verified `/v1/app/claims/intake` rejects un-reviewed applications lacking `claims:delegate` with 403 Forbidden (`Application is not authorized for delegated creator claims`).
-   - Verified `store.setAppDelegation(appId, true)` grants delegation and enables 202 intake.
-   - Verified revoking delegation restores 403 rejection.
-   - Verified `GET /v1/operator/apps` and `POST /v1/operator/apps/:appId/delegation` with pagination, JSON schema export, case-insensitivity, and error cases (401, 404).
-   - `bun run check` cleanly passed (`wrangler types`, `tsc --noEmit`, and `tsc --noEmit -p test/tsconfig.json`).
-3. **`src-crawler`**:
-   - 158/158 tests passed (`bun test`). Domain suite intact.
+1. **`src-package` (Verified)**:
+   - Wire protocol schemas, base64url cursor encoding/decoding, and SDK `client.moderator.ratings.list()` / `client.moderator.ratings.adjust()` implemented.
+   - 60/60 unit tests passing in `src-package/tests/` (protocol.test.ts, client.test.ts, distribution.test.ts, etc.).
+   - Clean compilation via `bun run build` and distribution synchronized across monorepo consumers.
 
-## Open Risks & Next Steps
+2. **`src-worker` (Verified)**:
+   - Implemented `handleModeratorRequest` and `createModeratorHandler` in `src-worker/src/api/moderator_handler.ts`.
+   - Wired moderator handler into `worker_entry.ts` request pipeline.
+   - Enforced fail-closed authentication (`401 Unauthorized` for missing/invalid bearer token) and authorization (`403 Forbidden` for users lacking `is_moderator === 1` or `age_verified === 1`).
+   - Implemented `listModeratorRatingsPage` and `adjustPackageRating` on D1 `Coordinator` and SQLite `LocalCoordinatorStore`.
+   - Verified audit logging and database reflection on rating changes; verified zero prohibited package leakage on public catalog endpoints.
+   - `src-worker/test/moderator_protocol.test.ts`: 4/4 tests pass.
+   - Full domain test suite: 256/256 tests pass across 21 files.
+   - Worker typecheck: `bun run check` clean (Cloudflare cf-typegen + tsconfig + test/tsconfig).
 
-1. Next Slice: `R54-C38B` (Creator Ownership Attestation & Signature Verification Protocol).
-2. Commit slice `R54-C38A1` locally (`preview/crawler-network`).
+3. **`src-crawler` (Verified)**:
+   - Full domain test suite passes unaffected: 158/158 tests pass across 24 files.
+
+4. **Next Steps**:
+   - Commit slice locally: `feat(package,worker): content rating moderator review and adjustment pathways (R56-C56C1)`.

@@ -9,6 +9,7 @@ export interface UserPrincipal {
   userId: string;
   userName: string;
   ageVerified?: boolean;
+  isModerator?: boolean;
 }
 
 /**

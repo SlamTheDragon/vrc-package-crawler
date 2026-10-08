@@ -835,6 +835,87 @@ describe("VRCPackageClient SDK", () => {
     await expect(client.operator.apps.list()).rejects.toThrow(VRCPApiError);
   });
 
+  it("exercises moderator ratings: list and adjust (R56-C56C1)", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedAuth = "";
+    let capturedBody: any = null;
+
+    const mockFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = new Request(input, init);
+      capturedUrl = req.url;
+      capturedMethod = req.method;
+      capturedAuth = req.headers.get("Authorization") ?? "";
+      if (req.body) {
+        capturedBody = await req.json();
+      }
+
+      if (capturedUrl.includes("/v1/moderator/ratings") && capturedMethod === "GET") {
+        return Response.json({
+          schemaVersion: 1,
+          ratings: [
+            {
+              canonicalId: "com.author.package",
+              displayName: "Package With Rating",
+              currentRating: "adult_restricted",
+              umbrella: "avatars",
+              category: "models",
+              reportCount: 3,
+              updatedAt: "2026-10-01T12:00:00.000Z"
+            }
+          ],
+          nextCursor: null
+        });
+      }
+
+      if (capturedUrl.includes("/v1/moderator/ratings/com.author.package") && capturedMethod === "POST") {
+        return Response.json({
+          schemaVersion: 1,
+          canonicalId: "com.author.package",
+          previousRating: "adult_restricted",
+          newRating: "mature",
+          adjustedBy: "user_moderator_1",
+          updatedAt: "2026-10-01T13:00:00.000Z"
+        });
+      }
+
+      return new Response("Not found", { status: 404 });
+    };
+
+    const client = new VRCPackageClient({
+      baseUrl: "https://api.vrc-packages.example",
+      userToken: "vrcp_usr_" + "1".repeat(64),
+      fetch: mockFetch as unknown as typeof fetch
+    });
+
+    const listRes = await client.moderator.ratings.list({ rating: "adult_restricted", limit: 25 });
+    expect(listRes.ratings.length).toBe(1);
+    expect(listRes.ratings[0]?.canonicalId).toBe("com.author.package");
+    expect(capturedUrl).toContain("rating=adult_restricted");
+    expect(capturedUrl).toContain("limit=25");
+    expect(capturedAuth).toBe(`Bearer vrcp_usr_${"1".repeat(64)}`);
+    expect(capturedMethod).toBe("GET");
+
+    const adjustRes = await client.moderator.ratings.adjust("com.author.package", {
+      newRating: "mature",
+      reason: "False positive adult filter detection resolved"
+    });
+    expect(adjustRes.canonicalId).toBe("com.author.package");
+    expect(adjustRes.previousRating).toBe("adult_restricted");
+    expect(adjustRes.newRating).toBe("mature");
+    expect(capturedBody.newRating).toBe("mature");
+    expect(capturedBody.reason).toBe("False positive adult filter detection resolved");
+  });
+
+  it("throws VRCPApiError if moderator methods called without userToken", async () => {
+    const client = new VRCPackageClient({
+      baseUrl: "https://api.vrc-packages.example"
+    });
+
+    await expect(client.moderator.ratings.list()).rejects.toThrow(VRCPApiError);
+    await expect(client.moderator.ratings.adjust("com.pkg", { newRating: "general", reason: "Valid reason" })).rejects.toThrow(VRCPApiError);
+  });
+
   it("rejects responses exceeding SDK byte limits", async () => {
     const largeErrorClient = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example",

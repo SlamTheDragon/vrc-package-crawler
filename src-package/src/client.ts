@@ -32,6 +32,20 @@ import {
 import { UserAppListQuerySchema, UserAppListResponseSchema, UserAppResponseSchema, UserAppSchema,
   type UserAppListQuery, type UserAppListResponse, type UserAppResponse } from "./protocol/user.ts";
 import {
+  MODERATOR_PROTOCOL_VERSION,
+  type ModeratorRatingRecord,
+  ModeratorRatingRecordSchema,
+  type ModeratorRatingListQuery,
+  ModeratorRatingListQuerySchema,
+  type ModeratorRatingListResponse,
+  ModeratorRatingListResponseSchema,
+  type SetRatingAdjustmentRequest,
+  SetRatingAdjustmentRequestSchema,
+  type SetRatingAdjustmentResponse,
+  SetRatingAdjustmentResponseSchema
+} from "./protocol/moderator.ts";
+import { type ContentRating } from "./taxonomy/taxonomy.ts";
+import {
   type LeadStatus,
   OperatorLeadListQuerySchema, OperatorProfileListQuerySchema, OperatorRuleListQuerySchema,
   OperatorCatalogListQuerySchema, OperatorTakedownListQuerySchema, OperatorClaimListQuerySchema,
@@ -671,6 +685,51 @@ export class VRCPackageClient {
           })
         });
         return SetAppDelegationResponseSchema.parse(res);
+      }
+    }
+  };
+
+  /* ------------------------------------------------------------------------ */
+  /* Moderator Protocol (/v1/moderator/*)                                     */
+  /* ------------------------------------------------------------------------ */
+
+  readonly moderator = {
+    ratings: {
+      /**
+       * Lists canonical packages for content rating review (GET /v1/moderator/ratings).
+       * Requires age-verified moderator user token.
+       */
+      list: async (params: { rating?: ContentRating; limit?: number; cursor?: string } = {}): Promise<ModeratorRatingListResponse> => {
+        const query = ModeratorRatingListQuerySchema.parse(params);
+        const res = await this.request<unknown>("/v1/moderator/ratings", "GET", {
+          auth: "user",
+          queryParams: {
+            rating: query.rating,
+            limit: query.limit,
+            cursor: query.cursor
+          }
+        });
+        return ModeratorRatingListResponseSchema.parse(res);
+      },
+
+      /**
+       * Adjusts the content rating of a canonical package (POST /v1/moderator/ratings/{canonicalId}).
+       * Requires age-verified moderator user token.
+       */
+      adjust: async (
+        canonicalId: string,
+        request: { newRating: ContentRating; reason: string }
+      ): Promise<SetRatingAdjustmentResponse> => {
+        const id = ModeratorRatingRecordSchema.shape.canonicalId.parse(canonicalId);
+        const res = await this.request<unknown>(`/v1/moderator/ratings/${encodeURIComponent(id)}`, "POST", {
+          auth: "user",
+          body: SetRatingAdjustmentRequestSchema.parse({
+            schemaVersion: MODERATOR_PROTOCOL_VERSION,
+            newRating: request.newRating,
+            reason: request.reason
+          })
+        });
+        return SetRatingAdjustmentResponseSchema.parse(res);
       }
     }
   };

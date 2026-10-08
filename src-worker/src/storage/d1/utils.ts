@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS catalog_reports ( report_id TEXT PRIMARY KEY, app_id 
 CREATE INDEX IF NOT EXISTS idx_catalog_reports_review ON catalog_reports(review_status,recorded_at,report_id);
 CREATE TABLE IF NOT EXISTS downstream_demand_signals ( signal_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, signal_type TEXT NOT NULL CHECK(signal_type IN ('search_miss','refresh_demand','popularity_signal')), query TEXT, zero_hits INTEGER NOT NULL DEFAULT 0, requested_platform TEXT, target_url TEXT, category TEXT, metadata_json TEXT, recorded_at TEXT NOT NULL, resolved_at TEXT, FOREIGN KEY (app_id) REFERENCES registered_apps(app_id) );
 CREATE INDEX IF NOT EXISTS idx_downstream_demand_platform ON downstream_demand_signals(requested_platform, resolved_at);
-CREATE TABLE IF NOT EXISTS registered_users ( user_id TEXT PRIMARY KEY, user_name TEXT NOT NULL, token_hash TEXT NOT NULL, contact_email TEXT, created_at TEXT NOT NULL, revoked_at TEXT, age_verified INTEGER NOT NULL DEFAULT 0 );
+CREATE TABLE IF NOT EXISTS registered_users ( user_id TEXT PRIMARY KEY, user_name TEXT NOT NULL, token_hash TEXT NOT NULL, contact_email TEXT, created_at TEXT NOT NULL, revoked_at TEXT, age_verified INTEGER NOT NULL DEFAULT 0, is_moderator INTEGER NOT NULL DEFAULT 0 );
 CREATE INDEX IF NOT EXISTS idx_registered_users_token ON registered_users(token_hash);
 CREATE TABLE IF NOT EXISTS user_app_ownership ( app_id TEXT PRIMARY KEY REFERENCES registered_apps(app_id), user_id TEXT NOT NULL REFERENCES registered_users(user_id) );
 CREATE INDEX IF NOT EXISTS idx_user_app_ownership_user ON user_app_ownership(user_id,app_id);

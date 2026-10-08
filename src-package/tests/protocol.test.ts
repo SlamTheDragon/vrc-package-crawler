@@ -57,6 +57,17 @@ import {
   encodeOperatorAppCursor,
   decodeOperatorAppCursor
 } from "../src/protocol/operator.ts";
+import {
+  MODERATOR_PROTOCOL_VERSION,
+  ModeratorRatingRecordSchema,
+  ModeratorRatingCursorSchema,
+  encodeModeratorRatingCursor,
+  decodeModeratorRatingCursor,
+  ModeratorRatingListQuerySchema,
+  ModeratorRatingListResponseSchema,
+  SetRatingAdjustmentRequestSchema,
+  SetRatingAdjustmentResponseSchema
+} from "../src/protocol/moderator.ts";
 
 describe("src-package wire protocols", () => {
   it("validates CatalogPackage schema and defaults contentRating to general", () => {
@@ -493,6 +504,53 @@ describe("src-package wire protocols", () => {
       appId: "123e4567-e89b-12d3-a456-426614174002",
       delegationAllowed: true,
       permissions: ["catalog:read", "catalog:search", "demand:feedback", "claims:delegate"],
+      updatedAt: "2026-10-01T12:00:00.000Z"
+    })).not.toThrow();
+
+    // Moderator Rating Protocol (R56-C56C1)
+    const ratingRecord = {
+      canonicalId: "pkg-12345",
+      displayName: "Sample Asset",
+      currentRating: "mature" as const,
+      umbrella: "assets" as const,
+      category: "props",
+      reportCount: 2,
+      updatedAt: "2026-10-01T12:00:00.000Z"
+    };
+    expect(() => ModeratorRatingRecordSchema.parse(ratingRecord)).not.toThrow();
+
+    const moderatorCursor = {
+      updatedAt: "2026-10-01T12:00:00.000Z",
+      canonicalId: "pkg-12345"
+    };
+    const encModCursor = encodeModeratorRatingCursor(moderatorCursor);
+    expect(decodeModeratorRatingCursor(encModCursor)).toEqual(moderatorCursor);
+    expect(decodeModeratorRatingCursor("invalid-mod-cursor")).toBeNull();
+
+    expect(() => ModeratorRatingListQuerySchema.parse({
+      rating: "mature",
+      limit: 20,
+      cursor: encModCursor
+    })).not.toThrow();
+
+    expect(() => ModeratorRatingListResponseSchema.parse({
+      schemaVersion: 1,
+      ratings: [ratingRecord],
+      nextCursor: encModCursor
+    })).not.toThrow();
+
+    expect(() => SetRatingAdjustmentRequestSchema.parse({
+      schemaVersion: 1,
+      newRating: "adult_restricted",
+      reason: "Verified adult content elements"
+    })).not.toThrow();
+
+    expect(() => SetRatingAdjustmentResponseSchema.parse({
+      schemaVersion: 1,
+      canonicalId: "pkg-12345",
+      previousRating: "mature",
+      newRating: "adult_restricted",
+      adjustedBy: "mod-user-1",
       updatedAt: "2026-10-01T12:00:00.000Z"
     })).not.toThrow();
   });

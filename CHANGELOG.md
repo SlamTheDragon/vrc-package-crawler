@@ -7,8 +7,8 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Added trusted application delegation authority checks and operator application management endpoints.
-- **VRC Packages API (`vrcp-packages-api-preview`)**: Added operator application management wire schemas and SDK methods.
+- **VRC Packages Worker (`vrcp-worker-preview`)**: Added content rating review and adjustment endpoints under `/v1/moderator/ratings` for age-verified staff.
+- **VRC Packages API (`vrcp-packages-api-preview`)**: Added moderator review wire schemas, cursor paging, and SDK client methods.
 - **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
 - **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
 <!-- MASTER_SUMMARY -->
@@ -174,10 +174,13 @@ See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
-API client updates for operator application management schemas, cursor pagination, and delegation authority client methods.
+API client updates for moderator content rating review schemas, cursor pagination, and rating adjustment client methods.
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Moderator Rating Schemas**: Added `ModeratorRatingRecordSchema`, `ModeratorRatingListResponseSchema`, and `SetRatingAdjustmentRequestSchema`.
+- **SDK Moderator Methods**: Added `client.moderator.ratings.list()` and `client.moderator.ratings.adjust()` methods.
+- **Moderator Cursor Paging**: Added base64url cursor encoding and decoding functions for moderator rating reviews.
 - **Operator Application Schemas**: Added `OperatorAppRecordSchema`, `OperatorAppListResponseSchema`, and `SetAppDelegationRequestSchema`.
 - **SDK Application Methods**: Added `client.operator.apps.list()` and `client.operator.apps.setDelegation()` methods.
 - **Application Cursor Paging**: Added base64url cursor encoding and decoding functions for operator application listing.
@@ -209,10 +212,14 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator updates for trusted application delegation authority enforcement, operator application listing, and delegation permission management.
+Coordinator updates for moderator rating review and adjustment pathways gated by verified age and moderator authority.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Moderator Rating Endpoints**: Added `GET /v1/moderator/ratings` and `POST /v1/moderator/ratings/:canonicalId` for content rating oversight.
+- **Moderator Access Gate**: Enforced verified age and moderator authority checks on all `/v1/moderator/*` routes.
+- **Storage Rating Adjustment**: Implemented `listModeratorRatingsPage` and `adjustPackageRating` on coordinator storage engines.
+- **Moderator Flag Storage**: Added `is_moderator` flag to `registered_users` schema for staff authorization.
 - **Delegation Authority Check**: Enforced `claims:delegate` permission check on `/v1/app/claims/intake` to reject un-reviewed applications with 403 Forbidden.
 - **Operator Application Endpoints**: Added `GET /v1/operator/apps` and `POST /v1/operator/apps/:appId/delegation` for application inspection and delegation control.
 - **Storage Delegation Management**: Implemented `listOperatorAppsPage` and `setAppDelegation` on coordinator storage engines.

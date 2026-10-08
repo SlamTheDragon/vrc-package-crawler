@@ -5,7 +5,8 @@ import { EnqueueJobRequestSchema, type EnqueueJobRequest,
   type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema,
   type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront,
   encodeCatalogCursor, decodeCatalogCursor, type CatalogDelta, type CatalogDeltaCursor,
-  encodeCatalogDeltaCursor, type ContentRating } from "vrc-packages-api";
+  encodeCatalogDeltaCursor, type ContentRating,
+  encodeModeratorRatingCursor, type ModeratorRatingRecord, type ModeratorRatingCursor } from "vrc-packages-api";
 import { ROBOTS_RESTRICTION_TOKENS } from "vrc-packages-network/identity";
 import { isPrivateOrReservedIp } from "vrc-packages-network/ip-policy";
 import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, type CrawlJob, type BatchResultRequest, type BatchResultResponse, type BatchResultReceipt, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "vrc-packages-network/node";
@@ -41,6 +42,7 @@ import {
   type CreatorClaimIntakeResponse
 } from "vrc-packages-api";
 import type { UserStore } from "../../api/user_handler.ts";
+import type { ModeratorStore } from "../../api/moderator_handler.ts";
 import { D1_SCHEMA_SQL, sha256Hex, timingSafeEqual, generateToken, isIp } from "./utils.js";
 import { deriveCategoryFromTags, deriveUmbrellaFromTags, classifyDesktopTool, inferSupportedOS, type DesktopToolEvidence } from "../../domain/classification/taxonomy.ts";
 import { extractAvatarCompatibility, type AvatarCompatibility } from "../../domain/classification/avatar_compatibility.ts";
@@ -107,7 +109,7 @@ function approvedRobotsJobDelaySql(origin: string, now: string): string {
             substr(j.url,1,length(p.origin||p.path_scope))=p.origin||p.path_scope)))))`;
 }
 
-export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatalogStore, UserStore {
+export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatalogStore, UserStore, ModeratorStore {
   private readonly robotsMatchers = new Map<string, { snapshotId: string; matchers: readonly CrawlerRules[]; }>();
 
   constructor(
@@ -2339,8 +2341,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   }
 
   /** Issues a `vrcp_usr_` token for a new or returning user. */
-  async issueUserToken(userName: string, contactEmail?: string, ageVerified: boolean = false): Promise<{
-    userId: string; userName: string; token: string; ageVerified: boolean;
+  async issueUserToken(userName: string, contactEmail?: string, ageVerified: boolean = false, isModerator: boolean = false): Promise<{
+    userId: string; userName: string; token: string; ageVerified: boolean; isModerator: boolean;
   }> {
     if (!userName.trim()) throw new Error("User name required");
     const userId = crypto.randomUUID();
@@ -2349,21 +2351,21 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const tokenHash = await sha256Hex(token);
     const now = new Date(this.now()).toISOString();
     await this.db.prepare(`
-      INSERT INTO registered_users (user_id, user_name, token_hash, contact_email, created_at, revoked_at, age_verified)
-      VALUES (?, ?, ?, ?, ?, NULL, ?)
-    `).bind(userId, userName.trim(), tokenHash, contactEmail || null, now, ageVerified ? 1 : 0).run();
-    return { userId, userName: userName.trim(), token, ageVerified };
+      INSERT INTO registered_users (user_id, user_name, token_hash, contact_email, created_at, revoked_at, age_verified, is_moderator)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+    `).bind(userId, userName.trim(), tokenHash, contactEmail || null, now, ageVerified ? 1 : 0, isModerator ? 1 : 0).run();
+    return { userId, userName: userName.trim(), token, ageVerified, isModerator };
   }
 
   /** Authenticates a user bearer token. */
-  async authenticateUser(token: string): Promise<{ userId: string; userName: string; ageVerified?: boolean } | null> {
+  async authenticateUser(token: string): Promise<{ userId: string; userName: string; ageVerified?: boolean; isModerator?: boolean } | null> {
     if (!/^vrcp_usr_[a-f0-9]{64}$/.test(token)) return null;
     const tokenHash = await sha256Hex(token);
     const row = await this.db.prepare(`
-      SELECT user_id, user_name, revoked_at, age_verified FROM registered_users WHERE token_hash = ?
-    `).bind(tokenHash).first<{ user_id: string; user_name: string; revoked_at: string | null; age_verified: number }>();
+      SELECT user_id, user_name, revoked_at, age_verified, is_moderator FROM registered_users WHERE token_hash = ?
+    `).bind(tokenHash).first<{ user_id: string; user_name: string; revoked_at: string | null; age_verified: number; is_moderator: number }>();
     if (!row || row.revoked_at) return null;
-    return { userId: row.user_id, userName: row.user_name, ageVerified: Boolean(row.age_verified) };
+    return { userId: row.user_id, userName: row.user_name, ageVerified: Boolean(row.age_verified), isModerator: Boolean(row.is_moderator) };
   }
 
   /**
@@ -2885,6 +2887,100 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       appId,
       delegationAllowed: allowed,
       permissions: newPerms,
+      updatedAt
+    };
+  }
+
+  async listModeratorRatingsPage(
+    rating?: ContentRating,
+    limit = 100,
+    cursor: { updatedAt: string; canonicalId: string } | null = null
+  ): Promise<{ ratings: ModeratorRatingRecord[]; nextCursor: string | null }> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Rating limit must be 1..100");
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (rating) {
+      conditions.push("c.content_rating = ?");
+      params.push(rating);
+    }
+    if (cursor) {
+      conditions.push("(c.updated_at, c.canonical_id) < (?, ?)");
+      params.push(cursor.updatedAt, cursor.canonicalId);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    params.push(limit + 1);
+
+    const res = await this.db.prepare(`
+      SELECT c.canonical_id, c.display_name, c.content_rating, c.umbrella, c.category, c.updated_at,
+             (SELECT COUNT(*) FROM catalog_reports r WHERE json_extract(r.payload_json, '$.canonicalId') = c.canonical_id) AS report_count
+      FROM canonical_packages c
+      ${where}
+      ORDER BY c.updated_at DESC, c.canonical_id DESC
+      LIMIT ?
+    `).bind(...params).all<{
+      canonical_id: string;
+      display_name: string;
+      content_rating: string;
+      umbrella: "assets" | "tools" | "avatars";
+      category: string;
+      updated_at: string;
+      report_count: number;
+    }>();
+
+    const rows = res.results || [];
+    const visible = rows.slice(0, limit);
+    const last = visible.at(-1);
+
+    const ratings: ModeratorRatingRecord[] = visible.map((row) => ({
+      canonicalId: row.canonical_id,
+      displayName: row.display_name,
+      currentRating: row.content_rating as ContentRating,
+      umbrella: row.umbrella,
+      category: row.category,
+      reportCount: row.report_count ?? 0,
+      updatedAt: row.updated_at
+    }));
+
+    return {
+      ratings,
+      nextCursor: rows.length > limit && last ? encodeModeratorRatingCursor({ updatedAt: last.updated_at, canonicalId: last.canonical_id }) : null
+    };
+  }
+
+  async adjustPackageRating(
+    canonicalId: string,
+    newRating: ContentRating,
+    adjustedBy: string,
+    reason: string
+  ): Promise<{ canonicalId: string; previousRating: ContentRating; newRating: ContentRating; adjustedBy: string; updatedAt: string } | null> {
+    const row = await this.db.prepare(`
+      SELECT canonical_id, content_rating
+      FROM canonical_packages
+      WHERE canonical_id = ?
+    `).bind(canonicalId).first<{
+      canonical_id: string;
+      content_rating: string;
+    }>();
+
+    if (!row) {
+      return null;
+    }
+
+    const previousRating = row.content_rating as ContentRating;
+    const updatedAt = new Date(this.now()).toISOString();
+
+    await this.db.prepare(`
+      UPDATE canonical_packages
+      SET content_rating = ?, updated_at = ?
+      WHERE canonical_id = ?
+    `).bind(newRating, updatedAt, canonicalId).run();
+
+    return {
+      canonicalId,
+      previousRating,
+      newRating,
+      adjustedBy,
       updatedAt
     };
   }

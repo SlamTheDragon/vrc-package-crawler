@@ -4,7 +4,8 @@ import { EnqueueJobRequestSchema, type EnqueueJobRequest,
   AutoQueueRuleSchema, CreateAutoQueueRuleSchema, IssueNodeCredentialSchema, type IssueNodeCredential,
   encodeRuleCursor, encodeCatalogCursor, decodeCatalogCursor, type AutoQueueRule, type CreateAutoQueueRule,
   type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, PackageFrontSchema, type PackageFront,
-  type RuleCursor, type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor } from "vrc-packages-api";
+  type RuleCursor, type CatalogDelta, type CatalogDeltaCursor, encodeCatalogDeltaCursor,
+  type ContentRating, encodeModeratorRatingCursor, type ModeratorRatingRecord, type ModeratorRatingCursor } from "vrc-packages-api";
 import crypto from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { isIP } from "node:net";
@@ -38,6 +39,7 @@ import {
   type CreatorClaimIntakeResponse
 } from "vrc-packages-api";
 import { type UserStore, type UserPrincipal } from "../../src/api/user_handler.ts";
+import { type ModeratorStore } from "../../src/api/moderator_handler.ts";
 import { isPrivateOrReservedIp } from "vrc-packages-network/ip-policy";
 import { githubApiRepositoryIdentity, isBoothBrowseTarget, boothItemIdentity,
   isShopifyProductSitemapTarget, shopifyProductLead, isSellfyProductTarget } from "vrc-packages-network/source-targets";
@@ -102,7 +104,7 @@ export type IdentityLink = {
   reviewedAt: string | null;
 };
 
-export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogStore, UserStore {
+export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogStore, UserStore, ModeratorStore {
   readonly db: Database;
   private readonly now: () => number;
   private readonly robotsMatchers = new Map<string, { snapshotId: string; matchers: readonly CrawlerRules[] }>();
@@ -350,7 +352,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         contact_email TEXT,
         created_at TEXT NOT NULL,
         revoked_at TEXT,
-        age_verified INTEGER NOT NULL DEFAULT 0
+        age_verified INTEGER NOT NULL DEFAULT 0,
+        is_moderator INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_registered_users_token ON registered_users(token_hash);
       CREATE TABLE IF NOT EXISTS user_app_ownership (
@@ -2600,8 +2603,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   }
 
   /** Issues a `vrcp_usr_` token for a new or returning user. */
-  issueUserToken(userName: string, contactEmail?: string, ageVerified: boolean = false): {
-    userId: string; userName: string; token: string; ageVerified: boolean;
+  issueUserToken(userName: string, contactEmail?: string, ageVerified: boolean = false, isModerator: boolean = false): {
+    userId: string; userName: string; token: string; ageVerified: boolean; isModerator: boolean;
   } {
     if (!userName.trim()) throw new Error("User name required");
     const userId = crypto.randomUUID();
@@ -2610,21 +2613,21 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const now = new Date(this.now()).toISOString();
     this.db.prepare(`
-      INSERT INTO registered_users (user_id, user_name, token_hash, contact_email, created_at, revoked_at, age_verified)
-      VALUES (?, ?, ?, ?, ?, NULL, ?)
-    `).run(userId, userName.trim(), tokenHash, contactEmail || null, now, ageVerified ? 1 : 0);
-    return { userId, userName: userName.trim(), token, ageVerified };
+      INSERT INTO registered_users (user_id, user_name, token_hash, contact_email, created_at, revoked_at, age_verified, is_moderator)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+    `).run(userId, userName.trim(), tokenHash, contactEmail || null, now, ageVerified ? 1 : 0, isModerator ? 1 : 0);
+    return { userId, userName: userName.trim(), token, ageVerified, isModerator };
   }
 
   /** Authenticates a user bearer token. */
-  authenticateUser(token: string): { userId: string; userName: string; ageVerified?: boolean } | null {
+  authenticateUser(token: string): { userId: string; userName: string; ageVerified?: boolean; isModerator?: boolean } | null {
     if (!/^vrcp_usr_[a-f0-9]{64}$/.test(token)) return null;
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const row = this.db.prepare(`
-      SELECT user_id, user_name, revoked_at, age_verified FROM registered_users WHERE token_hash = ?
-    `).get(tokenHash) as { user_id: string; user_name: string; revoked_at: string | null; age_verified: number } | null;
+      SELECT user_id, user_name, revoked_at, age_verified, is_moderator FROM registered_users WHERE token_hash = ?
+    `).get(tokenHash) as { user_id: string; user_name: string; revoked_at: string | null; age_verified: number; is_moderator: number } | null;
     if (!row || row.revoked_at) return null;
-    return { userId: row.user_id, userName: row.user_name, ageVerified: Boolean(row.age_verified) };
+    return { userId: row.user_id, userName: row.user_name, ageVerified: Boolean(row.age_verified), isModerator: Boolean(row.is_moderator) };
   }
 
   /**
@@ -3123,6 +3126,99 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       appId,
       delegationAllowed: allowed,
       permissions: newPerms,
+      updatedAt
+    };
+  }
+
+  listModeratorRatingsPage(
+    rating?: ContentRating,
+    limit = 100,
+    cursor: { updatedAt: string; canonicalId: string } | null = null
+  ): { ratings: ModeratorRatingRecord[]; nextCursor: string | null } {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Rating limit must be 1..100");
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (rating) {
+      conditions.push("c.content_rating = ?");
+      params.push(rating);
+    }
+    if (cursor) {
+      conditions.push("(c.updated_at, c.canonical_id) < (?, ?)");
+      params.push(cursor.updatedAt, cursor.canonicalId);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    params.push(limit + 1);
+
+    const rows = this.db.prepare(`
+      SELECT c.canonical_id, c.display_name, c.content_rating, c.umbrella, c.category, c.updated_at,
+             (SELECT COUNT(*) FROM catalog_reports r WHERE json_extract(r.payload_json, '$.canonicalId') = c.canonical_id) AS report_count
+      FROM canonical_packages c
+      ${where}
+      ORDER BY c.updated_at DESC, c.canonical_id DESC
+      LIMIT ?
+    `).all(...params) as {
+      canonical_id: string;
+      display_name: string;
+      content_rating: string;
+      umbrella: "assets" | "tools" | "avatars";
+      category: string;
+      updated_at: string;
+      report_count: number;
+    }[];
+
+    const visible = rows.slice(0, limit);
+    const last = visible.at(-1);
+
+    const ratings: ModeratorRatingRecord[] = visible.map((row) => ({
+      canonicalId: row.canonical_id,
+      displayName: row.display_name,
+      currentRating: row.content_rating as ContentRating,
+      umbrella: row.umbrella,
+      category: row.category,
+      reportCount: row.report_count ?? 0,
+      updatedAt: row.updated_at
+    }));
+
+    return {
+      ratings,
+      nextCursor: rows.length > limit && last ? encodeModeratorRatingCursor({ updatedAt: last.updated_at, canonicalId: last.canonical_id }) : null
+    };
+  }
+
+  adjustPackageRating(
+    canonicalId: string,
+    newRating: ContentRating,
+    adjustedBy: string,
+    reason: string
+  ): { canonicalId: string; previousRating: ContentRating; newRating: ContentRating; adjustedBy: string; updatedAt: string } | null {
+    const row = this.db.prepare(`
+      SELECT canonical_id, content_rating
+      FROM canonical_packages
+      WHERE canonical_id = ?
+    `).get(canonicalId) as {
+      canonical_id: string;
+      content_rating: string;
+    } | null;
+
+    if (!row) {
+      return null;
+    }
+
+    const previousRating = row.content_rating as ContentRating;
+    const updatedAt = new Date(this.now()).toISOString();
+
+    this.db.prepare(`
+      UPDATE canonical_packages
+      SET content_rating = ?, updated_at = ?
+      WHERE canonical_id = ?
+    `).run(newRating, updatedAt, canonicalId);
+
+    return {
+      canonicalId,
+      previousRating,
+      newRating,
+      adjustedBy,
       updatedAt
     };
   }
