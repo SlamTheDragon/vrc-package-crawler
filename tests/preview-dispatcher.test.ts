@@ -33,7 +33,7 @@ test("preview diagnostic retains required product, branch, App scope and first-a
 
 test("diagnostic plans into runner temporary storage while normal delivery alone can execute", () => {
   expect(diagnostic.if).toBe("inputs.diagnose-only");
-  expect(diagnostic.run).toContain('bun run delivery:preview "$VRCP_PREVIEW_PRODUCT" > "$RUNNER_TEMP/vrcp-preview-plan.json"');
+  expect(diagnostic.run).toContain('bun run publish:preview "$VRCP_PREVIEW_PRODUCT" > "$RUNNER_TEMP/vrcp-preview-plan.json"');
   expect(diagnostic.run).not.toContain("--execute");
   expect(diagnostic.env).toEqual({ VRCP_PREVIEW_PRODUCT: "${{ inputs.product }}", VRCP_PREVIEW_BRANCH: "${{ github.ref_name }}" });
   for (const name of ["Configure preview commit identity", "Allocate one configured patch and queue tagged delivery"]) {
@@ -41,7 +41,7 @@ test("diagnostic plans into runner temporary storage while normal delivery alone
   }
   expect(steps.filter((step: any) => step.run?.includes("--execute"))).toHaveLength(1);
   expect(steps.find((step: any) => step.name === "Allocate one configured patch and queue tagged delivery").run)
-    .toBe('bun run delivery:preview "$VRCP_PREVIEW_PRODUCT" --execute');
+    .toBe('bun run publish:preview "$VRCP_PREVIEW_PRODUCT" --execute');
 });
 
 test("diagnostic summary excludes private plan fields and rejects blockers or a non-planning result", () => {

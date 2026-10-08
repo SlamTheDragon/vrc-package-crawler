@@ -62,7 +62,7 @@ jobs:
       - name: Check preview allocation without writes
         if: inputs.diagnose-only
         run: |
-          bun run delivery:preview "$VRCP_PREVIEW_PRODUCT" > "$RUNNER_TEMP/vrcp-preview-plan.json"
+          bun run publish:preview "$VRCP_PREVIEW_PRODUCT" > "$RUNNER_TEMP/vrcp-preview-plan.json"
           node --input-type=module <<'NODE'
           import { appendFileSync, readFileSync } from 'node:fs';
           import { join } from 'node:path';
@@ -87,6 +87,6 @@ jobs:
           git config user.email 'vrcp-preview@users.noreply.github.com'
       - name: Allocate one configured patch and queue tagged delivery
         if: ${{ !inputs.diagnose-only }}
-        run: bun run delivery:preview "$VRCP_PREVIEW_PRODUCT" --execute
+        run: bun run publish:preview "$VRCP_PREVIEW_PRODUCT" --execute
         env:
           VRCP_PREVIEW_PRODUCT: ${{ inputs.product }}

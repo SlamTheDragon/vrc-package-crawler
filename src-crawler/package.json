@@ -9,8 +9,6 @@
   "scripts": {
     "publish:preview": "bun run --cwd .. publish:preview crawler",
     "publish:release": "bun run --cwd .. publish:release crawler",
-    "delivery:preview": "bun run --cwd .. delivery:preview crawler",
-    "delivery:release": "bun run --cwd .. delivery:release crawler",
     "prepare:dev": "bun run --cwd .. prepare:dev preview crawler",
     "typecheck": "tsc --noEmit",
     "node": "bun run src/main.ts",

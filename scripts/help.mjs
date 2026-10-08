@@ -18,7 +18,7 @@ const TOPICS = {
   execute: {
     title: "Delivery Pipeline Execution",
     usage: "bun run publish <product> <channel> [options]",
-    aliases: ["bun run execute", "bun run publish:execute", "bun run delivery:execute"],
+    aliases: ["bun run publish", "bun run publish:execute"],
     flags: [
       ["--force", "Owner direct-release bypass (skips PR ceremony, commits/tags directly to main)"],
       ["--skip-tests", "Skip test execution (PREVIEW ONLY; forbidden on release routes)"],
@@ -80,7 +80,7 @@ const TOPICS = {
   recovery: {
     title: "Delivery Recovery & Failure Diagnosis",
     usage: "bun run recovery [subcommand] [args]",
-    aliases: ["bun run publish:recover", "bun run delivery:recover"],
+    aliases: ["bun run publish:recover"],
     flags: [
       ["interactive", "Interactive failure diagnosis & remediation menu (default)"],
       ["patch-branch <create|merge>", "Manage temporary release/patch/* isolation branches"],

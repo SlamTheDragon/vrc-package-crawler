@@ -156,9 +156,9 @@ test("owner SDK mapping does not change with artifact channels and product deliv
   for (const product of ["crawler", "worker", "crawler-client", "web", "package", "network"]) {
     const manifest = JSON.parse(readFileSync(new URL(`../${productDirectories[product]}/package.json`, import.meta.url), "utf8"));
     const prefix = product === "network" ? "../../.." : "..";
-    expect(manifest.scripts["delivery:preview"]).toBe(`bun run --cwd ${prefix} delivery:preview ${product}`);
-    if (product !== "network") expect(manifest.scripts["delivery:release"]).toBe(`bun run --cwd .. delivery:release ${product}`);
-    else expect(manifest.scripts["delivery:release"]).toBeUndefined();
+    expect(manifest.scripts["publish:preview"]).toBe(`bun run --cwd ${prefix} publish:preview ${product}`);
+    if (product !== "network") expect(manifest.scripts["publish:release"]).toBe(`bun run --cwd .. publish:release ${product}`);
+    else expect(manifest.scripts["publish:release"]).toBeUndefined();
   }
 });
 
@@ -200,7 +200,7 @@ test("Bun is pinned before every workflow install and owns all package-script fo
 test("Bun product forwarding executes the root command instead of exiting successfully with help", async () => {
   await fixture(async workspace => {
     await writeFile(resolve(workspace, "package.json"), JSON.stringify({ type: "module", scripts: {
-      "delivery:preview": "node forwarding_probe.mjs preview", "delivery:release": "node forwarding_probe.mjs release"
+      "publish:preview": "node forwarding_probe.mjs preview", "publish:release": "node forwarding_probe.mjs release"
     } }));
     await writeFile(resolve(workspace, "forwarding_probe.mjs"),
       'console.log(JSON.stringify({args:process.argv.slice(2),cwd:process.cwd()}));');
@@ -208,7 +208,7 @@ test("Bun product forwarding executes the root command instead of exiting succes
       const actual = JSON.parse(readFileSync(new URL(`../${directory}/package.json`, import.meta.url), "utf8"));
       await writeFile(resolve(workspace, directory, "package.json"), JSON.stringify({ scripts: actual.scripts }));
       for (const channel of product === "network" ? ["preview"] : ["preview", "release"]) {
-        const result = JSON.parse(execFileSync("bun", ["run", "--cwd", directory, `delivery:${channel}`, "--probe"],
+        const result = JSON.parse(execFileSync("bun", ["run", "--cwd", directory, `publish:${channel}`, "--probe"],
           { cwd: workspace, encoding: "utf8", stdio: "pipe", timeout: 15_000 }));
         expect(result.args).toEqual([channel, product, "--probe"]);
         expect(resolve(result.cwd)).toBe(resolve(workspace));
@@ -923,7 +923,7 @@ test("publication links cover internal network and both desktop channels only af
     .toBe("https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag || github.ref_name }}");
   expect(client.jobs.build.outputs.channel).toBe("${{ steps.route.outputs.channel }}");
   const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  expect(manifest.scripts["versions:bump"]).toBe(manifest.scripts["delivery:preview"].replace(" start preview", " start"));
+  expect(manifest.scripts["versions:bump"]).toBe(manifest.scripts["publish:preview"].replace(" start preview", " start"));
 });
 
 test("preview App dispatcher is branch-only, serializes allocation and calls the root preview executor", () => {
@@ -953,9 +953,9 @@ test("preview App dispatcher is branch-only, serializes allocation and calls the
   expect(checkout.with["fetch-depth"]).toBe(0);
   expect(checkout.with.ref).toBe("${{ github.ref_name }}");
   const command = steps.find((step: any) => step.name === "Allocate one configured patch and queue tagged delivery");
-  expect(command.run).toBe('bun run delivery:preview "$VRCP_PREVIEW_PRODUCT" --execute');
+  expect(command.run).toBe('bun run publish:preview "$VRCP_PREVIEW_PRODUCT" --execute');
   expect(command.env.VRCP_PREVIEW_PRODUCT).toBe("${{ inputs.product }}");
-  expect(JSON.stringify(steps)).not.toContain("delivery:release");
+  expect(JSON.stringify(steps)).not.toContain("publish:release");
   expect(JSON.stringify(steps)).not.toContain("pulls/");
 });
 

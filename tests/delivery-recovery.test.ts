@@ -212,7 +212,7 @@ test("crawler recovery stays in the existing chain and preserves publication app
   expect(workflow.jobs["release-assets"].needs).toContain("publish-container");
   expect(workflow.jobs["release-assets"].with.tag).toBe("${{ inputs.recovery-tag || '' }}");
   const rootScripts = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).scripts;
-  expect(rootScripts["delivery:recover"]).toBe("node scripts/delivery-recovery.mjs");
+  expect(rootScripts["publish:recover"]).toBe("node scripts/delivery-recovery.mjs");
 });
 
 test("the real recovery CLI reaches metadata reads without an unsettled ESM entry point", () => {

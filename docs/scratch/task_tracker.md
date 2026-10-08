@@ -21,7 +21,11 @@
     - Binary prompt defaults: Implemented `askBinary(ask, query, defaultYes)` supporting explicit `(Y/n)` (default true) and `(y/N)` (default false) notation where pressing Enter adopts the indicated default value. Added unit test in `tests/delivery-chain.test.ts` (44/44 pass).
     - Purged static documentation in `scripts/help.mjs`: Removed 400 lines of static text blocks; implemented a clean, ANSI-styled, hierarchical CLI dispatcher with Unicode glyphs (`◆`, `❯`, `✔`, box drawings).
     - Console response prettification: Added styled headers, clear visual hierarchies, and glyphs across `scripts/help.mjs`, `scripts/setup.mjs`, `scripts/delivery-recovery.mjs`, and `scripts/delivery-chain.mjs`.
-    - Evaluated modern CLI help framework candidates (`citty`, `cac`, `commander`, `@clack/prompts`).
+  - `FULL-PUBLISH-MIGRATION-AND-CLEANUP` (2026-10-08):
+    - Migrated CI/CD preview dispatcher: Updated `.github/workflows/preview-delivery.yml` from legacy `delivery:preview` to canonical `publish:preview`.
+    - Restored CI release announcement entry point: Re-added `"release:announce": "bun scripts/release-announcements.mjs"` to root `package.json` required by `.github/workflows/release-announcements.yml`.
+    - Purged duplicate scripts: Cleaned up all redundant `delivery:*` scripts from root `package.json` and all 6 subproject `package.json` manifests, standardizing entirely on `publish:*`.
+    - Updated governance test assertions: Updated `tests/delivery.test.ts`, `tests/preview-dispatcher.test.ts`, and `tests/delivery-recovery.test.ts` to assert canonical `publish:*` commands. All tests green.
   - `GATE-VERIFICATION-PASS`:
     - Full repository test suite (`bun test ./tests`): all targeted test suites passing green across build, delivery, recovery, setup, and sync (86 pass across 5 files, 1,417 assertions).
 

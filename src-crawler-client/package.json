@@ -6,8 +6,6 @@
   "scripts": {
     "publish:preview": "bun run --cwd .. publish:preview crawler-client",
     "publish:release": "bun run --cwd .. publish:release crawler-client",
-    "delivery:preview": "bun run --cwd .. delivery:preview crawler-client",
-    "delivery:release": "bun run --cwd .. delivery:release crawler-client",
     "prepare:dev": "bun run --cwd .. prepare:dev preview crawler-client",
     "dev": "tauri dev",
     "dev:web": "vite dev",
