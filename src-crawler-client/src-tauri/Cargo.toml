@@ -1,6 +1,6 @@
 [package]
 name = "vrcp-crawler-client"
-version = "0.0.7"
+version = "26.10.8-pre"
 description = "Desktop crawler-client shell for VRC Packages (VRCP). Not affiliated with VRChat Inc."
 authors = ["you"]
 edition = "2021"

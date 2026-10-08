@@ -171,7 +171,6 @@ export function getHelpOverviewLines() {
     `${style.bold}${style.cyan}=================================================${style.reset}`,
     "",
     `${style.bold}Core Principles & Branch Layout:${style.reset}`,
-    `  ${symbols.diamond} ${style.bold}Slices & Gates:${style.reset} Slices mean local commit. Completed gates mean push.`,
     `  ${symbols.diamond} ${style.bold}Preview Channel:${style.reset} Fast iteration. Any branch ahead of origin can publish.`,
     `  ${symbols.diamond} ${style.bold}Release Channel:${style.reset} Strict governance. Requires clean main and owner-merged PR.`,
     `  ${symbols.diamond} ${style.bold}Repository Branches:${style.reset}`,
