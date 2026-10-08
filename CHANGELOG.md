@@ -7,8 +7,8 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Added delegated creator attestation intake, atomic replay protection, and operator claim review routes.
-- **VRC Packages API (`vrcp-packages-api-preview`)**: Added delegated creator attestation intake schemas, operator claim review schemas, and client methods.
+- **VRC Packages Worker (`vrcp-worker-preview`)**: Added package content rating storage, user age verification flags, and age-gated search delivery.
+- **VRC Packages API (`vrcp-packages-api-preview`)**: Added content rating taxonomy schemas and search rating filter parameters.
 - **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
 - **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
 <!-- MASTER_SUMMARY -->
@@ -174,10 +174,13 @@ See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
-API client updates for explicit content reporting sub-categories, response byte bounds, and delegated creator claim intake.
+API client updates for content rating taxonomy, catalog package schema metadata, and search filter parameters.
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Content Rating Taxonomy**: Added `ContentRatingSchema` with six levels from `general` to `prohibited`.
+- **Content Rating Field**: Added optional `contentRating` field to `CatalogPackageSchema` defaulting to `general`.
+- **Search Rating Filter**: Added optional `rating` filter parameter to `CatalogSearchRequestSchema`.
 - **Delegated Creator Claim Intake Schemas**: Added `CreatorClaimIntakeRequestSchema`, `CreatorClaimIntakeResponseSchema`, and `CreatorDelegationAttestationSchema`.
 - **Operator Claim Review Schemas**: Added `DelegatedClaimRecordSchema`, `DelegatedClaimListResponseSchema`, `VerifyDelegatedClaimRequestSchema`, and `VerifyDelegatedClaimResponseSchema`.
 - **SDK Claim Methods**: Added `client.claims.submitIntake()`, `client.operator.claims.list()`, and `client.operator.claims.verify()` methods.
@@ -203,10 +206,14 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator updates for fail-fast authentication, query log redaction, cryptographic benchmarks, and delegated creator claim intake.
+Coordinator updates for canonical package content rating storage, user age verification, and age-gated catalog search filtering.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Content Rating Storage**: Added `content_rating` column to `canonical_packages` with default `general`.
+- **User Age Verification Storage**: Added `age_verified` integer flag to `registered_users` schema.
+- **Fail-Closed Public Index**: Filtered public catalog and delta feeds to serve only `general` rated packages.
+- **Age-Gated Package Search**: Restricted age-rated catalog search results to applications owned by verified users.
 - **Delegated Creator Claim Intake**: Added `/v1/app/claims/intake` with atomic replay protection on application ID and nonce.
 - **Operator Claim Review Endpoints**: Added `/v1/operator/claims` and `/v1/operator/claims/{id}/verify` for listing and reviewing stored claims.
 - **Cryptographic Delegation Benchmark**: Measured Web Crypto verification budgets under the 10 ms CPU limit for HMAC and ECDSA.

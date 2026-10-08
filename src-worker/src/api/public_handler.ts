@@ -15,7 +15,8 @@ export interface PublicCatalogStore {
   getCatalogEpoch(): Promise<string> | string;
   listCanonicalPackagesPage(
     limit: number,
-    cursor: CatalogCursor | null
+    cursor: CatalogCursor | null,
+    options?: { includeAllRatings?: boolean }
   ): Promise<{ packages: CatalogPackage[]; nextCursor: string | null }> |
      { packages: CatalogPackage[]; nextCursor: string | null };
   listCatalogDeltasPage(

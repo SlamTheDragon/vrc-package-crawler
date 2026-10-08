@@ -60,7 +60,8 @@ CREATE INDEX IF NOT EXISTS idx_source_access_profiles_scope ON source_access_pro
 CREATE INDEX IF NOT EXISTS idx_source_access_profiles_page ON source_access_profiles(created_at DESC,profile_id DESC);
 CREATE TABLE IF NOT EXISTS source_access_profile_actions ( action_id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, reason TEXT NOT NULL, occurred_at TEXT NOT NULL, FOREIGN KEY(profile_id) REFERENCES source_access_profiles(profile_id) );
 CREATE TABLE IF NOT EXISTS job_results ( lease_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, node_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_digest TEXT NOT NULL, response_json TEXT NOT NULL, submitted_at TEXT NOT NULL, FOREIGN KEY(job_id) REFERENCES crawl_jobs(job_id) );
-CREATE TABLE IF NOT EXISTS canonical_packages ( canonical_id TEXT PRIMARY KEY, umbrella TEXT NOT NULL CHECK(umbrella IN ('tools','assets','avatars')), category TEXT NOT NULL, lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active','deprecated','quarantined','delisted')), display_name TEXT NOT NULL, vpm_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, published_at TEXT, timestamp_confidence TEXT );
+CREATE TABLE IF NOT EXISTS canonical_packages ( canonical_id TEXT PRIMARY KEY, umbrella TEXT NOT NULL CHECK(umbrella IN ('tools','assets','avatars')), category TEXT NOT NULL, lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active','deprecated','quarantined','delisted')), display_name TEXT NOT NULL, vpm_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, published_at TEXT, timestamp_confidence TEXT, content_rating TEXT NOT NULL DEFAULT 'general' );
+
 CREATE TABLE IF NOT EXISTS coordinator_meta ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
 CREATE INDEX IF NOT EXISTS idx_canonical_packages_updated ON canonical_packages(updated_at ASC, canonical_id ASC);
 CREATE INDEX IF NOT EXISTS idx_canonical_packages_created ON canonical_packages(created_at DESC, canonical_id DESC);
@@ -87,7 +88,7 @@ CREATE TABLE IF NOT EXISTS catalog_reports ( report_id TEXT PRIMARY KEY, app_id 
 CREATE INDEX IF NOT EXISTS idx_catalog_reports_review ON catalog_reports(review_status,recorded_at,report_id);
 CREATE TABLE IF NOT EXISTS downstream_demand_signals ( signal_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, signal_type TEXT NOT NULL CHECK(signal_type IN ('search_miss','refresh_demand','popularity_signal')), query TEXT, zero_hits INTEGER NOT NULL DEFAULT 0, requested_platform TEXT, target_url TEXT, category TEXT, metadata_json TEXT, recorded_at TEXT NOT NULL, resolved_at TEXT, FOREIGN KEY (app_id) REFERENCES registered_apps(app_id) );
 CREATE INDEX IF NOT EXISTS idx_downstream_demand_platform ON downstream_demand_signals(requested_platform, resolved_at);
-CREATE TABLE IF NOT EXISTS registered_users ( user_id TEXT PRIMARY KEY, user_name TEXT NOT NULL, token_hash TEXT NOT NULL, contact_email TEXT, created_at TEXT NOT NULL, revoked_at TEXT );
+CREATE TABLE IF NOT EXISTS registered_users ( user_id TEXT PRIMARY KEY, user_name TEXT NOT NULL, token_hash TEXT NOT NULL, contact_email TEXT, created_at TEXT NOT NULL, revoked_at TEXT, age_verified INTEGER NOT NULL DEFAULT 0 );
 CREATE INDEX IF NOT EXISTS idx_registered_users_token ON registered_users(token_hash);
 CREATE TABLE IF NOT EXISTS user_app_ownership ( app_id TEXT PRIMARY KEY REFERENCES registered_apps(app_id), user_id TEXT NOT NULL REFERENCES registered_users(user_id) );
 CREATE INDEX IF NOT EXISTS idx_user_app_ownership_user ON user_app_ownership(user_id,app_id);

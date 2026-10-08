@@ -5,7 +5,7 @@ import { EnqueueJobRequestSchema, type EnqueueJobRequest,
   type RuleCursor, encodeRuleCursor, type CreateAutoQueueRule, CreateAutoQueueRuleSchema,
   type CatalogCursor, type CatalogPackage, type CatalogIdentityLink, type PackageFront,
   encodeCatalogCursor, decodeCatalogCursor, type CatalogDelta, type CatalogDeltaCursor,
-  encodeCatalogDeltaCursor } from "vrc-packages-api";
+  encodeCatalogDeltaCursor, type ContentRating } from "vrc-packages-api";
 import { ROBOTS_RESTRICTION_TOKENS } from "vrc-packages-network/identity";
 import { isPrivateOrReservedIp } from "vrc-packages-network/ip-policy";
 import { type Platform, type HeartbeatRequest, type HeartbeatResponse, PROTOCOL_VERSION, type ClaimRequest, type ClaimResponse, type ResultRequest, type ResultResponse, type CrawlJob, type BatchResultRequest, type BatchResultResponse, type BatchResultReceipt, observationMatchesPlatform, ClaimRequestSchema, PlatformSchema, type DiscoveryLead } from "vrc-packages-network/node";
@@ -1396,6 +1396,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     canonical_id: string; umbrella: string; category: string; lifecycle: string;
     display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
     published_at?: string | null; timestamp_confidence?: string | null;
+    content_rating?: string | null;
   }): Promise<CatalogPackage> {
     const linkRes = await this.db.prepare(`SELECT link_id,source_key,evidence_kind,confidence,created_at
       FROM identity_links WHERE canonical_id=? AND review_state='accepted'
@@ -1439,20 +1440,36 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       updatedAt: pkg.updated_at,
       publishedAt: pkg.published_at ?? null,
       timestampConfidence: (pkg.timestamp_confidence as CatalogPackage["timestampConfidence"]) ?? null,
+      contentRating: (pkg.content_rating as CatalogPackage["contentRating"]) || "general",
       acceptedLinks,
       fronts
     };
   }
 
-  async listCanonicalPackagesPage(limit: number, cursor: CatalogCursor | null): Promise<{ packages: CatalogPackage[]; nextCursor: string | null; }> {
+  async listCanonicalPackagesPage(
+    limit: number,
+    cursor: CatalogCursor | null,
+    options: { includeAllRatings?: boolean } = {}
+  ): Promise<{ packages: CatalogPackage[]; nextCursor: string | null; }> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Catalog limit must be 1..100");
-    const before = cursor ? "WHERE (p.created_at,p.canonical_id)<(?,?)" : "";
-    const params = cursor ? [cursor.createdAt, cursor.canonicalId, limit + 1] : [limit + 1];
-    const pkgRes = await this.db.prepare(`SELECT * FROM canonical_packages p ${before}
+    const conditions: string[] = ["p.content_rating != 'prohibited'"];
+    const params: (string | number)[] = [];
+    if (!options.includeAllRatings) {
+      conditions.push("p.content_rating = 'general'");
+    }
+    if (cursor) {
+      conditions.push("(p.created_at, p.canonical_id) < (?, ?)");
+      params.push(cursor.createdAt, cursor.canonicalId);
+    }
+    const where = `WHERE ${conditions.join(" AND ")}`;
+    params.push(limit + 1);
+    const pkgRes = await this.db.prepare(`SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at, p.published_at, p.timestamp_confidence, p.content_rating FROM canonical_packages p ${where}
       ORDER BY p.created_at DESC, p.canonical_id DESC LIMIT ?`)
       .bind(...params).all<{
         canonical_id: string; umbrella: string; category: string; lifecycle: string;
         display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+        published_at?: string | null; timestamp_confidence?: string | null;
+        content_rating?: string | null;
       }>();
     const pkgRows = pkgRes.results || [];
     const visible = pkgRows.slice(0, limit);
@@ -1472,13 +1489,21 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   async listCatalogDeltasPage(limit: number, cursor: CatalogDeltaCursor | null): Promise<{ epoch: string; deltas: CatalogDelta[]; nextCursor: string | null; }> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Catalog limit must be 1..100");
     const epoch = await this.getCatalogEpoch();
-    const after = cursor ? "WHERE (p.updated_at,p.canonical_id)>(?,?)" : "";
-    const params = cursor ? [cursor.updatedAt, cursor.canonicalId, limit + 1] : [limit + 1];
-    const pkgRes = await this.db.prepare(`SELECT * FROM canonical_packages p ${after}
+    const conditions: string[] = ["p.content_rating = 'general'"];
+    const params: (string | number)[] = [];
+    if (cursor) {
+      conditions.push("(p.updated_at, p.canonical_id) > (?, ?)");
+      params.push(cursor.updatedAt, cursor.canonicalId);
+    }
+    const where = `WHERE ${conditions.join(" AND ")}`;
+    params.push(limit + 1);
+    const pkgRes = await this.db.prepare(`SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at, p.published_at, p.timestamp_confidence, p.content_rating FROM canonical_packages p ${where}
       ORDER BY p.updated_at ASC, p.canonical_id ASC LIMIT ?`)
       .bind(...params).all<{
         canonical_id: string; umbrella: string; category: string; lifecycle: string;
         display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+        published_at?: string | null; timestamp_confidence?: string | null;
+        content_rating?: string | null;
       }>();
     const pkgRows = pkgRes.results || [];
     const visible = pkgRows.slice(0, limit);
@@ -1740,16 +1765,18 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     updatedAt?: string;
     publishedAt?: string | null;
     timestampConfidence?: "confirmed" | "inferred" | "observed" | null;
-  }): Promise<CanonicalPackage & { publishedAt?: string | null; timestampConfidence?: string | null }> {
+    contentRating?: ContentRating | null;
+  }): Promise<CanonicalPackage & { publishedAt?: string | null; timestampConfidence?: string | null; contentRating?: ContentRating }> {
     const now = new Date(this.now()).toISOString();
     const createdAt = pkg.createdAt ?? now;
     const updatedAt = pkg.updatedAt ?? now;
     const vpmId = pkg.vpmId ?? null;
     const publishedAt = pkg.publishedAt ?? null;
     const timestampConfidence = pkg.timestampConfidence ?? (publishedAt ? "confirmed" : "observed");
+    const contentRating = pkg.contentRating ?? "general";
     await this.db.prepare(`
-      INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at, published_at, timestamp_confidence)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at, published_at, timestamp_confidence, content_rating)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(canonical_id) DO UPDATE SET
         umbrella = excluded.umbrella,
         category = excluded.category,
@@ -1758,15 +1785,16 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
         vpm_id = COALESCE(excluded.vpm_id, canonical_packages.vpm_id),
         updated_at = excluded.updated_at,
         published_at = COALESCE(excluded.published_at, canonical_packages.published_at),
-        timestamp_confidence = COALESCE(excluded.timestamp_confidence, canonical_packages.timestamp_confidence)
-    `).bind(pkg.canonicalId, pkg.umbrella, pkg.category, pkg.lifecycle, pkg.displayName, vpmId, createdAt, updatedAt, publishedAt, timestampConfidence).run();
+        timestamp_confidence = COALESCE(excluded.timestamp_confidence, canonical_packages.timestamp_confidence),
+        content_rating = excluded.content_rating
+    `).bind(pkg.canonicalId, pkg.umbrella, pkg.category, pkg.lifecycle, pkg.displayName, vpmId, createdAt, updatedAt, publishedAt, timestampConfidence, contentRating).run();
     const result = await this.getCanonicalPackage(pkg.canonicalId);
     return result!;
   }
 
-  async getCanonicalPackage(canonicalId: string): Promise<(CanonicalPackage & { publishedAt?: string | null; timestampConfidence?: string | null }) | null> {
+  async getCanonicalPackage(canonicalId: string): Promise<(CanonicalPackage & { publishedAt?: string | null; timestampConfidence?: string | null; contentRating?: ContentRating }) | null> {
     const row = await this.db.prepare(
-      "SELECT canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at, published_at, timestamp_confidence FROM canonical_packages WHERE canonical_id = ?"
+      "SELECT canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at, published_at, timestamp_confidence, content_rating FROM canonical_packages WHERE canonical_id = ?"
     ).bind(canonicalId).first<{
       canonical_id: string;
       umbrella: CanonicalUmbrella;
@@ -1778,6 +1806,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       updated_at: string;
       published_at: string | null;
       timestamp_confidence: string | null;
+      content_rating: string | null;
     }>();
     if (!row) return null;
     return {
@@ -1790,7 +1819,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       publishedAt: row.published_at,
-      timestampConfidence: row.timestamp_confidence
+      timestampConfidence: row.timestamp_confidence as "confirmed" | "inferred" | "observed" | null,
+      contentRating: (row.content_rating as ContentRating) || "general"
     };
   }
 
@@ -2120,19 +2150,24 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   }
 
   /** Authenticates a downstream application bearer token. */
-  async authenticateApp(appToken: string): Promise<{ appId: string; appName: string; permissions: string[] } | null> {
+  async authenticateApp(appToken: string): Promise<{ appId: string; appName: string; permissions: string[]; isAgeVerified?: boolean } | null> {
     if (!/^vrcp_app_[a-f0-9]{64}$/.test(appToken)) return null;
     const tokenHash = await sha256Hex(appToken);
     const row = await this.db.prepare(`
-      SELECT app_id, app_name, permissions_json, revoked_at
-      FROM registered_apps
-      WHERE token_hash = ?
-    `).bind(tokenHash).first<{ app_id: string; app_name: string; permissions_json: string; revoked_at: string | null }>();
+      SELECT a.app_id, a.app_name, a.permissions_json, a.revoked_at,
+             COALESCE(MAX(u.age_verified), 0) AS age_verified
+      FROM registered_apps a
+      LEFT JOIN user_app_ownership o ON o.app_id = a.app_id
+      LEFT JOIN registered_users u ON u.user_id = o.user_id AND u.revoked_at IS NULL
+      WHERE a.token_hash = ?
+      GROUP BY a.app_id
+    `).bind(tokenHash).first<{ app_id: string; app_name: string; permissions_json: string; revoked_at: string | null; age_verified: number }>();
     if (!row || row.revoked_at) return null;
     return {
       appId: row.app_id,
       appName: row.app_name,
-      permissions: JSON.parse(row.permissions_json) as string[]
+      permissions: JSON.parse(row.permissions_json) as string[],
+      isAgeVerified: Boolean(row.age_verified)
     };
   }
 
@@ -2169,11 +2204,37 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   }
 
   /** Configurable search across canonical packages for registered downstream applications. */
-  async searchCatalogPackages(input: CatalogSearchRequest): Promise<CatalogSearchResponse> {
+  async searchCatalogPackages(input: CatalogSearchRequest, options: { isAgeVerified?: boolean } = {}): Promise<CatalogSearchResponse> {
     const parsed = CatalogSearchRequestSchema.parse(input);
     const limit = Math.min(Math.max(parsed.limit ?? 50, 1), 100);
     const conditions = ["p.lifecycle != 'delisted'"];
     const params: (string | number)[] = [];
+
+    if (!options.isAgeVerified) {
+      if (parsed.rating && parsed.rating !== "general") {
+        return {
+          schemaVersion: 1,
+          items: [],
+          nextCursor: null,
+          totalEstimated: 0
+        };
+      }
+      conditions.push("p.content_rating = 'general'");
+    } else {
+      conditions.push("p.content_rating != 'prohibited'");
+      if (parsed.rating) {
+        if (parsed.rating === "prohibited") {
+          return {
+            schemaVersion: 1,
+            items: [],
+            nextCursor: null,
+            totalEstimated: 0
+          };
+        }
+        conditions.push("p.content_rating = ?");
+        params.push(parsed.rating);
+      }
+    }
 
     if (parsed.umbrella) {
       conditions.push("p.umbrella = ?");
@@ -2239,7 +2300,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
     const queryParams = [...params, limit + 1];
     const res = await this.db.prepare(`
-      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at, p.published_at, p.timestamp_confidence
+      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at, p.published_at, p.timestamp_confidence, p.content_rating
       FROM canonical_packages p
       WHERE ${whereClause}
       ${orderClause}
@@ -2248,6 +2309,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       canonical_id: string; umbrella: string; category: string; lifecycle: string;
       display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
       published_at: string | null; timestamp_confidence: string | null;
+      content_rating: string | null;
     }>();
 
     const rows = res.results || [];
@@ -2276,8 +2338,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   }
 
   /** Issues a `vrcp_usr_` token for a new or returning user. */
-  async issueUserToken(userName: string, contactEmail?: string): Promise<{
-    userId: string; userName: string; token: string;
+  async issueUserToken(userName: string, contactEmail?: string, ageVerified: boolean = false): Promise<{
+    userId: string; userName: string; token: string; ageVerified: boolean;
   }> {
     if (!userName.trim()) throw new Error("User name required");
     const userId = crypto.randomUUID();
@@ -2286,21 +2348,21 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const tokenHash = await sha256Hex(token);
     const now = new Date(this.now()).toISOString();
     await this.db.prepare(`
-      INSERT INTO registered_users (user_id, user_name, token_hash, contact_email, created_at, revoked_at)
-      VALUES (?, ?, ?, ?, ?, NULL)
-    `).bind(userId, userName.trim(), tokenHash, contactEmail || null, now).run();
-    return { userId, userName: userName.trim(), token };
+      INSERT INTO registered_users (user_id, user_name, token_hash, contact_email, created_at, revoked_at, age_verified)
+      VALUES (?, ?, ?, ?, ?, NULL, ?)
+    `).bind(userId, userName.trim(), tokenHash, contactEmail || null, now, ageVerified ? 1 : 0).run();
+    return { userId, userName: userName.trim(), token, ageVerified };
   }
 
   /** Authenticates a user bearer token. */
-  async authenticateUser(token: string): Promise<{ userId: string; userName: string } | null> {
+  async authenticateUser(token: string): Promise<{ userId: string; userName: string; ageVerified?: boolean } | null> {
     if (!/^vrcp_usr_[a-f0-9]{64}$/.test(token)) return null;
     const tokenHash = await sha256Hex(token);
     const row = await this.db.prepare(`
-      SELECT user_id, user_name, revoked_at FROM registered_users WHERE token_hash = ?
-    `).bind(tokenHash).first<{ user_id: string; user_name: string; revoked_at: string | null }>();
+      SELECT user_id, user_name, revoked_at, age_verified FROM registered_users WHERE token_hash = ?
+    `).bind(tokenHash).first<{ user_id: string; user_name: string; revoked_at: string | null; age_verified: number }>();
     if (!row || row.revoked_at) return null;
-    return { userId: row.user_id, userName: row.user_name };
+    return { userId: row.user_id, userName: row.user_name, ageVerified: Boolean(row.age_verified) };
   }
 
   /**

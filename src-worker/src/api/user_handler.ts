@@ -8,6 +8,7 @@ import { workerLogger } from "../worker_logger.ts";
 export interface UserPrincipal {
   userId: string;
   userName: string;
+  ageVerified?: boolean;
 }
 
 /**

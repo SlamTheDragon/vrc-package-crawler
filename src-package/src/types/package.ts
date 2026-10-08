@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PlatformSchema, type Platform } from "./platform.ts";
+import { ContentRatingSchema, type ContentRating } from "../taxonomy/taxonomy.ts";
 
 /** One accepted identity link embedded in a catalog package response row. */
 export const CatalogIdentityLinkSchema = z.strictObject({
@@ -45,6 +46,7 @@ export const CatalogPackageSchema = z.strictObject({
   updatedAt: z.string().datetime(),
   publishedAt: z.string().datetime().nullable().optional(),
   timestampConfidence: TimestampConfidenceSchema.nullable().optional(),
+  contentRating: ContentRatingSchema.default("general"),
   acceptedLinks: z.array(CatalogIdentityLinkSchema),
   fronts: z.array(PackageFrontSchema).default([])
 });

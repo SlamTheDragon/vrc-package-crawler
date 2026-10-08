@@ -249,7 +249,10 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         display_name TEXT NOT NULL,
         vpm_id TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        published_at TEXT,
+        timestamp_confidence TEXT,
+        content_rating TEXT NOT NULL DEFAULT 'general'
       );
       CREATE TABLE IF NOT EXISTS identity_links (
         link_id TEXT PRIMARY KEY,
@@ -345,7 +348,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         token_hash TEXT NOT NULL,
         contact_email TEXT,
         created_at TEXT NOT NULL,
-        revoked_at TEXT
+        revoked_at TEXT,
+        age_verified INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_registered_users_token ON registered_users(token_hash);
       CREATE TABLE IF NOT EXISTS user_app_ownership (
@@ -2256,6 +2260,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   private buildCatalogPackage(pkg: {
     canonical_id: string; umbrella: string; category: string; lifecycle: string;
     display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+    published_at?: string | null; timestamp_confidence?: string | null;
+    content_rating?: string | null;
   }): CatalogPackage {
     const linkRows = this.db.prepare(`SELECT link_id,source_key,evidence_kind,confidence,created_at
       FROM identity_links WHERE canonical_id=? AND review_state='accepted'
@@ -2295,23 +2301,41 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       vpmId: pkg.vpm_id,
       createdAt: pkg.created_at,
       updatedAt: pkg.updated_at,
+      publishedAt: pkg.published_at ?? null,
+      timestampConfidence: (pkg.timestamp_confidence as CatalogPackage["timestampConfidence"]) ?? null,
+      contentRating: (pkg.content_rating as CatalogPackage["contentRating"]) || "general",
       acceptedLinks,
       fronts
     };
   }
 
-  /** Paginated operator read of the canonical catalog (newest first).
+  /** Paginated operator or public read of the canonical catalog (newest first).
    *  Each page embeds only accepted identity links; provisional/rejected links
    *  remain internal review state and are not surfaced here. */
-  listCanonicalPackagesPage(limit: number, cursor: CatalogCursor | null):
-      { packages: CatalogPackage[]; nextCursor: string | null } {
+  listCanonicalPackagesPage(
+    limit: number,
+    cursor: CatalogCursor | null,
+    options: { includeAllRatings?: boolean } = {}
+  ): { packages: CatalogPackage[]; nextCursor: string | null } {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Catalog limit must be 1..100");
-    const before = cursor ? "WHERE (p.created_at,p.canonical_id)<(?,?)" : "";
-    const pkgRows = this.db.prepare(`SELECT * FROM canonical_packages p ${before}
+    const conditions: string[] = ["p.content_rating != 'prohibited'"];
+    const params: SQLQueryBindings[] = [];
+    if (!options.includeAllRatings) {
+      conditions.push("p.content_rating = 'general'");
+    }
+    if (cursor) {
+      conditions.push("(p.created_at, p.canonical_id) < (?, ?)");
+      params.push(cursor.createdAt, cursor.canonicalId);
+    }
+    const where = `WHERE ${conditions.join(" AND ")}`;
+    params.push(limit + 1);
+    const pkgRows = this.db.prepare(`SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at, p.published_at, p.timestamp_confidence, p.content_rating FROM canonical_packages p ${where}
       ORDER BY p.created_at DESC, p.canonical_id DESC LIMIT ?`)
-      .all(...(cursor ? [cursor.createdAt, cursor.canonicalId, limit + 1] : [limit + 1])) as {
+      .all(...params) as {
         canonical_id: string; umbrella: string; category: string; lifecycle: string;
         display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+        published_at?: string | null; timestamp_confidence?: string | null;
+        content_rating?: string | null;
       }[];
     const visible = pkgRows.slice(0, limit);
     const last = visible.at(-1);
@@ -2329,12 +2353,21 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       { epoch: string; deltas: CatalogDelta[]; nextCursor: string | null } {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("Catalog limit must be 1..100");
     const epoch = this.getCatalogEpoch();
-    const after = cursor ? "WHERE (p.updated_at,p.canonical_id)>(?,?)" : "";
-    const pkgRows = this.db.prepare(`SELECT * FROM canonical_packages p ${after}
+    const conditions: string[] = ["p.content_rating = 'general'"];
+    const params: SQLQueryBindings[] = [];
+    if (cursor) {
+      conditions.push("(p.updated_at, p.canonical_id) > (?, ?)");
+      params.push(cursor.updatedAt, cursor.canonicalId);
+    }
+    const where = `WHERE ${conditions.join(" AND ")}`;
+    params.push(limit + 1);
+    const pkgRows = this.db.prepare(`SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at, p.published_at, p.timestamp_confidence, p.content_rating FROM canonical_packages p ${where}
       ORDER BY p.updated_at ASC, p.canonical_id ASC LIMIT ?`)
-      .all(...(cursor ? [cursor.updatedAt, cursor.canonicalId, limit + 1] : [limit + 1])) as {
+      .all(...params) as {
         canonical_id: string; umbrella: string; category: string; lifecycle: string;
         display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+        published_at?: string | null; timestamp_confidence?: string | null;
+        content_rating?: string | null;
       }[];
     const visible = pkgRows.slice(0, limit);
     const last = visible.at(-1);
@@ -2418,19 +2451,24 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   }
 
   /** Authenticates a downstream application bearer token. */
-  authenticateApp(appToken: string): { appId: string; appName: string; permissions: string[] } | null {
+  authenticateApp(appToken: string): { appId: string; appName: string; permissions: string[]; isAgeVerified?: boolean } | null {
     if (!/^vrcp_app_[a-f0-9]{64}$/.test(appToken)) return null;
     const tokenHash = crypto.createHash("sha256").update(appToken).digest("hex");
     const row = this.db.prepare(`
-      SELECT app_id, app_name, permissions_json, revoked_at
-      FROM registered_apps
-      WHERE token_hash = ?
-    `).get(tokenHash) as { app_id: string; app_name: string; permissions_json: string; revoked_at: string | null } | null;
+      SELECT a.app_id, a.app_name, a.permissions_json, a.revoked_at,
+             COALESCE(MAX(u.age_verified), 0) AS age_verified
+      FROM registered_apps a
+      LEFT JOIN user_app_ownership o ON o.app_id = a.app_id
+      LEFT JOIN registered_users u ON u.user_id = o.user_id AND u.revoked_at IS NULL
+      WHERE a.token_hash = ?
+      GROUP BY a.app_id
+    `).get(tokenHash) as { app_id: string; app_name: string; permissions_json: string; revoked_at: string | null; age_verified: number } | null;
     if (!row || row.revoked_at) return null;
     return {
       appId: row.app_id,
       appName: row.app_name,
-      permissions: JSON.parse(row.permissions_json) as string[]
+      permissions: JSON.parse(row.permissions_json) as string[],
+      isAgeVerified: Boolean(row.age_verified)
     };
   }
 
@@ -2467,11 +2505,37 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   }
 
   /** Configurable search across canonical packages for registered downstream applications. */
-  searchCatalogPackages(input: CatalogSearchRequest): CatalogSearchResponse {
+  searchCatalogPackages(input: CatalogSearchRequest, options: { isAgeVerified?: boolean } = {}): CatalogSearchResponse {
     const parsed = CatalogSearchRequestSchema.parse(input);
     const limit = Math.min(Math.max(parsed.limit ?? 50, 1), 100);
     const conditions = ["p.lifecycle != 'delisted'"];
     const params: SQLQueryBindings[] = [];
+
+    if (!options.isAgeVerified) {
+      if (parsed.rating && parsed.rating !== "general") {
+        return {
+          schemaVersion: 1,
+          items: [],
+          nextCursor: null,
+          totalEstimated: 0
+        };
+      }
+      conditions.push("p.content_rating = 'general'");
+    } else {
+      conditions.push("p.content_rating != 'prohibited'");
+      if (parsed.rating) {
+        if (parsed.rating === "prohibited") {
+          return {
+            schemaVersion: 1,
+            items: [],
+            nextCursor: null,
+            totalEstimated: 0
+          };
+        }
+        conditions.push("p.content_rating = ?");
+        params.push(parsed.rating);
+      }
+    }
 
     if (parsed.umbrella) {
       conditions.push("p.umbrella = ?");
@@ -2505,7 +2569,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     `).get(...params) as { total: number };
 
     const rows = this.db.prepare(`
-      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at
+      SELECT p.canonical_id, p.umbrella, p.category, p.lifecycle, p.display_name, p.vpm_id, p.created_at, p.updated_at, p.published_at, p.timestamp_confidence, p.content_rating
       FROM canonical_packages p
       WHERE ${whereClause}
       ORDER BY p.created_at DESC, p.canonical_id DESC
@@ -2513,6 +2577,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     `).all(...params, limit + 1) as {
       canonical_id: string; umbrella: string; category: string; lifecycle: string;
       display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+      published_at?: string | null; timestamp_confidence?: string | null;
+      content_rating?: string | null;
     }[];
 
     const hasMore = rows.length > limit;
@@ -2533,8 +2599,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   }
 
   /** Issues a `vrcp_usr_` token for a new or returning user. */
-  issueUserToken(userName: string, contactEmail?: string): {
-    userId: string; userName: string; token: string;
+  issueUserToken(userName: string, contactEmail?: string, ageVerified: boolean = false): {
+    userId: string; userName: string; token: string; ageVerified: boolean;
   } {
     if (!userName.trim()) throw new Error("User name required");
     const userId = crypto.randomUUID();
@@ -2543,21 +2609,21 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const now = new Date(this.now()).toISOString();
     this.db.prepare(`
-      INSERT INTO registered_users (user_id, user_name, token_hash, contact_email, created_at, revoked_at)
-      VALUES (?, ?, ?, ?, ?, NULL)
-    `).run(userId, userName.trim(), tokenHash, contactEmail || null, now);
-    return { userId, userName: userName.trim(), token };
+      INSERT INTO registered_users (user_id, user_name, token_hash, contact_email, created_at, revoked_at, age_verified)
+      VALUES (?, ?, ?, ?, ?, NULL, ?)
+    `).run(userId, userName.trim(), tokenHash, contactEmail || null, now, ageVerified ? 1 : 0);
+    return { userId, userName: userName.trim(), token, ageVerified };
   }
 
   /** Authenticates a user bearer token. */
-  authenticateUser(token: string): { userId: string; userName: string } | null {
+  authenticateUser(token: string): { userId: string; userName: string; ageVerified?: boolean } | null {
     if (!/^vrcp_usr_[a-f0-9]{64}$/.test(token)) return null;
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const row = this.db.prepare(`
-      SELECT user_id, user_name, revoked_at FROM registered_users WHERE token_hash = ?
-    `).get(tokenHash) as { user_id: string; user_name: string; revoked_at: string | null } | null;
+      SELECT user_id, user_name, revoked_at, age_verified FROM registered_users WHERE token_hash = ?
+    `).get(tokenHash) as { user_id: string; user_name: string; revoked_at: string | null; age_verified: number } | null;
     if (!row || row.revoked_at) return null;
-    return { userId: row.user_id, userName: row.user_name };
+    return { userId: row.user_id, userName: row.user_name, ageVerified: Boolean(row.age_verified) };
   }
 
   /**

@@ -403,6 +403,9 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       const columns = sqlite.query("PRAGMA table_info(canonical_packages)").all() as { name: string }[];
       expect(columns.some(column => column.name === "published_at")).toBe(true);
       expect(columns.some(column => column.name === "timestamp_confidence")).toBe(true);
+      expect(columns.some(column => column.name === "content_rating")).toBe(true);
+      const userColumns = sqlite.query("PRAGMA table_info(registered_users)").all() as { name: string }[];
+      expect(userColumns.some(column => column.name === "age_verified")).toBe(true);
     } finally { sqlite.close(); }
   });
 
@@ -420,6 +423,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       const columns = sqlite.query("PRAGMA table_info(canonical_packages)").all() as { name: string }[];
       expect(columns.some(column => column.name === "published_at")).toBe(true);
       expect(columns.some(column => column.name === "timestamp_confidence")).toBe(true);
+      expect(columns.some(column => column.name === "content_rating")).toBe(true);
       expect(calls).toHaveLength(1);
       expect(sqlite.query("SELECT COUNT(*) AS count FROM crawl_jobs").get()).toEqual({ count: 0 });
     } finally { sqlite.close(); }

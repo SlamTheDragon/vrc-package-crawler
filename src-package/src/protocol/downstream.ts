@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { PlatformSchema, type Platform } from "../types/platform.ts";
 import { CatalogPackageSchema, type CatalogPackage } from "../types/package.ts";
+import { ContentRatingSchema, type ContentRating } from "../taxonomy/taxonomy.ts";
+
 
 export const DOWNSTREAM_PROTOCOL_VERSION = 1 as const;
 
@@ -60,6 +62,7 @@ export const CatalogSearchRequestSchema = z.strictObject({
   umbrella: z.enum(["tools", "assets", "avatars"]).optional(),
   category: z.string().trim().max(100).optional(),
   platform: PlatformSchema.optional(),
+  rating: ContentRatingSchema.optional(),
   tags: z.array(z.string().trim().max(50)).max(20).optional(),
   limit: z.number().int().min(1).max(50).default(50).optional(),
   cursor: z.string().max(256).nullable().optional()

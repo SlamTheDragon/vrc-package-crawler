@@ -53,7 +53,7 @@ import {
 } from "../src/protocol/operator.ts";
 
 describe("src-package wire protocols", () => {
-  it("validates CatalogPackage schema", () => {
+  it("validates CatalogPackage schema and defaults contentRating to general", () => {
     const validPkg = {
       canonicalId: "pkg-123",
       umbrella: "tools" as const,
@@ -78,8 +78,14 @@ describe("src-package wire protocols", () => {
         }
       ]
     };
-    expect(CatalogPackageSchema.parse(validPkg)).toEqual(validPkg);
+    const parsed = CatalogPackageSchema.parse(validPkg);
+    expect(parsed.contentRating).toBe("general");
+    expect(parsed).toEqual({ ...validPkg, contentRating: "general" });
+
+    const ratedPkg = { ...validPkg, contentRating: "sexual_suggestive" as const };
+    expect(CatalogPackageSchema.parse(ratedPkg).contentRating).toBe("sexual_suggestive");
   });
+
 
   it("encodes and decodes catalog delta cursors", () => {
     const cursor = {
@@ -118,16 +124,19 @@ describe("src-package wire protocols", () => {
     }
   });
 
-  it("validates CatalogSearchRequest and enforces queryOrigin", () => {
+  it("validates CatalogSearchRequest and enforces queryOrigin with optional rating", () => {
     const req = {
       schemaVersion: 1,
       query: "avatar clothes",
       queryOrigin: "user_authored" as const,
+      rating: "mature" as const,
       limit: 20
     };
     const parsed = CatalogSearchRequestSchema.parse(req);
     expect(parsed.queryOrigin).toBe("user_authored");
+    expect(parsed.rating).toBe("mature");
   });
+
 
   it("validates ReportSubmissionRequest for both demand signals and issue reports", () => {
     const removal = { schemaVersion: 1, reportType: "removal_request", canonicalId: "pkg-123", reason: "Incorrect attribution" };

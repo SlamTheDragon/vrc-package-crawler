@@ -314,4 +314,45 @@ describe("Public Consumer Catalog Protocol (/v1/app/index & /v1/app/index/delta)
       store.close();
     }
   });
+
+  test("public catalog and delta endpoints never serve age-rated or prohibited content", async () => {
+    const store = new LocalCoordinatorStore();
+    const now = new Date(store["now"]()).toISOString();
+    try {
+      // Seed packages with different ratings
+      const packages = [
+        { id: "pkg-gen", rating: "general", name: "General Package" },
+        { id: "pkg-mat", rating: "mature", name: "Mature Package" },
+        { id: "pkg-adu", rating: "adult_restricted", name: "Adult Restricted Package" },
+        { id: "pkg-pro", rating: "prohibited", name: "Prohibited Package" }
+      ];
+
+      for (const p of packages) {
+        store.db.prepare(`
+          INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at, content_rating)
+          VALUES (?, 'tools', 'tool', 'active', ?, ?, ?, ?, ?)
+        `).run(p.id, p.name, p.id, now, now, p.rating);
+      }
+
+      // 1. GET /v1/app/index only returns general package
+      const catalogRes = await handlePublicCatalogRequest(publicGet("/v1/app/index"), store);
+      expect(catalogRes.status).toBe(200);
+      const catalogBody = PublicCatalogListResponseSchema.parse(await catalogRes.json());
+      expect(catalogBody.packages).toHaveLength(1);
+      expect(catalogBody.packages[0].canonicalId).toBe("pkg-gen");
+      expect(catalogBody.packages[0].contentRating).toBe("general");
+
+      // 2. GET /v1/app/index/delta only returns deltas for general package
+      const deltaRes = await handlePublicCatalogRequest(publicGet("/v1/app/index/delta"), store);
+      expect(deltaRes.status).toBe(200);
+      const deltaBody = CatalogDeltaResponseSchema.parse(await deltaRes.json());
+      expect(deltaBody.deltas).toHaveLength(1);
+      expect(deltaBody.deltas[0].canonicalId).toBe("pkg-gen");
+      if (deltaBody.deltas[0].action === "upsert") {
+        expect(deltaBody.deltas[0].package.contentRating).toBe("general");
+      }
+    } finally {
+      store.close();
+    }
+  });
 });

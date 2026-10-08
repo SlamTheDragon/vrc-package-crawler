@@ -43,7 +43,11 @@ export interface OperatorStore {
     Promise<SourceAccessProfile> | SourceAccessProfile;
   disableSourceAccessProfile(profileId: string, actor: string, reason: string):
     Promise<SourceAccessProfile> | SourceAccessProfile;
-  listCanonicalPackagesPage(limit: number, cursor: CatalogCursor | null):
+  listCanonicalPackagesPage(
+    limit: number,
+    cursor: CatalogCursor | null,
+    options?: { includeAllRatings?: boolean }
+  ):
     Promise<{ packages: CatalogPackage[]; nextCursor: string | null }> |
       { packages: CatalogPackage[]; nextCursor: string | null };
   listTakedownsPage(requesterType?: string, limit?: number, cursor?: TakedownCursor | null):
@@ -175,7 +179,7 @@ export async function handleOperatorRequest(
       return failure(400, "invalid_query", "Catalog limit or cursor is invalid");
     }
     return json(CatalogListResponseSchema.parse({ schemaVersion: OPERATOR_PROTOCOL_VERSION,
-      ...await store.listCanonicalPackagesPage(limit, cursor) }));
+      ...await store.listCanonicalPackagesPage(limit, cursor, { includeAllRatings: true }) }));
   }
   if (takedownListing) {
     const requesterTypeParam = url.searchParams.get("requesterType");

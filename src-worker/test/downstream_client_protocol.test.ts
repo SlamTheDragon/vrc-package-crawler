@@ -428,4 +428,90 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     const tamperedData = await tamperedRes.json() as any;
     expect(tamperedData.code).toBe("conflict");
   });
+
+  test("catalog search enforces age rating boundary based on user age verification", async () => {
+    // 1. Seed canonical packages with ratings
+    const now = new Date(store["now"]()).toISOString();
+    const pkgs = [
+      { id: "pkg-general-1", rating: "general", name: "Safe Tool" },
+      { id: "pkg-mature-1", rating: "mature", name: "Mature Shader" },
+      { id: "pkg-adult-1", rating: "adult_restricted", name: "Explicit Avatar Asset" },
+      { id: "pkg-prohibited-1", rating: "prohibited", name: "Prohibited Malicious Asset" }
+    ];
+    for (const p of pkgs) {
+      store.db.prepare(`
+        INSERT INTO canonical_packages (canonical_id, umbrella, category, lifecycle, display_name, vpm_id, created_at, updated_at, content_rating)
+        VALUES (?, 'tools', 'tool', 'active', ?, ?, ?, ?, ?)
+      `).run(p.id, p.name, p.id, now, now, p.rating);
+    }
+
+    // 2. Register App owned by user without age verification (unverified / minor)
+    const userUnverified = store.issueUserToken("unverified-user", undefined, false);
+    const regRes1 = await handleDownstreamRequest(
+      request("/v1/app/register", "POST", { schemaVersion: 1, appName: "Unverified App" }, userUnverified.token),
+      store
+    );
+    expect(regRes1.status).toBe(201);
+    const app1 = await regRes1.json() as { appToken: string };
+
+    // Search without rating filter only receives 'general' content
+    const searchRes1 = await handleDownstreamRequest(
+      request("/v1/app/index/search", "POST", { schemaVersion: 1 }, app1.appToken),
+      store
+    );
+    expect(searchRes1.status).toBe(200);
+    const searchData1 = await searchRes1.json() as any;
+    expect(searchData1.items.map((i: any) => i.canonicalId)).toEqual(["pkg-general-1"]);
+    expect(searchData1.items[0].contentRating).toBe("general");
+
+    // Search explicitly asking for adult content returns empty (fails closed)
+    const searchResAdultUnverified = await handleDownstreamRequest(
+      request("/v1/app/index/search", "POST", { schemaVersion: 1, rating: "adult_restricted" }, app1.appToken),
+      store
+    );
+    expect(searchResAdultUnverified.status).toBe(200);
+    const searchDataAdultUnverified = await searchResAdultUnverified.json() as any;
+    expect(searchDataAdultUnverified.items).toHaveLength(0);
+
+    // 3. Register App owned by user with verified age
+    const userVerified = store.issueUserToken("verified-adult-user", undefined, true);
+    const regRes2 = await handleDownstreamRequest(
+      request("/v1/app/register", "POST", { schemaVersion: 1, appName: "Verified App" }, userVerified.token),
+      store
+    );
+    expect(regRes2.status).toBe(201);
+    const app2 = await regRes2.json() as { appToken: string };
+
+    // Search without rating filter receives all non-prohibited packages
+    const searchRes2 = await handleDownstreamRequest(
+      request("/v1/app/index/search", "POST", { schemaVersion: 1 }, app2.appToken),
+      store
+    );
+    expect(searchRes2.status).toBe(200);
+    const searchData2 = await searchRes2.json() as any;
+    const ids = searchData2.items.map((i: any) => i.canonicalId);
+    expect(ids).toContain("pkg-general-1");
+    expect(ids).toContain("pkg-mature-1");
+    expect(ids).toContain("pkg-adult-1");
+    // Invariant: Prohibited content is NEVER served to any downstream consumer
+    expect(ids).not.toContain("pkg-prohibited-1");
+
+    // Filtered search for adult_restricted
+    const searchResAdultVerified = await handleDownstreamRequest(
+      request("/v1/app/index/search", "POST", { schemaVersion: 1, rating: "adult_restricted" }, app2.appToken),
+      store
+    );
+    expect(searchResAdultVerified.status).toBe(200);
+    const searchDataAdultVerified = await searchResAdultVerified.json() as any;
+    expect(searchDataAdultVerified.items.map((i: any) => i.canonicalId)).toEqual(["pkg-adult-1"]);
+
+    // Attempting to query prohibited returns 0 items
+    const searchResProhibited = await handleDownstreamRequest(
+      request("/v1/app/index/search", "POST", { schemaVersion: 1, rating: "prohibited" }, app2.appToken),
+      store
+    );
+    expect(searchResProhibited.status).toBe(200);
+    const searchDataProhibited = await searchResProhibited.json() as any;
+    expect(searchDataProhibited.items).toHaveLength(0);
+  });
 });

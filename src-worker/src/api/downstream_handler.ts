@@ -29,12 +29,12 @@ export interface DownstreamStore {
   recordRemovalReport(appId: string, input: ReportSubmissionRequest): Promise<ReportSubmissionResponse> | ReportSubmissionResponse;
   recordCreatorClaimIntake(appId: string, input: CreatorClaimIntakeRequest): Promise<CreatorClaimIntakeResponse> | CreatorClaimIntakeResponse;
   registerApp(input: RegisterAppRequest, ownerUserId?: string): Promise<RegisterAppResponse> | RegisterAppResponse;
-  authenticateUser(token: string): Promise<{ userId: string; userName: string } | null> | { userId: string; userName: string } | null;
-  authenticateApp(appToken: string): Promise<{ appId: string; appName: string; permissions: string[] } | null> |
-    { appId: string; appName: string; permissions: string[] } | null;
+  authenticateUser(token: string): Promise<{ userId: string; userName: string; ageVerified?: boolean } | null> | { userId: string; userName: string; ageVerified?: boolean } | null;
+  authenticateApp(appToken: string): Promise<{ appId: string; appName: string; permissions: string[]; isAgeVerified?: boolean } | null> |
+    { appId: string; appName: string; permissions: string[]; isAgeVerified?: boolean } | null;
   recordDownstreamFeedback(appId: string, input: DownstreamFeedbackRequest): Promise<DownstreamFeedbackResponse> |
     DownstreamFeedbackResponse;
-  searchCatalogPackages(input: CatalogSearchRequest): Promise<CatalogSearchResponse> | CatalogSearchResponse;
+  searchCatalogPackages(input: CatalogSearchRequest, options?: { isAgeVerified?: boolean }): Promise<CatalogSearchResponse> | CatalogSearchResponse;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -231,7 +231,7 @@ export async function handleDownstreamRequest(
     }
 
     try {
-      const response = await store.searchCatalogPackages(parsed.data);
+      const response = await store.searchCatalogPackages(parsed.data, { isAgeVerified: app.isAgeVerified ?? false });
       return json(CatalogSearchResponseSchema.parse(response), 200);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Catalog search failed";

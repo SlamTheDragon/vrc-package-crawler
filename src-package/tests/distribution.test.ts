@@ -9,7 +9,7 @@ describe("npm distribution boundary", () => {
   it("keeps coordinator classification definitions out of public exports", async () => {
     const sdk = await import("../dist/index.js");
     const taxonomy = await import("../dist/taxonomy/index.js");
-    expect(Object.keys(taxonomy)).toEqual(["UmbrellaSchema"]);
+    expect(Object.keys(taxonomy).sort()).toEqual(["ContentRatingSchema", "UmbrellaSchema"]);
     for (const name of ["DesktopToolSubtypeSchema", "DesktopToolEvidenceSchema", "AvatarCompatibilitySchema"]) {
       expect(name in sdk).toBe(false);
     }
