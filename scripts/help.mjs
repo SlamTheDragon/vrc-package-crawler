@@ -163,85 +163,241 @@ export const manualProcedures = [
   }
 ];
 
-export function renderHelpOverview() {
-  console.log(`
-${style.bold}${style.cyan}=================================================${style.reset}
-${style.bold}${style.cyan}VRCP Monorepo CLI Reference & Command Guide${style.reset}
-${style.bold}${style.cyan}=================================================${style.reset}
-
-${style.bold}Core Principles & Branch Layout:${style.reset}
-  ${symbols.diamond} ${style.bold}Slices & Gates:${style.reset} Slices mean local commit. Completed gates mean push.
-  ${symbols.diamond} ${style.bold}Preview Channel:${style.reset} Fast iteration. Any branch ahead of origin can publish.
-  ${symbols.diamond} ${style.bold}Release Channel:${style.reset} Strict governance. Requires clean main and owner-merged PR.
-  ${symbols.diamond} ${style.bold}Repository Branches:${style.reset}
-      • ${style.green}main${style.reset} (production / release)
-      • ${style.green}preview/crawler-network${style.reset} (src-worker, src-crawler, src-worker/packages/network)
-      • ${style.green}preview/desktop-client${style.reset} (src-crawler-client)
-      • ${style.green}preview/web${style.reset} (src-web, src-web-search)
-      • ${style.green}preview/workers-api${style.reset} (src-package)
-      • ${style.green}release/patch/*${style.reset} (short-lived patch branches)
-      • ${style.green}release/candidate/*${style.reset} (short-lived candidate PRs on main)
-  ${symbols.diamond} ${style.bold}Interactive Defaults:${style.reset} Running scripts with no arguments starts interactive wizard.
-  ${symbols.diamond} ${style.bold}Sub-command Help:${style.reset} Pass ${style.yellow}--help${style.reset} to any command (e.g., bun run publish --help).
-
-${style.bold}Command Categories:${style.reset}
-`);
+export function getHelpOverviewLines() {
+  const lines = [
+    "",
+    `${style.bold}${style.cyan}=================================================${style.reset}`,
+    `${style.bold}${style.cyan}VRCP Monorepo CLI Reference & Command Guide${style.reset}`,
+    `${style.bold}${style.cyan}=================================================${style.reset}`,
+    "",
+    `${style.bold}Core Principles & Branch Layout:${style.reset}`,
+    `  ${symbols.diamond} ${style.bold}Slices & Gates:${style.reset} Slices mean local commit. Completed gates mean push.`,
+    `  ${symbols.diamond} ${style.bold}Preview Channel:${style.reset} Fast iteration. Any branch ahead of origin can publish.`,
+    `  ${symbols.diamond} ${style.bold}Release Channel:${style.reset} Strict governance. Requires clean main and owner-merged PR.`,
+    `  ${symbols.diamond} ${style.bold}Repository Branches:${style.reset}`,
+    `      • ${style.green}main${style.reset} (production / release)`,
+    `      • ${style.green}preview/crawler-network${style.reset} (src-worker, src-crawler, src-worker/packages/network)`,
+    `      • ${style.green}preview/desktop-client${style.reset} (src-crawler-client)`,
+    `      • ${style.green}preview/web${style.reset} (src-web, src-web-search)`,
+    `      • ${style.green}preview/workers-api${style.reset} (src-package)`,
+    `      • ${style.green}release/patch/*${style.reset} (short-lived patch branches)`,
+    `      • ${style.green}release/candidate/*${style.reset} (short-lived candidate PRs on main)`,
+    `  ${symbols.diamond} ${style.bold}Interactive Defaults:${style.reset} Running scripts with no arguments starts interactive wizard.`,
+    `  ${symbols.diamond} ${style.bold}Sub-command Help:${style.reset} Pass ${style.yellow}--help${style.reset} to any command (e.g., bun run publish --help).`,
+    "",
+    `${style.bold}Command Categories:${style.reset}`,
+    ""
+  ];
 
   for (const [key, cat] of Object.entries(categories)) {
-    console.log(`  ${style.cyan}${cat.title}${style.reset} (${style.dim}${key}${style.reset})`);
-    console.log(`  ${style.dim}${cat.description}${style.reset}`);
+    lines.push(`  ${style.cyan}${cat.title}${style.reset} (${style.dim}${key}${style.reset})`);
+    lines.push(`  ${style.dim}${cat.description}${style.reset}`);
     for (const item of cat.commands) {
-      console.log(`    ${style.green}${item.cmd.padEnd(38)}${style.reset} ${item.desc}`);
+      lines.push(`    ${style.green}${item.cmd.padEnd(38)}${style.reset} ${item.desc}`);
     }
-    console.log();
+    lines.push("");
   }
 
-  console.log(`${style.bold}Additional Reference:${style.reset}`);
-  console.log(`  ${style.yellow}bun run help manual${style.reset}            View unhandled procedures requiring GitHub Web UI`);
-  console.log(`  ${style.yellow}bun run help <category>${style.reset}        Filter help by category (setup, build, publish, recovery, etc.)`);
-  console.log();
+  lines.push(`${style.bold}Additional Reference:${style.reset}`);
+  lines.push(`  ${style.yellow}bun run help manual${style.reset}            View unhandled procedures requiring GitHub Web UI`);
+  lines.push(`  ${style.yellow}bun run help <category>${style.reset}        Filter help by category (setup, build, publish, recovery, etc.)`);
+  lines.push("");
+
+  return lines;
 }
 
-export function renderCategoryHelp(catKey) {
+export function getCategoryHelpLines(catKey) {
   const cat = categories[catKey];
   if (!cat) {
+    return null;
+  }
+
+  const lines = [
+    "",
+    `${style.bold}${style.cyan}=================================================${style.reset}`,
+    `${style.bold}${style.cyan}${cat.title}${style.reset}`,
+    `${style.bold}${style.cyan}=================================================${style.reset}`,
+    cat.description,
+    "",
+    `${style.bold}Commands:${style.reset}`,
+    ""
+  ];
+
+  for (const item of cat.commands) {
+    lines.push(`  ${style.green}${item.cmd.padEnd(38)}${style.reset} ${item.desc}`);
+  }
+  lines.push("");
+  return lines;
+}
+
+export function getManualProceduresLines() {
+  const lines = [
+    "",
+    `${style.bold}${style.yellow}=================================================${style.reset}`,
+    `${style.bold}${style.yellow}Unhandled & Manual Procedures (Web UI / Operator)${style.reset}`,
+    `${style.bold}${style.yellow}=================================================${style.reset}`,
+    "",
+    "These procedures cannot be automated by local CLI scripts and require human operator actions:",
+    ""
+  ];
+
+  for (const proc of manualProcedures) {
+    lines.push(`${style.bold}${style.cyan}${proc.name}${style.reset}`);
+    lines.push(`  ${style.bold}When Needed:${style.reset} ${proc.need}`);
+    lines.push(`  ${style.bold}Rationale:${style.reset}   ${proc.why}`);
+    lines.push(`  ${style.bold}Action Steps:${style.reset}`);
+    for (const step of proc.steps) {
+      lines.push(`    ${symbols.pointer} ${step}`);
+    }
+    lines.push("");
+  }
+
+  return lines;
+}
+
+export function readSingleKey(input = process.stdin) {
+  return new Promise((resolve) => {
+    const wasRaw = input.isRaw;
+    if (typeof input.setRawMode === "function") {
+      input.setRawMode(true);
+    }
+    input.resume();
+
+    const onData = (chunk) => {
+      input.removeListener("data", onData);
+      if (typeof input.setRawMode === "function") {
+        input.setRawMode(wasRaw || false);
+      }
+      input.pause();
+      resolve(chunk.toString());
+    };
+
+    input.once("data", onData);
+  });
+}
+
+export async function pageLines(lines, options = {}) {
+  const input = options.input || process.stdin;
+  const output = options.output || process.stdout;
+  const write = (str) => output.write(str);
+
+  const isInteractive = options.interactive ?? Boolean(input?.isTTY && output?.isTTY && !process.env.CI);
+  const rows = options.rows || output.rows || 24;
+  const pageSize = options.pageSize || Math.max(1, rows - 3);
+
+  // If non-interactive or all lines fit on one screen, output directly without prompting
+  if (!isInteractive || lines.length <= pageSize) {
+    for (const line of lines) {
+      write(line + "\n");
+    }
+    return;
+  }
+
+  // Print initial page
+  let currentIndex = 0;
+  while (currentIndex < pageSize && currentIndex < lines.length) {
+    write(lines[currentIndex++] + "\n");
+  }
+
+  const clearPrompt = isColorSupported ? "\r\x1b[2K" : "\r" + " ".repeat(75) + "\r";
+
+  while (currentIndex < lines.length) {
+    const pct = Math.round((currentIndex / lines.length) * 100);
+    const prompt = `${style.dim}-- ${style.cyan}More${style.reset}${style.dim} (${pct}%) [${style.green}Enter${style.reset}${style.dim}: roll line, ${style.green}Space${style.reset}${style.dim}: page, ${style.yellow}q${style.reset}${style.dim}: quit] --${style.reset}`;
+    write(prompt);
+
+    const key = await readSingleKey(input);
+
+    write(clearPrompt);
+
+    if (key === "\u0003") { // Ctrl+C
+      if (options.exitOnCtrlC !== false) {
+        process.exit(0);
+      }
+      break;
+    }
+
+    if (key === "q" || key === "Q" || key === "\u001b") { // q, Q, Escape
+      break;
+    }
+
+    if (key.includes("\r") || key.includes("\n") || key === "\u001b[B" || key === "\u001bOB") {
+      // Rolling enter key or down arrow: advance 1 line
+      if (currentIndex < lines.length) {
+        write(lines[currentIndex++] + "\n");
+      }
+    } else if (key === " " || key === "\u001b[6~") {
+      // Space or PageDown: advance full page
+      const target = Math.min(lines.length, currentIndex + pageSize);
+      while (currentIndex < target) {
+        write(lines[currentIndex++] + "\n");
+      }
+    } else if (key === "d" || key === "D") {
+      // Half-page advance
+      const half = Math.max(1, Math.floor(pageSize / 2));
+      const target = Math.min(lines.length, currentIndex + half);
+      while (currentIndex < target) {
+        write(lines[currentIndex++] + "\n");
+      }
+    } else {
+      // Any other key: roll 1 line
+      if (currentIndex < lines.length) {
+        write(lines[currentIndex++] + "\n");
+      }
+    }
+  }
+
+  write(clearPrompt);
+}
+
+export async function renderHelpOverview(options = {}) {
+  const lines = getHelpOverviewLines();
+  if (options.pager) {
+    await pageLines(lines, options);
+  } else {
+    for (const line of lines) {
+      if (options.output) {
+        options.output.write(line + "\n");
+      } else {
+        console.log(line);
+      }
+    }
+  }
+}
+
+export async function renderCategoryHelp(catKey, options = {}) {
+  const lines = getCategoryHelpLines(catKey);
+  if (!lines) {
     console.error(`${style.red}${symbols.cross} Unknown category: "${catKey}".${style.reset}`);
     console.log(`Valid categories: ${Object.keys(categories).join(", ")}, manual`);
     process.exit(1);
   }
 
-  console.log(`
-${style.bold}${style.cyan}=================================================${style.reset}
-${style.bold}${style.cyan}${cat.title}${style.reset}
-${style.bold}${style.cyan}=================================================${style.reset}
-${cat.description}
-
-${style.bold}Commands:${style.reset}
-`);
-  for (const item of cat.commands) {
-    console.log(`  ${style.green}${item.cmd.padEnd(38)}${style.reset} ${item.desc}`);
+  if (options.pager) {
+    await pageLines(lines, options);
+  } else {
+    for (const line of lines) {
+      if (options.output) {
+        options.output.write(line + "\n");
+      } else {
+        console.log(line);
+      }
+    }
   }
-  console.log();
 }
 
-export function renderManualProcedures() {
-  console.log(`
-${style.bold}${style.yellow}=================================================${style.reset}
-${style.bold}${style.yellow}Unhandled & Manual Procedures (Web UI / Operator)${style.reset}
-${style.bold}${style.yellow}=================================================${style.reset}
-
-These procedures cannot be automated by local CLI scripts and require human operator actions:
-`);
-
-  for (const proc of manualProcedures) {
-    console.log(`${style.bold}${style.cyan}${proc.name}${style.reset}`);
-    console.log(`  ${style.bold}When Needed:${style.reset} ${proc.need}`);
-    console.log(`  ${style.bold}Rationale:${style.reset}   ${proc.why}`);
-    console.log(`  ${style.bold}Action Steps:${style.reset}`);
-    for (const step of proc.steps) {
-      console.log(`    ${symbols.pointer} ${step}`);
+export async function renderManualProcedures(options = {}) {
+  const lines = getManualProceduresLines();
+  if (options.pager) {
+    await pageLines(lines, options);
+  } else {
+    for (const line of lines) {
+      if (options.output) {
+        options.output.write(line + "\n");
+      } else {
+        console.log(line);
+      }
     }
-    console.log();
   }
 }
 
@@ -262,22 +418,30 @@ export const main = defineCommand({
       description: "Show manual procedures requiring GitHub Web UI or operator intervention",
       required: false,
       default: false
+    },
+    pager: {
+      type: "boolean",
+      description: "Enable rolling interactive pager (use --no-pager to disable)",
+      required: false,
+      default: true
     }
   },
   async run({ args }) {
+    const isInteractive = Boolean(process.stdout?.isTTY && process.stdin?.isTTY) && !process.env.CI;
+    const pager = Boolean(args.pager && isInteractive);
     if (args.manual || args.category === "manual") {
-      renderManualProcedures();
+      await renderManualProcedures({ pager });
       return;
     }
     const cat = (args.category || "all").toLowerCase();
     if (cat === "all") {
-      renderHelpOverview();
+      await renderHelpOverview({ pager });
     } else {
-      renderCategoryHelp(cat);
+      await renderCategoryHelp(cat, { pager });
     }
   }
 });
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runMain(main);
 }
