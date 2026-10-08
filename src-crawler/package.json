@@ -32,7 +32,7 @@
     "cheerio": "^1.2.0",
     "semver": "^7.8.5",
     "vrc-packages-api": "npm:vrc-packages-api-preview@latest",
-    "vrc-packages-network": "https://github.com/SlamTheDragon/vrc-packages/releases/download/vrcp-network/v2026.10.6/vrc-packages-network-2026.10.6.tgz",
+    "vrc-packages-network": "https://github.com/SlamTheDragon/vrc-packages/releases/download/vrcp-network/v2026.10.7/vrc-packages-network-2026.10.7.tgz",
     "zod": "^4.6.5"
   },
   "packageManager": "bun@1.4.2"

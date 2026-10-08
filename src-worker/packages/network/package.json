@@ -1,6 +1,6 @@
 {
 	"name": "vrc-packages-network",
-	"version": "2026.10.6",
+	"version": "2026.10.7",
 	"private": true,
 	"description": "Internal leased-ingestion contracts and pure policy for VRC Packages nodes and coordinator.",
 	"license": "AGPL-3.0-or-later",
