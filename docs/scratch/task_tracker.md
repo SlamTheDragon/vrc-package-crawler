@@ -50,8 +50,14 @@
     - Exit Code Fix: Ensured `publish:diagnose` exits with 0 on successful diagnosis rather than falsely signaling script error code 1.
     - Module Isolation Hardening: Made `@clack/prompts` and `citty` dynamically loaded in `scripts/delivery-recovery.mjs` and defined `renderCardTable` locally, preventing import resolution failures in bare fixture environments (`tests/delivery.test.ts`).
     - Package Script Conformance: Aligned root `package.json` `"setup": "bun run setup:root && bun run setup:interactive"` with governance assertions.
+  - `WORKFLOW-FIXME-ASSESSMENT-AND-FIX` (2026-10-08):
+    - Assessed `# FIXME: will likely use an old test files. Is this workflow even important?` in `.github/workflows/repository-tests.yml`:
+      1) Cache does NOT cache test files or node_modules: inspection of `.github/actions/dependency-cache/action.yml` confirmed that only `~/.bun/install/cache` (downloaded tarballs) is cached.
+      2) The true root causes of CI failures in `repository-tests.yml`: (a) `actions/checkout@v4` defaulted to `fetch-depth: 1` (shallow clone without tags), causing `tests/delivery-recovery.test.ts` to crash with `fatal: Needed a single revision` when verifying tag refs; (b) missing `submodules: recursive` caused `src-web-search` submodule to clone as an empty directory, causing `tests/build.test.ts` (6 of 7 products) and `tests/setup.test.ts` to fail.
+      3) Critical importance: `repository-tests.yml` is the sole CI workflow triggered on PRs and pushes to `main` that validates monorepo root governance, version configs, build order, cleanup, sync, and recovery CLI tooling (`bun test ./tests`). All other workflows only run on tag pushes.
+    - Updated `.github/workflows/repository-tests.yml` to specify `fetch-depth: 0` and `submodules: recursive`, and purged the FIXME comment.
   - `GATE-VERIFICATION-PASS`:
-    - Full repository test suite (`bun test ./tests`): all targeted test suites passing green across build, delivery, recovery, setup, and sync (86 pass across 5 files, 1,417 assertions).
+    - Full repository test suite (`bun test ./tests`): all targeted test suites passing green across build, delivery, recovery, setup, and sync (86 pass across 5 files, 1,417 assertions; 225 total monorepo governance tests pass across 18 files).
 
 - Active Working Theories & Architectural Covenants:
   1. Entry Point for Deployment/Release (R64):
