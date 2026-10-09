@@ -55,5 +55,6 @@
 
 ## Slice Status
 
-- Status: Verified (Local Commit Pending)
-- Next Steps: Commit slice locally as `feat(package,worker): registered app intensive-use candidate tracking and operator-moderator review (R54-C38A2)`.
+- Status: Verified & Locally Committed (`1ad6572`)
+- Next Steps: Execute preview publication for `package` (`bun run publish:preview package --execute`) per user directive to propagate API contracts to preview channel.
+
