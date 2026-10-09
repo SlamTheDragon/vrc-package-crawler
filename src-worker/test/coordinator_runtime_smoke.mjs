@@ -135,7 +135,7 @@ async function operatorAtomicityFixture(env, store, clock) {
   const db = env.VRCP_D1, existingNode = 'native-audit-rotation', freshNode = 'native-audit-new';
   const oldToken = await store.createNodeCredential(existingNode, ['vpm']);
   const beforeCredential = await db.prepare('SELECT * FROM node_credentials WHERE node_id=?').bind(existingNode).first();
-  await db.exec("CREATE TRIGGER reject_native_credential_audit BEFORE INSERT ON node_credential_actions WHEN NEW.node_id LIKE 'native-audit-%' BEGIN SELECT RAISE(ABORT,'Offline credential audit failure'); END;");
+  await db.exec("CREATE TRIGGER reject_native_credential_audit BEFORE INSERT ON operator_audit_log WHEN NEW.entity_type='node' AND NEW.entity_id LIKE 'native-audit-%' BEGIN SELECT RAISE(ABORT,'Offline credential audit failure'); END;");
   for (const nodeId of [freshNode, existingNode]) {
     let failed = false;
     try { await store.issueNodeCredential({ schemaVersion: 1, nodeId, capabilities: ['vpm'], reason: 'Offline audit rollback' }, 'offline-fixture'); }
@@ -171,7 +171,7 @@ async function operatorAtomicityFixture(env, store, clock) {
       .bind(leadKey, sourceUrl, sourceJob, url, new Date(clock).toISOString(), new Date(clock).toISOString()).run();
     const beforeJob = await db.prepare('SELECT * FROM crawl_jobs WHERE url=?').bind(url).first();
     const beforeOrigin = await db.prepare('SELECT * FROM origin_leases WHERE origin=?').bind(origin).first();
-    await db.exec("CREATE TRIGGER reject_native_approval_audit BEFORE INSERT ON operator_actions WHEN NEW.action='approve_lead' BEGIN SELECT RAISE(ABORT,'Offline approval audit failure'); END;");
+    await db.exec("CREATE TRIGGER reject_native_approval_audit BEFORE INSERT ON operator_audit_log WHEN NEW.entity_type='lead' AND NEW.action='approve_lead' BEGIN SELECT RAISE(ABORT,'Offline approval audit failure'); END;");
     let failed = false;
     try { await store.approveVpmListingLead(leadKey, 2000, 'offline-fixture', 'Offline approval rollback'); } catch { failed = true; }
     await db.exec('DROP TRIGGER reject_native_approval_audit;');

@@ -123,12 +123,18 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         node_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, capabilities_json TEXT NOT NULL,
         revoked_at TEXT
       );
-      CREATE TABLE IF NOT EXISTS node_credential_actions (
-        action_id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT NOT NULL,
-        actor TEXT NOT NULL, action TEXT NOT NULL, reason TEXT NOT NULL,
-        occurred_at TEXT NOT NULL,
-        FOREIGN KEY(node_id) REFERENCES node_credentials(node_id)
+      CREATE TABLE IF NOT EXISTS operator_audit_log (
+        action_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type TEXT NOT NULL CHECK(entity_type IN ('node','lead','job','rule','profile')),
+        entity_id TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        action TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        occurred_at TEXT NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS idx_operator_audit_log_entity ON operator_audit_log(entity_type,entity_id,occurred_at);
+      CREATE INDEX IF NOT EXISTS idx_operator_audit_log_occurred ON operator_audit_log(occurred_at DESC,action_id DESC);
+      CREATE VIEW IF NOT EXISTS node_credential_actions AS SELECT action_id, entity_id AS node_id, actor, action, reason, occurred_at FROM operator_audit_log WHERE entity_type='node';
       CREATE TABLE IF NOT EXISTS node_heartbeats (
         node_id TEXT PRIMARY KEY, last_seen_at TEXT NOT NULL,
         state TEXT NOT NULL CHECK(state IN ('idle','fetching')), active_job_id TEXT,
@@ -195,31 +201,19 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       );
       CREATE INDEX IF NOT EXISTS idx_source_leads_status ON source_leads(status,kind);
       CREATE INDEX IF NOT EXISTS idx_source_leads_page ON source_leads(status,first_seen_at,lead_key);
-      CREATE TABLE IF NOT EXISTS operator_actions (
-        action_id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL,
-        lead_key TEXT NOT NULL, reason TEXT NOT NULL, occurred_at TEXT NOT NULL,
-        FOREIGN KEY(lead_key) REFERENCES source_leads(lead_key)
-      );
+      CREATE VIEW IF NOT EXISTS operator_actions AS SELECT action_id, actor, action, entity_id AS lead_key, reason, occurred_at FROM operator_audit_log WHERE entity_type='lead';
       CREATE TABLE IF NOT EXISTS lead_autoqueue_rules (
         rule_id TEXT PRIMARY KEY, lead_kind TEXT NOT NULL, origin TEXT NOT NULL,
         path_scope TEXT NOT NULL, min_delay_ms INTEGER NOT NULL,
         expires_at TEXT NOT NULL, review_reference TEXT NOT NULL, reason TEXT NOT NULL,
         created_at TEXT NOT NULL, disabled_at TEXT
       );
-      CREATE TABLE IF NOT EXISTS job_seed_actions (
-        action_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, actor TEXT NOT NULL,
-        reason TEXT NOT NULL, occurred_at TEXT NOT NULL,
-        FOREIGN KEY(job_id) REFERENCES crawl_jobs(job_id)
-      );
+      CREATE VIEW IF NOT EXISTS job_seed_actions AS SELECT cast(action_id as text) AS action_id, entity_id AS job_id, actor, reason, occurred_at FROM operator_audit_log WHERE entity_type='job';
       CREATE INDEX IF NOT EXISTS idx_lead_autoqueue_rules_scope
         ON lead_autoqueue_rules(lead_kind,origin,disabled_at,expires_at);
       CREATE INDEX IF NOT EXISTS idx_lead_autoqueue_rules_page
         ON lead_autoqueue_rules(created_at DESC,rule_id DESC);
-      CREATE TABLE IF NOT EXISTS operator_rule_actions (
-        action_id INTEGER PRIMARY KEY AUTOINCREMENT, rule_id TEXT NOT NULL,
-        actor TEXT NOT NULL, action TEXT NOT NULL, reason TEXT NOT NULL, occurred_at TEXT NOT NULL,
-        FOREIGN KEY(rule_id) REFERENCES lead_autoqueue_rules(rule_id)
-      );
+      CREATE VIEW IF NOT EXISTS operator_rule_actions AS SELECT action_id, entity_id AS rule_id, actor, action, reason, occurred_at FROM operator_audit_log WHERE entity_type='rule';
       CREATE TABLE IF NOT EXISTS source_access_profiles (
         profile_id TEXT PRIMARY KEY, platform TEXT NOT NULL, origin TEXT NOT NULL,
         path_scope TEXT NOT NULL, query_scope TEXT, method TEXT NOT NULL CHECK(method='GET'),
@@ -233,12 +227,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         ON source_access_profiles(platform,origin,purpose,disabled_at,expires_at);
       CREATE INDEX IF NOT EXISTS idx_source_access_profiles_page
         ON source_access_profiles(created_at DESC,profile_id DESC);
-      CREATE TABLE IF NOT EXISTS source_access_profile_actions (
-        action_id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL,
-        actor TEXT NOT NULL, action TEXT NOT NULL, reason TEXT NOT NULL,
-        occurred_at TEXT NOT NULL,
-        FOREIGN KEY(profile_id) REFERENCES source_access_profiles(profile_id)
-      );
+      CREATE VIEW IF NOT EXISTS source_access_profile_actions AS SELECT action_id, entity_id AS profile_id, actor, action, reason, occurred_at FROM operator_audit_log WHERE entity_type='profile';
       CREATE TABLE IF NOT EXISTS job_results (
         lease_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, node_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,
         request_digest TEXT NOT NULL, response_json TEXT NOT NULL, submitted_at TEXT NOT NULL,
@@ -760,8 +749,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       : this.evaluateWorkforceDistribution();
     return this.db.transaction(() => {
       const token = this.createNodeCredential(parsed.nodeId, capabilities);
-      this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
-        VALUES (?,?,'issue',?,?)`).run(parsed.nodeId, actor, parsed.reason, new Date(this.now()).toISOString());
+      this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        VALUES ('node',?,?, 'issue', ?, ?)`).run(parsed.nodeId, actor, parsed.reason, new Date(this.now()).toISOString());
       return token;
     }).immediate();
   }
@@ -772,8 +761,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     if (!actor.trim() || actor.length > 100) throw new Error("Operator actor required");
     const now = new Date(this.now()).toISOString();
     this.db.transaction(() => {
-      const audit = this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
-        SELECT node_id,?,'revoke',?,? FROM node_credentials WHERE node_id=?`).run(actor, parsed.reason, now, nodeId);
+      const audit = this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        SELECT 'node',node_id,?,'revoke',?,? FROM node_credentials WHERE node_id=?`).run(actor, parsed.reason, now, nodeId);
       if (audit.changes !== 1) throw new Error("Node not found");
       this.db.prepare("UPDATE node_credentials SET revoked_at=COALESCE(revoked_at,?) WHERE node_id=?").run(now, nodeId);
     }).immediate();
@@ -920,8 +909,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         .get(parsed.href) as { job_id: string; platform: Platform; job_purpose: SourcePurpose };
       if (stored.platform !== platform) throw new Error("Existing job has a different reviewed platform");
       if (stored.job_purpose !== purpose) throw new Error("Existing job has a different reviewed purpose");
-      if (audit) this.db.prepare(`INSERT INTO job_seed_actions(action_id,job_id,actor,reason,occurred_at)
-        VALUES (?,?,?,?,?)`).run(crypto.randomUUID(), stored.job_id, audit.actor, audit.reason.trim(), now);
+      if (audit) this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        VALUES ('job',?,?, 'seed', ?, ?)`).run(stored.job_id, audit.actor, audit.reason.trim(), now);
       return stored.job_id;
     }).immediate();
   }
@@ -1051,9 +1040,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         parsed.pathScope, parsed.exactQuery ?? null, parsed.method, parsed.purpose, parsed.minDelayMs, parsed.expiresAt,
         parsed.reviewReference, parsed.reason, JSON.stringify(parsed.retainClasses),
         JSON.stringify(parsed.publishClasses), now);
-      this.db.prepare(`INSERT INTO source_access_profile_actions
-        (profile_id,actor,action,reason,occurred_at) VALUES (?,?,'create',?,?)`)
-        .run(profileId, actor, parsed.reason, now);
+      this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        VALUES ('profile',?,?, 'create', ?, ?)`).run(profileId, actor, parsed.reason, now);
       return this.sourceAccessProfileFromRow(this.db.prepare("SELECT * FROM source_access_profiles WHERE profile_id=?")
         .get(profileId) as SourceAccessProfileRow);
     }).immediate();
@@ -1080,9 +1068,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       if (this.approvedDueProfileDelayForOrigin(row.origin, now) === null) {
         this.db.prepare("DELETE FROM origin_robots_refresh_leases WHERE origin=?").run(row.origin);
       }
-      this.db.prepare(`INSERT INTO source_access_profile_actions
-        (profile_id,actor,action,reason,occurred_at) VALUES (?,?,'disable',?,?)`)
-        .run(profileId, actor, reason.trim(), now);
+      this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        VALUES ('profile',?,?, 'disable', ?, ?)`).run(profileId, actor, reason.trim(), now);
       return this.sourceAccessProfileFromRow(this.db.prepare("SELECT * FROM source_access_profiles WHERE profile_id=?")
         .get(profileId) as SourceAccessProfileRow);
     }).immediate();
@@ -1102,8 +1089,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         (rule_id,lead_kind,origin,path_scope,min_delay_ms,expires_at,review_reference,reason,created_at)
         VALUES (?,?,?,?,?,?,?,?,?)`).run(ruleId, parsed.leadKind, parsed.origin, parsed.pathScope,
           parsed.minDelayMs, parsed.expiresAt, parsed.reviewReference, parsed.reason, now);
-      this.db.prepare(`INSERT INTO operator_rule_actions(rule_id,actor,action,reason,occurred_at)
-        VALUES (?,?,'create',?,?)`).run(ruleId, actor, parsed.reason, now);
+      this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        VALUES ('rule',?,?, 'create', ?, ?)`).run(ruleId, actor, parsed.reason, now);
       return this.autoQueueRuleFromRow(this.db.prepare("SELECT * FROM lead_autoqueue_rules WHERE rule_id=?")
         .get(ruleId) as AutoQueueRuleRow);
     }).immediate();
@@ -1126,8 +1113,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
           this.db.prepare(`UPDATE origin_leases SET active_job_id=NULL,lease_expires_at=NULL
             WHERE origin=? AND active_job_id=?`).run(job.origin, job.job_id);
         }
-        this.db.prepare(`INSERT INTO operator_rule_actions(rule_id,actor,action,reason,occurred_at)
-          VALUES (?,?,'disable',?,?)`).run(ruleId, actor, reason.trim(), now);
+        this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+          VALUES ('rule',?,?, 'disable', ?, ?)`).run(ruleId, actor, reason.trim(), now);
         row.disabled_at = now;
       }
       return this.autoQueueRuleFromRow(row);
@@ -1162,8 +1149,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       const jobId = this.seedJob(lead.target_url, "vpm", minDelayMs, sourceRuleId, "discovery");
       if (lead.status !== "approved") {
         this.db.prepare("UPDATE source_leads SET status='approved' WHERE lead_key=?").run(leadKey);
-        this.db.prepare(`INSERT INTO operator_actions(actor,action,lead_key,reason,occurred_at)
-          VALUES (?,'approve_lead',?,?,?)`).run(actor, leadKey, reason.trim(), new Date(this.now()).toISOString());
+        this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+          VALUES ('lead',?,?,'approve_lead',?,?)`).run(leadKey, actor, reason.trim(), new Date(this.now()).toISOString());
       }
       return jobId;
     }).immediate();
@@ -1178,9 +1165,34 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       if (lead.status === "approved") throw new Error("Approved lead cannot be rejected without revoking its job");
       if (lead.status === "rejected") return;
       this.db.prepare("UPDATE source_leads SET status='rejected' WHERE lead_key=?").run(leadKey);
-      this.db.prepare(`INSERT INTO operator_actions(actor,action,lead_key,reason,occurred_at)
-        VALUES (?,'reject_lead',?,?,?)`).run(actor, leadKey, reason.trim(), new Date(this.now()).toISOString());
+      this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        VALUES ('lead',?,?,'reject_lead',?,?)`).run(leadKey, actor, reason.trim(), new Date(this.now()).toISOString());
     }).immediate();
+  }
+
+  listAuditLogs(options?: {
+    entityType?: "node" | "lead" | "job" | "rule" | "profile";
+    entityId?: string;
+    limit?: number;
+  }): Array<{ action_id: number; entity_type: string; entity_id: string; actor: string; action: string; reason: string; occurred_at: string }> {
+    const limit = Math.min(Math.max(options?.limit ?? 50, 1), 100);
+    let sql = "SELECT * FROM operator_audit_log";
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (options?.entityType) {
+      conditions.push("entity_type = ?");
+      params.push(options.entityType);
+    }
+    if (options?.entityId) {
+      conditions.push("entity_id = ?");
+      params.push(options.entityId);
+    }
+    if (conditions.length > 0) {
+      sql += ` WHERE ${conditions.join(" AND ")}`;
+    }
+    sql += " ORDER BY occurred_at DESC, action_id DESC LIMIT ?";
+    params.push(limit);
+    return this.db.prepare(sql).all(...params) as Array<{ action_id: number; entity_type: string; entity_id: string; actor: string; action: string; reason: string; occurred_at: string }>;
   }
 
   claim(request: ClaimRequest, principal: NodePrincipal): ClaimResponse {
@@ -1708,8 +1720,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
                 this.approveVpmListingLead(leadKey, rule.minDelayMs, `auto-rule:${rule.ruleId}`,
                   "Matched reviewed auto-queue rule", rule.ruleId);
               } catch (cause) {
-                this.db.prepare(`INSERT INTO operator_rule_actions(rule_id,actor,action,reason,occurred_at)
-                  VALUES (?,'coordinator','promotion_failed',?,?)`)
+                this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+                  VALUES ('rule',?,'coordinator','promotion_failed',?,?)`)
                   .run(rule.ruleId, cause instanceof Error ? cause.message.slice(0, 300) : "Unknown promotion failure", now);
               }
             }

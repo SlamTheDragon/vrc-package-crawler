@@ -63,6 +63,16 @@ import type {
   IdentityLink
 } from "./definitions.js";
 
+export interface OperatorAuditLogRow {
+  action_id: number;
+  entity_type: "node" | "lead" | "job" | "rule" | "profile";
+  entity_id: string;
+  actor: string;
+  action: string;
+  reason: string;
+  occurred_at: string;
+}
+
 export function classifyOutboundLeadKind(targetUrl: string): DiscoveryLead["kind"] | null {
   try {
     const url = new URL(targetUrl);
@@ -976,8 +986,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
               await this.approveVpmListingLead(leadKey, rule.minDelayMs, `auto-rule:${rule.ruleId}`,
                 "Matched reviewed auto-queue rule", rule.ruleId);
             } catch (cause) {
-              await this.db.prepare(`INSERT INTO operator_rule_actions(rule_id,actor,action,reason,occurred_at)
-                VALUES (?,'coordinator','promotion_failed',?,?)`)
+              await this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+                VALUES ('rule',?,'coordinator','promotion_failed',?,?)`)
                 .bind(rule.ruleId, cause instanceof Error ? cause.message.slice(0, 300) : "Unknown promotion failure", now).run();
             }
           }
@@ -1044,8 +1054,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     if (!actor.trim() || actor.length > 100) throw new Error("Operator actor required");
     const now = new Date(this.now()).toISOString();
     const result = await this.db.batch([
-      this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
-        SELECT node_id,?,'revoke',?,? FROM node_credentials WHERE node_id=?`)
+      this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        SELECT 'node',node_id,?,'revoke',?,? FROM node_credentials WHERE node_id=?`)
         .bind(actor, parsed.reason, now, nodeId),
       this.db.prepare("UPDATE node_credentials SET revoked_at=COALESCE(revoked_at,?) WHERE node_id=?").bind(now, nodeId)
     ]);
@@ -1065,8 +1075,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       ON CONFLICT(node_id) DO UPDATE SET token_hash=excluded.token_hash,
         capabilities_json=excluded.capabilities_json, revoked_at=NULL
     `).bind(nodeId, hash, JSON.stringify([...new Set(capabilities)]))];
-    if (audit) writes.push(this.db.prepare(`INSERT INTO node_credential_actions(node_id,actor,action,reason,occurred_at)
-      VALUES (?,?,'issue',?,?)`).bind(nodeId, audit.actor, audit.reason.trim(), new Date(this.now()).toISOString()));
+    if (audit) writes.push(this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+      VALUES ('node',?,?, 'issue', ?, ?)`).bind(nodeId, audit.actor, audit.reason.trim(), new Date(this.now()).toISOString()));
     await this.db.batch(writes);
     return token;
   }
@@ -1220,8 +1230,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     if (lead.status === "rejected") return;
     await this.db.batch([
       this.db.prepare("UPDATE source_leads SET status='rejected' WHERE lead_key=?").bind(leadKey),
-      this.db.prepare(`INSERT INTO operator_actions(actor,action,lead_key,reason,occurred_at)
-        VALUES (?,'reject_lead',?,?,?)`).bind(actor, leadKey, reason.trim(), new Date(this.now()).toISOString())
+      this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        VALUES ('lead',?,?,'reject_lead',?,?)`).bind(leadKey, actor, reason.trim(), new Date(this.now()).toISOString())
     ]);
   }
 
@@ -1257,8 +1267,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
         (rule_id,lead_kind,origin,path_scope,min_delay_ms,expires_at,review_reference,reason,created_at)
         VALUES (?,?,?,?,?,?,?,?,?)`).bind(ruleId, parsed.leadKind, parsed.origin, parsed.pathScope,
         parsed.minDelayMs, parsed.expiresAt, parsed.reviewReference, parsed.reason, now),
-      this.db.prepare(`INSERT INTO operator_rule_actions(rule_id,actor,action,reason,occurred_at)
-        VALUES (?,?,'create',?,?)`).bind(ruleId, actor, parsed.reason, now)
+      this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        VALUES ('rule',?,?, 'create', ?, ?)`).bind(ruleId, actor, parsed.reason, now)
     ]);
     const row = await this.db.prepare("SELECT * FROM lead_autoqueue_rules WHERE rule_id=?")
       .bind(ruleId).first<AutoQueueRuleRow>();
@@ -1287,8 +1297,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
         );
       }
       batchStmts.push(
-        this.db.prepare(`INSERT INTO operator_rule_actions(rule_id,actor,action,reason,occurred_at)
-          VALUES (?,?,'disable',?,?)`).bind(ruleId, actor, reason.trim(), now)
+        this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+          VALUES ('rule',?,?, 'disable', ?, ?)`).bind(ruleId, actor, reason.trim(), now)
       );
       await this.db.batch(batchStmts);
       row.disabled_at = now;
@@ -1334,9 +1344,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
         parsed.pathScope, parsed.exactQuery ?? null, parsed.method, parsed.purpose, parsed.minDelayMs, parsed.expiresAt,
         parsed.reviewReference, parsed.reason, JSON.stringify(parsed.retainClasses),
         JSON.stringify(parsed.publishClasses), now),
-      this.db.prepare(`INSERT INTO source_access_profile_actions
-        (profile_id,actor,action,reason,occurred_at) VALUES (?,?,'create',?,?)`)
-        .bind(profileId, actor, parsed.reason, now)
+      this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        VALUES ('profile',?,?, 'create', ?, ?)`).bind(profileId, actor, parsed.reason, now)
     ]);
     const row = await this.db.prepare("SELECT * FROM source_access_profiles WHERE profile_id=?")
       .bind(profileId).first<SourceAccessProfileRow>();
@@ -1371,14 +1380,39 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       batchStmts.push(this.db.prepare("DELETE FROM origin_robots_refresh_leases WHERE origin=?").bind(row.origin));
     }
     batchStmts.push(
-      this.db.prepare(`INSERT INTO source_access_profile_actions
-        (profile_id,actor,action,reason,occurred_at) VALUES (?,?,'disable',?,?)`)
-        .bind(profileId, actor, reason.trim(), now)
+      this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        VALUES ('profile',?,?, 'disable', ?, ?)`).bind(profileId, actor, reason.trim(), now)
     );
     await this.db.batch(batchStmts);
     const updatedRow = await this.db.prepare("SELECT * FROM source_access_profiles WHERE profile_id=?")
       .bind(profileId).first<SourceAccessProfileRow>();
     return this.sourceAccessProfileFromRow(updatedRow!);
+  }
+
+  async listAuditLogs(options?: {
+    entityType?: "node" | "lead" | "job" | "rule" | "profile";
+    entityId?: string;
+    limit?: number;
+  }): Promise<OperatorAuditLogRow[]> {
+    const limit = Math.min(Math.max(options?.limit ?? 50, 1), 100);
+    let sql = "SELECT * FROM operator_audit_log";
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (options?.entityType) {
+      conditions.push("entity_type = ?");
+      params.push(options.entityType);
+    }
+    if (options?.entityId) {
+      conditions.push("entity_id = ?");
+      params.push(options.entityId);
+    }
+    if (conditions.length > 0) {
+      sql += ` WHERE ${conditions.join(" AND ")}`;
+    }
+    sql += " ORDER BY occurred_at DESC, action_id DESC LIMIT ?";
+    params.push(limit);
+    const res = await this.db.prepare(sql).bind(...params).all<OperatorAuditLogRow>();
+    return res.results || [];
   }
 
   async getCatalogEpoch(): Promise<string> {
@@ -1651,8 +1685,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     if (audit?.leadKey !== undefined) {
       const matchingJob = `EXISTS (SELECT 1 FROM crawl_jobs WHERE url=? AND platform=? AND job_purpose=?)`;
       batchStmts.push(
-        this.db.prepare(`INSERT INTO operator_actions(actor,action,lead_key,reason,occurred_at)
-          SELECT ?,'approve_lead',lead_key,?,? FROM source_leads
+        this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+          SELECT 'lead',lead_key,?,'approve_lead',?,? FROM source_leads
           WHERE lead_key=? AND status='pending_review' AND ${matchingJob} AND ${authoritySql}`)
           .bind(audit.actor, audit.reason.trim(), now, audit.leadKey, parsed.href, platform, purpose, ...authorityParams),
         this.db.prepare(`UPDATE source_leads SET status='approved'
@@ -1660,9 +1694,9 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
           .bind(audit.leadKey, parsed.href, platform, purpose, ...authorityParams)
       );
     } else if (audit) {
-      batchStmts.push(this.db.prepare(`INSERT INTO job_seed_actions(action_id,job_id,actor,reason,occurred_at)
-        SELECT ?,job_id,?,?,? FROM crawl_jobs WHERE url=? AND platform=? AND job_purpose=? AND ${authoritySql}`)
-        .bind(crypto.randomUUID(), audit.actor, audit.reason.trim(), now, parsed.href, platform, purpose, ...authorityParams));
+      batchStmts.push(this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
+        SELECT 'job',job_id,?,'seed',?,? FROM crawl_jobs WHERE url=? AND platform=? AND job_purpose=? AND ${authoritySql}`)
+        .bind(audit.actor, audit.reason.trim(), now, parsed.href, platform, purpose, ...authorityParams));
     }
     await this.db.batch(batchStmts);
 

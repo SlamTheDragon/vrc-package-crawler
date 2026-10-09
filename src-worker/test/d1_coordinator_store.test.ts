@@ -178,7 +178,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
         expect(result.status).toBe(status);
       }
       expect(fixture.sqlite.query("SELECT COUNT(*) AS count FROM node_credential_actions WHERE action='revoke'").get()).toEqual({ count: 0 });
-      fixture.sqlite.run("CREATE TRIGGER reject_revoke_audit BEFORE INSERT ON node_credential_actions WHEN NEW.action='revoke' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;");
+      fixture.sqlite.run("CREATE TRIGGER reject_revoke_audit BEFORE INSERT ON operator_audit_log WHEN NEW.entity_type='node' AND NEW.action='revoke' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;");
       await expect(client.operator.nodes.revoke(principal.nodeId, "Fixture revocation")).rejects.toThrow();
       expect(fixture.sqlite.query("SELECT revoked_at FROM node_credentials WHERE node_id=?").get(principal.nodeId)).toEqual({ revoked_at: null });
       fixture.sqlite.run("DROP TRIGGER reject_revoke_audit");
@@ -259,7 +259,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       const token = await store.issueNodeCredential({ schemaVersion: 1, nodeId: "enqueue-test", capabilities: ["vpm"], reason: "Fixture" }, "fixture");
       const principal = (await store.authenticate("enqueue-test", token))!;
       expect((await store.claim({ schemaVersion: 1, nodeId: principal.nodeId, capabilities: ["vpm"] }, principal)).status).toBe("empty");
-      sqlite.run("CREATE TRIGGER reject_seed_audit BEFORE INSERT ON job_seed_actions BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;");
+      sqlite.run("CREATE TRIGGER reject_seed_audit BEFORE INSERT ON operator_audit_log WHEN NEW.entity_type='job' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;");
       await expect(client.operator.jobs.enqueue({ ...input, url: "https://other.example/index.json" })).rejects.toThrow();
       expect(sqlite.query("SELECT COUNT(*) AS count FROM crawl_jobs").get()).toEqual({ count: 1 });
       expect(sqlite.query("SELECT COUNT(*) AS count FROM origin_leases").get()).toEqual({ count: 1 });

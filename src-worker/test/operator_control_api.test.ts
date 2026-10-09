@@ -93,7 +93,7 @@ describe("separate operator control API", () => {
       expect((await second.json() as { jobId: string }).jobId).toBe(body.jobId);
       expect(store.db.query("SELECT state FROM crawl_jobs").get()).toEqual({ state: "done" });
       expect(store.db.query("SELECT COUNT(*) AS count FROM job_seed_actions").get()).toEqual({ count: 2 });
-      store.db.run("CREATE TRIGGER reject_seed_audit BEFORE INSERT ON job_seed_actions BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;");
+      store.db.run("CREATE TRIGGER reject_seed_audit BEFORE INSERT ON operator_audit_log WHEN NEW.entity_type='job' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;");
       const failed = await handleOperatorRequest(operatorRequest("/v1/operator/jobs", "POST", { ...input, minDelayMs: 50000 }), store, operatorToken);
       expect(failed.status).toBe(409);
       expect(store.db.query("SELECT min_delay_ms FROM origin_leases").get()).toEqual({ min_delay_ms: 1000 });
