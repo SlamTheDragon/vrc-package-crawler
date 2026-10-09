@@ -8,7 +8,7 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-
+Added strict inbound 429 rate limiting across public and node routes with quota protection across coordinator APIs, and updated search rating clamping.
 <!-- MASTER_SUMMARY -->
 
 ## Table of Contents
@@ -196,10 +196,14 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator updates for intensive application candidate tracking, automatic threshold flagging, and operator and moderator review pathways.
+Coordinator updates for inbound 429 rate limiting, free quota protection, and search age-rating query clamping.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Inbound 429 Rate Limiter**: Added sliding-window rate limiter with RFC-compliant `Retry-After` headers and standard error envelopes.
+- **Strict Public and Node Throttling**: Limited public catalog queries to 60 req/min and crawler node claims/heartbeats to 20-30 req/min.
+- **Quota Protection Middleware**: Reinforced downstream app, user, moderator, and operator endpoints to preserve Cloudflare free allowances.
+- **Age-Gated Search Rejection**: Rejected explicit age-restricted queries from unverified applications with 403 Forbidden.
 - **App Activity Tracking**: Tracked application request count and last active timestamp on all downstream API invocations.
 - **Intensive-Use Candidate Flagging**: Flagged applications with 50 or more requests automatically as review pending candidates.
 - **Operator Candidate Review**: Added `POST /v1/operator/apps/:appId/candidate-review` to update status and delegation permissions.
@@ -232,6 +236,7 @@ Coordinator updates for intensive application candidate tracking, automatic thre
 - **Excessive Claim Polling**: Mitigated rapid-fire claim requests from idle crawler nodes exhausting coordinator daily request allowances.
 
 ### Changes
+- **Unverified Search Clamping**: Safely clamped explicit rating queries from unverified applications to return general-rated items instead of empty sets.
 - **Empty Claim Retry Interval**: Aligned default coordinator empty queue `retryAfterMs` from 1,000ms to 5,000ms in D1 coordinator storage (`src-worker/src/storage/d1/coordinator.ts`) and local SQLite simulation.
 
 See full history at [docs/changelogs/vrcp-worker/preview](docs/changelogs/vrcp-worker/preview)

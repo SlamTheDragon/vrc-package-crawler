@@ -2521,14 +2521,6 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     const params: SQLQueryBindings[] = [];
 
     if (!options.isAgeVerified) {
-      if (parsed.rating && parsed.rating !== "general") {
-        return {
-          schemaVersion: 1,
-          items: [],
-          nextCursor: null,
-          totalEstimated: 0
-        };
-      }
       conditions.push("p.content_rating = 'general'");
     } else {
       conditions.push("p.content_rating != 'prohibited'");

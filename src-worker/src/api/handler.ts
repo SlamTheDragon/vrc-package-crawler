@@ -63,9 +63,21 @@ export async function readJson(request: Request): Promise<unknown> {
 }
 
 import { workerLogger } from "../worker_logger.ts";
+import {
+  extractClientIp,
+  RATE_LIMIT_POLICIES,
+  rateLimitResponse,
+  applyRateLimitHeaders,
+  defaultRateLimiter,
+  type IRateLimiter
+} from "./rate_limiter.ts";
 
 /** Same handler is used in-process, by local Bun HTTP, and later by a Worker adapter. */
-export async function handleNodeRequest(request: Request, store: CoordinatorStore): Promise<Response> {
+export async function handleNodeRequest(
+  request: Request,
+  store: CoordinatorStore,
+  rateLimiter: IRateLimiter = defaultRateLimiter
+): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (request.method !== "POST" || !["/v1/node/jobs/claim", "/v1/node/jobs/result", "/v1/node/jobs/results", "/v1/node/heartbeat"].includes(path)) {
     return failure(404, "not_found", "Route not found");
@@ -75,6 +87,28 @@ export async function handleNodeRequest(request: Request, store: CoordinatorStor
   if (!auth.startsWith("Bearer ") || !auth.slice(7).trim()) {
     workerLogger.warn("Node bearer credential required", { path });
     return failure(401, "unauthorized", "Node bearer credential required");
+  }
+
+  const clientIp = extractClientIp(request);
+  const tokenPrefix = auth.slice(7, 23);
+  const isClaim = path.endsWith("/claim");
+  const isHeartbeat = path.endsWith("/heartbeat");
+
+  const policy = isClaim
+    ? RATE_LIMIT_POLICIES.NODE_CLAIM
+    : isHeartbeat
+    ? RATE_LIMIT_POLICIES.NODE_HEARTBEAT
+    : RATE_LIMIT_POLICIES.NODE_RESULT;
+
+  const rateKey = `node:${isClaim ? "claim" : isHeartbeat ? "heartbeat" : "result"}:${clientIp}:${tokenPrefix}`;
+  const rateResult = rateLimiter.check(rateKey, policy);
+  if (!rateResult.allowed) {
+    workerLogger.warn("Node rate limit exceeded", { path, clientIp });
+    return rateLimitResponse(
+      rateResult,
+      PROTOCOL_VERSION,
+      `Rate limit exceeded for node ${isClaim ? "claims" : isHeartbeat ? "heartbeats" : "submissions"}. Please retry later.`
+    );
   }
 
   let payload: unknown;
@@ -87,8 +121,6 @@ export async function handleNodeRequest(request: Request, store: CoordinatorStor
     return failure(400, "bad_json", "Request body must be valid JSON");
   }
 
-  const isClaim = path.endsWith("/claim");
-  const isHeartbeat = path.endsWith("/heartbeat");
   const isBatchResult = path.endsWith("/results") || (path.endsWith("/result") && Array.isArray((payload as Record<string, unknown> | null)?.results));
   const parsed = isClaim ? ClaimRequestSchema.safeParse(payload) :
     isHeartbeat ? HeartbeatRequestSchema.safeParse(payload) :
@@ -110,20 +142,20 @@ export async function handleNodeRequest(request: Request, store: CoordinatorStor
     if (isClaim) {
       const response = await store.claim(parsed.data as ClaimRequest, principal);
       workerLogger.info("Node claimed job", { nodeId: principal.nodeId, status: response.status });
-      return json(ClaimResponseSchema.parse(response));
+      return applyRateLimitHeaders(json(ClaimResponseSchema.parse(response)), rateResult);
     }
     if (isHeartbeat) {
       const response = await store.heartbeat(parsed.data as HeartbeatRequest, principal);
-      return json(HeartbeatResponseSchema.parse(response));
+      return applyRateLimitHeaders(json(HeartbeatResponseSchema.parse(response)), rateResult);
     }
     if (isBatchResult) {
       const response = await store.submitBatch(parsed.data as BatchResultRequest, principal);
       workerLogger.info("Node submitted batch results", { nodeId: principal.nodeId, count: (parsed.data as BatchResultRequest).results.length });
-      return json(BatchResultResponseSchema.parse(response));
+      return applyRateLimitHeaders(json(BatchResultResponseSchema.parse(response)), rateResult);
     }
     const response = await store.submit(parsed.data as ResultRequest, principal);
     workerLogger.info("Node submitted job result", { nodeId: principal.nodeId, jobId: (parsed.data as ResultRequest).jobId });
-    return json(ResultResponseSchema.parse(response));
+    return applyRateLimitHeaders(json(ResultResponseSchema.parse(response)), rateResult);
   } catch (error) {
     if (error instanceof CoordinatorConflict) {
       workerLogger.warn("Coordinator conflict", { path, nodeId: principal.nodeId, status: error.status, message: error.message });
@@ -135,10 +167,13 @@ export async function handleNodeRequest(request: Request, store: CoordinatorStor
   }
 }
 
-export function createCoordinatorHandler(store: CoordinatorStore): (request: Request) => Promise<Response | null> {
+export function createCoordinatorHandler(
+  store: CoordinatorStore,
+  rateLimiter: IRateLimiter = defaultRateLimiter
+): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
     if (!path.startsWith("/v1/node/")) return null;
-    return handleNodeRequest(request, store);
+    return handleNodeRequest(request, store, rateLimiter);
   };
 }

@@ -492,14 +492,15 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     expect(searchData1.items.map((i: any) => i.canonicalId)).toEqual(["pkg-general-1"]);
     expect(searchData1.items[0].contentRating).toBe("general");
 
-    // Search explicitly asking for adult content returns empty (fails closed)
+    // Search explicitly asking for adult content ignores explicit rating tags and only provides general items
     const searchResAdultUnverified = await handleDownstreamRequest(
       request("/v1/app/index/search", "POST", { schemaVersion: 1, rating: "adult_restricted" }, app1.appToken),
       store
     );
     expect(searchResAdultUnverified.status).toBe(200);
     const searchDataAdultUnverified = await searchResAdultUnverified.json() as any;
-    expect(searchDataAdultUnverified.items).toHaveLength(0);
+    expect(searchDataAdultUnverified.items.map((i: any) => i.canonicalId)).toEqual(["pkg-general-1"]);
+    expect(searchDataAdultUnverified.items[0].contentRating).toBe("general");
 
     // 3. Register App owned by user with verified age
     const userVerified = store.issueUserToken("verified-adult-user", undefined, true);

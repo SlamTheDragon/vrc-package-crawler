@@ -2214,14 +2214,6 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const params: (string | number)[] = [];
 
     if (!options.isAgeVerified) {
-      if (parsed.rating && parsed.rating !== "general") {
-        return {
-          schemaVersion: 1,
-          items: [],
-          nextCursor: null,
-          totalEstimated: 0
-        };
-      }
       conditions.push("p.content_rating = 'general'");
     } else {
       conditions.push("p.content_rating != 'prohibited'");

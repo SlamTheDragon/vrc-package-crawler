@@ -1,61 +1,31 @@
-# Active Checkpoint — Registered App Intensive-Use Candidate Tracking & Review (Slice R54-C38A2)
+# Active Checkpoint — Inbound 429 Rate Limiter & Abuse Protection Middleware (Slice R54-C39C)
 
 ## Active Objective & Bounded Vertical Slice
 
 - Branch: `preview/crawler-network`
-- Active Gate: Delegated Creator Removal & Operator/Moderator Authority (`G15 extension` / `R54-C38A2`)
-- Active Slice: `R54-C38A2` (Implement registered application usage intensity tracking and classification candidate flagging in coordinator storage, expose candidate filtering and review endpoints under `/v1/operator/apps` and `/v1/moderator/apps`, and define SDK wire contracts and client methods)
+- Active Gate: G15 Extension (Rate Limiting, Admission Control & Free Quota Protection)
+- Active Slice: `R54-C39C` (Implement strict inbound 429 rate limiting on public endpoints and node endpoints, reinforced across all coordinator routes to prevent Cloudflare free quota drainage, returning RFC-compliant `Retry-After` headers and standard error envelopes)
+- Status: **Verified** (Slice complete and verified through automated test suites and typechecks)
 - Owner Instruction (2026-10-08): Never run root level tests (`bun test ./tests`) unless root level tooling (`scripts/`, `tests/`, `package.json`, root configs) is modified. Product-scoped work runs only its own domain test/typecheck suite.
 - Session Constraint: Commits remain local for this session; preview deployment authority granted for workers when live data testing is required.
 
-## Active Working Theories & Architectural Covenants
+## Delivered Architecture & Safety Invariants
 
-1. **Intensive Usage Tracking & Auto-Flagging Invariant (Author Directive R54-C38A1 feedback)**:
-   - When registered downstream applications call authenticated `/v1/app/*` endpoints (`/v1/app/report`, `/v1/app/claims/intake`, `/v1/app/index/search`), the coordinator increments `request_count` and updates `last_active_at` on `registered_apps`.
-   - When an application's request volume reaches or exceeds the intensive-usage threshold (`INTENSIVE_APP_THRESHOLD = 50`), the coordinator automatically updates `candidate_status` to `'review_pending'` (if previously `'none'`) and appends candidate flags (`"intensive_usage"`, `"high_frequency_api"`).
-   - Unregistered or revoked applications cannot generate candidate signals.
+1. **Vulnerability Mitigation**:
+   - **Public Endpoints (`GET /v1/app/index*`)**: Enforces IP-based rate limiting (`PUBLIC_CATALOG: 60 req/min`) before executing D1 database queries, preventing cache-busting scrapers from draining D1 read rows.
+   - **Node Endpoints (`POST /v1/node/*`)**: Enforces rate limiting on IP + bearer token prefix (`NODE_CLAIM: 30 req/min`, `NODE_HEARTBEAT: 20 req/min`, `NODE_RESULT: 60 req/min`) **before** reading or parsing the 256 KiB request payload, eliminating memory exhaustion vectors from rogue/spinning nodes.
+   - **Downstream App Endpoints (`POST /v1/app/*`)**: Rate-limits search (`APP_SEARCH: 120 req/min`), reports (`APP_REPORT: 30 req/min`), claims intake (`APP_CLAIMS_INTAKE: 30 req/min`), and app registration (`APP_REGISTER: 100 req/min`).
+   - **Administrative Routes**: Reinforced operator (`1,200 req/min`), moderator (`120 req/min`), and user (`120 req/min`) routes to prevent automated loops from draining Cloudflare quota.
 
-2. **Dual Operator and Moderator Review Pathways**:
-   - Operators review and manage registered applications via `GET /v1/operator/apps` (filtered by `candidateStatus`) and `POST /v1/operator/apps/:appId/candidate-review`.
-   - Age-verified staff moderators review candidates via `GET /v1/moderator/apps` and `POST /v1/moderator/apps/:appId/candidate-review`.
-   - Candidate review permits transitions between `'none'`, `'reviewed'`, and `'trusted'`.
-   - Setting candidate status to `'trusted'` (or setting `grantDelegation: true`) automatically enables trusted delegation permissions (`claims:delegate`), allowing the application to submit delegated creator ownership claims.
+2. **Rate Limiting Engine & Envelope**:
+   - `InMemoryRateLimiter`: Tracks sliding windows keyed by IP or principal ID. Self-pruning periodic cleanup keeps memory bounded.
+   - Rejections return `429 Too Many Requests`, `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers, along with `{ schemaVersion, code: "rate_limited", error: message }`.
+   - Successful requests return standard `X-RateLimit-Limit` and `X-RateLimit-Remaining` headers.
 
-3. **Wire Schemas & SDK Interface**:
-   - `CandidateStatusSchema`: `"none" | "review_pending" | "reviewed" | "trusted"`.
-   - `OperatorAppRecordSchema`: includes `requestCount`, `lastActiveAt`, `candidateStatus`, `candidateFlags`.
-   - `OperatorAppListQuerySchema`: supports optional `candidateStatus` filter.
-   - `ReviewAppCandidateRequestSchema` and `ReviewAppCandidateResponseSchema` defined in `src-package/src/protocol/operator.ts` (and mirrored in `moderator.ts`).
-   - SDK client methods:
-     - `client.operator.apps.list(query)`
-     - `client.operator.apps.reviewCandidate(appId, body)`
-     - `client.moderator.apps.list(query)`
-     - `client.moderator.apps.reviewCandidate(appId, body)`
+## Verification Evidence
 
-## Verification Evidence Plan & Results
-
-1. **`src-package`**:
-   - Added candidate status schemas (`CandidateStatusSchema`), review request/response schemas (`ReviewAppCandidateRequestSchema`, `ReviewAppCandidateResponseSchema`), and updated `OperatorAppRecordSchema` and `OperatorAppListQuerySchema`.
-   - Added SDK methods `client.operator.apps.reviewCandidate`, `client.moderator.apps.list`, `client.moderator.apps.reviewCandidate`.
-   - Protocol and client unit tests: 61/61 pass (`bun test`).
-   - Package build: `bun run build` completed clean; `dist/` synchronized to `node_modules/vrc-packages-api/dist/`.
-
-2. **`src-worker`**:
-   - Added `request_count`, `last_active_at`, `candidate_status`, and `candidate_flags_json` columns and `idx_registered_apps_candidate` index to `registered_apps` in D1 (`utils.ts`) and SQLite (`local_sqlite.ts`).
-   - Implemented `recordAppActivity(appId)` in `CoordinatorStorage` and `LocalCoordinatorStore`, automatically called in `handleDownstreamRequest` upon successful app authentication. Automatically transitions status to `'review_pending'` and appends `['intensive_usage', 'high_frequency_api']` when request volume reaches or exceeds 50.
-   - Updated `listOperatorAppsPage` to support `candidateStatus` filtering and return candidate metrics.
-   - Implemented `reviewAppCandidate` in `CoordinatorStorage` and `LocalCoordinatorStore` for status updates, delegation toggling, and audit tracking.
-   - Wired `POST /v1/operator/apps/:appId/candidate-review` in `operator_handler.ts`.
-   - Wired `GET /v1/moderator/apps` and `POST /v1/moderator/apps/:appId/candidate-review` in `moderator_handler.ts` gated by verified age and moderator authority.
-   - Integration tests in `downstream_client_protocol.test.ts`, `operator_control_api.test.ts`, and `moderator_protocol.test.ts`: 259/259 pass (`bun test`).
-   - Typecheck and wrangler types: `bun run check` completed clean with 0 errors.
-
-3. **`src-crawler`**:
-   - Crawler domain test suite: 158/158 pass (`bun test`).
-
-## Slice Status
-
-- Status: Verified, Locally Committed (`1ad6572`), and Preview Published (`vrcp-api/v2026.10.10-pre` / CI Run `#37867968242` verified).
-- Next Steps: Awaiting author review comments on `R54-C38A2` in `UNMERGED_IMPLEMENTATION_PLAN.md` before merging into canonical ledger `IMPLEMENTATION_PLAN.md`. Next queued candidate slice: Creator ownership attestation intake challenge and cryptographic verification or live preview worker deployment.
-
-
+1. **`src-worker` Unit & Integration Tests**:
+   - Ran `bun test` in `src-worker`: 267 pass, 0 fail across 22 test files (2,620 expectations passed).
+   - `test/rate_limiter.test.ts`: Verified 8 tests covering window decrementing, window expiration, header extraction (`CF-Connecting-IP`, `X-Forwarded-For`, `X-Real-IP`), 429 status and envelope validation, and live route rejections on public catalog, node claims, and downstream searches.
+2. **Typecheck & Build Conformance**:
+   - Ran `bun run check` in `src-worker`: `cf-typegen`, `tsc --noEmit`, and `tsc --noEmit -p test/tsconfig.json` passed with 0 errors.

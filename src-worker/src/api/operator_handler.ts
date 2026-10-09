@@ -25,6 +25,14 @@ import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   type ProfileCursor } from "../domain/access/source_access_profile.js";
 import { parseCapabilityToken } from "../domain/security/capability_token.js";
 import { workerLogger } from "../worker_logger";
+import {
+  extractClientIp,
+  RATE_LIMIT_POLICIES,
+  rateLimitResponse,
+  applyRateLimitHeaders,
+  defaultRateLimiter,
+  type IRateLimiter
+} from "./rate_limiter.ts";
 
 /** Runtime-neutral boundary for local SQLite now and a future Worker storage adapter. */
 export interface OperatorStore {
@@ -109,7 +117,10 @@ async function authorized(request: Request, configuredToken: string): Promise<bo
 
 /** Separate operator boundary. Node credentials never grant these controls. */
 export async function handleOperatorRequest(
-  request: Request, store: OperatorStore, configuredToken: string
+  request: Request,
+  store: OperatorStore,
+  configuredToken: string,
+  rateLimiter: IRateLimiter = defaultRateLimiter
 ): Promise<Response> {
   const url = new URL(request.url);
   const leadAction = /^\/v1\/operator\/leads\/([a-f0-9]{64})\/(approve|reject)$/.exec(url.pathname);
@@ -145,6 +156,12 @@ export async function handleOperatorRequest(
   if (!await authorized(request, configuredToken)) {
     workerLogger.warn("Operator bearer credential invalid or missing", { path: url.pathname });
     return failure(401, "unauthorized", "Operator bearer credential required");
+  }
+  const clientIp = extractClientIp(request);
+  const operatorRate = rateLimiter.check(`operator:${clientIp}`, RATE_LIMIT_POLICIES.OPERATOR_ROUTES);
+  if (!operatorRate.allowed) {
+    workerLogger.warn("Operator rate limit exceeded", { path: url.pathname, clientIp });
+    return rateLimitResponse(operatorRate, OPERATOR_PROTOCOL_VERSION, "Rate limit exceeded for operator requests. Please retry later.");
   }
   if ((ruleDisable && !RuleCursorSchema.shape.ruleId.safeParse(ruleDisable[1]).success) ||
       (profileDisable && !ProfileCursorSchema.shape.profileId.safeParse(profileDisable[1]).success) ||
@@ -384,10 +401,14 @@ export async function handleOperatorRequest(
   }
 }
 
-export function createOperatorHandler(store: OperatorStore, configuredToken: string): (request: Request) => Promise<Response | null> {
+export function createOperatorHandler(
+  store: OperatorStore,
+  configuredToken: string,
+  rateLimiter: IRateLimiter = defaultRateLimiter
+): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
     if (!path.startsWith("/v1/operator/")) return null;
-    return handleOperatorRequest(request, store, configuredToken);
+    return handleOperatorRequest(request, store, configuredToken, rateLimiter);
   };
 }

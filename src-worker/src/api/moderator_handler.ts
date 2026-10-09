@@ -20,6 +20,13 @@ import {
 import { workerLogger } from "../worker_logger.ts";
 import { readJson, CoordinatorConflict } from "./handler.ts";
 import type { UserPrincipal } from "./user_handler.ts";
+import {
+  RATE_LIMIT_POLICIES,
+  rateLimitResponse,
+  applyRateLimitHeaders,
+  defaultRateLimiter,
+  type IRateLimiter
+} from "./rate_limiter.ts";
 
 export interface ModeratorStore {
   authenticateUser(token: string): Promise<UserPrincipal | null> | UserPrincipal | null;
@@ -82,7 +89,8 @@ function failure(status: number, code: string, message: string): Response {
 
 export async function handleModeratorRequest(
   request: Request,
-  store: ModeratorStore
+  store: ModeratorStore,
+  rateLimiter: IRateLimiter = defaultRateLimiter
 ): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -117,6 +125,12 @@ export async function handleModeratorRequest(
       ageVerified: user.ageVerified
     });
     return failure(403, "forbidden", "Moderator authority with verified age required");
+  }
+
+  const modRate = rateLimiter.check(`moderator:${user.userId}`, RATE_LIMIT_POLICIES.MODERATOR_ROUTES);
+  if (!modRate.allowed) {
+    workerLogger.warn("Moderator route rate limit exceeded", { path, userId: user.userId });
+    return rateLimitResponse(modRate, MODERATOR_PROTOCOL_VERSION, "Rate limit exceeded for moderator requests. Please retry later.");
   }
 
   if (isRatingsList) {
@@ -287,12 +301,13 @@ export async function handleModeratorRequest(
 }
 
 export function createModeratorHandler(
-  store: ModeratorStore
+  store: ModeratorStore,
+  rateLimiter: IRateLimiter = defaultRateLimiter
 ): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
     if (path.startsWith("/v1/moderator/")) {
-      return handleModeratorRequest(request, store);
+      return handleModeratorRequest(request, store, rateLimiter);
     }
     return null;
   };

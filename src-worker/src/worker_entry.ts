@@ -8,6 +8,12 @@ import { createUserHandler } from "./api/user_handler.ts";
 import { createModeratorHandler } from "./api/moderator_handler.ts";
 import { timingSafeEqual } from "./storage/d1/utils.ts";
 import { workerLogger } from "./worker_logger.ts";
+import {
+  extractClientIp,
+  RATE_LIMIT_POLICIES,
+  rateLimitResponse,
+  defaultRateLimiter
+} from "./api/rate_limiter.ts";
 
 export type Env = Cloudflare.Env;
 
@@ -25,6 +31,11 @@ export default {
       const url = new URL(request.url);
 
       if (request.method === "POST" && url.pathname === "/v1/operator/init") {
+        const clientIp = extractClientIp(request);
+        const initRate = defaultRateLimiter.check(`operator:init:${clientIp}`, RATE_LIMIT_POLICIES.OPERATOR_ROUTES);
+        if (!initRate.allowed) {
+          return rateLimitResponse(initRate, 1, "Rate limit exceeded for operator init.");
+        }
         if (!isOperatorAuthorized(request, env.OPERATOR_TOKEN)) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,

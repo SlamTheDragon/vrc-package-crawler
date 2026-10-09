@@ -4,6 +4,13 @@ import {
   type UserAppListResponse
 } from "vrc-packages-api";
 import { workerLogger } from "../worker_logger.ts";
+import {
+  RATE_LIMIT_POLICIES,
+  rateLimitResponse,
+  applyRateLimitHeaders,
+  defaultRateLimiter,
+  type IRateLimiter
+} from "./rate_limiter.ts";
 
 export interface UserPrincipal {
   userId: string;
@@ -46,7 +53,8 @@ function failure(status: number, code: string, message: string): Response {
  */
 export async function handleUserRequest(
   request: Request,
-  store: UserStore
+  store: UserStore,
+  rateLimiter: IRateLimiter = defaultRateLimiter
 ): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -70,6 +78,12 @@ export async function handleUserRequest(
     return failure(401, "unauthorized", "Invalid user credential");
   }
 
+  const userRate = rateLimiter.check(`user:${user.userId}`, RATE_LIMIT_POLICIES.USER_ROUTES);
+  if (!userRate.allowed) {
+    workerLogger.warn("User route rate limit exceeded", { path, userId: user.userId });
+    return rateLimitResponse(userRate, DOWNSTREAM_PROTOCOL_VERSION, "Rate limit exceeded for user requests. Please retry later.");
+  }
+
   if (isAppList || appMatch) {
     const parsed = UserAppListQuerySchema.safeParse(Object.fromEntries(url.searchParams));
     if (!parsed.success || [...url.searchParams.keys()].some(key => url.searchParams.getAll(key).length > 1)) return failure(400, "invalid_query", "Invalid app list query");
@@ -78,8 +92,8 @@ export async function handleUserRequest(
     const appId = parsedId?.success ? parsedId.data.toLowerCase() : undefined;
     try {
       const page = await store.listUserApps(user.userId, appId ? 1 : parsed.data.limit, appId ? null : parsed.data.cursor?.toLowerCase() ?? null, appId);
-      if (appId) return page.apps[0] ? json(UserAppResponseSchema.parse({ schemaVersion: 1, app: page.apps[0] })) : failure(404, "not_found", "App not found");
-      return json(UserAppListResponseSchema.parse(page));
+      if (appId) return page.apps[0] ? applyRateLimitHeaders(json(UserAppResponseSchema.parse({ schemaVersion: 1, app: page.apps[0] })), userRate) : failure(404, "not_found", "App not found");
+      return applyRateLimitHeaders(json(UserAppListResponseSchema.parse(page)), userRate);
     } catch (error) {
       workerLogger.error("User app read failed", error, { path, userId: user.userId });
       return failure(500, "internal_error", "App metadata could not be read");
@@ -90,12 +104,13 @@ export async function handleUserRequest(
 }
 
 export function createUserHandler(
-  store: UserStore
+  store: UserStore,
+  rateLimiter: IRateLimiter = defaultRateLimiter
 ): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
     if (path.startsWith("/v1/user/")) {
-      return handleUserRequest(request, store);
+      return handleUserRequest(request, store, rateLimiter);
     }
     return null;
   };

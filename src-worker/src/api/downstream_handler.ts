@@ -24,6 +24,14 @@ import {
 import { readJson, CoordinatorConflict } from "./handler.js";
 import { workerLogger } from "../worker_logger.ts";
 import { timingSafeEqual } from "../storage/d1/utils.ts";
+import {
+  extractClientIp,
+  RATE_LIMIT_POLICIES,
+  rateLimitResponse,
+  applyRateLimitHeaders,
+  defaultRateLimiter,
+  type IRateLimiter
+} from "./rate_limiter.ts";
 
 export interface DownstreamStore {
   recordRemovalReport(appId: string, input: ReportSubmissionRequest): Promise<ReportSubmissionResponse> | ReportSubmissionResponse;
@@ -56,7 +64,8 @@ function failure(status: number, code: string, message: string): Response {
 export async function handleDownstreamRequest(
   request: Request,
   store: DownstreamStore,
-  operatorToken = ""
+  operatorToken = "",
+  rateLimiter: IRateLimiter = defaultRateLimiter
 ): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -72,6 +81,13 @@ export async function handleDownstreamRequest(
 
   // App registration authenticates the creator before reading the payload.
   if (isRegister) {
+    const clientIp = extractClientIp(request);
+    const regRate = rateLimiter.check(`app:register:${clientIp}`, RATE_LIMIT_POLICIES.APP_REGISTER);
+    if (!regRate.allowed) {
+      workerLogger.warn("App register rate limit exceeded", { path, clientIp });
+      return rateLimitResponse(regRate, DOWNSTREAM_PROTOCOL_VERSION, "Rate limit exceeded for application registration. Please retry later.");
+    }
+
     const bearer = request.headers.get("authorization") || "";
     const token = bearer.startsWith("Bearer ") ? bearer.slice(7).trim() : "";
     const operator = /^[a-fA-F0-9]{64}$/.test(operatorToken) && /^[a-fA-F0-9]{64}$/.test(token) && timingSafeEqual(token, operatorToken);
@@ -123,6 +139,12 @@ export async function handleDownstreamRequest(
 
   // 3. Consolidated Reporting Route (/v1/app/report) per API_ROUTES.md §2.4
   if (isFeedback) {
+    const reportRate = rateLimiter.check(`app:report:${app.appId}`, RATE_LIMIT_POLICIES.APP_REPORT);
+    if (!reportRate.allowed) {
+      workerLogger.warn("App report rate limit exceeded", { path, appId: app.appId });
+      return rateLimitResponse(reportRate, DOWNSTREAM_PROTOCOL_VERSION, "Rate limit exceeded for application report submissions. Please retry later.");
+    }
+
     let body: unknown;
     try {
       body = await readJson(request);
@@ -142,7 +164,7 @@ export async function handleDownstreamRequest(
     if (reportParsed.success && reportParsed.data.reportType === "removal_request") {
       try {
         const response = await store.recordRemovalReport(app.appId, reportParsed.data);
-        return json(ReportSubmissionResponseSchema.parse(response), 202);
+        return applyRateLimitHeaders(json(ReportSubmissionResponseSchema.parse(response), 202), reportRate);
       } catch (error) {
         workerLogger.error("Failed to record removal report", error, { path, appId: app.appId });
         return failure(500, "internal_error", "Removal report could not be recorded");
@@ -175,12 +197,12 @@ export async function handleDownstreamRequest(
 
     try {
       const response = await store.recordDownstreamFeedback(app.appId, feedbackInput);
-      return json(ReportSubmissionResponseSchema.parse({
+      return applyRateLimitHeaders(json(ReportSubmissionResponseSchema.parse({
         schemaVersion: DOWNSTREAM_PROTOCOL_VERSION,
         status: "accepted",
         reportId: response.signalId,
         recordedAt: response.recordedAt
-      }), 200);
+      }), 200), reportRate);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Feedback ingestion failed";
       workerLogger.error("Failed to record downstream feedback", error, { path, appId: app.appId });
@@ -193,6 +215,13 @@ export async function handleDownstreamRequest(
     if (!app.permissions.includes("claims:delegate")) {
       return failure(403, "forbidden", "Application is not authorized for delegated creator claims");
     }
+
+    const claimRate = rateLimiter.check(`app:claim:${app.appId}`, RATE_LIMIT_POLICIES.APP_CLAIMS_INTAKE);
+    if (!claimRate.allowed) {
+      workerLogger.warn("App claim intake rate limit exceeded", { path, appId: app.appId });
+      return rateLimitResponse(claimRate, DOWNSTREAM_PROTOCOL_VERSION, "Rate limit exceeded for delegated creator claims intake. Please retry later.");
+    }
+
     let body: unknown;
     try {
       body = await readJson(request);
@@ -213,7 +242,7 @@ export async function handleDownstreamRequest(
 
     try {
       const response = await store.recordCreatorClaimIntake(app.appId, parsed.data);
-      return json(CreatorClaimIntakeResponseSchema.parse(response), 202);
+      return applyRateLimitHeaders(json(CreatorClaimIntakeResponseSchema.parse(response), 202), claimRate);
     } catch (error) {
       if (error instanceof CoordinatorConflict) {
         return failure(error.status, "conflict", error.message);
@@ -226,6 +255,12 @@ export async function handleDownstreamRequest(
 
   // 5. Configurable Multi-Facet Search
   if (isSearch) {
+    const searchRate = rateLimiter.check(`app:search:${app.appId}`, RATE_LIMIT_POLICIES.APP_SEARCH);
+    if (!searchRate.allowed) {
+      workerLogger.warn("App search rate limit exceeded", { path, appId: app.appId });
+      return rateLimitResponse(searchRate, DOWNSTREAM_PROTOCOL_VERSION, "Rate limit exceeded for catalog searches. Please retry later.");
+    }
+
     let body: unknown;
     try {
       body = await readJson(request);
@@ -242,7 +277,7 @@ export async function handleDownstreamRequest(
 
     try {
       const response = await store.searchCatalogPackages(parsed.data, { isAgeVerified: app.isAgeVerified ?? false });
-      return json(CatalogSearchResponseSchema.parse(response), 200);
+      return applyRateLimitHeaders(json(CatalogSearchResponseSchema.parse(response), 200), searchRate);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Catalog search failed";
       workerLogger.error("Failed to execute catalog search", error, { path, appId: app.appId });
@@ -253,7 +288,11 @@ export async function handleDownstreamRequest(
   return failure(404, "not_found", "Route not found");
 }
 
-export function createDownstreamHandler(store: DownstreamStore, operatorToken = ""): (request: Request) => Promise<Response | null> {
+export function createDownstreamHandler(
+  store: DownstreamStore,
+  operatorToken = "",
+  rateLimiter: IRateLimiter = defaultRateLimiter
+): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
     const path = new URL(request.url).pathname;
     if (
@@ -262,7 +301,7 @@ export function createDownstreamHandler(store: DownstreamStore, operatorToken = 
       path === "/v1/app/claims/intake" ||
       path === "/v1/app/index/search"
     ) {
-      return handleDownstreamRequest(request, store, operatorToken);
+      return handleDownstreamRequest(request, store, operatorToken, rateLimiter);
     }
     return null;
   };
