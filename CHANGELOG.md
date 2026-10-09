@@ -1,4 +1,5 @@
 <!-- LOCKED DOCUMENTATION - DO NOT CHANGE HEADERS AND TOP-LEVEL DESCRIPTION & NAVIGATION. CHANGES MUST PRESERVE BULLET-POINT DELIVERY IN SUB-HEADERS. SUMMARIES MUST BE COMPACTED, AND ALWAYS FALL INSIDE THE SPECIFIED SUMMARY HEADER -->
+<!-- CLEAR ENTRIES DURING PUBLISHING -->
 
 # Changelog
 
@@ -7,10 +8,7 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Added intensive application candidate tracking, automatic threshold flagging, and candidate review endpoints.
-- **VRC Packages API (`vrcp-packages-api-preview`)**: Added candidate tracking schemas, moderator app protocol, and candidate review client methods.
-- **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
-- **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
+
 <!-- MASTER_SUMMARY -->
 
 ## Table of Contents
@@ -147,7 +145,7 @@ See full history at [docs/changelogs/vrcp-crawler-client/preview](docs/changelog
 ## VRC Packages Crawler - `vrcp-crawler-node-preview`
 
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
-Crawler node updates for outbox quota flow control, crash recovery, and periodic storage maintenance.
+empty
 <!-- vrcp-crawler-node-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
@@ -174,28 +172,10 @@ See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
-API client updates for application candidate tracking schemas, candidate review requests, and moderator app management methods.
+none
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
 
-### Added
-- **App Candidate Tracking Schemas**: Added `CandidateStatusSchema`, `ReviewAppCandidateRequestSchema`, and `ReviewAppCandidateResponseSchema` for candidate review.
-- **Moderator App Protocol**: Added `ModeratorAppRecordSchema`, `ModeratorAppListQuerySchema`, and `ModeratorReviewAppCandidateRequestSchema`.
-- **SDK Candidate Review**: Added `client.operator.apps.reviewCandidate()` and `client.moderator.apps.reviewCandidate()` methods.
-- **SDK Moderator App Listing**: Added `client.moderator.apps.list()` with candidate status filtering.
-- **Moderator Rating Schemas**: Added `ModeratorRatingRecordSchema`, `ModeratorRatingListResponseSchema`, and `SetRatingAdjustmentRequestSchema`.
-- **SDK Moderator Methods**: Added `client.moderator.ratings.list()` and `client.moderator.ratings.adjust()` methods.
-- **Moderator Cursor Paging**: Added base64url cursor encoding and decoding functions for moderator rating reviews.
-- **Operator Application Schemas**: Added `OperatorAppRecordSchema`, `OperatorAppListResponseSchema`, and `SetAppDelegationRequestSchema`.
-- **SDK Application Methods**: Added `client.operator.apps.list()` and `client.operator.apps.setDelegation()` methods.
-- **Application Cursor Paging**: Added base64url cursor encoding and decoding functions for operator application listing.
-- **Content Rating Taxonomy**: Added `ContentRatingSchema` with six levels from `general` to `prohibited`.
-- **Content Rating Field**: Added optional `contentRating` field to `CatalogPackageSchema` defaulting to `general`.
-- **Search Rating Filter**: Added optional `rating` filter parameter to `CatalogSearchRequestSchema`.
-- **Delegated Creator Claim Intake Schemas**: Added `CreatorClaimIntakeRequestSchema`, `CreatorClaimIntakeResponseSchema`, and `CreatorDelegationAttestationSchema`.
-- **Operator Claim Review Schemas**: Added `DelegatedClaimRecordSchema`, `DelegatedClaimListResponseSchema`, `VerifyDelegatedClaimRequestSchema`, and `VerifyDelegatedClaimResponseSchema`.
-- **SDK Claim Methods**: Added `client.claims.submitIntake()`, `client.operator.claims.list()`, and `client.operator.claims.verify()` methods.
-- **Explicit Content Report Sub-Categories**: Added `explicit_false_positive` and `explicit_false_negative` sub-categories to `IssueReportKindSchema` for content rating review.
-- **Bounded Response Reading**: Added streaming byte limits (64 KiB for errors, 4 MiB for responses) to prevent excessive memory use.
+- none currently
 
 See full history at [docs/changelogs/vrcp-packages-api/preview](docs/changelogs/vrcp-packages-api/preview)
 
