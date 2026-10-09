@@ -7,7 +7,15 @@ import {
   SetRatingAdjustmentResponseSchema,
   decodeModeratorRatingCursor,
   type ContentRating,
-  type ModeratorRatingRecord
+  type ModeratorRatingRecord,
+  ModeratorAppRecordSchema,
+  ModeratorAppListQuerySchema,
+  ModeratorAppListResponseSchema,
+  ModeratorReviewAppCandidateRequestSchema,
+  ModeratorReviewAppCandidateResponseSchema,
+  decodeOperatorAppCursor,
+  type OperatorAppCursor,
+  type OperatorAppRecord
 } from "vrc-packages-api";
 import { workerLogger } from "../worker_logger.ts";
 import { readJson, CoordinatorConflict } from "./handler.ts";
@@ -44,6 +52,18 @@ export interface ModeratorStore {
     adjustedBy: string;
     updatedAt: string;
   } | null;
+  listOperatorAppsPage?(
+    limit?: number,
+    cursor?: OperatorAppCursor | null,
+    candidateStatus?: string
+  ): Promise<{ apps: OperatorAppRecord[]; nextCursor: string | null }> |
+    { apps: OperatorAppRecord[]; nextCursor: string | null };
+  reviewAppCandidate?(
+    appId: string,
+    input: { candidateStatus: "none" | "reviewed" | "trusted"; grantDelegation?: boolean; notes?: string },
+    actor: string
+  ): Promise<{ appId: string; candidateStatus: "none" | "review_pending" | "reviewed" | "trusted"; candidateFlags: string[]; delegationAllowed: boolean; permissions: string[]; reviewedAt: string }> |
+    { appId: string; candidateStatus: "none" | "review_pending" | "reviewed" | "trusted"; candidateFlags: string[]; delegationAllowed: boolean; permissions: string[]; reviewedAt: string };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -69,8 +89,10 @@ export async function handleModeratorRequest(
 
   const isRatingsList = request.method === "GET" && path === "/v1/moderator/ratings";
   const ratingAdjustMatch = request.method === "POST" ? /^\/v1\/moderator\/ratings\/([^/]+)$/.exec(path) : null;
+  const isAppsList = request.method === "GET" && path === "/v1/moderator/apps";
+  const appCandidateReviewMatch = request.method === "POST" ? /^\/v1\/moderator\/apps\/([^/]+)\/candidate-review$/.exec(path) : null;
 
-  if (!isRatingsList && !ratingAdjustMatch) {
+  if (!isRatingsList && !ratingAdjustMatch && !isAppsList && !appCandidateReviewMatch) {
     return failure(404, "not_found", "Route not found");
   }
 
@@ -172,6 +194,92 @@ export async function handleModeratorRequest(
     } catch (error) {
       workerLogger.error("Failed to adjust package rating", error, { path, canonicalId, userId: user.userId });
       return failure(500, "internal_error", "Failed to adjust package rating");
+    }
+  }
+
+  if (isAppsList) {
+    if (!store.listOperatorAppsPage) {
+      return failure(501, "not_implemented", "App candidate listing not supported");
+    }
+    const rawLimit = Number(url.searchParams.get("limit") || "100");
+    const rawCursor = url.searchParams.get("cursor");
+    const candidateStatusParam = url.searchParams.get("candidateStatus");
+    const parsedQuery = ModeratorAppListQuerySchema.safeParse({
+      limit: rawLimit,
+      cursor: rawCursor || undefined,
+      candidateStatus: candidateStatusParam || undefined
+    });
+    if (!parsedQuery.success ||
+        url.searchParams.getAll("limit").length > 1 ||
+        url.searchParams.getAll("cursor").length > 1 ||
+        url.searchParams.getAll("candidateStatus").length > 1 ||
+        [...url.searchParams.keys()].some(key => !["limit", "cursor", "candidateStatus"].includes(key))) {
+      return failure(400, "invalid_query", "Invalid moderator apps query");
+    }
+
+    const { limit, cursor, candidateStatus } = parsedQuery.data;
+    const decodedCursor = cursor ? decodeOperatorAppCursor(cursor) : null;
+
+    try {
+      const page = await store.listOperatorAppsPage(limit, decodedCursor ? { ...decodedCursor, appId: decodedCursor.appId.toLowerCase() } : null, candidateStatus);
+      return json(ModeratorAppListResponseSchema.parse({
+        schemaVersion: MODERATOR_PROTOCOL_VERSION,
+        apps: page.apps,
+        nextCursor: page.nextCursor
+      }));
+    } catch (error) {
+      workerLogger.error("Failed to list candidate apps for moderator", error, { path, userId: user.userId });
+      return failure(500, "internal_error", "Failed to list candidate apps");
+    }
+  }
+
+  if (appCandidateReviewMatch) {
+    if (!store.reviewAppCandidate) {
+      return failure(501, "not_implemented", "App candidate review not supported");
+    }
+    const rawAppId = decodeURIComponent(appCandidateReviewMatch[1] ?? "");
+    const parsedId = ModeratorAppRecordSchema.shape.appId.safeParse(rawAppId);
+    if (!parsedId.success) {
+      return failure(400, "invalid_identifier", "Invalid app ID");
+    }
+    const appId = parsedId.data.toLowerCase();
+
+    let payload: unknown;
+    try {
+      payload = await readJson(request);
+    } catch (cause) {
+      if (cause instanceof RangeError) return failure(413, "invalid_payload", "Payload exceeds limit");
+      if (cause instanceof CoordinatorConflict) return failure(415, "invalid_payload", "Content-Type must be application/json");
+      return failure(400, "bad_json", "Request body must be valid JSON");
+    }
+
+    const parsedBody = ModeratorReviewAppCandidateRequestSchema.safeParse(payload);
+    if (!parsedBody.success) {
+      return failure(400, "invalid_payload", "Invalid candidate review payload");
+    }
+
+    try {
+      const result = await store.reviewAppCandidate(
+        appId,
+        parsedBody.data,
+        `moderator:${user.userId}`
+      );
+      workerLogger.info("Moderator reviewed app candidate", {
+        appId,
+        candidateStatus: result.candidateStatus,
+        delegationAllowed: result.delegationAllowed,
+        reviewedBy: user.userId
+      });
+
+      return json(ModeratorReviewAppCandidateResponseSchema.parse({
+        schemaVersion: MODERATOR_PROTOCOL_VERSION,
+        ...result
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "App candidate review failed";
+      const missing = message === "App not found";
+      workerLogger.warn("Moderator candidate review failed", { path, message, missing, userId: user.userId }, error);
+      return failure(missing ? 404 : 409, missing ? "not_found" : "conflict", message);
     }
   }
 

@@ -542,4 +542,63 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     const searchDataProhibited = await searchResProhibited.json() as any;
     expect(searchDataProhibited.items).toHaveLength(0);
   });
+
+  test("tracks downstream application request activity and flags intensive-use candidates at threshold (R54-C38A2)", async () => {
+    const store = new LocalCoordinatorStore(":memory:");
+    try {
+      const user = store.issueUserToken("active-developer", "dev@example.com", false);
+      const regRes = await handleDownstreamRequest(
+        request("/v1/app/register", "POST", { schemaVersion: 1, appName: "Intensive App" }, user.token),
+        store
+      );
+      expect(regRes.status).toBe(201);
+      const app = await regRes.json() as { appId: string; appToken: string };
+
+      // Initial state
+      let row = store.db.prepare("SELECT request_count, last_active_at, candidate_status, candidate_flags_json FROM registered_apps WHERE app_id = ?").get(app.appId) as any;
+      expect(row.request_count).toBe(0);
+      expect(row.last_active_at).toBeNull();
+      expect(row.candidate_status).toBe("none");
+      expect(JSON.parse(row.candidate_flags_json)).toEqual([]);
+
+      // 1st request
+      const searchRes1 = await handleDownstreamRequest(
+        request("/v1/app/index/search", "POST", { schemaVersion: 1 }, app.appToken),
+        store
+      );
+      expect(searchRes1.status).toBe(200);
+
+      row = store.db.prepare("SELECT request_count, last_active_at, candidate_status, candidate_flags_json FROM registered_apps WHERE app_id = ?").get(app.appId) as any;
+      expect(row.request_count).toBe(1);
+      expect(row.last_active_at).not.toBeNull();
+      expect(row.candidate_status).toBe("none");
+
+      // Loop up to 49 total requests
+      for (let i = 2; i <= 49; i++) {
+        await handleDownstreamRequest(
+          request("/v1/app/index/search", "POST", { schemaVersion: 1 }, app.appToken),
+          store
+        );
+      }
+
+      row = store.db.prepare("SELECT request_count, candidate_status FROM registered_apps WHERE app_id = ?").get(app.appId) as any;
+      expect(row.request_count).toBe(49);
+      expect(row.candidate_status).toBe("none");
+
+      // 50th request triggers threshold
+      await handleDownstreamRequest(
+        request("/v1/app/index/search", "POST", { schemaVersion: 1 }, app.appToken),
+        store
+      );
+
+      row = store.db.prepare("SELECT request_count, candidate_status, candidate_flags_json FROM registered_apps WHERE app_id = ?").get(app.appId) as any;
+      expect(row.request_count).toBe(50);
+      expect(row.candidate_status).toBe("review_pending");
+      const flags = JSON.parse(row.candidate_flags_json);
+      expect(flags).toContain("intensive_usage");
+      expect(flags).toContain("high_frequency_api");
+    } finally {
+      store.close();
+    }
+  });
 });

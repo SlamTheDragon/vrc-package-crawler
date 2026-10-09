@@ -5,7 +5,9 @@ import {
   MODERATOR_PROTOCOL_VERSION,
   ModeratorRatingListResponseSchema,
   SetRatingAdjustmentResponseSchema,
-  encodeModeratorRatingCursor
+  encodeModeratorRatingCursor,
+  ModeratorAppListResponseSchema,
+  ModeratorReviewAppCandidateResponseSchema
 } from "vrc-packages-api";
 
 function jsonRequest(path: string, method: string, body?: unknown, token?: string, headers?: Record<string, string>): Request {
@@ -273,6 +275,92 @@ describe("Moderator Protocol (/v1/moderator/*) — R56-C56C1", () => {
       const mod = await handler(new Request("http://127.0.0.1:3737/v1/moderator/ratings"));
       expect(mod).not.toBeNull();
       expect(mod?.status).toBe(401);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("allows age-verified moderator to list and review intensive-use app candidates (R54-C38A2)", async () => {
+    const store = new LocalCoordinatorStore(":memory:");
+    try {
+      const devUser = store.issueUserToken("app-developer");
+      const app = store.registerApp({ schemaVersion: 1, appName: "Candidate App" }, devUser.userId);
+
+      // Simulate app reaching intensive-use threshold
+      for (let i = 0; i < 50; i++) {
+        store.recordAppActivity(app.appId);
+      }
+
+      // Age-verified moderator
+      const mod = store.issueUserToken("mod-adult", "mod@example.com", true, true);
+      // Non-moderator user
+      const regularUser = store.issueUserToken("regular-user", "reg@example.com", true, false);
+      // Moderator lacking age verification
+      const unverifiedMod = store.issueUserToken("mod-unverified", "mod2@example.com", false, true);
+
+      // 1. Non-moderator cannot list candidate apps
+      const regRes = await handleModeratorRequest(jsonRequest("/v1/moderator/apps", "GET", undefined, regularUser.token), store);
+      expect(regRes.status).toBe(403);
+
+      // 2. Unverified moderator cannot list candidate apps
+      const unverRes = await handleModeratorRequest(jsonRequest("/v1/moderator/apps", "GET", undefined, unverifiedMod.token), store);
+      expect(unverRes.status).toBe(403);
+
+      // 3. Verified moderator lists candidate apps
+      const listRes = await handleModeratorRequest(jsonRequest("/v1/moderator/apps?candidateStatus=review_pending", "GET", undefined, mod.token), store);
+      expect(listRes.status).toBe(200);
+      const listData = ModeratorAppListResponseSchema.parse(await listRes.json());
+      expect(listData.apps).toHaveLength(1);
+      expect(listData.apps[0].appId).toBe(app.appId);
+      expect(listData.apps[0].candidateStatus).toBe("review_pending");
+      expect(listData.apps[0].candidateFlags).toContain("intensive_usage");
+
+      // 4. Verified moderator reviews app candidate and grants delegation
+      const reviewRes = await handleModeratorRequest(jsonRequest(
+        `/v1/moderator/apps/${app.appId}/candidate-review`,
+        "POST",
+        {
+          schemaVersion: 1,
+          candidateStatus: "trusted",
+          grantDelegation: true,
+          notes: "Approved by moderator"
+        },
+        mod.token
+      ), store);
+      expect(reviewRes.status).toBe(200);
+      const reviewData = ModeratorReviewAppCandidateResponseSchema.parse(await reviewRes.json());
+      expect(reviewData.candidateStatus).toBe("trusted");
+      expect(reviewData.delegationAllowed).toBe(true);
+      expect(reviewData.permissions).toContain("claims:delegate");
+
+      // Verify in DB
+      const row = store.db.prepare("SELECT candidate_status, permissions_json FROM registered_apps WHERE app_id = ?").get(app.appId) as any;
+      expect(row.candidate_status).toBe("trusted");
+      expect(JSON.parse(row.permissions_json)).toContain("claims:delegate");
+
+      // 5. Non-moderator cannot submit review
+      const regReviewRes = await handleModeratorRequest(jsonRequest(
+        `/v1/moderator/apps/${app.appId}/candidate-review`,
+        "POST",
+        {
+          schemaVersion: 1,
+          candidateStatus: "none"
+        },
+        regularUser.token
+      ), store);
+      expect(regReviewRes.status).toBe(403);
+
+      // 6. Unknown app returns 404
+      const unknownRes = await handleModeratorRequest(jsonRequest(
+        "/v1/moderator/apps/00000000-0000-4000-8000-000000000000/candidate-review",
+        "POST",
+        {
+          schemaVersion: 1,
+          candidateStatus: "trusted"
+        },
+        mod.token
+      ), store);
+      expect(unknownRes.status).toBe(404);
     } finally {
       store.close();
     }

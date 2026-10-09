@@ -35,6 +35,7 @@ export interface DownstreamStore {
   recordDownstreamFeedback(appId: string, input: DownstreamFeedbackRequest): Promise<DownstreamFeedbackResponse> |
     DownstreamFeedbackResponse;
   searchCatalogPackages(input: CatalogSearchRequest, options?: { isAgeVerified?: boolean }): Promise<CatalogSearchResponse> | CatalogSearchResponse;
+  recordAppActivity(appId: string): Promise<void> | void;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -112,6 +113,12 @@ export async function handleDownstreamRequest(
   if (!app) {
     workerLogger.warn("Invalid downstream application token", { path });
     return failure(401, "unauthorized", "Invalid application token");
+  }
+
+  try {
+    await store.recordAppActivity(app.appId);
+  } catch (err) {
+    workerLogger.warn("Failed to record application activity", { appId: app.appId }, err);
   }
 
   // 3. Consolidated Reporting Route (/v1/app/report) per API_ROUTES.md §2.4

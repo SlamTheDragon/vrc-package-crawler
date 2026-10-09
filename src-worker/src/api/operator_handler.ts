@@ -13,10 +13,12 @@ import { ApproveLeadSchema, LeadActionResponseSchema, LeadListResponseSchema, Le
   decodeDelegatedClaimCursor, DelegatedClaimListResponseSchema, DelegatedClaimCursorSchema,
   VerifyDelegatedClaimRequestSchema, VerifyDelegatedClaimResponseSchema,
   decodeOperatorAppCursor, OperatorAppListResponseSchema, SetAppDelegationRequestSchema, SetAppDelegationResponseSchema,
+  ReviewAppCandidateRequestSchema, ReviewAppCandidateResponseSchema,
   OperatorAppCursorSchema, OperatorAppListQuerySchema,
   type LeadCursor, type LeadRow, type TakedownCursor, type TakedownRecord,
   type DelegatedClaimCursor, type DelegatedClaimRecord,
-  type OperatorAppRecord, type OperatorAppCursor } from "./protocol/operator_protocol.js";
+  type OperatorAppRecord, type OperatorAppCursor,
+  type ReviewAppCandidateRequest, type ReviewAppCandidateResponse } from "./protocol/operator_protocol.js";
 import { CreateSourceAccessProfileSchema, DisableSourceAccessProfileSchema,
   SourceAccessProfileListResponseSchema, SourceAccessProfileResponseSchema,
   decodeProfileCursor, ProfileCursorSchema, type CreateSourceAccessProfile, type SourceAccessProfile,
@@ -65,12 +67,19 @@ export interface OperatorStore {
   verifyDelegatedClaim(claimId: string, verdict: "accepted" | "rejected", actor: string, notes?: string):
     Promise<{ claimId: string; status: "accepted" | "rejected"; updatedAt: string }> |
       { claimId: string; status: "accepted" | "rejected"; updatedAt: string };
-  listOperatorAppsPage(limit?: number, cursor?: OperatorAppCursor | null):
+  listOperatorAppsPage(limit?: number, cursor?: OperatorAppCursor | null, candidateStatus?: string):
     Promise<{ apps: OperatorAppRecord[]; nextCursor: string | null }> |
       { apps: OperatorAppRecord[]; nextCursor: string | null };
   setAppDelegation(appId: string, allowed: boolean, actor: string, reason?: string):
     Promise<{ appId: string; delegationAllowed: boolean; permissions: string[]; updatedAt: string }> |
       { appId: string; delegationAllowed: boolean; permissions: string[]; updatedAt: string };
+  reviewAppCandidate(
+    appId: string,
+    input: { candidateStatus: "none" | "reviewed" | "trusted"; grantDelegation?: boolean; notes?: string },
+    actor: string
+  ):
+    Promise<{ appId: string; candidateStatus: "none" | "review_pending" | "reviewed" | "trusted"; candidateFlags: string[]; delegationAllowed: boolean; permissions: string[]; reviewedAt: string }> |
+      { appId: string; candidateStatus: "none" | "review_pending" | "reviewed" | "trusted"; candidateFlags: string[]; delegationAllowed: boolean; permissions: string[]; reviewedAt: string };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -126,9 +135,11 @@ export async function handleOperatorRequest(
   const appListing = request.method === "GET" && url.pathname === "/v1/operator/apps";
   const appDelegation = request.method === "POST" &&
     /^\/v1\/operator\/apps\/([^/]+)\/delegation$/.exec(url.pathname);
+  const appCandidateReview = request.method === "POST" &&
+    /^\/v1\/operator\/apps\/([^/]+)\/candidate-review$/.exec(url.pathname);
   if (!nodeRevoke && !jobEnqueue && !listing && !ruleListing && !ruleCreate && !ruleDisable && !profileListing && !profileCreate && !nodeIssue &&
       !profileDisable && !catalogListing && !takedownListing && !takedownVerify && !claimListing && !claimVerify &&
-      !appListing && !appDelegation && !(request.method === "POST" && leadAction)) {
+      !appListing && !appDelegation && !appCandidateReview && !(request.method === "POST" && leadAction)) {
     return failure(404, "not_found", "Route not found");
   }
   if (!await authorized(request, configuredToken)) {
@@ -139,7 +150,8 @@ export async function handleOperatorRequest(
       (profileDisable && !ProfileCursorSchema.shape.profileId.safeParse(profileDisable[1]).success) ||
       (takedownVerify && !TakedownCursorSchema.shape.takedownId.safeParse(takedownVerify[1]).success) ||
       (claimVerify && !DelegatedClaimCursorSchema.shape.claimId.safeParse(claimVerify[1]).success) ||
-      (appDelegation && !OperatorAppCursorSchema.shape.appId.safeParse(appDelegation[1]).success)) {
+      (appDelegation && !OperatorAppCursorSchema.shape.appId.safeParse(appDelegation[1]).success) ||
+      (appCandidateReview && !OperatorAppCursorSchema.shape.appId.safeParse(appCandidateReview[1]).success)) {
     return failure(404, "not_found", "Route not found");
   }
   if (listing) {
@@ -241,21 +253,24 @@ export async function handleOperatorRequest(
   if (appListing) {
     const rawLimit = Number(url.searchParams.get("limit") || "100");
     const rawCursor = url.searchParams.get("cursor");
+    const candidateStatusParam = url.searchParams.get("candidateStatus");
     const query = OperatorAppListQuerySchema.safeParse({
       limit: rawLimit,
-      cursor: rawCursor || undefined
+      cursor: rawCursor || undefined,
+      candidateStatus: candidateStatusParam || undefined
     });
     if (!query.success ||
         url.searchParams.getAll("limit").length > 1 ||
         url.searchParams.getAll("cursor").length > 1 ||
-        [...url.searchParams.keys()].some(key => !["limit", "cursor"].includes(key))) {
+        url.searchParams.getAll("candidateStatus").length > 1 ||
+        [...url.searchParams.keys()].some(key => !["limit", "cursor", "candidateStatus"].includes(key))) {
       return failure(400, "invalid_query", query.success ? "Unknown query keys" : "App query parameters are invalid");
     }
     const limit = query.data.limit;
     const cursor = query.data.cursor ? decodeOperatorAppCursor(query.data.cursor) : null;
     return json(OperatorAppListResponseSchema.parse({
       schemaVersion: OPERATOR_PROTOCOL_VERSION,
-      ...await store.listOperatorAppsPage(limit, cursor ? { ...cursor, appId: cursor.appId.toLowerCase() } : null)
+      ...await store.listOperatorAppsPage(limit, cursor ? { ...cursor, appId: cursor.appId.toLowerCase() } : null, query.data.candidateStatus)
     }));
   }
   let body: unknown;
@@ -332,6 +347,15 @@ export async function handleOperatorRequest(
       if (!parsed.success) return failure(400, "invalid_payload", "Set app delegation body is invalid");
       const result = await store.setAppDelegation(appDelegation[1].toLowerCase(), parsed.data.delegationAllowed, "operator-api", parsed.data.reason);
       return json(SetAppDelegationResponseSchema.parse({
+        schemaVersion: OPERATOR_PROTOCOL_VERSION,
+        ...result
+      }));
+    }
+    if (appCandidateReview) {
+      const parsed = ReviewAppCandidateRequestSchema.safeParse(body);
+      if (!parsed.success) return failure(400, "invalid_payload", "Candidate review body is invalid");
+      const result = await store.reviewAppCandidate(appCandidateReview[1].toLowerCase(), parsed.data, "operator-api");
+      return json(ReviewAppCandidateResponseSchema.parse({
         schemaVersion: OPERATOR_PROTOCOL_VERSION,
         ...result
       }));

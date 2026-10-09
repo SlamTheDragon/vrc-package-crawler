@@ -4,7 +4,8 @@ import { handleOperatorRequest } from "../src/api/operator_handler.ts";
 import { handleNodeRequest } from "../src/api/handler.ts";
 import { OPERATOR_API_JSON_SCHEMAS, TakedownListResponseSchema, VerifyTakedownResponseSchema,
   DelegatedClaimListResponseSchema, VerifyDelegatedClaimResponseSchema,
-  OperatorAppListResponseSchema, SetAppDelegationResponseSchema } from "../src/api/protocol/operator_protocol.js";
+  OperatorAppListResponseSchema, SetAppDelegationResponseSchema,
+  ReviewAppCandidateResponseSchema } from "../src/api/protocol/operator_protocol.js";
 import { approveFixtureSource, seedApprovedFixtureJob } from "./helpers/source_access_fixture.js";
 
 const operatorToken = "a".repeat(64);
@@ -878,6 +879,95 @@ describe("separate operator control API", () => {
       });
       const unknownRes = await handleOperatorRequest(unknownReq, store, operatorToken);
       expect(unknownRes.status).toBe(404);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("allows operator to list candidates and review intensive-use apps (R54-C38A2)", async () => {
+    const store = new LocalCoordinatorStore();
+    try {
+      const user = store.issueUserToken("operator-test-user");
+      const app1 = store.registerApp({ schemaVersion: 1, appName: "Candidate App 1" }, user.userId);
+      const app2 = store.registerApp({ schemaVersion: 1, appName: "Candidate App 2" }, user.userId);
+
+      // Simulate app1 reaching intensive usage
+      for (let i = 0; i < 50; i++) {
+        store.recordAppActivity(app1.appId);
+      }
+
+      // 1. List apps with candidateStatus filter
+      const pendingRes = await handleOperatorRequest(
+        operatorRequest("/v1/operator/apps?candidateStatus=review_pending"),
+        store,
+        operatorToken
+      );
+      expect(pendingRes.status).toBe(200);
+      const pendingData = await pendingRes.json() as any;
+      expect(pendingData.apps).toHaveLength(1);
+      expect(pendingData.apps[0].appId).toBe(app1.appId);
+      expect(pendingData.apps[0].candidateStatus).toBe("review_pending");
+      expect(pendingData.apps[0].candidateFlags).toContain("intensive_usage");
+
+      // App2 has candidateStatus = none
+      const noneRes = await handleOperatorRequest(
+        operatorRequest("/v1/operator/apps?candidateStatus=none"),
+        store,
+        operatorToken
+      );
+      expect(noneRes.status).toBe(200);
+      const noneData = await noneRes.json() as any;
+      expect(noneData.apps.some((a: any) => a.appId === app2.appId)).toBe(true);
+
+      // 2. Review candidate: approve as trusted with delegation
+      const reviewReq = operatorRequest(`/v1/operator/apps/${app1.appId}/candidate-review`, "POST", {
+        schemaVersion: 1,
+        candidateStatus: "trusted",
+        grantDelegation: true,
+        notes: "Approved high-throughput partner application"
+      });
+      const reviewRes = await handleOperatorRequest(reviewReq, store, operatorToken);
+      expect(reviewRes.status).toBe(200);
+      const reviewData = await reviewRes.json() as any;
+      expect(() => ReviewAppCandidateResponseSchema.parse(reviewData)).not.toThrow();
+      expect(reviewData.appId).toBe(app1.appId);
+      expect(reviewData.candidateStatus).toBe("trusted");
+      expect(reviewData.delegationAllowed).toBe(true);
+      expect(reviewData.permissions).toContain("claims:delegate");
+
+      // Verify in database
+      const row = store.db.prepare("SELECT candidate_status, permissions_json FROM registered_apps WHERE app_id = ?").get(app1.appId) as any;
+      expect(row.candidate_status).toBe("trusted");
+      expect(JSON.parse(row.permissions_json)).toContain("claims:delegate");
+
+      // 3. Review candidate: downgrade to reviewed and revoke delegation
+      const downgradeReq = operatorRequest(`/v1/operator/apps/${app1.appId}/candidate-review`, "POST", {
+        schemaVersion: 1,
+        candidateStatus: "reviewed",
+        grantDelegation: false
+      });
+      const downgradeRes = await handleOperatorRequest(downgradeReq, store, operatorToken);
+      expect(downgradeRes.status).toBe(200);
+      const downgradeData = await downgradeRes.json() as any;
+      expect(downgradeData.candidateStatus).toBe("reviewed");
+      expect(downgradeData.delegationAllowed).toBe(false);
+      expect(downgradeData.permissions).not.toContain("claims:delegate");
+
+      // 4. Unknown app returns 404
+      const unknownReq = operatorRequest("/v1/operator/apps/00000000-0000-4000-8000-000000000000/candidate-review", "POST", {
+        schemaVersion: 1,
+        candidateStatus: "trusted"
+      });
+      const unknownRes = await handleOperatorRequest(unknownReq, store, operatorToken);
+      expect(unknownRes.status).toBe(404);
+
+      // 5. Invalid payload returns 400
+      const invalidReq = operatorRequest(`/v1/operator/apps/${app1.appId}/candidate-review`, "POST", {
+        schemaVersion: 1,
+        candidateStatus: "invalid_status"
+      });
+      const invalidRes = await handleOperatorRequest(invalidReq, store, operatorToken);
+      expect(invalidRes.status).toBe(400);
     } finally {
       store.close();
     }

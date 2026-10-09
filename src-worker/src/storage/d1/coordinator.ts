@@ -2789,13 +2789,59 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     };
   }
 
+  async recordAppActivity(appId: string): Promise<void> {
+    const row = await this.db.prepare(`
+      SELECT app_id, request_count, candidate_status, candidate_flags_json
+      FROM registered_apps
+      WHERE app_id = ?
+    `).bind(appId).first<{
+      app_id: string;
+      request_count: number;
+      candidate_status: string;
+      candidate_flags_json: string;
+    }>();
+    if (!row) return;
+
+    const newCount = (row.request_count || 0) + 1;
+    const now = new Date(this.now()).toISOString();
+    let status = row.candidate_status || "none";
+    let flags: string[] = [];
+    try {
+      flags = JSON.parse(row.candidate_flags_json || "[]");
+    } catch {}
+
+    if (newCount >= 50) {
+      if (status === "none") {
+        status = "review_pending";
+      }
+      if (!flags.includes("intensive_usage")) {
+        flags.push("intensive_usage");
+      }
+      if (!flags.includes("high_frequency_api")) {
+        flags.push("high_frequency_api");
+      }
+    }
+
+    await this.db.prepare(`
+      UPDATE registered_apps
+      SET request_count = ?, last_active_at = ?, candidate_status = ?, candidate_flags_json = ?
+      WHERE app_id = ?
+    `).bind(newCount, now, status, JSON.stringify(flags), appId).run();
+  }
+
   async listOperatorAppsPage(
     limit = 100,
-    cursor: OperatorAppCursor | null = null
+    cursor: OperatorAppCursor | null = null,
+    candidateStatus?: string
   ): Promise<{ apps: OperatorAppRecord[]; nextCursor: string | null }> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("App limit must be 1..100");
     const conditions: string[] = [];
     const params: (string | number)[] = [];
+
+    if (candidateStatus) {
+      conditions.push("candidate_status = ?");
+      params.push(candidateStatus);
+    }
 
     if (cursor) {
       conditions.push("(created_at, app_id) < (?, ?)");
@@ -2805,7 +2851,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     params.push(limit + 1);
 
     const res = await this.db.prepare(`
-      SELECT app_id, app_name, contact_email, permissions_json, created_at, revoked_at
+      SELECT app_id, app_name, contact_email, permissions_json, created_at, revoked_at,
+             request_count, last_active_at, candidate_status, candidate_flags_json
       FROM registered_apps
       ${where}
       ORDER BY created_at DESC, app_id DESC
@@ -2817,6 +2864,10 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       permissions_json: string;
       created_at: string;
       revoked_at: string | null;
+      request_count: number;
+      last_active_at: string | null;
+      candidate_status: string;
+      candidate_flags_json: string;
     }>();
 
     const rows = res.results || [];
@@ -2825,12 +2876,18 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
     const apps: OperatorAppRecord[] = visible.map((row) => {
       const perms: string[] = JSON.parse(row.permissions_json);
+      let flags: string[] = [];
+      try { flags = JSON.parse(row.candidate_flags_json); } catch {}
       return {
         appId: row.app_id,
         appName: row.app_name,
         contactEmail: row.contact_email ?? null,
         permissions: perms,
         delegationAllowed: perms.includes("claims:delegate"),
+        requestCount: row.request_count ?? 0,
+        lastActiveAt: row.last_active_at ?? null,
+        candidateStatus: (row.candidate_status as any) || "none",
+        candidateFlags: flags,
         createdAt: row.created_at,
         revokedAt: row.revoked_at ?? null
       };
@@ -2842,6 +2899,64 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
         createdAt: last.created_at,
         appId: last.app_id
       }) : null
+    };
+  }
+
+  async reviewAppCandidate(
+    appId: string,
+    input: { candidateStatus: "none" | "reviewed" | "trusted"; grantDelegation?: boolean; notes?: string },
+    actor: string
+  ): Promise<{
+    appId: string;
+    candidateStatus: "none" | "review_pending" | "reviewed" | "trusted";
+    candidateFlags: string[];
+    delegationAllowed: boolean;
+    permissions: string[];
+    reviewedAt: string;
+  }> {
+    const row = await this.db.prepare(`
+      SELECT app_id, permissions_json, revoked_at, candidate_flags_json
+      FROM registered_apps
+      WHERE app_id = ?
+    `).bind(appId).first<{
+      app_id: string;
+      permissions_json: string;
+      revoked_at: string | null;
+      candidate_flags_json: string;
+    }>();
+
+    if (!row) {
+      throw new Error("App not found");
+    }
+    if (row.revoked_at) {
+      throw new Error("App is revoked");
+    }
+
+    const currentPerms = new Set<string>(JSON.parse(row.permissions_json));
+    if (input.grantDelegation === true || input.candidateStatus === "trusted") {
+      currentPerms.add("claims:delegate");
+    } else if (input.grantDelegation === false) {
+      currentPerms.delete("claims:delegate");
+    }
+    const newPerms = Array.from(currentPerms);
+
+    let flags: string[] = [];
+    try { flags = JSON.parse(row.candidate_flags_json); } catch {}
+    const reviewedAt = new Date(this.now()).toISOString();
+
+    await this.db.prepare(`
+      UPDATE registered_apps
+      SET candidate_status = ?, permissions_json = ?
+      WHERE app_id = ?
+    `).bind(input.candidateStatus, JSON.stringify(newPerms), appId).run();
+
+    return {
+      appId,
+      candidateStatus: input.candidateStatus,
+      candidateFlags: flags,
+      delegationAllowed: newPerms.includes("claims:delegate"),
+      permissions: newPerms,
+      reviewedAt
     };
   }
 

@@ -65,3 +65,64 @@ export const SetRatingAdjustmentResponseSchema = z.strictObject({
   updatedAt: z.string().datetime()
 });
 export type SetRatingAdjustmentResponse = z.infer<typeof SetRatingAdjustmentResponseSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Moderator Application Candidate Review                                     */
+/* -------------------------------------------------------------------------- */
+
+import {
+  CandidateStatusSchema,
+  type CandidateStatus,
+  decodeOperatorAppCursor,
+  encodeOperatorAppCursor,
+  type OperatorAppCursor
+} from "./operator.ts";
+
+export const ModeratorAppRecordSchema = z.strictObject({
+  appId: z.string().uuid(),
+  appName: z.string().min(1).max(100),
+  contactEmail: z.string().nullable().optional(),
+  permissions: z.array(z.string()),
+  delegationAllowed: z.boolean(),
+  requestCount: z.number().int().min(0).default(0),
+  lastActiveAt: z.string().datetime().nullable().optional(),
+  candidateStatus: CandidateStatusSchema.default("none"),
+  candidateFlags: z.array(z.string()).default([]),
+  createdAt: z.string().datetime(),
+  revokedAt: z.string().datetime().nullable()
+});
+export type ModeratorAppRecord = z.infer<typeof ModeratorAppRecordSchema>;
+
+export const ModeratorAppListQuerySchema = z.strictObject({
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+  cursor: z.string().min(1).max(256).optional(),
+  candidateStatus: CandidateStatusSchema.optional()
+}).refine(query => query.cursor === undefined || decodeOperatorAppCursor(query.cursor) !== null, "Invalid app cursor");
+export type ModeratorAppListQuery = z.infer<typeof ModeratorAppListQuerySchema>;
+
+export const ModeratorAppListResponseSchema = z.strictObject({
+  schemaVersion: z.literal(MODERATOR_PROTOCOL_VERSION),
+  apps: z.array(ModeratorAppRecordSchema),
+  nextCursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).nullable()
+});
+export type ModeratorAppListResponse = z.infer<typeof ModeratorAppListResponseSchema>;
+
+export const ModeratorReviewAppCandidateRequestSchema = z.strictObject({
+  schemaVersion: z.literal(MODERATOR_PROTOCOL_VERSION),
+  candidateStatus: z.enum(["none", "reviewed", "trusted"]),
+  grantDelegation: z.boolean().optional(),
+  notes: z.string().trim().min(1).max(500).optional()
+});
+export type ModeratorReviewAppCandidateRequest = z.infer<typeof ModeratorReviewAppCandidateRequestSchema>;
+
+export const ModeratorReviewAppCandidateResponseSchema = z.strictObject({
+  schemaVersion: z.literal(MODERATOR_PROTOCOL_VERSION),
+  appId: z.string().uuid(),
+  candidateStatus: CandidateStatusSchema,
+  candidateFlags: z.array(z.string()),
+  delegationAllowed: z.boolean(),
+  permissions: z.array(z.string()),
+  reviewedAt: z.string().datetime()
+});
+export type ModeratorReviewAppCandidateResponse = z.infer<typeof ModeratorReviewAppCandidateResponseSchema>;
+

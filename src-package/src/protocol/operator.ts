@@ -506,12 +506,19 @@ export const OperatorClaimListQuerySchema = OperatorPageQuerySchema.extend({
 /* Registered Applications & Delegation Management (R54-C38A)                 */
 /* -------------------------------------------------------------------------- */
 
+export const CandidateStatusSchema = z.enum(["none", "review_pending", "reviewed", "trusted"]);
+export type CandidateStatus = z.infer<typeof CandidateStatusSchema>;
+
 export const OperatorAppRecordSchema = z.strictObject({
   appId: z.string().uuid(),
   appName: z.string().min(1).max(100),
   contactEmail: z.string().nullable().optional(),
   permissions: z.array(z.string()),
   delegationAllowed: z.boolean(),
+  requestCount: z.number().int().min(0).default(0),
+  lastActiveAt: z.string().datetime().nullable().optional(),
+  candidateStatus: CandidateStatusSchema.default("none"),
+  candidateFlags: z.array(z.string()).default([]),
   createdAt: z.string().datetime(),
   revokedAt: z.string().datetime().nullable()
 });
@@ -538,7 +545,9 @@ export function decodeOperatorAppCursor(value: string): OperatorAppCursor | null
   }
 }
 
-export const OperatorAppListQuerySchema = OperatorPageQuerySchema.refine(
+export const OperatorAppListQuerySchema = OperatorPageQuerySchema.extend({
+  candidateStatus: CandidateStatusSchema.optional()
+}).refine(
   query => query.cursor === undefined || decodeOperatorAppCursor(query.cursor) !== null,
   "Invalid app cursor"
 );
@@ -566,4 +575,24 @@ export const SetAppDelegationResponseSchema = z.strictObject({
   updatedAt: z.string().datetime()
 });
 export type SetAppDelegationResponse = z.infer<typeof SetAppDelegationResponseSchema>;
+
+export const ReviewAppCandidateRequestSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  candidateStatus: z.enum(["none", "reviewed", "trusted"]),
+  grantDelegation: z.boolean().optional(),
+  notes: z.string().trim().min(1).max(500).optional()
+});
+export type ReviewAppCandidateRequest = z.infer<typeof ReviewAppCandidateRequestSchema>;
+
+export const ReviewAppCandidateResponseSchema = z.strictObject({
+  schemaVersion: z.literal(OPERATOR_PROTOCOL_VERSION),
+  appId: z.string().uuid(),
+  candidateStatus: CandidateStatusSchema,
+  candidateFlags: z.array(z.string()),
+  delegationAllowed: z.boolean(),
+  permissions: z.array(z.string()),
+  reviewedAt: z.string().datetime()
+});
+export type ReviewAppCandidateResponse = z.infer<typeof ReviewAppCandidateResponseSchema>;
+
 

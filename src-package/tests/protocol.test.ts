@@ -52,8 +52,12 @@ import {
   VerifyDelegatedClaimResponseSchema,
   OperatorAppRecordSchema,
   OperatorAppListResponseSchema,
+  OperatorAppListQuerySchema,
   SetAppDelegationRequestSchema,
   SetAppDelegationResponseSchema,
+  CandidateStatusSchema,
+  ReviewAppCandidateRequestSchema,
+  ReviewAppCandidateResponseSchema,
   encodeOperatorAppCursor,
   decodeOperatorAppCursor
 } from "../src/protocol/operator.ts";
@@ -66,7 +70,12 @@ import {
   ModeratorRatingListQuerySchema,
   ModeratorRatingListResponseSchema,
   SetRatingAdjustmentRequestSchema,
-  SetRatingAdjustmentResponseSchema
+  SetRatingAdjustmentResponseSchema,
+  ModeratorAppRecordSchema,
+  ModeratorAppListQuerySchema,
+  ModeratorAppListResponseSchema,
+  ModeratorReviewAppCandidateRequestSchema,
+  ModeratorReviewAppCandidateResponseSchema
 } from "../src/protocol/moderator.ts";
 
 describe("src-package wire protocols", () => {
@@ -553,5 +562,74 @@ describe("src-package wire protocols", () => {
       adjustedBy: "mod-user-1",
       updatedAt: "2026-10-01T12:00:00.000Z"
     })).not.toThrow();
+
+    // Registered App Candidate Classification & Review (R54-C38A2)
+    expect(CandidateStatusSchema.parse("review_pending")).toBe("review_pending");
+    expect(CandidateStatusSchema.parse("trusted")).toBe("trusted");
+    expect(() => CandidateStatusSchema.parse("invalid_status")).toThrow();
+
+    const appWithCandidate = {
+      appId: "123e4567-e89b-12d3-a456-426614174003",
+      appName: "High Traffic Service",
+      permissions: ["catalog:read", "catalog:search"],
+      delegationAllowed: false,
+      requestCount: 150,
+      lastActiveAt: "2026-10-01T15:00:00.000Z",
+      candidateStatus: "review_pending" as const,
+      candidateFlags: ["intensive_usage", "high_frequency_api"],
+      createdAt: "2026-10-01T10:00:00.000Z",
+      revokedAt: null
+    };
+    const parsedApp = OperatorAppRecordSchema.parse(appWithCandidate);
+    expect(parsedApp.requestCount).toBe(150);
+    expect(parsedApp.candidateStatus).toBe("review_pending");
+    expect(parsedApp.candidateFlags).toContain("intensive_usage");
+
+    // Backward-compatible defaults
+    const legacyApp = {
+      appId: "123e4567-e89b-12d3-a456-426614174004",
+      appName: "Legacy App",
+      permissions: ["catalog:read"],
+      delegationAllowed: false,
+      createdAt: "2026-10-01T10:00:00.000Z",
+      revokedAt: null
+    };
+    const parsedLegacy = OperatorAppRecordSchema.parse(legacyApp);
+    expect(parsedLegacy.requestCount).toBe(0);
+    expect(parsedLegacy.candidateStatus).toBe("none");
+    expect(parsedLegacy.candidateFlags).toEqual([]);
+
+    expect(() => OperatorAppListQuerySchema.parse({
+      candidateStatus: "review_pending",
+      limit: 10
+    })).not.toThrow();
+
+    expect(() => ModeratorAppListQuerySchema.parse({
+      candidateStatus: "trusted",
+      limit: 50
+    })).not.toThrow();
+
+    const operatorReviewReq = {
+      schemaVersion: 1,
+      candidateStatus: "trusted" as const,
+      grantDelegation: true,
+      notes: "App has passed high-volume review and verified creator checks"
+    };
+    expect(() => ReviewAppCandidateRequestSchema.parse(operatorReviewReq)).not.toThrow();
+
+    const operatorReviewResp = {
+      schemaVersion: 1,
+      appId: "123e4567-e89b-12d3-a456-426614174003",
+      candidateStatus: "trusted" as const,
+      candidateFlags: ["intensive_usage"],
+      delegationAllowed: true,
+      permissions: ["catalog:read", "catalog:search", "claims:delegate"],
+      reviewedAt: "2026-10-01T16:00:00.000Z"
+    };
+    expect(() => ReviewAppCandidateResponseSchema.parse(operatorReviewResp)).not.toThrow();
+
+    expect(() => ModeratorReviewAppCandidateRequestSchema.parse(operatorReviewReq)).not.toThrow();
+    expect(() => ModeratorReviewAppCandidateResponseSchema.parse(operatorReviewResp)).not.toThrow();
   });
 });
+

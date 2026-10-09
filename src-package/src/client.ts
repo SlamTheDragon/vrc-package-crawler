@@ -42,11 +42,25 @@ import {
   type SetRatingAdjustmentRequest,
   SetRatingAdjustmentRequestSchema,
   type SetRatingAdjustmentResponse,
-  SetRatingAdjustmentResponseSchema
+  SetRatingAdjustmentResponseSchema,
+  type ModeratorAppListQuery,
+  ModeratorAppListQuerySchema,
+  type ModeratorAppListResponse,
+  ModeratorAppListResponseSchema,
+  type ModeratorReviewAppCandidateRequest,
+  ModeratorReviewAppCandidateRequestSchema,
+  type ModeratorReviewAppCandidateResponse,
+  ModeratorReviewAppCandidateResponseSchema
 } from "./protocol/moderator.ts";
 import { type ContentRating } from "./taxonomy/taxonomy.ts";
 import {
   type LeadStatus,
+  type CandidateStatus,
+  CandidateStatusSchema,
+  ReviewAppCandidateRequestSchema,
+  ReviewAppCandidateResponseSchema,
+  type ReviewAppCandidateRequest,
+  type ReviewAppCandidateResponse,
   OperatorLeadListQuerySchema, OperatorProfileListQuerySchema, OperatorRuleListQuerySchema,
   OperatorCatalogListQuerySchema, OperatorTakedownListQuerySchema, OperatorClaimListQuerySchema,
   OperatorAppListQuerySchema, type OperatorAppListQuery,
@@ -656,13 +670,14 @@ export class VRCPackageClient {
       /**
        * Lists registered downstream applications (GET /v1/operator/apps).
        */
-      list: async (params: { limit?: number; cursor?: string } = {}): Promise<OperatorAppListResponse> => {
+      list: async (params: { limit?: number; cursor?: string; candidateStatus?: CandidateStatus } = {}): Promise<OperatorAppListResponse> => {
         const query = OperatorAppListQuerySchema.parse(params);
         const res = await this.request<unknown>("/v1/operator/apps", "GET", {
           auth: "operator",
           queryParams: {
             limit: query.limit,
-            cursor: query.cursor
+            cursor: query.cursor,
+            candidateStatus: query.candidateStatus
           }
         });
         return OperatorAppListResponseSchema.parse(res);
@@ -685,6 +700,26 @@ export class VRCPackageClient {
           })
         });
         return SetAppDelegationResponseSchema.parse(res);
+      },
+
+      /**
+       * Reviews a registered application candidate for trusted access (POST /v1/operator/apps/{appId}/candidate-review).
+       */
+      reviewCandidate: async (
+        appId: string,
+        request: { candidateStatus: "none" | "reviewed" | "trusted"; grantDelegation?: boolean; notes?: string }
+      ): Promise<ReviewAppCandidateResponse> => {
+        const id = OperatorAppCursorSchema.shape.appId.parse(appId).toLowerCase();
+        const res = await this.request<unknown>(`/v1/operator/apps/${id}/candidate-review`, "POST", {
+          auth: "operator",
+          body: ReviewAppCandidateRequestSchema.parse({
+            schemaVersion: 1,
+            candidateStatus: request.candidateStatus,
+            grantDelegation: request.grantDelegation,
+            notes: request.notes
+          })
+        });
+        return ReviewAppCandidateResponseSchema.parse(res);
       }
     }
   };
@@ -730,6 +765,46 @@ export class VRCPackageClient {
           })
         });
         return SetRatingAdjustmentResponseSchema.parse(res);
+      }
+    },
+
+    apps: {
+      /**
+       * Lists registered applications for candidate review (GET /v1/moderator/apps).
+       * Requires age-verified moderator user token.
+       */
+      list: async (params: { limit?: number; cursor?: string; candidateStatus?: CandidateStatus } = {}): Promise<ModeratorAppListResponse> => {
+        const query = ModeratorAppListQuerySchema.parse(params);
+        const res = await this.request<unknown>("/v1/moderator/apps", "GET", {
+          auth: "user",
+          queryParams: {
+            limit: query.limit,
+            cursor: query.cursor,
+            candidateStatus: query.candidateStatus
+          }
+        });
+        return ModeratorAppListResponseSchema.parse(res);
+      },
+
+      /**
+       * Reviews a registered application candidate (POST /v1/moderator/apps/{appId}/candidate-review).
+       * Requires age-verified moderator user token.
+       */
+      reviewCandidate: async (
+        appId: string,
+        request: { candidateStatus: "none" | "reviewed" | "trusted"; grantDelegation?: boolean; notes?: string }
+      ): Promise<ModeratorReviewAppCandidateResponse> => {
+        const id = OperatorAppCursorSchema.shape.appId.parse(appId).toLowerCase();
+        const res = await this.request<unknown>(`/v1/moderator/apps/${id}/candidate-review`, "POST", {
+          auth: "user",
+          body: ModeratorReviewAppCandidateRequestSchema.parse({
+            schemaVersion: MODERATOR_PROTOCOL_VERSION,
+            candidateStatus: request.candidateStatus,
+            grantDelegation: request.grantDelegation,
+            notes: request.notes
+          })
+        });
+        return ModeratorReviewAppCandidateResponseSchema.parse(res);
       }
     }
   };

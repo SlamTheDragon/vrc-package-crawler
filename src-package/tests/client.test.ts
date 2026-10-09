@@ -780,6 +780,18 @@ describe("VRCPackageClient SDK", () => {
         }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
+      if (capturedUrl.includes(`/v1/operator/apps/${appId}/candidate-review`)) {
+        return new Response(JSON.stringify({
+          schemaVersion: 1,
+          appId,
+          candidateStatus: "trusted",
+          candidateFlags: ["intensive_usage"],
+          delegationAllowed: true,
+          permissions: ["catalog:read", "catalog:search", "demand:feedback", "claims:delegate"],
+          reviewedAt: new Date().toISOString()
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
       if (capturedUrl.includes("/v1/operator/apps")) {
         return new Response(JSON.stringify({
           schemaVersion: 1,
@@ -819,6 +831,17 @@ describe("VRCPackageClient SDK", () => {
     expect(delegationRes.permissions).toContain("claims:delegate");
     expect(capturedUrl).toContain(`/v1/operator/apps/${appId}/delegation`);
     expect(capturedMethod).toBe("POST");
+
+    // Operator Candidate Review (R54-C38A2)
+    const reviewRes = await client.operator.apps.reviewCandidate(appId, {
+      candidateStatus: "trusted",
+      grantDelegation: true,
+      notes: "High volume candidate approved for trusted delegation"
+    });
+    expect(reviewRes.appId).toBe(appId);
+    expect(reviewRes.candidateStatus).toBe("trusted");
+    expect(reviewRes.delegationAllowed).toBe(true);
+    expect(reviewRes.permissions).toContain("claims:delegate");
   });
 
   it("throws VRCPApiError if operator methods called without operatorToken", async () => {
@@ -833,6 +856,8 @@ describe("VRCPackageClient SDK", () => {
     await expect(client.operator.takedowns.list()).rejects.toThrow(VRCPApiError);
     await expect(client.operator.claims.list()).rejects.toThrow(VRCPApiError);
     await expect(client.operator.apps.list()).rejects.toThrow(VRCPApiError);
+    await expect(client.operator.apps.setDelegation("123e4567-e89b-12d3-a456-426614174000", { delegationAllowed: true })).rejects.toThrow(VRCPApiError);
+    await expect(client.operator.apps.reviewCandidate("123e4567-e89b-12d3-a456-426614174000", { candidateStatus: "trusted" })).rejects.toThrow(VRCPApiError);
   });
 
   it("exercises moderator ratings: list and adjust (R56-C56C1)", async () => {
@@ -907,6 +932,85 @@ describe("VRCPackageClient SDK", () => {
     expect(capturedBody.reason).toBe("False positive adult filter detection resolved");
   });
 
+  it("exercises moderator apps: list and reviewCandidate (R54-C38A2)", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedAuth = "";
+    let capturedBody: any = null;
+    const appId = "123e4567-e89b-12d3-a456-426614174000";
+
+    const mockFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = new Request(input, init);
+      capturedUrl = req.url;
+      capturedMethod = req.method;
+      capturedAuth = req.headers.get("Authorization") ?? "";
+      if (req.body) {
+        capturedBody = await req.json();
+      }
+
+      if (capturedUrl.includes(`/v1/moderator/apps/${appId}/candidate-review`) && capturedMethod === "POST") {
+        return Response.json({
+          schemaVersion: 1,
+          appId,
+          candidateStatus: "trusted",
+          candidateFlags: ["intensive_usage", "high_frequency_api"],
+          delegationAllowed: true,
+          permissions: ["catalog:read", "catalog:search", "demand:feedback", "claims:delegate"],
+          reviewedAt: "2026-10-01T15:00:00.000Z"
+        });
+      }
+
+      if (capturedUrl.includes("/v1/moderator/apps") && capturedMethod === "GET") {
+        return Response.json({
+          schemaVersion: 1,
+          apps: [
+            {
+              appId,
+              appName: "Candidate Downstream App",
+              contactEmail: "candidate@example.com",
+              permissions: ["catalog:read", "catalog:search", "demand:feedback"],
+              delegationAllowed: false,
+              requestCount: 88,
+              lastActiveAt: "2026-10-01T14:30:00.000Z",
+              candidateStatus: "review_pending",
+              candidateFlags: ["intensive_usage"],
+              createdAt: "2026-10-01T10:00:00.000Z",
+              revokedAt: null
+            }
+          ],
+          nextCursor: null
+        });
+      }
+
+      return new Response("Not found", { status: 404 });
+    };
+
+    const client = new VRCPackageClient({
+      baseUrl: "https://api.vrc-packages.example",
+      userToken: "vrcp_usr_" + "2".repeat(64),
+      fetch: mockFetch as unknown as typeof fetch
+    });
+
+    const listRes = await client.moderator.apps.list({ candidateStatus: "review_pending", limit: 10 });
+    expect(listRes.apps.length).toBe(1);
+    expect(listRes.apps[0]?.appId).toBe(appId);
+    expect(listRes.apps[0]?.requestCount).toBe(88);
+    expect(listRes.apps[0]?.candidateStatus).toBe("review_pending");
+    expect(capturedUrl).toContain("candidateStatus=review_pending");
+    expect(capturedAuth).toBe(`Bearer vrcp_usr_${"2".repeat(64)}`);
+
+    const reviewRes = await client.moderator.apps.reviewCandidate(appId, {
+      candidateStatus: "trusted",
+      grantDelegation: true,
+      notes: "Staff verified client activity"
+    });
+    expect(reviewRes.appId).toBe(appId);
+    expect(reviewRes.candidateStatus).toBe("trusted");
+    expect(reviewRes.delegationAllowed).toBe(true);
+    expect(capturedBody.candidateStatus).toBe("trusted");
+    expect(capturedBody.grantDelegation).toBe(true);
+  });
+
   it("throws VRCPApiError if moderator methods called without userToken", async () => {
     const client = new VRCPackageClient({
       baseUrl: "https://api.vrc-packages.example"
@@ -914,6 +1018,8 @@ describe("VRCPackageClient SDK", () => {
 
     await expect(client.moderator.ratings.list()).rejects.toThrow(VRCPApiError);
     await expect(client.moderator.ratings.adjust("com.pkg", { newRating: "general", reason: "Valid reason" })).rejects.toThrow(VRCPApiError);
+    await expect(client.moderator.apps.list()).rejects.toThrow(VRCPApiError);
+    await expect(client.moderator.apps.reviewCandidate("123e4567-e89b-12d3-a456-426614174000", { candidateStatus: "trusted" })).rejects.toThrow(VRCPApiError);
   });
 
   it("rejects responses exceeding SDK byte limits", async () => {

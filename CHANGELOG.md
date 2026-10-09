@@ -7,8 +7,8 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-- **VRC Packages Worker (`vrcp-worker-preview`)**: Added content rating review and adjustment endpoints under `/v1/moderator/ratings` for age-verified staff.
-- **VRC Packages API (`vrcp-packages-api-preview`)**: Added moderator review wire schemas, cursor paging, and SDK client methods.
+- **VRC Packages Worker (`vrcp-worker-preview`)**: Added intensive application candidate tracking, automatic threshold flagging, and candidate review endpoints.
+- **VRC Packages API (`vrcp-packages-api-preview`)**: Added candidate tracking schemas, moderator app protocol, and candidate review client methods.
 - **VRC Packages Crawler (`vrcp-crawler-node-preview`)**: Added outbox quota flow control, startup crash recovery, and periodic TTL pruning.
 - **VRC Packages Network (`vrcp-packages-network`)**: Maintained bounded batched transport schemas and receipts.
 <!-- MASTER_SUMMARY -->
@@ -174,10 +174,14 @@ See full history at [docs/changelogs/vrcp-crawler-node/preview](docs/changelogs/
 ## VRC Packages API - `vrcp-packages-api-preview`
 
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
-API client updates for moderator content rating review schemas, cursor pagination, and rating adjustment client methods.
+API client updates for application candidate tracking schemas, candidate review requests, and moderator app management methods.
 <!-- vrcp-packages-api-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **App Candidate Tracking Schemas**: Added `CandidateStatusSchema`, `ReviewAppCandidateRequestSchema`, and `ReviewAppCandidateResponseSchema` for candidate review.
+- **Moderator App Protocol**: Added `ModeratorAppRecordSchema`, `ModeratorAppListQuerySchema`, and `ModeratorReviewAppCandidateRequestSchema`.
+- **SDK Candidate Review**: Added `client.operator.apps.reviewCandidate()` and `client.moderator.apps.reviewCandidate()` methods.
+- **SDK Moderator App Listing**: Added `client.moderator.apps.list()` with candidate status filtering.
 - **Moderator Rating Schemas**: Added `ModeratorRatingRecordSchema`, `ModeratorRatingListResponseSchema`, and `SetRatingAdjustmentRequestSchema`.
 - **SDK Moderator Methods**: Added `client.moderator.ratings.list()` and `client.moderator.ratings.adjust()` methods.
 - **Moderator Cursor Paging**: Added base64url cursor encoding and decoding functions for moderator rating reviews.
@@ -212,10 +216,15 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator updates for moderator rating review and adjustment pathways gated by verified age and moderator authority.
+Coordinator updates for intensive application candidate tracking, automatic threshold flagging, and operator and moderator review pathways.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **App Activity Tracking**: Tracked application request count and last active timestamp on all downstream API invocations.
+- **Intensive-Use Candidate Flagging**: Flagged applications with 50 or more requests automatically as review pending candidates.
+- **Operator Candidate Review**: Added `POST /v1/operator/apps/:appId/candidate-review` to update status and delegation permissions.
+- **Moderator Candidate Endpoints**: Added `GET /v1/moderator/apps` and `POST /v1/moderator/apps/:appId/candidate-review` for age-verified staff.
+- **Candidate Status Filtering**: Added `candidateStatus` query parameter to application listing endpoints.
 - **Moderator Rating Endpoints**: Added `GET /v1/moderator/ratings` and `POST /v1/moderator/ratings/:canonicalId` for content rating oversight.
 - **Moderator Access Gate**: Enforced verified age and moderator authority checks on all `/v1/moderator/*` routes.
 - **Storage Rating Adjustment**: Implemented `listModeratorRatingsPage` and `adjustPackageRating` on coordinator storage engines.

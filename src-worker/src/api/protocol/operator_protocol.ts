@@ -4,8 +4,10 @@ import { CreateAutoQueueRuleSchema, DisableAutoQueueRuleSchema, AutoQueueRuleLis
   CatalogListResponseSchema,
   OperatorAppRecordSchema, OperatorAppListResponseSchema, SetAppDelegationRequestSchema, SetAppDelegationResponseSchema,
   decodeOperatorAppCursor, encodeOperatorAppCursor, OperatorAppCursorSchema, OperatorAppListQuerySchema,
+  CandidateStatusSchema, ReviewAppCandidateRequestSchema, ReviewAppCandidateResponseSchema,
   type OperatorAppRecord, type OperatorAppCursor, type OperatorAppListQuery,
-  type SetAppDelegationRequest, type SetAppDelegationResponse
+  type SetAppDelegationRequest, type SetAppDelegationResponse,
+  type CandidateStatus, type ReviewAppCandidateRequest, type ReviewAppCandidateResponse
 } from "vrc-packages-api";
 
 export const OPERATOR_PROTOCOL_VERSION = 1 as const;
@@ -187,7 +189,9 @@ export const OPERATOR_API_JSON_SCHEMAS = {
   verifyDelegatedClaimResponse: z.toJSONSchema(VerifyDelegatedClaimResponseSchema),
   operatorAppListResponse: z.toJSONSchema(OperatorAppListResponseSchema),
   setAppDelegationRequest: z.toJSONSchema(SetAppDelegationRequestSchema),
-  setAppDelegationResponse: z.toJSONSchema(SetAppDelegationResponseSchema)
+  setAppDelegationResponse: z.toJSONSchema(SetAppDelegationResponseSchema),
+  reviewAppCandidateRequest: z.toJSONSchema(ReviewAppCandidateRequestSchema),
+  reviewAppCandidateResponse: z.toJSONSchema(ReviewAppCandidateResponseSchema)
 };
 
 export {
@@ -199,9 +203,15 @@ export {
   encodeOperatorAppCursor,
   OperatorAppCursorSchema,
   OperatorAppListQuerySchema,
+  CandidateStatusSchema,
+  ReviewAppCandidateRequestSchema,
+  ReviewAppCandidateResponseSchema,
   type OperatorAppRecord,
   type OperatorAppCursor,
   type OperatorAppListQuery,
   type SetAppDelegationRequest,
-  type SetAppDelegationResponse
+  type SetAppDelegationResponse,
+  type CandidateStatus,
+  type ReviewAppCandidateRequest,
+  type ReviewAppCandidateResponse
 };
