@@ -42,8 +42,9 @@ CREATE TABLE IF NOT EXISTS crawl_jobs ( job_id TEXT PRIMARY KEY, platform TEXT N
 CREATE INDEX IF NOT EXISTS idx_crawl_jobs_ready ON crawl_jobs(state,next_fetch_at,platform);
 CREATE INDEX IF NOT EXISTS idx_crawl_jobs_origin_due ON crawl_jobs(origin,next_fetch_at,state);
 CREATE TABLE IF NOT EXISTS origin_leases ( origin TEXT PRIMARY KEY, active_job_id TEXT, lease_expires_at TEXT, next_allowed_at TEXT NOT NULL, min_delay_ms INTEGER NOT NULL, FOREIGN KEY(active_job_id) REFERENCES crawl_jobs(job_id) );
-CREATE TABLE IF NOT EXISTS origin_robots ( origin TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, status_code INTEGER NOT NULL, body TEXT NOT NULL, fetched_at TEXT NOT NULL, expires_at TEXT NOT NULL );
-CREATE TABLE IF NOT EXISTS origin_robots_refresh_leases ( origin TEXT PRIMARY KEY, lease_id TEXT NOT NULL, lease_expires_at TEXT NOT NULL );
+CREATE TABLE IF NOT EXISTS origin_robots ( origin TEXT PRIMARY KEY, snapshot_id TEXT, status_code INTEGER, body TEXT, fetched_at TEXT, expires_at TEXT, refresh_lease_id TEXT, refresh_lease_expires_at TEXT );
+CREATE INDEX IF NOT EXISTS idx_origin_robots_refresh ON origin_robots(origin,refresh_lease_expires_at);
+CREATE VIEW IF NOT EXISTS origin_robots_refresh_leases AS SELECT origin, refresh_lease_id AS lease_id, refresh_lease_expires_at AS lease_expires_at FROM origin_robots WHERE refresh_lease_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS suppressed_urls ( url TEXT PRIMARY KEY, reason TEXT NOT NULL, suppressed_at TEXT NOT NULL );
 CREATE TABLE IF NOT EXISTS source_items ( source_key TEXT PRIMARY KEY, platform TEXT NOT NULL, source_url TEXT NOT NULL, latest_digest TEXT NOT NULL, latest_version_no INTEGER NOT NULL, gone_at TEXT );
 CREATE TABLE IF NOT EXISTS source_versions ( version_id TEXT PRIMARY KEY, source_key TEXT NOT NULL, version_no INTEGER NOT NULL, digest TEXT NOT NULL, payload_json TEXT NOT NULL, observed_at TEXT NOT NULL, complete INTEGER NOT NULL DEFAULT 1 CHECK(complete IN (0,1)), contributor_node_id TEXT, submission_lease_id TEXT, source_profile_id TEXT, UNIQUE(source_key,version_no), FOREIGN KEY(source_key) REFERENCES source_items(source_key) );

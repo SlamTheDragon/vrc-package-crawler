@@ -121,7 +121,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       expect(await fixture.store.completeRobotsRefresh(origin, oldLease, 404)).toBe(false);
       fixture.sqlite.run("UPDATE source_access_profiles SET disabled_at='2026-10-03T00:00:45.000Z'");
       expect(await fixture.store.completeRobotsRefresh(origin, replacement, 404)).toBe(false);
-      expect(fixture.sqlite.query("SELECT COUNT(*) AS count FROM origin_robots").get()).toEqual({ count: 0 });
+      expect(fixture.sqlite.query("SELECT COUNT(*) AS count FROM origin_robots WHERE snapshot_id IS NOT NULL").get()).toEqual({ count: 0 });
       expect(await fixture.store.releaseRobotsRefresh(origin, replacement)).toBe(true);
       fixture.advance(1000);
       expect(await fixture.store.reserveRobotsRefresh(origin)).toBeNull();
@@ -520,7 +520,7 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
       "UPDATE node_credentials SET revoked_at='2026-10-03T00:00:00.000Z'",
       "UPDATE origin_robots SET snapshot_id='replaced-snapshot',body='User-agent: *\nDisallow: /'",
       "UPDATE origin_leases SET min_delay_ms=min_delay_ms+1000",
-      "INSERT OR REPLACE INTO origin_robots_refresh_leases VALUES ('https://race.example','refresh-race','2026-10-03T00:05:00.000Z')"
+      "UPDATE origin_robots SET refresh_lease_id='refresh-race',refresh_lease_expires_at='2026-10-03T00:05:00.000Z' WHERE origin='https://race.example'"
     ]) {
       const fixture = await claimRaceFixture(["https://race.example/index.json"]);
       try {

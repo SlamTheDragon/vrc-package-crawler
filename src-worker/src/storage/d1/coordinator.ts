@@ -324,9 +324,8 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const eligibleFrom = `FROM crawl_jobs j
       JOIN origin_leases o ON o.origin = j.origin
       JOIN origin_robots r ON r.origin = j.origin AND r.expires_at > ?
-      LEFT JOIN origin_robots_refresh_leases rl ON rl.origin=j.origin AND rl.lease_expires_at>?
+        AND (r.refresh_lease_expires_at IS NULL OR r.refresh_lease_expires_at <= ?)
       WHERE j.platform IN (${placeholders})
-        AND rl.origin IS NULL
         AND j.next_fetch_at <= ?
         AND (j.state IN ('pending','done','backoff') OR (j.state='leased' AND j.lease_expires_at <= ?))
         AND o.next_allowed_at <= ?
@@ -1377,7 +1376,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     }
     const dueDelay = await this.approvedDueProfileDelayForOrigin(row.origin, now);
     if (dueDelay === null) {
-      batchStmts.push(this.db.prepare("DELETE FROM origin_robots_refresh_leases WHERE origin=?").bind(row.origin));
+      batchStmts.push(this.db.prepare("UPDATE origin_robots SET refresh_lease_id=NULL, refresh_lease_expires_at=NULL WHERE origin=?").bind(row.origin));
     }
     batchStmts.push(
       this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
@@ -1727,39 +1726,44 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const leaseId = crypto.randomUUID();
     const delay = approvedRobotsJobDelaySql("?1", "?2");
     const results = await this.db.batch([
-      this.db.prepare(`INSERT INTO origin_robots_refresh_leases(origin,lease_id,lease_expires_at)
+      this.db.prepare(`INSERT INTO origin_robots(origin,refresh_lease_id,refresh_lease_expires_at)
         SELECT o.origin,?3,?4 FROM origin_leases o WHERE o.origin=?1 AND o.next_allowed_at<=?2
           AND (o.active_job_id IS NULL OR o.lease_expires_at<=?2)
           AND NOT EXISTS (SELECT 1 FROM origin_robots r WHERE r.origin=o.origin AND r.expires_at>?2)
           AND ${delay} IS NOT NULL
-        ON CONFLICT(origin) DO UPDATE SET lease_id=excluded.lease_id,lease_expires_at=excluded.lease_expires_at
-          WHERE origin_robots_refresh_leases.lease_expires_at<=?2`).bind(origin, now, leaseId, expires),
+        ON CONFLICT(origin) DO UPDATE SET refresh_lease_id=excluded.refresh_lease_id,refresh_lease_expires_at=excluded.refresh_lease_expires_at
+          WHERE origin_robots.refresh_lease_expires_at IS NULL OR origin_robots.refresh_lease_expires_at<=?2`).bind(origin, now, leaseId, expires),
       this.db.prepare(`UPDATE origin_leases SET next_allowed_at=MAX(next_allowed_at,
         strftime('%Y-%m-%dT%H:%M:%fZ',julianday(?2)+MAX(min_delay_ms,${delay})/86400000.0))
-        WHERE origin=?1 AND EXISTS (SELECT 1 FROM origin_robots_refresh_leases l
-          WHERE l.origin=?1 AND l.lease_id=?3 AND l.lease_expires_at>?2)`)
+        WHERE origin=?1 AND EXISTS (SELECT 1 FROM origin_robots r
+          WHERE r.origin=?1 AND r.refresh_lease_id=?3 AND r.refresh_lease_expires_at>?2)`)
         .bind(origin, now, leaseId)
     ]);
-    return (results[0]?.meta as { changes?: number } | undefined)?.changes === 1 ? leaseId : null;
+    return ((results[0]?.meta as { changes?: number } | undefined)?.changes ?? 0) === 1 ? leaseId : null;
   }
 
   async releaseRobotsRefresh(origin: string, leaseId: string): Promise<boolean> {
-    const result = await this.db.prepare("DELETE FROM origin_robots_refresh_leases WHERE origin=? AND lease_id=?")
-      .bind(origin, leaseId).run();
-    return (result.meta as { changes?: number } | undefined)?.changes === 1;
+    const results = await this.db.batch([
+      this.db.prepare("DELETE FROM origin_robots WHERE origin=? AND refresh_lease_id=? AND snapshot_id IS NULL").bind(origin, leaseId),
+      this.db.prepare("UPDATE origin_robots SET refresh_lease_id=NULL, refresh_lease_expires_at=NULL WHERE origin=? AND refresh_lease_id=? AND snapshot_id IS NOT NULL").bind(origin, leaseId)
+    ]);
+    const delChanges = (results[0]?.meta as { changes?: number } | undefined)?.changes ?? 0;
+    const updChanges = (results[1]?.meta as { changes?: number } | undefined)?.changes ?? 0;
+    return (delChanges + updChanges) === 1;
   }
 
   private robotsSnapshotStatements(parsed: OriginRobotsSnapshot, nowMs: number,
-    guard: string | ((offset: number) => string) = "1", guardValues: unknown[] = []): D1PreparedStatement[] {
+    guard: string | ((offset: number) => string) = "1", guardValues: unknown[] = [], clearLease = false): D1PreparedStatement[] {
     const fetchedAt = new Date(nowMs).toISOString();
     const ttlMs = (parsed.statusCode >= 200 && parsed.statusCode < 300) ||
       robotsResultAllowsMissingFile(parsed.statusCode) ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
     const expiresAt = new Date(nowMs + ttlMs).toISOString();
+    const leaseUpdate = clearLease ? ",refresh_lease_id=NULL,refresh_lease_expires_at=NULL" : "";
     return [
       this.db.prepare(`INSERT INTO origin_robots(origin,snapshot_id,status_code,body,fetched_at,expires_at)
         SELECT ?,?,?,?,?,? WHERE ${typeof guard === "string" ? guard : guard(6)} ON CONFLICT(origin) DO UPDATE SET
         snapshot_id=excluded.snapshot_id,status_code=excluded.status_code,body=excluded.body,
-        fetched_at=excluded.fetched_at,expires_at=excluded.expires_at`)
+        fetched_at=excluded.fetched_at,expires_at=excluded.expires_at${leaseUpdate}`)
         .bind(parsed.origin, crypto.randomUUID(), parsed.statusCode, parsed.body, fetchedAt, expiresAt, ...guardValues),
       this.db.prepare(`UPDATE crawl_jobs SET next_fetch_at=?,robots_deferred_until=NULL
         WHERE origin=? AND robots_deferred_until IS NOT NULL AND state IN ('pending','done','backoff') AND ${typeof guard === "string" ? guard : guard(2)}`)
@@ -1772,15 +1776,13 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const nowMs = this.now();
     const now = new Date(nowMs).toISOString();
     // The guard uses positional placeholders relative to each statement's prefix.
-    const guardFor = (offset: number) => `EXISTS (SELECT 1 FROM origin_robots_refresh_leases l
-      WHERE l.origin=?${offset + 1} AND l.lease_id=?${offset + 2} AND l.lease_expires_at>?${offset + 3})
+    const guardFor = (offset: number) => `EXISTS (SELECT 1 FROM origin_robots r
+      WHERE r.origin=?${offset + 1} AND r.refresh_lease_id=?${offset + 2} AND r.refresh_lease_expires_at>?${offset + 3})
       AND ${approvedRobotsJobDelaySql(`?${offset + 1}`, `?${offset + 3}`)} IS NOT NULL`;
     const results = await this.db.batch([
-      ...this.robotsSnapshotStatements(parsed, nowMs, guardFor, [origin, leaseId, now]),
-      this.db.prepare(`DELETE FROM origin_robots_refresh_leases WHERE origin=?1 AND lease_id=?2
-        AND ${guardFor(0)}`).bind(origin, leaseId, now)
+      ...this.robotsSnapshotStatements(parsed, nowMs, guardFor, [origin, leaseId, now], true)
     ]);
-    const completed = (results[0]?.meta as { changes?: number } | undefined)?.changes === 1;
+    const completed = ((results[0]?.meta as { changes?: number } | undefined)?.changes ?? 0) === 1;
     if (completed) this.robotsMatchers.delete(parsed.origin);
     return completed;
   }

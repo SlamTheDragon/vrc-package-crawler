@@ -157,12 +157,14 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         FOREIGN KEY(active_job_id) REFERENCES crawl_jobs(job_id)
       );
       CREATE TABLE IF NOT EXISTS origin_robots (
-        origin TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, status_code INTEGER NOT NULL,
-        body TEXT NOT NULL, fetched_at TEXT NOT NULL, expires_at TEXT NOT NULL
+        origin TEXT PRIMARY KEY, snapshot_id TEXT, status_code INTEGER,
+        body TEXT, fetched_at TEXT, expires_at TEXT,
+        refresh_lease_id TEXT, refresh_lease_expires_at TEXT
       );
-      CREATE TABLE IF NOT EXISTS origin_robots_refresh_leases (
-        origin TEXT PRIMARY KEY, lease_id TEXT NOT NULL, lease_expires_at TEXT NOT NULL
-      );
+      CREATE INDEX IF NOT EXISTS idx_origin_robots_refresh ON origin_robots(origin, refresh_lease_expires_at);
+      CREATE VIEW IF NOT EXISTS origin_robots_refresh_leases AS
+        SELECT origin, refresh_lease_id AS lease_id, refresh_lease_expires_at AS lease_expires_at
+        FROM origin_robots WHERE refresh_lease_id IS NOT NULL;
       CREATE TABLE IF NOT EXISTS suppressed_urls (
         url TEXT PRIMARY KEY, reason TEXT NOT NULL, suppressed_at TEXT NOT NULL
       );
@@ -471,10 +473,10 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   private reserveRobotsRefreshInTransaction(origin: string, now: string, expires: string,
     profileDelayMs: number): string | null {
     const leaseId = crypto.randomUUID();
-    const result = this.db.prepare(`INSERT INTO origin_robots_refresh_leases(origin,lease_id,lease_expires_at)
+    const result = this.db.prepare(`INSERT INTO origin_robots(origin,refresh_lease_id,refresh_lease_expires_at)
       VALUES (?,?,?) ON CONFLICT(origin) DO UPDATE SET
-        lease_id=excluded.lease_id,lease_expires_at=excluded.lease_expires_at
-      WHERE origin_robots_refresh_leases.lease_expires_at<=?`).run(origin, leaseId, expires, now);
+        refresh_lease_id=excluded.refresh_lease_id,refresh_lease_expires_at=excluded.refresh_lease_expires_at
+      WHERE origin_robots.refresh_lease_expires_at IS NULL OR origin_robots.refresh_lease_expires_at<=?`).run(origin, leaseId, expires, now);
     if (result.changes !== 1) return null;
     const floor = this.db.prepare("SELECT min_delay_ms FROM origin_leases WHERE origin=?")
       .get(origin) as { min_delay_ms: number };
@@ -524,9 +526,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       for (;;) {
         const due = this.db.prepare(`SELECT o.origin FROM origin_leases o
           LEFT JOIN origin_robots r ON r.origin=o.origin
-          LEFT JOIN origin_robots_refresh_leases l ON l.origin=o.origin
-          WHERE o.origin>? AND o.next_allowed_at<=? AND (r.origin IS NULL OR r.expires_at<=?)
-            AND (l.origin IS NULL OR l.lease_expires_at<=?)
+          WHERE o.origin>? AND o.next_allowed_at<=? AND (r.origin IS NULL OR r.expires_at IS NULL OR r.expires_at<=?)
+            AND (r.refresh_lease_expires_at IS NULL OR r.refresh_lease_expires_at<=?)
             AND (o.active_job_id IS NULL OR o.lease_expires_at<=?)
             AND EXISTS (SELECT 1 FROM crawl_jobs j WHERE j.origin=o.origin
               AND j.state!='blocked' AND j.next_fetch_at<=?
@@ -546,20 +547,24 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   }
 
   releaseRobotsRefresh(origin: string, leaseId: string): boolean {
-    const result = this.db.prepare("DELETE FROM origin_robots_refresh_leases WHERE origin=? AND lease_id=?")
+    const deleted = this.db.prepare("DELETE FROM origin_robots WHERE origin=? AND refresh_lease_id=? AND snapshot_id IS NULL")
+      .run(origin, leaseId);
+    if (deleted.changes === 1) return true;
+    const result = this.db.prepare("UPDATE origin_robots SET refresh_lease_id=NULL, refresh_lease_expires_at=NULL WHERE origin=? AND refresh_lease_id=?")
       .run(origin, leaseId);
     return result.changes === 1;
   }
 
-  private writeRobotsSnapshotInTransaction(parsed: OriginRobotsSnapshot, nowMs: number): void {
+  private writeRobotsSnapshotInTransaction(parsed: OriginRobotsSnapshot, nowMs: number, clearLease = false): void {
     const fetchedAt = new Date(nowMs).toISOString();
     const ttlMs = (parsed.statusCode >= 200 && parsed.statusCode < 300) ||
       robotsResultAllowsMissingFile(parsed.statusCode) ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
     const expiresAt = new Date(nowMs + ttlMs).toISOString();
+    const leaseUpdate = clearLease ? ",refresh_lease_id=NULL,refresh_lease_expires_at=NULL" : "";
     this.db.prepare(`INSERT INTO origin_robots(origin,snapshot_id,status_code,body,fetched_at,expires_at)
       VALUES (?,?,?,?,?,?) ON CONFLICT(origin) DO UPDATE SET
       snapshot_id=excluded.snapshot_id,status_code=excluded.status_code,body=excluded.body,
-      fetched_at=excluded.fetched_at,expires_at=excluded.expires_at`)
+      fetched_at=excluded.fetched_at,expires_at=excluded.expires_at${leaseUpdate}`)
       .run(parsed.origin, crypto.randomUUID(), parsed.statusCode, parsed.body, fetchedAt, expiresAt);
     // Reconsider only jobs previously deferred by robots; normal revisit times stay intact.
     this.db.prepare(`UPDATE crawl_jobs SET next_fetch_at=?,robots_deferred_until=NULL
@@ -573,11 +578,10 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     const nowMs = this.now();
     const now = new Date(nowMs).toISOString();
     const completed = this.db.transaction(() => {
-      const held = this.db.prepare(`SELECT 1 FROM origin_robots_refresh_leases
-        WHERE origin=? AND lease_id=? AND lease_expires_at>?`).get(origin, leaseId, now);
+      const held = this.db.prepare(`SELECT 1 FROM origin_robots
+        WHERE origin=? AND refresh_lease_id=? AND refresh_lease_expires_at>?`).get(origin, leaseId, now);
       if (!held || this.approvedDueProfileDelayForOrigin(origin, now) === null) return false;
-      this.writeRobotsSnapshotInTransaction(parsed, nowMs);
-      this.db.prepare("DELETE FROM origin_robots_refresh_leases WHERE origin=? AND lease_id=?").run(origin, leaseId);
+      this.writeRobotsSnapshotInTransaction(parsed, nowMs, true);
       return true;
     }).immediate();
     if (completed) this.robotsMatchers.delete(origin);
@@ -1064,7 +1068,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
           WHERE origin=? AND active_job_id=?`).run(job.origin, job.job_id);
       }
       if (this.approvedDueProfileDelayForOrigin(row.origin, now) === null) {
-        this.db.prepare("DELETE FROM origin_robots_refresh_leases WHERE origin=?").run(row.origin);
+        this.db.prepare("UPDATE origin_robots SET refresh_lease_id=NULL, refresh_lease_expires_at=NULL WHERE origin=?").run(row.origin);
       }
       this.db.prepare(`INSERT INTO operator_audit_log(entity_type,entity_id,actor,action,reason,occurred_at)
         VALUES ('profile',?,?, 'disable', ?, ?)`).run(profileId, actor, reason.trim(), now);
@@ -1208,9 +1212,8 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
           r.body AS robots_body,r.expires_at AS robots_expires_at FROM crawl_jobs j
         JOIN origin_leases o ON o.origin = j.origin
         JOIN origin_robots r ON r.origin = j.origin AND r.expires_at > ?
-        LEFT JOIN origin_robots_refresh_leases rl ON rl.origin=j.origin AND rl.lease_expires_at>?
+          AND (r.refresh_lease_expires_at IS NULL OR r.refresh_lease_expires_at <= ?)
         WHERE j.platform IN (${request.capabilities.map(() => "?").join(",")})
-          AND rl.origin IS NULL
           AND j.next_fetch_at <= ?
           AND (j.state IN ('pending','done','backoff') OR (j.state='leased' AND j.lease_expires_at <= ?))
           AND o.next_allowed_at <= ?
