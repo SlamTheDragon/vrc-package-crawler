@@ -695,7 +695,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       ? [...new Set(candidateCapabilities)]
       : [...PlatformSchema.options];
     const now = new Date(this.now()).toISOString();
-    const activeCutoff = new Date(this.now() - 15 * 60 * 1000).toISOString();
+    const activeCutoff = new Date(this.now() - 5 * 60 * 1000).toISOString();
 
     const jobsByPlatform = new Map<string, number>();
     const jobRows = this.db.prepare(`
@@ -2266,42 +2266,58 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     return next;
   }
 
-  private buildCatalogPackage(pkg: {
+  private buildCatalogPackagesBatch(pkgRows: Array<{
     canonical_id: string; umbrella: string; category: string; lifecycle: string;
     display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
     published_at?: string | null; timestamp_confidence?: string | null;
     content_rating?: string | null;
-  }): CatalogPackage {
-    const linkRows = this.db.prepare(`SELECT link_id,source_key,evidence_kind,confidence,created_at
-      FROM identity_links WHERE canonical_id=? AND review_state='accepted'
-      ORDER BY created_at ASC`).all(pkg.canonical_id) as {
-        link_id: string; source_key: string; evidence_kind: string;
-        confidence: number; created_at: string;
-      }[];
-    const acceptedLinks: CatalogIdentityLink[] = linkRows.map((l) => ({
-      linkId: l.link_id, sourceKey: l.source_key,
-      evidenceKind: l.evidence_kind as CatalogIdentityLink["evidenceKind"],
-      confidence: l.confidence, createdAt: l.created_at
-    }));
+  }>): CatalogPackage[] {
+    if (pkgRows.length === 0) return [];
+    const canonicalIds = pkgRows.map((p) => p.canonical_id);
+    const placeholders = canonicalIds.map(() => "?").join(",");
+
+    const linkRows = this.db.prepare(`SELECT link_id, canonical_id, source_key, evidence_kind, confidence, created_at
+      FROM identity_links WHERE canonical_id IN (${placeholders}) AND review_state='accepted'
+      ORDER BY created_at ASC`).all(...canonicalIds) as Array<{
+      link_id: string; canonical_id: string; source_key: string; evidence_kind: string;
+      confidence: number; created_at: string;
+    }>;
+    const linksByCanonical = new Map<string, CatalogIdentityLink[]>();
+    for (const l of linkRows) {
+      const list = linksByCanonical.get(l.canonical_id) || [];
+      list.push({
+        linkId: l.link_id, sourceKey: l.source_key,
+        evidenceKind: l.evidence_kind as CatalogIdentityLink["evidenceKind"],
+        confidence: l.confidence, createdAt: l.created_at
+      });
+      linksByCanonical.set(l.canonical_id, list);
+    }
+
     const frontRows = this.db.prepare(`SELECT front_id, canonical_id, source_key, platform, storefront_url, price, currency, availability, observed_at
-      FROM package_fronts WHERE canonical_id=?
-      ORDER BY observed_at ASC, front_id ASC`).all(pkg.canonical_id) as {
-        front_id: string; canonical_id: string; source_key: string; platform: Platform;
-        storefront_url: string; price: number | null; currency: string | null;
-        availability: "available" | "delisted" | "unknown"; observed_at: string;
-      }[];
-    const fronts: PackageFront[] = frontRows.map((f) => ({
-      frontId: f.front_id,
-      canonicalId: f.canonical_id,
-      sourceKey: f.source_key,
-      platform: f.platform,
-      storefrontUrl: f.storefront_url,
-      price: f.price,
-      currency: f.currency,
-      availability: f.availability,
-      observedAt: f.observed_at
-    }));
-    return {
+      FROM package_fronts WHERE canonical_id IN (${placeholders})
+      ORDER BY observed_at ASC, front_id ASC`).all(...canonicalIds) as Array<{
+      front_id: string; canonical_id: string; source_key: string; platform: Platform;
+      storefront_url: string; price: number | null; currency: string | null;
+      availability: "available" | "delisted" | "unknown"; observed_at: string;
+    }>;
+    const frontsByCanonical = new Map<string, PackageFront[]>();
+    for (const f of frontRows) {
+      const list = frontsByCanonical.get(f.canonical_id) || [];
+      list.push({
+        frontId: f.front_id,
+        canonicalId: f.canonical_id,
+        sourceKey: f.source_key,
+        platform: f.platform,
+        storefrontUrl: f.storefront_url,
+        price: f.price,
+        currency: f.currency,
+        availability: f.availability,
+        observedAt: f.observed_at
+      });
+      frontsByCanonical.set(f.canonical_id, list);
+    }
+
+    return pkgRows.map((pkg) => ({
       canonicalId: pkg.canonical_id,
       umbrella: pkg.umbrella as CatalogPackage["umbrella"],
       category: pkg.category,
@@ -2313,9 +2329,19 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       publishedAt: pkg.published_at ?? null,
       timestampConfidence: (pkg.timestamp_confidence as CatalogPackage["timestampConfidence"]) ?? null,
       contentRating: (pkg.content_rating as CatalogPackage["contentRating"]) || "general",
-      acceptedLinks,
-      fronts
-    };
+      acceptedLinks: linksByCanonical.get(pkg.canonical_id) || [],
+      fronts: frontsByCanonical.get(pkg.canonical_id) || []
+    }));
+  }
+
+  private buildCatalogPackage(pkg: {
+    canonical_id: string; umbrella: string; category: string; lifecycle: string;
+    display_name: string; vpm_id: string | null; created_at: string; updated_at: string;
+    published_at?: string | null; timestamp_confidence?: string | null;
+    content_rating?: string | null;
+  }): CatalogPackage {
+    const [result] = this.buildCatalogPackagesBatch([pkg]);
+    return result;
   }
 
   /** Paginated operator or public read of the canonical catalog (newest first).
@@ -2348,7 +2374,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       }[];
     const visible = pkgRows.slice(0, limit);
     const last = visible.at(-1);
-    const packages: CatalogPackage[] = visible.map((pkg) => this.buildCatalogPackage(pkg));
+    const packages: CatalogPackage[] = this.buildCatalogPackagesBatch(visible);
     return {
       packages,
       nextCursor: pkgRows.length > limit && last
@@ -2380,21 +2406,29 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       }[];
     const visible = pkgRows.slice(0, limit);
     const last = visible.at(-1);
-    const deltas: CatalogDelta[] = visible.map((pkg) => {
+    const nonDelisted = visible.filter((p) => p.lifecycle !== "delisted");
+    const builtPackages = this.buildCatalogPackagesBatch(nonDelisted);
+    const packageMap = new Map(builtPackages.map((p) => [p.canonicalId, p]));
+    const deltas: CatalogDelta[] = [];
+    for (const pkg of visible) {
       if (pkg.lifecycle === "delisted") {
-        return {
+        deltas.push({
           action: "delist",
           canonicalId: pkg.canonical_id,
           updatedAt: pkg.updated_at
-        };
+        });
+      } else {
+        const item = packageMap.get(pkg.canonical_id);
+        if (item) {
+          deltas.push({
+            action: "upsert",
+            canonicalId: pkg.canonical_id,
+            updatedAt: pkg.updated_at,
+            package: item
+          });
+        }
       }
-      return {
-        action: "upsert",
-        canonicalId: pkg.canonical_id,
-        updatedAt: pkg.updated_at,
-        package: this.buildCatalogPackage(pkg)
-      };
-    });
+    }
     return {
       epoch,
       deltas,
@@ -2586,7 +2620,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     const visible = hasMore ? rows.slice(0, limit) : rows;
     const last = visible.at(-1);
 
-    const items = visible.map((row) => this.buildCatalogPackage(row));
+    const items = this.buildCatalogPackagesBatch(visible);
     const nextCursor = hasMore && last
       ? encodeCatalogCursor({ createdAt: last.created_at, canonicalId: last.canonical_id })
       : null;
