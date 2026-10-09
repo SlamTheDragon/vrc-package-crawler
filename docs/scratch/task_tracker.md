@@ -55,6 +55,7 @@
 
 ## Slice Status
 
-- Status: Verified & Locally Committed (`1ad6572`)
-- Next Steps: Execute preview publication for `package` (`bun run publish:preview package --execute`) per user directive to propagate API contracts to preview channel.
+- Status: Verified, Locally Committed (`1ad6572`), and Preview Published (`vrcp-api/v2026.10.10-pre` / CI Run `#37867968242` verified).
+- Next Steps: Awaiting author review comments on `R54-C38A2` in `UNMERGED_IMPLEMENTATION_PLAN.md` before merging into canonical ledger `IMPLEMENTATION_PLAN.md`. Next queued candidate slice: Creator ownership attestation intake challenge and cryptographic verification or live preview worker deployment.
+
 
