@@ -8,7 +8,7 @@ Here are the latest changelogs of each package and applications. For a full hist
 ## What Changed
 
 <!-- MASTER_SUMMARY -->
-Added D1 catalog batch query optimization reducing pagination queries by 97%, aligned node health clock cutoff to 5 minutes, and deployed preview worker.
+Consolidated D1 schema tables across audit logs, app ownership, robots refresh leases, and catalog tickets under Milestone Gate G18 while preserving wire compatibility.
 <!-- MASTER_SUMMARY -->
 
 ## Table of Contents
@@ -198,10 +198,13 @@ See full history at [docs/changelogs/vrcp-web/preview](docs/changelogs/vrcp-web/
 ## VRC Packages Worker - `vrcp-worker-preview`
 
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
-Coordinator updates for inbound 429 rate limiting, quota protection, D1 catalog batch query resolution, and node health clock cutoff.
+Consolidated D1 tables for audit logs, app ownership, robots refresh leases, and catalog tickets under Milestone Gate G18 with full backward compatibility.
 <!-- vrcp-worker-preview-DESCRIPTION_SUMMARY -->
 
 ### Added
+- **Operator Audit Log Consolidation**: Added `operator_audit_log` table consolidating action history across nodes, leads, jobs, rules, and profiles.
+- **Unified Dispute Ticket Storage**: Added `catalog_tickets` table consolidating creator opt-outs, delegated claims, and catalog reports into a unified schema.
+- **Backward-Compatible Schema Views**: Added read-compatible database views for consolidated action tables, app ownership, and dispute tickets.
 - **Inbound 429 Rate Limiter**: Added sliding-window rate limiter with RFC-compliant `Retry-After` headers and standard error envelopes.
 - **Strict Public and Node Throttling**: Limited public catalog queries to 60 req/min and crawler node claims/heartbeats to 20-30 req/min.
 - **Quota Protection Middleware**: Reinforced downstream app, user, moderator, and operator endpoints to preserve Cloudflare free allowances.
@@ -238,6 +241,9 @@ Coordinator updates for inbound 429 rate limiting, quota protection, D1 catalog 
 - **Excessive Claim Polling**: Mitigated rapid-fire claim requests from idle crawler nodes exhausting coordinator daily request allowances.
 
 ### Changes
+- **Inlined App Ownership**: Inlined `owner_user_id` foreign key directly into `registered_apps`, eliminating the redundant junction table.
+- **Inlined Robots Refresh Leases**: Merged refresh lease columns directly into `origin_robots`, eliminating the separate lease companion table.
+- **D1 Schema Consolidation**: Streamlined D1 table count and query roundtrips across administrative audit, application ownership, and dispute review pathways.
 - **D1 Batch Query Resolution**: Batched catalog identity links and package fronts lookups into bulk queries with parameterized IN clauses, reducing roundtrips from 101 to 3 queries per page.
 - **Fleet Clock Alignment**: Aligned node active health cutoff in coordinator demand scoring from 15 minutes to 5 minutes to match lease duration.
 - **Unverified Search Clamping**: Safely clamped explicit rating queries from unverified applications to return general-rated items instead of empty sets.

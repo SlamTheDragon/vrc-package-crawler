@@ -1,19 +1,19 @@
-# Active Checkpoint — Consolidate Dispute and Claim Tables into catalog_tickets (Slice R59-C59D)
+# Completed Milestone Gate G18 — D1 Schema Consolidation, Entity Unification & Table Optimization
 
-## Active Objective & Bounded Vertical Slice
+## Milestone Gate Status & Bounded Vertical Slices
 
 - Branch: `preview/crawler-network`
 - Active Gate: G18 (D1 Schema Consolidation, Entity Unification & Table Optimization)
-- Active Slice: `R59-C59D` (Consolidate `creator_opt_outs`, `delegated_creator_claims`, and `catalog_reports` into unified `catalog_tickets` table, preserving wire compatibility and read views)
-- Status: **Verified (Ready to Commit)**
+- Gate Status: **Verified & Committed Locally**
+- Completed Slices in Gate G18:
+  - `R59-C59A`: Consolidated 5 redundant action tables into `operator_audit_log`, verified & committed locally (`34e43dd`).
+  - `R59-C59B`: Inlined `owner_user_id` into `registered_apps`, eliminated `user_app_ownership` table, verified & committed locally (`7181166`).
+  - `R59-C59C`: Merged `refresh_lease_id` and `refresh_lease_expires_at` into `origin_robots`, eliminated separate lease table, verified & committed locally (`13f925b`).
+  - `R59-C59D`: Consolidated `creator_opt_outs`, `delegated_creator_claims`, and `catalog_reports` into `catalog_tickets`, preserving backward-compatible read views, verified & committed locally (`372978f`).
 - Verification Evidence:
   - `src-worker`: `bun test ./test` (267/267 pass, 22 files), `bun run test:runtime` (0 exit code, miniflare workerd D1 smoke passed), `bun run check` (typegen + tsc clean), `bun run build:preview` (clean preview build).
   - `src-crawler`: `bun test` (158/158 pass, 24 files).
   - `src-package`: `bun test` (61/61 pass, 7 files).
-- Prior Completed Slices:
-  - `R59-C59A`: Consolidated 5 action tables into `operator_audit_log`, verified & committed locally (`34e43dd`).
-  - `R59-C59B`: Inlined `owner_user_id` into `registered_apps`, eliminated `user_app_ownership` table, verified & committed locally (`7181166`).
-  - `R59-C59C`: Merged `refresh_lease_id` and `refresh_lease_expires_at` into `origin_robots`, eliminated separate lease table, verified & committed locally (`13f925b`).
 - Owner Instruction (2026-10-08): Never run root level tests (`bun test ./tests`) unless root level tooling (`scripts/`, `tests/`, `package.json`, root configs) is modified. Product-scoped work runs only its own domain test/typecheck suite.
 - Session Constraint: Commits remain local for this session; preview deployment authority granted for workers when live data testing is required.
 
