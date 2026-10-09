@@ -270,7 +270,7 @@ const runtime = new Miniflare(
 						type: 'ESModule',
 						path: 'audit-main.mjs',
 						contents:
-							"import coordinator from './coordinator.mjs';\nimport { refreshFixture } from './refresh-fixture.mjs';\nimport { discoveryFixture } from './discovery-fixture.mjs';\nexport default { async fetch(request,env) {\n  const path=new URL(request.url).pathname;\n  if(path!=='/__fixture' && path!=='/__refresh' && path!=='/__discovery') return coordinator.fetch(request,env);\n  if(request.headers.get('authorization')!=='Bearer '+env.OPERATOR_TOKEN) return new Response('',{status:401});\n  if(path==='/__refresh') return Response.json(await refreshFixture(env));\n  if(path==='/__discovery') return Response.json(await discoveryFixture(env));\n  const now=new Date().toISOString(), expires=new Date(Date.now()+3600000).toISOString();\n  const jobId=crypto.randomUUID();\n  await env.VRCP_D1.prepare('INSERT INTO origin_robots(origin,snapshot_id,status_code,body,fetched_at,expires_at) VALUES (?,?,?,?,?,?)')\n    .bind('https://runtime.example',crypto.randomUUID(),200,'User-agent: *\\\\nAllow: /',now,expires).run();\n  await env.VRCP_D1.prepare('INSERT INTO crawl_jobs(job_id,platform,url,origin,state,next_fetch_at,created_at,job_purpose) VALUES (?,?,?,?,?,?,?,?)')\n    .bind(jobId,'vpm','https://runtime.example/index.json','https://runtime.example','pending',now,now,'metadata').run();\n  await env.VRCP_D1.prepare('INSERT INTO origin_leases VALUES (?,?,?,?,?)')\n    .bind('https://runtime.example',null,null,now,1000).run();\n  return Response.json({status:'offline-fixture-ready'});\n}};"
+							"import coordinator from './coordinator.mjs';\nimport { refreshFixture } from './refresh-fixture.mjs';\nimport { discoveryFixture } from './discovery-fixture.mjs';\nexport default { async fetch(request,env) {\n  const path=new URL(request.url).pathname;\n  if(path!=='/__fixture' && path!=='/__refresh' && path!=='/__discovery') return coordinator.fetch(request,env);\n  if(request.headers.get('authorization')!=='Bearer '+env.OPERATOR_TOKEN) return new Response('',{status:401});\n  if(path==='/__refresh') { try { return Response.json(await refreshFixture(env)); } catch (e) { return Response.json({ error: String(e && e.stack || e) }, { status: 500 }); } }\n  if(path==='/__discovery') { try { return Response.json(await discoveryFixture(env)); } catch (e) { return Response.json({ error: String(e && e.stack || e) }, { status: 500 }); } }\n  const now=new Date().toISOString(), expires=new Date(Date.now()+3600000).toISOString();\n  const jobId=crypto.randomUUID();\n  await env.VRCP_D1.prepare('INSERT INTO origin_robots(origin,snapshot_id,status_code,body,fetched_at,expires_at) VALUES (?,?,?,?,?,?)')\n    .bind('https://runtime.example',crypto.randomUUID(),200,'User-agent: *\\\\nAllow: /',now,expires).run();\n  await env.VRCP_D1.prepare('INSERT INTO crawl_jobs(job_id,platform,url,origin,state,next_fetch_at,created_at,job_purpose) VALUES (?,?,?,?,?,?,?,?)')\n    .bind(jobId,'vpm','https://runtime.example/index.json','https://runtime.example','pending',now,now,'metadata').run();\n  await env.VRCP_D1.prepare('INSERT INTO origin_leases VALUES (?,?,?,?,?)')\n    .bind('https://runtime.example',null,null,now,1000).run();\n  return Response.json({status:'offline-fixture-ready'});\n}};"
 					},
 					{ type: 'ESModule', path: 'storage.mjs', contents: storageModule },
 					{ type: 'ESModule', path: 'refresh-fixture.mjs', contents: refreshFixtureModule },
@@ -304,7 +304,11 @@ try {
 			headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
 			body: JSON.stringify(payload)
 		});
-		assert.ok(response.ok, path + ' returned ' + response.status);
+		if (!response.ok) {
+			const errBody = await response.text();
+			console.error(`ERROR on ${path}: ${response.status} ${errBody}`);
+			assert.ok(response.ok, path + ' returned ' + response.status + ': ' + errBody);
+		}
 		const body = await response.json();
 		console.log(JSON.stringify({ step: path, status: response.status }));
 		return body;

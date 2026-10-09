@@ -2164,9 +2164,11 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     if (parsed.reportType !== "removal_request") throw new CoordinatorConflict("Removal report required", 403);
     const reportId = crypto.randomUUID();
     const recordedAt = new Date(this.now()).toISOString();
-    const result = await this.db.prepare(`INSERT INTO catalog_reports(report_id,app_id,report_type,payload_json,review_status,recorded_at)
-      SELECT ?,app_id,'removal_request',?,'pending',? FROM registered_apps WHERE app_id=? AND revoked_at IS NULL`)
-      .bind(reportId, JSON.stringify(parsed), recordedAt, appId).run();
+    const targetUrl = parsed.targetUrl ?? null;
+    const canonicalId = parsed.canonicalId ?? null;
+    const result = await this.db.prepare(`INSERT INTO catalog_tickets(ticket_id,ticket_type,app_id,target_url,canonical_id,payload_json,review_status,recorded_at)
+      SELECT ?,'removal_report',app_id,?,?,?,'pending',? FROM registered_apps WHERE app_id=? AND revoked_at IS NULL`)
+      .bind(reportId, targetUrl, canonicalId, JSON.stringify(parsed), recordedAt, appId).run();
     if ((result.meta as { changes?: number } | undefined)?.changes !== 1) throw new CoordinatorConflict("Invalid application credential", 403);
     return { schemaVersion: 1, status: "accepted", reportId, recordedAt };
   }
@@ -2440,10 +2442,10 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const reviewStatus = input.requesterType === "unauthenticated_creator" ? "pending" : "accepted";
 
     await this.db.prepare(`
-      INSERT INTO creator_opt_outs (
-        takedown_id, target_url, canonical_id, requester_type, requester_id,
+      INSERT INTO catalog_tickets (
+        ticket_id, ticket_type, target_url, canonical_id, requester_type, requester_id,
         reason, proof_kind, proof_value, contact_email, recorded_at, review_status, review_notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      ) VALUES (?, 'opt_out', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     `).bind(
       takedownId,
       input.targetUrl || null,
@@ -2520,18 +2522,18 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       params.push(requesterType);
     }
     if (cursor) {
-      conditions.push("(recorded_at, takedown_id) < (?, ?)");
+      conditions.push("(recorded_at, ticket_id) < (?, ?)");
       params.push(cursor.recordedAt, cursor.takedownId);
     }
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const where = conditions.length > 0 ? `AND ${conditions.join(" AND ")}` : "";
     params.push(limit + 1);
 
     const res = await this.db.prepare(`
-      SELECT takedown_id, target_url, canonical_id, requester_type, requester_id,
+      SELECT ticket_id AS takedown_id, target_url, canonical_id, requester_type, requester_id,
              reason, proof_kind, proof_value, contact_email, review_status, review_notes, recorded_at
-      FROM creator_opt_outs
-      ${where}
-      ORDER BY recorded_at DESC, takedown_id DESC
+      FROM catalog_tickets
+      WHERE ticket_type = 'opt_out' ${where}
+      ORDER BY recorded_at DESC, ticket_id DESC
       LIMIT ?
     `).bind(...params).all<{
       takedown_id: string;
@@ -2583,9 +2585,9 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     notes?: string
   ): Promise<{ takedownId: string; status: "accepted" | "rejected"; updatedAt: string; }> {
     const row = await this.db.prepare(`
-      SELECT takedown_id, target_url, canonical_id, requester_type, review_status
-      FROM creator_opt_outs
-      WHERE takedown_id = ?
+      SELECT ticket_id AS takedown_id, target_url, canonical_id, requester_type, review_status
+      FROM catalog_tickets
+      WHERE ticket_id = ? AND ticket_type = 'opt_out'
     `).bind(takedownId).first<{
       takedown_id: string;
       target_url: string | null;
@@ -2601,9 +2603,9 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const updatedAt = new Date(this.now()).toISOString();
     const batchStatements: D1PreparedStatement[] = [
       this.db.prepare(`
-        UPDATE creator_opt_outs
+        UPDATE catalog_tickets
         SET review_status = ?, review_notes = ?
-        WHERE takedown_id = ?
+        WHERE ticket_id = ? AND ticket_type = 'opt_out'
       `).bind(verdict, notes || null, takedownId)
     ];
 
@@ -2667,9 +2669,9 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
     // Atomic replay protection on (app_id, nonce)
     const existing = await this.db.prepare(`
-      SELECT claim_id, payload_json, signature, review_status, recorded_at
-      FROM delegated_creator_claims
-      WHERE app_id = ? AND nonce = ?
+      SELECT ticket_id AS claim_id, payload_json, signature, review_status, recorded_at
+      FROM catalog_tickets
+      WHERE ticket_type = 'delegated_claim' AND app_id = ? AND nonce = ?
     `).bind(appId, parsed.attestation.nonce).first<{
       claim_id: string;
       payload_json: string;
@@ -2693,17 +2695,16 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
     const claimId = crypto.randomUUID();
     const result = await this.db.prepare(`
-      INSERT INTO delegated_creator_claims (
-        claim_id, app_id, action, front_url, creator_id, challenge_token,
+      INSERT INTO catalog_tickets (
+        ticket_id, ticket_type, app_id, target_url, creator_id, challenge_token,
         expires_at, nonce, signature, payload_json, reason, contact_email,
         review_status, review_notes, recorded_at
       )
-      SELECT ?, app_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?
+      SELECT ?, 'delegated_claim', app_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?
       FROM registered_apps
       WHERE app_id = ? AND revoked_at IS NULL
     `).bind(
       claimId,
-      parsed.attestation.action,
       parsed.attestation.frontUrl,
       parsed.attestation.creatorId,
       parsed.attestation.challengeToken,
@@ -2744,18 +2745,18 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       params.push(reviewStatus);
     }
     if (cursor) {
-      conditions.push("(recorded_at, claim_id) < (?, ?)");
+      conditions.push("(recorded_at, ticket_id) < (?, ?)");
       params.push(cursor.recordedAt, cursor.claimId);
     }
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const where = conditions.length > 0 ? `AND ${conditions.join(" AND ")}` : "";
     params.push(limit + 1);
 
     const res = await this.db.prepare(`
-      SELECT claim_id, app_id, action, front_url, creator_id, challenge_token,
+      SELECT ticket_id AS claim_id, app_id, 'creator_ownership_claim' AS action, target_url AS front_url, creator_id, challenge_token,
              expires_at, nonce, signature, reason, contact_email, review_status, review_notes, recorded_at
-      FROM delegated_creator_claims
-      ${where}
-      ORDER BY recorded_at DESC, claim_id DESC
+      FROM catalog_tickets
+      WHERE ticket_type = 'delegated_claim' ${where}
+      ORDER BY recorded_at DESC, ticket_id DESC
       LIMIT ?
     `).bind(...params).all<{
       claim_id: string;
@@ -2811,9 +2812,9 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     notes?: string
   ): Promise<{ claimId: string; status: "accepted" | "rejected"; updatedAt: string }> {
     const row = await this.db.prepare(`
-      SELECT claim_id, review_status
-      FROM delegated_creator_claims
-      WHERE claim_id = ?
+      SELECT ticket_id AS claim_id, review_status
+      FROM catalog_tickets
+      WHERE ticket_id = ? AND ticket_type = 'delegated_claim'
     `).bind(claimId).first<{
       claim_id: string;
       review_status: string;
@@ -2825,9 +2826,9 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
     const updatedAt = new Date(this.now()).toISOString();
     await this.db.prepare(`
-      UPDATE delegated_creator_claims
+      UPDATE catalog_tickets
       SET review_status = ?, review_notes = ?
-      WHERE claim_id = ?
+      WHERE ticket_id = ? AND ticket_type = 'delegated_claim'
     `).bind(verdict, notes || null, claimId).run();
 
     return {
@@ -3076,7 +3077,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
 
     const res = await this.db.prepare(`
       SELECT c.canonical_id, c.display_name, c.content_rating, c.umbrella, c.category, c.updated_at,
-             (SELECT COUNT(*) FROM catalog_reports r WHERE json_extract(r.payload_json, '$.canonicalId') = c.canonical_id) AS report_count
+             (SELECT COUNT(*) FROM catalog_tickets r WHERE r.ticket_type = 'removal_report' AND (r.canonical_id = c.canonical_id OR json_extract(r.payload_json, '$.canonicalId') = c.canonical_id)) AS report_count
       FROM canonical_packages c
       ${where}
       ORDER BY c.updated_at DESC, c.canonical_id DESC

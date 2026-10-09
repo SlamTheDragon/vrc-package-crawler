@@ -333,13 +333,6 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       CREATE INDEX IF NOT EXISTS idx_registered_apps_candidate ON registered_apps(candidate_status, request_count);
       CREATE INDEX IF NOT EXISTS idx_registered_apps_owner ON registered_apps(owner_user_id);
       CREATE VIEW IF NOT EXISTS user_app_ownership AS SELECT app_id, owner_user_id AS user_id FROM registered_apps WHERE owner_user_id IS NOT NULL;
-      CREATE TABLE IF NOT EXISTS catalog_reports (
-        report_id TEXT PRIMARY KEY, app_id TEXT NOT NULL REFERENCES registered_apps(app_id),
-        report_type TEXT NOT NULL CHECK(report_type='removal_request'), payload_json TEXT NOT NULL,
-        review_status TEXT NOT NULL DEFAULT 'pending' CHECK(review_status IN ('pending','accepted','rejected')),
-        recorded_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_catalog_reports_review ON catalog_reports(review_status,recorded_at,report_id);
       CREATE TABLE IF NOT EXISTS downstream_demand_signals (
         signal_id TEXT PRIMARY KEY,
         app_id TEXT NOT NULL,
@@ -355,41 +348,35 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         FOREIGN KEY (app_id) REFERENCES registered_apps(app_id)
       );
       CREATE INDEX IF NOT EXISTS idx_downstream_demand_platform ON downstream_demand_signals(requested_platform, resolved_at);
-      CREATE TABLE IF NOT EXISTS creator_opt_outs (
-        takedown_id TEXT PRIMARY KEY,
+      CREATE TABLE IF NOT EXISTS catalog_tickets (
+        ticket_id TEXT PRIMARY KEY,
+        ticket_type TEXT NOT NULL CHECK(ticket_type IN ('opt_out','delegated_claim','removal_report')),
+        app_id TEXT REFERENCES registered_apps(app_id),
         target_url TEXT,
         canonical_id TEXT,
-        requester_type TEXT NOT NULL CHECK(requester_type IN ('unauthenticated_creator','user','admin_operator')),
+        requester_type TEXT CHECK(requester_type IN ('unauthenticated_creator','user','admin_operator','app')),
         requester_id TEXT,
-        reason TEXT NOT NULL,
-        proof_kind TEXT CHECK(proof_kind IN ('storefront_bio_token','dns_txt','manual_notice')),
+        creator_id TEXT,
+        reason TEXT,
+        proof_kind TEXT CHECK(proof_kind IN ('storefront_bio_token','dns_txt','manual_notice','delegated_signature')),
         proof_value TEXT,
         contact_email TEXT,
-        recorded_at TEXT NOT NULL,
-        review_status TEXT NOT NULL DEFAULT 'accepted' CHECK(review_status IN ('pending','accepted','rejected')),
-        review_notes TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_opt_outs_target_url ON creator_opt_outs(target_url);
-      CREATE INDEX IF NOT EXISTS idx_opt_outs_canonical_id ON creator_opt_outs(canonical_id);
-      CREATE TABLE IF NOT EXISTS delegated_creator_claims (
-        claim_id TEXT PRIMARY KEY,
-        app_id TEXT NOT NULL REFERENCES registered_apps(app_id),
-        action TEXT NOT NULL CHECK(action = 'creator_ownership_claim'),
-        front_url TEXT NOT NULL,
-        creator_id TEXT NOT NULL,
-        challenge_token TEXT NOT NULL,
-        expires_at INTEGER NOT NULL,
-        nonce TEXT NOT NULL,
-        signature TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        reason TEXT,
-        contact_email TEXT,
+        challenge_token TEXT,
+        expires_at INTEGER,
+        nonce TEXT,
+        signature TEXT,
+        payload_json TEXT,
         review_status TEXT NOT NULL DEFAULT 'pending' CHECK(review_status IN ('pending','accepted','rejected')),
         review_notes TEXT,
         recorded_at TEXT NOT NULL
       );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_delegated_claims_nonce ON delegated_creator_claims(app_id, nonce);
-      CREATE INDEX IF NOT EXISTS idx_delegated_claims_status ON delegated_creator_claims(review_status, recorded_at, claim_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_catalog_tickets_nonce ON catalog_tickets(app_id, nonce) WHERE nonce IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_catalog_tickets_review ON catalog_tickets(ticket_type, review_status, recorded_at, ticket_id);
+      CREATE INDEX IF NOT EXISTS idx_catalog_tickets_canonical ON catalog_tickets(canonical_id);
+      CREATE INDEX IF NOT EXISTS idx_catalog_tickets_target_url ON catalog_tickets(target_url);
+      CREATE VIEW IF NOT EXISTS creator_opt_outs AS SELECT ticket_id AS takedown_id, target_url, canonical_id, requester_type, requester_id, reason, proof_kind, proof_value, contact_email, recorded_at, review_status, review_notes FROM catalog_tickets WHERE ticket_type = 'opt_out';
+      CREATE VIEW IF NOT EXISTS delegated_creator_claims AS SELECT ticket_id AS claim_id, app_id, 'creator_ownership_claim' AS action, target_url AS front_url, creator_id, challenge_token, expires_at, nonce, signature, payload_json, reason, contact_email, review_status, review_notes, recorded_at FROM catalog_tickets WHERE ticket_type = 'delegated_claim';
+      CREATE VIEW IF NOT EXISTS catalog_reports AS SELECT ticket_id AS report_id, app_id, 'removal_request' AS report_type, payload_json, review_status, recorded_at FROM catalog_tickets WHERE ticket_type = 'removal_report';
       CREATE INDEX IF NOT EXISTS idx_canonical_packages_updated ON canonical_packages(updated_at ASC, canonical_id ASC);
       CREATE INDEX IF NOT EXISTS idx_canonical_packages_created ON canonical_packages(created_at DESC, canonical_id DESC);
     `);
@@ -418,9 +405,26 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       addColumnIfMissing("source_leads", "first_seen_profile_id");
       addColumnIfMissing("source_leads", "last_seen_profile_id");
       addColumnIfMissing("source_leads", "discovered_from_item_key");
-      addColumnIfMissing("creator_opt_outs", "review_status");
-      addColumnIfMissing("creator_opt_outs", "review_notes");
-      this.db.run("UPDATE creator_opt_outs SET review_status = 'accepted' WHERE review_status IS NULL");
+      const existingTables = new Set((this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map(t => t.name));
+      if (existingTables.has("creator_opt_outs")) {
+        this.db.run(`INSERT OR IGNORE INTO catalog_tickets (ticket_id, ticket_type, target_url, canonical_id, requester_type, requester_id, reason, proof_kind, proof_value, contact_email, recorded_at, review_status, review_notes)
+          SELECT takedown_id, 'opt_out', target_url, canonical_id, requester_type, requester_id, reason, proof_kind, proof_value, contact_email, recorded_at, COALESCE(review_status, 'accepted'), review_notes FROM creator_opt_outs`);
+        this.db.run("DROP TABLE creator_opt_outs");
+        this.db.run("CREATE VIEW IF NOT EXISTS creator_opt_outs AS SELECT ticket_id AS takedown_id, target_url, canonical_id, requester_type, requester_id, reason, proof_kind, proof_value, contact_email, recorded_at, review_status, review_notes FROM catalog_tickets WHERE ticket_type = 'opt_out'");
+      }
+      if (existingTables.has("delegated_creator_claims")) {
+        this.db.run(`INSERT OR IGNORE INTO catalog_tickets (ticket_id, ticket_type, app_id, target_url, creator_id, challenge_token, expires_at, nonce, signature, payload_json, reason, contact_email, review_status, review_notes, recorded_at)
+          SELECT claim_id, 'delegated_claim', app_id, front_url, creator_id, challenge_token, expires_at, nonce, signature, payload_json, reason, contact_email, review_status, review_notes, recorded_at FROM delegated_creator_claims`);
+        this.db.run("DROP TABLE delegated_creator_claims");
+        this.db.run("CREATE VIEW IF NOT EXISTS delegated_creator_claims AS SELECT ticket_id AS claim_id, app_id, 'creator_ownership_claim' AS action, target_url AS front_url, creator_id, challenge_token, expires_at, nonce, signature, payload_json, reason, contact_email, review_status, review_notes, recorded_at FROM catalog_tickets WHERE ticket_type = 'delegated_claim'");
+      }
+      if (existingTables.has("catalog_reports")) {
+        this.db.run(`INSERT OR IGNORE INTO catalog_tickets (ticket_id, ticket_type, app_id, payload_json, review_status, recorded_at)
+          SELECT report_id, 'removal_report', app_id, payload_json, review_status, recorded_at FROM catalog_reports`);
+        this.db.run("DROP TABLE catalog_reports");
+        this.db.run("CREATE VIEW IF NOT EXISTS catalog_reports AS SELECT ticket_id AS report_id, app_id, 'removal_request' AS report_type, payload_json, review_status, recorded_at FROM catalog_tickets WHERE ticket_type = 'removal_report'");
+      }
+      this.db.run("UPDATE catalog_tickets SET review_status = 'accepted' WHERE review_status IS NULL");
       const jobColumns = this.db.prepare("PRAGMA table_info(crawl_jobs)").all() as { name: string }[];
       if (!jobColumns.some((column) => column.name === "robots_deferred_until")) {
         this.db.run("ALTER TABLE crawl_jobs ADD COLUMN robots_deferred_until TEXT");
@@ -2456,9 +2460,11 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     if (parsed.reportType !== "removal_request") throw new CoordinatorConflict("Removal report required", 403);
     const reportId = crypto.randomUUID();
     const recordedAt = new Date(this.now()).toISOString();
-    const result = this.db.prepare(`INSERT INTO catalog_reports(report_id,app_id,report_type,payload_json,review_status,recorded_at)
-      SELECT ?,app_id,'removal_request',?,'pending',? FROM registered_apps WHERE app_id=? AND revoked_at IS NULL`)
-      .run(reportId, JSON.stringify(parsed), recordedAt, appId);
+    const targetUrl = parsed.targetUrl ?? null;
+    const canonicalId = parsed.canonicalId ?? null;
+    const result = this.db.prepare(`INSERT INTO catalog_tickets(ticket_id,ticket_type,app_id,target_url,canonical_id,payload_json,review_status,recorded_at)
+      SELECT ?,'removal_report',app_id,?,?,?,'pending',? FROM registered_apps WHERE app_id=? AND revoked_at IS NULL`)
+      .run(reportId, targetUrl, canonicalId, JSON.stringify(parsed), recordedAt, appId);
     if (result.changes !== 1) throw new CoordinatorConflict("Invalid application credential", 403);
     return { schemaVersion: 1, status: "accepted", reportId, recordedAt };
   }
@@ -2697,10 +2703,10 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
 
     this.db.transaction(() => {
       this.db.prepare(`
-        INSERT INTO creator_opt_outs (
-          takedown_id, target_url, canonical_id, requester_type, requester_id,
+        INSERT INTO catalog_tickets (
+          ticket_id, ticket_type, target_url, canonical_id, requester_type, requester_id,
           reason, proof_kind, proof_value, contact_email, recorded_at, review_status, review_notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        ) VALUES (?, 'opt_out', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
       `).run(
         takedownId,
         input.targetUrl || null,
@@ -2766,18 +2772,18 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       params.push(requesterType);
     }
     if (cursor) {
-      conditions.push("(recorded_at, takedown_id) < (?, ?)");
+      conditions.push("(recorded_at, ticket_id) < (?, ?)");
       params.push(cursor.recordedAt, cursor.takedownId);
     }
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const where = conditions.length > 0 ? `AND ${conditions.join(" AND ")}` : "";
     params.push(limit + 1);
 
     const rows = this.db.prepare(`
-      SELECT takedown_id, target_url, canonical_id, requester_type, requester_id,
+      SELECT ticket_id AS takedown_id, target_url, canonical_id, requester_type, requester_id,
              reason, proof_kind, proof_value, contact_email, review_status, review_notes, recorded_at
-      FROM creator_opt_outs
-      ${where}
-      ORDER BY recorded_at DESC, takedown_id DESC
+      FROM catalog_tickets
+      WHERE ticket_type = 'opt_out' ${where}
+      ORDER BY recorded_at DESC, ticket_id DESC
       LIMIT ?
     `).all(...params) as {
       takedown_id: string;
@@ -2829,9 +2835,9 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     notes?: string
   ): { takedownId: string; status: "accepted" | "rejected"; updatedAt: string } {
     const row = this.db.prepare(`
-      SELECT takedown_id, target_url, canonical_id, requester_type, review_status
-      FROM creator_opt_outs
-      WHERE takedown_id = ?
+      SELECT ticket_id AS takedown_id, target_url, canonical_id, requester_type, review_status
+      FROM catalog_tickets
+      WHERE ticket_id = ? AND ticket_type = 'opt_out'
     `).get(takedownId) as {
       takedown_id: string;
       target_url: string | null;
@@ -2848,9 +2854,9 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
 
     this.db.transaction(() => {
       this.db.prepare(`
-        UPDATE creator_opt_outs
+        UPDATE catalog_tickets
         SET review_status = ?, review_notes = ?
-        WHERE takedown_id = ?
+        WHERE ticket_id = ? AND ticket_type = 'opt_out'
       `).run(verdict, notes || null, takedownId);
 
       if (verdict === "rejected") {
@@ -2906,9 +2912,9 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
 
     // Atomic replay protection on (app_id, nonce)
     const existing = this.db.prepare(`
-      SELECT claim_id, payload_json, signature, review_status, recorded_at
-      FROM delegated_creator_claims
-      WHERE app_id = ? AND nonce = ?
+      SELECT ticket_id AS claim_id, payload_json, signature, review_status, recorded_at
+      FROM catalog_tickets
+      WHERE ticket_type = 'delegated_claim' AND app_id = ? AND nonce = ?
     `).get(appId, parsed.attestation.nonce) as {
       claim_id: string;
       payload_json: string;
@@ -2932,17 +2938,16 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
 
     const claimId = crypto.randomUUID();
     const result = this.db.prepare(`
-      INSERT INTO delegated_creator_claims (
-        claim_id, app_id, action, front_url, creator_id, challenge_token,
+      INSERT INTO catalog_tickets (
+        ticket_id, ticket_type, app_id, target_url, creator_id, challenge_token,
         expires_at, nonce, signature, payload_json, reason, contact_email,
         review_status, review_notes, recorded_at
       )
-      SELECT ?, app_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?
+      SELECT ?, 'delegated_claim', app_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?
       FROM registered_apps
       WHERE app_id = ? AND revoked_at IS NULL
     `).run(
       claimId,
-      parsed.attestation.action,
       parsed.attestation.frontUrl,
       parsed.attestation.creatorId,
       parsed.attestation.challengeToken,
@@ -2983,18 +2988,18 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       params.push(reviewStatus);
     }
     if (cursor) {
-      conditions.push("(recorded_at, claim_id) < (?, ?)");
+      conditions.push("(recorded_at, ticket_id) < (?, ?)");
       params.push(cursor.recordedAt, cursor.claimId);
     }
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const where = conditions.length > 0 ? `AND ${conditions.join(" AND ")}` : "";
     params.push(limit + 1);
 
     const rows = this.db.prepare(`
-      SELECT claim_id, app_id, action, front_url, creator_id, challenge_token,
+      SELECT ticket_id AS claim_id, app_id, 'creator_ownership_claim' AS action, target_url AS front_url, creator_id, challenge_token,
              expires_at, nonce, signature, reason, contact_email, review_status, review_notes, recorded_at
-      FROM delegated_creator_claims
-      ${where}
-      ORDER BY recorded_at DESC, claim_id DESC
+      FROM catalog_tickets
+      WHERE ticket_type = 'delegated_claim' ${where}
+      ORDER BY recorded_at DESC, ticket_id DESC
       LIMIT ?
     `).all(...params) as {
       claim_id: string;
@@ -3049,9 +3054,9 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
     notes?: string
   ): { claimId: string; status: "accepted" | "rejected"; updatedAt: string } {
     const row = this.db.prepare(`
-      SELECT claim_id, review_status
-      FROM delegated_creator_claims
-      WHERE claim_id = ?
+      SELECT ticket_id AS claim_id, review_status
+      FROM catalog_tickets
+      WHERE ticket_id = ? AND ticket_type = 'delegated_claim'
     `).get(claimId) as {
       claim_id: string;
       review_status: string;
@@ -3063,9 +3068,9 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
 
     const updatedAt = new Date(this.now()).toISOString();
     this.db.prepare(`
-      UPDATE delegated_creator_claims
+      UPDATE catalog_tickets
       SET review_status = ?, review_notes = ?
-      WHERE claim_id = ?
+      WHERE ticket_id = ? AND ticket_type = 'delegated_claim'
     `).run(verdict, notes || null, claimId);
 
     return {
@@ -3309,7 +3314,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
 
     const rows = this.db.prepare(`
       SELECT c.canonical_id, c.display_name, c.content_rating, c.umbrella, c.category, c.updated_at,
-             (SELECT COUNT(*) FROM catalog_reports r WHERE json_extract(r.payload_json, '$.canonicalId') = c.canonical_id) AS report_count
+             (SELECT COUNT(*) FROM catalog_tickets r WHERE r.ticket_type = 'removal_report' AND (r.canonical_id = c.canonical_id OR json_extract(r.payload_json, '$.canonicalId') = c.canonical_id)) AS report_count
       FROM canonical_packages c
       ${where}
       ORDER BY c.updated_at DESC, c.canonical_id DESC

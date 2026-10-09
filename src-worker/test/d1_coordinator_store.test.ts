@@ -397,8 +397,13 @@ describe("Cloudflare D1 Coordinator Store & Edge Worker Adapter", () => {
         .all() as { name: string }[];
       for (const name of ["node_credentials", "crawl_jobs", "origin_leases", "origin_robots",
         "source_access_profiles", "canonical_packages", "source_versions", "identity_links",
-        "registered_apps", "registered_users", "creator_opt_outs"]) {
+        "registered_apps", "registered_users", "catalog_tickets"]) {
         expect(tables.some(table => table.name === name)).toBe(true);
+      }
+      const views = sqlite.query("SELECT name FROM sqlite_master WHERE type='view'")
+        .all() as { name: string }[];
+      for (const name of ["creator_opt_outs", "delegated_creator_claims", "catalog_reports", "user_app_ownership", "origin_robots_refresh_leases"]) {
+        expect(views.some(view => view.name === name)).toBe(true);
       }
       const columns = sqlite.query("PRAGMA table_info(canonical_packages)").all() as { name: string }[];
       expect(columns.some(column => column.name === "published_at")).toBe(true);
