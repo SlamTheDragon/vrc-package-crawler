@@ -2173,9 +2173,9 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
   async listUserApps(userId: string, limit: number, cursor: string | null, appId?: string): Promise<UserAppListResponse> {
     const query = UserAppListQuerySchema.parse({ limit, cursor: cursor ?? undefined });
     const rows = await this.db.prepare(`SELECT a.app_id,a.app_name,a.permissions_json,a.created_at,a.revoked_at
-      FROM registered_apps a JOIN user_app_ownership o ON o.app_id=a.app_id
-      JOIN registered_users u ON u.user_id=o.user_id
-      WHERE o.user_id=? AND u.revoked_at IS NULL AND (? IS NULL OR a.app_id>?) AND (? IS NULL OR a.app_id=?)
+      FROM registered_apps a
+      JOIN registered_users u ON u.user_id=a.owner_user_id
+      WHERE a.owner_user_id=? AND u.revoked_at IS NULL AND (? IS NULL OR a.app_id>?) AND (? IS NULL OR a.app_id=?)
       ORDER BY a.app_id LIMIT ?`).bind(userId, query.cursor ?? null, query.cursor ?? null, appId ?? null, appId ?? null, query.limit + 1)
       .all<{ app_id: string; app_name: string; permissions_json: string; created_at: string; revoked_at: string | null }>();
     const items = rows.results ?? [];
@@ -2194,15 +2194,12 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
     const permissions = ["catalog:read", "catalog:search", "demand:feedback"];
 
     const insert = this.db.prepare(`
-      INSERT INTO registered_apps (app_id, app_name, token_hash, contact_email, permissions_json, created_at, revoked_at)
-      SELECT ?, ?, ?, ?, ?, ?, NULL WHERE ? IS NULL OR EXISTS (
+      INSERT INTO registered_apps (app_id, app_name, token_hash, contact_email, permissions_json, created_at, revoked_at, owner_user_id)
+      SELECT ?, ?, ?, ?, ?, ?, NULL, ? WHERE ? IS NULL OR EXISTS (
         SELECT 1 FROM registered_users WHERE user_id=? AND revoked_at IS NULL)
-    `).bind(appId, parsed.appName, tokenHash, parsed.contactEmail || null, JSON.stringify(permissions), now, ownerUserId ?? null, ownerUserId ?? null);
-    const writes = [insert];
-    if (ownerUserId !== undefined) writes.push(this.db.prepare(`INSERT INTO user_app_ownership(app_id,user_id)
-      SELECT app_id,? FROM registered_apps WHERE app_id=?`).bind(ownerUserId, appId));
-    const result = await this.db.batch(writes);
-    if ((result[0]?.meta as { changes?: number } | undefined)?.changes !== 1) throw new CoordinatorConflict("Invalid user owner", 403);
+    `).bind(appId, parsed.appName, tokenHash, parsed.contactEmail || null, JSON.stringify(permissions), now, ownerUserId ?? null, ownerUserId ?? null, ownerUserId ?? null);
+    const result = await insert.run();
+    if ((result.meta as { changes?: number } | undefined)?.changes !== 1) throw new CoordinatorConflict("Invalid user owner", 403);
 
     return {
       schemaVersion: 1,
@@ -2221,8 +2218,7 @@ export class Coordinator implements CoordinatorStore, OperatorStore, PublicCatal
       SELECT a.app_id, a.app_name, a.permissions_json, a.revoked_at,
              COALESCE(MAX(u.age_verified), 0) AS age_verified
       FROM registered_apps a
-      LEFT JOIN user_app_ownership o ON o.app_id = a.app_id
-      LEFT JOIN registered_users u ON u.user_id = o.user_id AND u.revoked_at IS NULL
+      LEFT JOIN registered_users u ON u.user_id = a.owner_user_id AND u.revoked_at IS NULL
       WHERE a.token_hash = ?
       GROUP BY a.app_id
     `).bind(tokenHash).first<{ app_id: string; app_name: string; permissions_json: string; revoked_at: string | null; age_verified: number }>();

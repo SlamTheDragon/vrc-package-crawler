@@ -42,7 +42,7 @@ export async function refreshFixture(env) {
   check(Object.keys(view.apps[0]).sort().join(',') === 'appId,appName,createdAt,permissions,revokedAt', 'App view exposed private fields');
   const otherOwner = await store.issueUserToken('native-other-owner');
   check((await store.listUserApps(otherOwner.userId, 50, null, owned.appId)).apps.length === 0, 'Cross-user app view leaked');
-  await env.VRCP_D1.exec("CREATE TRIGGER reject_native_app_owner BEFORE INSERT ON user_app_ownership BEGIN SELECT RAISE(ABORT,'Owner write rejected'); END;");
+  await env.VRCP_D1.exec("CREATE TRIGGER reject_native_app_owner BEFORE INSERT ON registered_apps WHEN NEW.owner_user_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'Owner write rejected'); END;");
   let ownershipRollback = false;
   try { await store.registerApp({ schemaVersion: 1, appName: 'Native rejected owner' }, owner.userId); } catch { ownershipRollback = true; }
   check(ownershipRollback, 'Ownership failure did not reject');

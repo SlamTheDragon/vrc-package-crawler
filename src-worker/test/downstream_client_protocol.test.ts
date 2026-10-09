@@ -54,7 +54,7 @@ describe("Downstream Client Protocol & Demand Feedback Signals", () => {
     const owner = store.db.prepare("SELECT user_id FROM user_app_ownership WHERE app_id=?").get(app.appId) as any;
     expect(owner.user_id).toBe(user.userId);
     const activeUser = store.issueUserToken("rollback-owner");
-    store.db.exec("CREATE TRIGGER reject_app_owner BEFORE INSERT ON user_app_ownership BEGIN SELECT RAISE(ABORT,'Owner write rejected'); END;");
+    store.db.exec("CREATE TRIGGER reject_app_owner BEFORE INSERT ON registered_apps WHEN NEW.owner_user_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'Owner write rejected'); END;");
     expect(() => store.registerApp(input, activeUser.userId)).toThrow("Owner write rejected");
     store.db.exec("DROP TRIGGER reject_app_owner;");
     store.db.prepare("UPDATE registered_users SET revoked_at=? WHERE user_id=?").run(new Date().toISOString(), user.userId);

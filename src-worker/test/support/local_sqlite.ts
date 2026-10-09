@@ -302,6 +302,17 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS registered_users (
+        user_id TEXT PRIMARY KEY,
+        user_name TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        contact_email TEXT,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT,
+        age_verified INTEGER NOT NULL DEFAULT 0,
+        is_moderator INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_registered_users_token ON registered_users(token_hash);
       CREATE TABLE IF NOT EXISTS registered_apps (
         app_id TEXT PRIMARY KEY,
         app_name TEXT NOT NULL,
@@ -313,10 +324,13 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         request_count INTEGER NOT NULL DEFAULT 0,
         last_active_at TEXT,
         candidate_status TEXT NOT NULL DEFAULT 'none' CHECK(candidate_status IN ('none','review_pending','reviewed','trusted')),
-        candidate_flags_json TEXT NOT NULL DEFAULT '[]'
+        candidate_flags_json TEXT NOT NULL DEFAULT '[]',
+        owner_user_id TEXT REFERENCES registered_users(user_id)
       );
       CREATE INDEX IF NOT EXISTS idx_registered_apps_token_hash ON registered_apps(token_hash);
       CREATE INDEX IF NOT EXISTS idx_registered_apps_candidate ON registered_apps(candidate_status, request_count);
+      CREATE INDEX IF NOT EXISTS idx_registered_apps_owner ON registered_apps(owner_user_id);
+      CREATE VIEW IF NOT EXISTS user_app_ownership AS SELECT app_id, owner_user_id AS user_id FROM registered_apps WHERE owner_user_id IS NOT NULL;
       CREATE TABLE IF NOT EXISTS catalog_reports (
         report_id TEXT PRIMARY KEY, app_id TEXT NOT NULL REFERENCES registered_apps(app_id),
         report_type TEXT NOT NULL CHECK(report_type='removal_request'), payload_json TEXT NOT NULL,
@@ -339,22 +353,6 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
         FOREIGN KEY (app_id) REFERENCES registered_apps(app_id)
       );
       CREATE INDEX IF NOT EXISTS idx_downstream_demand_platform ON downstream_demand_signals(requested_platform, resolved_at);
-      CREATE TABLE IF NOT EXISTS registered_users (
-        user_id TEXT PRIMARY KEY,
-        user_name TEXT NOT NULL,
-        token_hash TEXT NOT NULL,
-        contact_email TEXT,
-        created_at TEXT NOT NULL,
-        revoked_at TEXT,
-        age_verified INTEGER NOT NULL DEFAULT 0,
-        is_moderator INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE INDEX IF NOT EXISTS idx_registered_users_token ON registered_users(token_hash);
-      CREATE TABLE IF NOT EXISTS user_app_ownership (
-        app_id TEXT PRIMARY KEY REFERENCES registered_apps(app_id),
-        user_id TEXT NOT NULL REFERENCES registered_users(user_id)
-      );
-      CREATE INDEX IF NOT EXISTS idx_user_app_ownership_user ON user_app_ownership(user_id,app_id);
       CREATE TABLE IF NOT EXISTS creator_opt_outs (
         takedown_id TEXT PRIMARY KEY,
         target_url TEXT,
@@ -2466,9 +2464,9 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
   listUserApps(userId: string, limit: number, cursor: string | null, appId?: string): UserAppListResponse {
     const query = UserAppListQuerySchema.parse({ limit, cursor: cursor ?? undefined });
     const items = this.db.prepare(`SELECT a.app_id,a.app_name,a.permissions_json,a.created_at,a.revoked_at
-      FROM registered_apps a JOIN user_app_ownership o ON o.app_id=a.app_id
-      JOIN registered_users u ON u.user_id=o.user_id
-      WHERE o.user_id=? AND u.revoked_at IS NULL AND (? IS NULL OR a.app_id>?) AND (? IS NULL OR a.app_id=?)
+      FROM registered_apps a
+      JOIN registered_users u ON u.user_id=a.owner_user_id
+      WHERE a.owner_user_id=? AND u.revoked_at IS NULL AND (? IS NULL OR a.app_id>?) AND (? IS NULL OR a.app_id=?)
       ORDER BY a.app_id LIMIT ?`).all(userId, query.cursor ?? null, query.cursor ?? null, appId ?? null, appId ?? null, query.limit + 1) as
       { app_id: string; app_name: string; permissions_json: string; created_at: string; revoked_at: string | null }[];
     const apps = items.slice(0, query.limit).map(row => UserAppSchema.parse({ appId: row.app_id, appName: row.app_name,
@@ -2490,10 +2488,9 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       throw new CoordinatorConflict("Invalid user owner", 403);
     }
     this.db.prepare(`
-      INSERT INTO registered_apps (app_id, app_name, token_hash, contact_email, permissions_json, created_at, revoked_at)
-      VALUES (?, ?, ?, ?, ?, ?, NULL)
-    `).run(appId, parsed.appName, tokenHash, parsed.contactEmail || null, JSON.stringify(permissions), now);
-    if (ownerUserId !== undefined) this.db.prepare("INSERT INTO user_app_ownership(app_id,user_id) VALUES (?,?)").run(appId, ownerUserId);
+      INSERT INTO registered_apps (app_id, app_name, token_hash, contact_email, permissions_json, created_at, revoked_at, owner_user_id)
+      VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
+    `).run(appId, parsed.appName, tokenHash, parsed.contactEmail || null, JSON.stringify(permissions), now, ownerUserId ?? null);
     })();
 
     return {
@@ -2513,8 +2510,7 @@ export class LocalCoordinatorStore implements CoordinatorStore, PublicCatalogSto
       SELECT a.app_id, a.app_name, a.permissions_json, a.revoked_at,
              COALESCE(MAX(u.age_verified), 0) AS age_verified
       FROM registered_apps a
-      LEFT JOIN user_app_ownership o ON o.app_id = a.app_id
-      LEFT JOIN registered_users u ON u.user_id = o.user_id AND u.revoked_at IS NULL
+      LEFT JOIN registered_users u ON u.user_id = a.owner_user_id AND u.revoked_at IS NULL
       WHERE a.token_hash = ?
       GROUP BY a.app_id
     `).get(tokenHash) as { app_id: string; app_name: string; permissions_json: string; revoked_at: string | null; age_verified: number } | null;
